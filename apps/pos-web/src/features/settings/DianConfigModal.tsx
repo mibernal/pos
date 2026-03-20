@@ -100,44 +100,70 @@ export function DianConfigModal({
 
   return (
     <Modal ariaLabel="Configurar DIAN" onClose={onClose}>
-      <div className="section-heading">
-        <h3>Configuración DIAN</h3>
-      </div>
+      <header className="section-heading" style={{ marginBottom: '1.5rem' }}>
+        <div className="heading-copy">
+          <h3>Configuración Legal y Tributaria</h3>
+          <p>Define los parámetros de facturación ante la DIAN</p>
+        </div>
+      </header>
 
       <div className="stack-md">
-        {loading ? <Banner tone="info">Cargando configuración...</Banner> : null}
-        {profile ? (
-          <div className="metric-card">
-            <span>Negocio actual</span>
-            <strong>{profile.businessName}</strong>
-            <div className="subtle-text">
-              NIT {profile.nit} · {taxModeLabel(profile.taxMode)}
-            </div>
+        {loading ? (
+          <div style={{ padding: '2rem', textAlign: 'center' }}>
+            <Banner tone="info">Sincronizando con el servidor...</Banner>
           </div>
-        ) : null}
-        {error ? <Banner tone="error">{error}</Banner> : null}
-        {message ? <Banner tone="success">{message}</Banner> : null}
+        ) : (
+          <>
+            {profile && (
+              <div className="metric-card" style={{ marginBottom: '1.5rem', padding: '1.25rem', background: 'var(--color-slate-50)', border: '1px solid var(--color-slate-200)' }}>
+                <span style={{ fontSize: '0.65rem', fontWeight: 700, color: 'var(--color-slate-400)', textTransform: 'uppercase' }}>Negocio Vinculado</span>
+                <strong style={{ display: 'block', fontSize: '1rem', color: 'var(--color-slate-900)', marginTop: '0.25rem' }}>{profile.businessName}</strong>
+                <div style={{ fontSize: '0.8125rem', color: 'var(--color-slate-500)', marginTop: '0.25rem' }}>
+                  NIT {profile.nit} · <span style={{ color: 'var(--color-primary-600)', fontWeight: 600 }}>{taxModeLabel(profile.taxMode)}</span>
+                </div>
+              </div>
+            )}
+            
+            {error && <div style={{ marginBottom: '1rem' }}><Banner tone="error">{error}</Banner></div>}
+            {message && <div style={{ marginBottom: '1rem' }}><Banner tone="success">{message}</Banner></div>}
 
-        <label className="field">
-          <span>Modo tributario</span>
-          <select
-            value={draftTaxMode}
-            onChange={(event) => setDraftTaxMode(event.target.value as TenantTaxMode)}
-            disabled={loading || saving}
-          >
-            <option value="IVA">IVA</option>
-            <option value="INC_RESTAURANT">INC (Restaurante)</option>
-          </select>
-        </label>
+            <label className="field" style={{ display: 'grid', gap: '0.5rem' }}>
+              <span style={{ fontSize: '0.8125rem', fontWeight: 600, color: 'var(--color-slate-700)' }}>Régimen Tributario</span>
+              <select
+                value={draftTaxMode}
+                onChange={(event) => setDraftTaxMode(event.target.value as TenantTaxMode)}
+                disabled={loading || saving}
+                style={{ padding: '0.75rem 1rem', borderRadius: 'var(--radius-lg)', border: '1px solid var(--color-slate-200)', fontSize: '0.875rem', background: '#ffffff' }}
+              >
+                <option value="IVA">IVA (Régimen Común)</option>
+                <option value="INC_RESTAURANT">INC (Impuesto Nacional al Consumo)</option>
+              </select>
+              <p style={{ fontSize: '0.75rem', color: 'var(--color-slate-500)', marginTop: '0.4rem' }}>
+                Este ajuste afecta el cálculo de impuestos en todas las ventas.
+              </p>
+            </label>
 
-        <div className="row-actions">
-          <button type="button" onClick={() => void handleSave()} disabled={loading || saving}>
-            {saving ? 'Guardando...' : 'Guardar configuración'}
-          </button>
-          <button className="ghost-button" type="button" onClick={onClose}>
-            Cerrar
-          </button>
-        </div>
+            <div className="row-actions" style={{ marginTop: '2.5rem', display: 'flex', gap: '1rem' }}>
+              <button 
+                type="button" 
+                className="button"
+                onClick={() => void handleSave()} 
+                disabled={loading || saving}
+                style={{ flex: 2, background: 'var(--color-primary-600)', color: '#ffffff' }}
+              >
+                {saving ? 'Aplicando...' : 'Guardar Cambios Legales'}
+              </button>
+              <button 
+                className="ghost-button" 
+                type="button" 
+                onClick={onClose}
+                style={{ flex: 1 }}
+              >
+                Cerrar
+              </button>
+            </div>
+          </>
+        )}
       </div>
     </Modal>
   );

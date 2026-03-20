@@ -86,9 +86,12 @@ export function TicketTemplateModal({
 
   return (
     <Modal ariaLabel="Configurar negocio" onClose={onClose}>
-      <div className="section-heading">
-        <h3>Configuración del negocio</h3>
-      </div>
+      <header className="section-heading" style={{ marginBottom: '1.5rem' }}>
+        <div className="heading-copy">
+          <h3>Perfil del Negocio</h3>
+          <p>Configura los datos que aparecerán en tus facturas y tickets</p>
+        </div>
+      </header>
 
       <div className="stack-md">
         <p className="subtle-text">
@@ -97,81 +100,103 @@ export function TicketTemplateModal({
         {error ? <Banner tone="error">{error}</Banner> : null}
         {message ? <Banner tone="success">{message}</Banner> : null}
 
-        <label className="field">
-          <span>Nombre del negocio</span>
-          <input
-            value={draft.businessName}
-            onChange={(event) => updateDraft('businessName', event.target.value)}
-            disabled={saving}
-          />
-        </label>
+        <div className="field-group" style={{ display: 'grid', gap: '1rem' }}>
+          <label className="field">
+            <span>Razón Social / Nombre Comercial</span>
+            <input
+              placeholder="Ej. Mi Tienda S.A.S"
+              value={draft.businessName}
+              onChange={(event) => updateDraft('businessName', event.target.value)}
+              disabled={saving}
+            />
+          </label>
 
-        <label className="field">
-          <span>NIT</span>
-          <input
-            value={draft.nit}
-            onChange={(event) => updateDraft('nit', event.target.value)}
-            disabled={saving}
-          />
-        </label>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+            <label className="field">
+              <span>NIT / Identificación</span>
+              <input
+                placeholder="900.000.000-0"
+                value={draft.nit}
+                onChange={(event) => updateDraft('nit', event.target.value)}
+                disabled={saving}
+              />
+            </label>
 
-        <label className="field">
-          <span>Dirección comercial</span>
-          <input
-            value={draft.address}
-            onChange={(event) => updateDraft('address', event.target.value)}
-            disabled={saving}
-          />
-        </label>
+            <label className="field">
+              <span>Teléfono de Contacto</span>
+              <input
+                value={draft.phone}
+                onChange={(event) => updateDraft('phone', event.target.value)}
+                placeholder="Opcional"
+                disabled={saving}
+              />
+            </label>
+          </div>
 
-        <label className="field">
-          <span>Teléfono</span>
-          <input
-            value={draft.phone}
-            onChange={(event) => updateDraft('phone', event.target.value)}
-            placeholder="Opcional"
-            disabled={saving}
-          />
-        </label>
+          <label className="field">
+            <span>Dirección Principal</span>
+            <input
+              placeholder="Calle 123 #45-67"
+              value={draft.address}
+              onChange={(event) => updateDraft('address', event.target.value)}
+              disabled={saving}
+            />
+          </label>
 
-        <label className="field">
-          <span>Mensaje final del ticket</span>
-          <textarea
-            rows={3}
-            value={draft.footerMessage}
-            onChange={(event) => updateDraft('footerMessage', event.target.value)}
-            placeholder="Opcional"
-            disabled={saving}
-          />
-        </label>
+          <label className="field">
+            <span>Mensaje de Pie de Página (Ticket)</span>
+            <textarea
+              rows={2}
+              value={draft.footerMessage}
+              onChange={(event) => updateDraft('footerMessage', event.target.value)}
+              placeholder="Ej. Gracias por su compra. Vuelva pronto."
+              disabled={saving}
+              style={{ resize: 'none' }}
+            />
+          </label>
 
-        <label className="field">
-          <span>Logo (URL opcional)</span>
-          <input
-            value={draft.logoUrl}
-            onChange={(event) => updateDraft('logoUrl', event.target.value)}
-            placeholder="https://..."
-            disabled={saving}
-          />
-        </label>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+            <label className="field">
+              <span>Papel Impresora</span>
+              <select
+                value={draft.printerWidth}
+                onChange={(event) => updateDraft('printerWidth', event.target.value as '58mm' | '80mm')}
+                disabled={saving}
+              >
+                <option value="80mm">Grande (80mm)</option>
+                <option value="58mm">Pequeño (58mm)</option>
+              </select>
+            </label>
 
-        <label className="field">
-          <span>Formato de impresora</span>
-          <select
-            value={draft.printerWidth}
-            onChange={(event) => updateDraft('printerWidth', event.target.value as '58mm' | '80mm')}
+            <label className="field">
+              <span>Logo (URL)</span>
+              <input
+                value={draft.logoUrl}
+                onChange={(event) => updateDraft('logoUrl', event.target.value)}
+                placeholder="https://..."
+                disabled={saving}
+              />
+            </label>
+          </div>
+        </div>
+
+        <div className="row-actions" style={{ marginTop: '2rem', display: 'flex', gap: '1rem' }}>
+          <button 
+            type="button" 
+            className="button"
+            onClick={() => void handleSave()} 
             disabled={saving}
+            style={{ flex: 2, background: 'var(--color-primary-600)', color: '#ffffff' }}
           >
-            <option value="80mm">Ticket grande (80mm)</option>
-            <option value="58mm">Ticket pequeño (58mm)</option>
-          </select>
-        </label>
-
-        <div className="row-actions">
-          <button type="button" onClick={() => void handleSave()} disabled={saving}>
-            {saving ? 'Guardando...' : 'Guardar negocio'}
+            {saving ? 'Guardando...' : 'Actualizar Perfil'}
           </button>
-          <button className="ghost-button" type="button" onClick={onClose} disabled={saving}>
+          <button 
+            className="ghost-button" 
+            type="button" 
+            onClick={onClose} 
+            disabled={saving}
+            style={{ flex: 1 }}
+          >
             Cancelar
           </button>
         </div>

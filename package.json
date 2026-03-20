@@ -4,7 +4,7 @@
   "private": true,
   "packageManager": "pnpm@9.12.3",
   "engines": {
-    "node": ">=20 <21"
+    "node": ">=20 <=22"
   },
   "scripts": {
     "dev": "pnpm -r --parallel --filter @pos-dian/api --filter @pos-dian/worker --filter @pos-dian/pos-web run dev",

@@ -603,7 +603,9 @@ export const salesRoutes: FastifyPluginAsync = async (app) => {
           'sale_items.qty',
           'sale_items.price_cents',
           'sale_items.line_total_cents',
-          'products.name as product_name'
+          'products.name as product_name',
+          'products.image_url as product_image_url',
+          'products.description as product_description'
         ])
         .where('sale_items.tenant_id', '=', request.auth.tenantId)
         .where('sale_items.sale_id', '=', sale.id)
@@ -623,6 +625,8 @@ export const salesRoutes: FastifyPluginAsync = async (app) => {
           id: item.id,
           product_id: item.product_id,
           product_name: item.product_name,
+          imageUrl: item.product_image_url,
+          description: item.product_description,
           qty: Number(item.qty),
           price_cents: item.price_cents,
           line_total_cents: item.line_total_cents

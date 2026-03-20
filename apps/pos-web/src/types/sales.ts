@@ -10,6 +10,8 @@ export interface CartItem {
   barcode: string | null;
   priceCents: number;
   qty: number;
+  imageUrl?: string | null;
+  description?: string | null;
 }
 
 export interface LastPrintedSaleSnapshot {

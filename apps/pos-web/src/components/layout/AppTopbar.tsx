@@ -35,17 +35,20 @@ export function AppTopbar({
   return (
     <header className="topbar">
       <div className="brand">
-        <h1>POS DIAN</h1>
-        <p>
-          {branchName ?? branchId} • Caja {cashSessionId.slice(0, 8)}
-        </p>
+        <div className="brand-logo">
+          <h1 className="text-gradient">POS DIAN</h1>
+        </div>
+        <div className="brand-info">
+          <strong>{branchName ?? branchId}</strong>
+          <p>Caja: {cashSessionId.slice(0, 8)}</p>
+        </div>
       </div>
 
       <nav className="topbar-nav">
         {routeDefinitions.map((route) => (
           <button
             key={route.id}
-            className={activeRoute === route.id ? 'nav-btn active' : 'nav-btn'}
+            className={`nav-btn ${activeRoute === route.id ? 'active' : ''}`}
             onClick={() => onNavigate(route.id)}
           >
             {route.label}
@@ -54,38 +57,43 @@ export function AppTopbar({
       </nav>
 
       <div className="topbar-user">
-        <div>
+        <div className="user-profile">
           <strong>{session.user.name}</strong>
-          <p>{session.user.role}</p>
+          <p className="tag-muted" style={{ margin: 0 }}>{session.user.role}</p>
         </div>
+
         <div className="pending-sync">
           <span className={`tag ${pendingSalesCount > 0 ? 'tag-warning' : 'tag-success'}`}>
-            Pendientes {pendingSalesCount}
+            {pendingSalesCount} {pendingSalesCount === 1 ? 'pendiente' : 'pendientes'}
           </span>
           <button
             className="ghost-button"
+            style={{ padding: '0.5rem 0.75rem', fontSize: '0.8125rem' }}
             onClick={onSyncPendingSales}
             disabled={syncingPendingSales || pendingSalesCount === 0}
           >
-            {syncingPendingSales ? 'Sincronizando...' : 'Sincronizar'}
+            {syncingPendingSales ? '...' : '🔄'}
           </button>
         </div>
-        {session.user.role === 'ADMIN' ? (
-          <>
-            <button className="ghost-button" onClick={onOpenTicketTemplate}>
-              Configuración negocio
-            </button>
-            <button className="ghost-button" onClick={onOpenDianConfig}>
-              Configuración DIAN
-            </button>
-          </>
-        ) : null}
-        <button className="ghost-button" onClick={onChangeRegister}>
-          Cambiar caja
-        </button>
-        <button className="ghost-button" onClick={onLogout}>
-          Salir
-        </button>
+
+        <div className="topbar-actions" style={{ display: 'flex', gap: '0.5rem' }}>
+          {session.user.role === 'ADMIN' && (
+            <>
+              <button className="ghost-button" onClick={onOpenTicketTemplate} title="Configuración de negocio">
+                ⚙️
+              </button>
+              <button className="ghost-button" onClick={onOpenDianConfig} title="Configuración DIAN">
+                📄
+              </button>
+            </>
+          )}
+          <button className="ghost-button" onClick={onChangeRegister} title="Cambiar caja">
+            🔁
+          </button>
+          <button className="danger-button" style={{ padding: '0.5rem', borderRadius: 'var(--radius-md)' }} onClick={onLogout} title="Cerrar sesión">
+            🚪
+          </button>
+        </div>
       </div>
     </header>
   );

@@ -57,6 +57,8 @@ export interface ProductsTable {
   barcode: string | null;
   price_cents: number;
   active: Generated<boolean>;
+  image_url: string | null;
+  description: string | null;
   created_at: Generated<Date>;
   updated_at: Generated<Date>;
 }

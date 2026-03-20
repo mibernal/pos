@@ -31,7 +31,9 @@ export function Modal({
         aria-label={ariaLabel}
         onClick={(event) => event.stopPropagation()}
       >
-        {children}
+        <div className="modal-content">
+          {children}
+        </div>
       </div>
     </div>
   );

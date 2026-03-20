@@ -18,13 +18,13 @@ export function LoginForm({
   }
 
   return (
-    <form className="stack-md" onSubmit={handleSubmit}>
-      <label className="field">
-        <span>Email</span>
+    <form className="stack-md" onSubmit={handleSubmit} style={{ display: 'grid', gap: '1.25rem' }}>
+      <label className="field" style={{ display: 'grid', gap: '0.5rem' }}>
+        <span style={{ fontSize: '0.8125rem', fontWeight: 600, color: 'var(--color-slate-700)' }}>Correo Electrónico</span>
         <input
           autoFocus
           autoComplete="username"
-          placeholder="usuario@empresa.com"
+          placeholder="nombre@ejemplo.com"
           type="email"
           value={email}
           onChange={(event) => {
@@ -32,13 +32,14 @@ export function LoginForm({
             setEmail(event.target.value);
           }}
           required
+          style={{ padding: '0.75rem 1rem', borderRadius: 'var(--radius-lg)', border: '1px solid var(--color-slate-200)', fontSize: '0.875rem' }}
         />
       </label>
-      <label className="field">
-        <span>Contraseña</span>
+      <label className="field" style={{ display: 'grid', gap: '0.5rem' }}>
+        <span style={{ fontSize: '0.8125rem', fontWeight: 600, color: 'var(--color-slate-700)' }}>Contraseña</span>
         <input
           autoComplete="current-password"
-          placeholder="Ingresa tu contraseña"
+          placeholder="••••••••"
           type="password"
           value={password}
           onChange={(event) => {
@@ -47,10 +48,24 @@ export function LoginForm({
           }}
           required
           minLength={8}
+          style={{ padding: '0.75rem 1rem', borderRadius: 'var(--radius-lg)', border: '1px solid var(--color-slate-200)', fontSize: '0.875rem' }}
         />
       </label>
-      <button type="submit" disabled={loading}>
-        {loading ? 'Ingresando...' : 'Iniciar sesión'}
+      <button 
+        type="submit" 
+        className="button"
+        disabled={loading}
+        style={{ 
+          marginTop: '0.5rem', 
+          padding: '0.875rem', 
+          background: 'var(--color-primary-600)', 
+          color: '#ffffff', 
+          fontWeight: 700, 
+          borderRadius: 'var(--radius-lg)',
+          boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)'
+        }}
+      >
+        {loading ? 'Validando...' : 'Iniciar Sesión'}
       </button>
     </form>
   );

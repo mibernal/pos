@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Banner } from '../../components/ui';
+import { Banner, PlaceholderImage } from '../../components/ui';
 import { formatMoneyFromCents } from '../../lib/format';
 import { addPendingSale } from '../../lib/offline-queue';
 import type { PendingSaleRecord } from '../../lib/offline-queue';
@@ -483,153 +483,164 @@ export function PosScreen({
   return (
     <div className="pos-screen">
       <section className="products-panel">
-        <div className="section-heading pos-heading">
-          <div>
-            <h2>Caja principal</h2>
-            <p>Flujo rápido para cajero, búsqueda instantánea y catálogo táctil</p>
+        <header className="section-heading pos-heading">
+          <div className="heading-copy">
+            <h2>Panel de Ventas</h2>
+            <p>Búsqueda rápida y catálogo táctil</p>
           </div>
           <div className="pos-metrics">
             <div className="metric-card">
-              <span>Productos</span>
-              <strong>{products.length}</strong>
-            </div>
-            <div className="metric-card">
-              <span>Unidades</span>
+              <span>Items</span>
               <strong>{cartQuantity}</strong>
             </div>
             <div className="metric-card">
-              <span>Total</span>
-              <strong>{formatMoneyFromCents(totalCents)}</strong>
+              <span>Artículos</span>
+              <strong>{products.length}</strong>
+            </div>
+            <div className="metric-card" style={{ background: 'var(--color-primary-600)', borderColor: 'var(--color-primary-700)' }}>
+              <span style={{ color: 'rgba(255,255,255,0.7)' }}>Total</span>
+              <strong style={{ color: '#ffffff' }}>{formatMoneyFromCents(totalCents)}</strong>
             </div>
           </div>
-        </div>
+        </header>
 
         <div className="pos-search-panel">
           <div className="pos-search-toolbar">
-            <label className="field pos-search-field">
-              <span>Búsqueda rápida</span>
+            <div className="pos-search-field">
               <input
                 ref={searchInputRef}
-                placeholder="Nombre o código de barras"
+                placeholder="Escanea o busca un producto... (Ctrl+K)"
                 value={query}
                 onChange={(event) => setQuery(event.target.value)}
+                autoFocus
                 onKeyDown={(event) => {
                   if (event.key === 'ArrowDown') {
                     event.preventDefault();
-                    event.stopPropagation();
                     moveHighlightedProduct('next');
-                    return;
-                  }
-
-                  if (event.key === 'ArrowUp') {
+                  } else if (event.key === 'ArrowUp') {
                     event.preventDefault();
-                    event.stopPropagation();
                     moveHighlightedProduct('previous');
-                    return;
-                  }
-
-                  if (event.key === 'Enter' && highlightedProduct) {
+                  } else if (event.key === 'Enter' && highlightedProduct) {
                     event.preventDefault();
-                    event.stopPropagation();
                     addProduct(highlightedProduct, { clearSearch: true });
                   }
                 }}
               />
-            </label>
-            {hasSearchQuery ? (
+            </div>
+            {hasSearchQuery && (
               <button
-                className="ghost-button pos-search-clear"
-                type="button"
+                className="ghost-button"
+                style={{ padding: '0 1rem' }}
                 onClick={() => {
                   setQuery('');
                   searchInputRef.current?.focus();
                 }}
               >
-                Limpiar búsqueda
+                Limpiar
               </button>
-            ) : null}
+            )}
           </div>
 
           <div className="pos-keyboard-hint">
-            <span className="hint-chip">
-              <kbd>Ctrl</kbd>+<kbd>K</kbd> buscar
-            </span>
-            <span className="hint-chip">
-              <kbd>Enter</kbd> agrega destacado
-            </span>
-            <span className="hint-chip">
-              <kbd>Del</kbd> elimina item seleccionado
-            </span>
+            <span className="hint-chip"><kbd>Ctrl</kbd>+<kbd>K</kbd> Buscar</span>
+            <span className="hint-chip"><kbd>↑</kbd><kbd>↓</kbd> Navegar</span>
+            <span className="hint-chip"><kbd>Enter</kbd> Agregar</span>
+            <span className="hint-chip"><kbd>F12</kbd> Cobrar</span>
           </div>
         </div>
 
-        {productsLoading ? <Banner tone="info">Actualizando catálogo...</Banner> : null}
-        {productsError ? <Banner tone="error">{productsError}</Banner> : null}
+        {productsLoading && <Banner tone="info">Cargando catálogo de productos...</Banner>}
+        {productsError && <Banner tone="error">{productsError}</Banner>}
 
         <div className="quick-product-card">
           {highlightedProduct ? (
             <div className="quick-product-main">
-              <div className="quick-product-copy">
-                <span className="quick-product-badge">Resultado rápido</span>
+              <div style={{ width: '100px', height: '100px', borderRadius: '12px', overflow: 'hidden', flexShrink: 0, boxShadow: 'var(--shadow-sm)' }}>
+                {highlightedProduct.imageUrl ? (
+                  <img src={highlightedProduct.imageUrl} alt={highlightedProduct.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                ) : (
+                  <PlaceholderImage name={highlightedProduct.name} category={highlightedProduct.category} size="lg" />
+                )}
+              </div>
+              <div className="quick-product-copy" style={{ flex: 1 }}>
+                <span className="tag tag-info" style={{ marginBottom: '0.5rem' }}>Destacado</span>
                 <h3>{highlightedProduct.name}</h3>
                 <div className="quick-product-meta">
                   <span>{highlightedProduct.category}</span>
-                  {highlightedProduct.barcode ? <span>Cod. {highlightedProduct.barcode}</span> : null}
-                  <span>{hasSearchQuery ? 'Coincide con tu búsqueda' : 'Disponible para venta'}</span>
+                  {highlightedProduct.barcode && <span className="tag-muted">Cod. {highlightedProduct.barcode}</span>}
                 </div>
+                {highlightedProduct.description && (
+                  <p style={{ marginTop: '0.75rem', fontSize: '0.8125rem', color: 'var(--color-slate-500)', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
+                    {highlightedProduct.description}
+                  </p>
+                )}
               </div>
               <div className="quick-product-actions">
                 <strong>{formatMoneyFromCents(highlightedProduct.price_cents)}</strong>
                 <button
                   type="button"
                   className="quick-product-button"
-                  onClick={() => addProduct(highlightedProduct, { clearSearch: true })}
+                  style={{ background: 'var(--color-primary-600)', padding: '0.75rem 2rem' }}
+                  onClick={() => {
+                    if (highlightedProduct) {
+                      addProduct(highlightedProduct, { clearSearch: true });
+                    }
+                  }}
                 >
-                  Agregar destacado
+                  Agregar (Enter)
                 </button>
               </div>
             </div>
           ) : (
-            <div className="empty-state">
+            <div className="empty-state" style={{ padding: '2rem', textAlign: 'center', color: 'var(--color-slate-500)' }}>
               {hasSearchQuery
-                ? 'No hay productos que coincidan con esa búsqueda.'
-                : 'No hay productos activos disponibles en esta sucursal.'}
+                ? 'No se encontraron productos coincidentes.'
+                : 'Usa la búsqueda o selecciona un producto del catálogo.'}
             </div>
           )}
         </div>
 
         <div className="product-grid-header">
           <div>
-            <strong>{hasSearchQuery ? 'Resultados filtrados' : 'Catálogo táctil'}</strong>
-            <span>
+            <strong style={{ fontSize: '1.125rem' }}>Catálogo de Productos</strong>
+            <p style={{ margin: 0, fontSize: '0.875rem', color: 'var(--color-slate-500)' }}>
               {hasSearchQuery
-                ? `${products.length} coincidencia(s) por nombre o código de barras`
-                : 'Toca una tarjeta para agregar al carrito'}
-            </span>
+                ? `Mostrando ${products.length} coincidencias`
+                : 'Selecciona un item para añadirlo al carrito'}
+            </p>
           </div>
         </div>
 
         <div className="product-grid">
           {products.length === 0 && !productsLoading ? (
-            <div className="empty-state">Aún no hay productos para vender en esta caja.</div>
+            <div className="empty-state" style={{ gridColumn: '1 / -1', padding: '4rem', textAlign: 'center' }}>
+              No hay productos disponibles para mostrar.
+            </div>
           ) : (
             products.map((product) => (
               <button
                 key={product.id}
-                className={`product-card ${
-                  highlightedProduct?.id === product.id ? 'is-highlighted' : ''
-                }`}
+                className={`product-card ${highlightedProduct?.id === product.id ? 'is-highlighted' : ''}`}
                 onMouseEnter={() => setHighlightedProductId(product.id)}
-                onFocus={() => setHighlightedProductId(product.id)}
+                onTouchStart={() => setHighlightedProductId(product.id)}
                 onClick={() => addProduct(product, { clearSearch: true })}
                 type="button"
               >
-                <span className="product-name">{product.name}</span>
-                <span className="product-meta">{product.category}</span>
-                <span className="product-card-footer">
-                  <span className="product-barcode">{product.barcode ?? 'Sin código'}</span>
+                <div style={{ height: '95px', width: '100%', overflow: 'hidden', borderBottom: '1px solid var(--color-slate-100)', flexShrink: 0 }}>
+                  {product.imageUrl ? (
+                    <img src={product.imageUrl} alt={product.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                  ) : (
+                    <PlaceholderImage name={product.name} category={product.category} size="md" />
+                  )}
+                </div>
+                <div style={{ padding: '0.625rem 0.75rem', flex: 1, display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
+                  <span className="product-name">{product.name}</span>
+                  <span className="product-meta">{product.category}</span>
+                </div>
+                <div style={{ borderTop: '1px solid var(--color-slate-100)', padding: '0.4rem 0.75rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexShrink: 0 }}>
+                  <span style={{ fontSize: '0.6rem', color: 'var(--color-slate-400)', fontWeight: 500 }}>{product.barcode || 'S/C'}</span>
                   <span className="product-price">{formatMoneyFromCents(product.price_cents)}</span>
-                </span>
+                </div>
               </button>
             ))
           )}
@@ -637,33 +648,25 @@ export function PosScreen({
       </section>
 
       <aside className="cart-panel">
-        <div className="section-heading">
-          <div>
-            <h3>Carrito actual</h3>
-            <p>
-              {cartQuantity} unidades en {cartItems.length} línea(s)
-            </p>
+        <header className="section-heading">
+          <div className="heading-copy">
+            <h3>Orden Actual</h3>
+            <p>{cartQuantity} {cartQuantity === 1 ? 'producto' : 'productos'}</p>
           </div>
-          {cartItems.length > 0 ? (
-            <div className="cart-header-actions">
-              <button className="ghost-button" type="button" onClick={clearCart}>
-                Limpiar carrito
-              </button>
-            </div>
-          ) : null}
-        </div>
-
-        {selectedCartItem ? (
-          <div className="cart-selection-note">
-            Seleccionado: <strong>{selectedCartItem.name}</strong>. Usa <kbd>Del</kbd> para quitarlo
-            rápido.
-          </div>
-        ) : null}
+          {cartItems.length > 0 && (
+            <button className="ghost-button" style={{ padding: '0.4rem 0.6rem', fontSize: '0.75rem' }} onClick={clearCart}>
+              Vaciar
+            </button>
+          )}
+        </header>
 
         <div className="cart-list">
           {cartItems.length === 0 ? (
-            <div className="empty-state">
-              Agrega productos desde la búsqueda o el catálogo para iniciar la venta.
+            <div className="empty-state" style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', textAlign: 'center', padding: '2rem', color: 'var(--color-slate-400)' }}>
+              <div>
+                <div style={{ fontSize: '2rem', marginBottom: '1rem' }}>🛒</div>
+                <p>El carrito está vacío</p>
+              </div>
             </div>
           ) : (
             cartItems.map((item, index) => (
@@ -671,12 +674,6 @@ export function PosScreen({
                 key={item.productId}
                 className={`cart-row ${index === selectedCartIndex ? 'selected' : ''}`}
                 onClick={() => setSelectedCartIndex(index)}
-                onKeyDown={(event) => {
-                  if (event.key === 'Enter' || event.key === ' ') {
-                    event.preventDefault();
-                    setSelectedCartIndex(index);
-                  }
-                }}
                 role="button"
                 tabIndex={0}
               >
@@ -684,53 +681,58 @@ export function PosScreen({
                   <div className="cart-row-name">
                     <strong>{item.name}</strong>
                     <div className="cart-row-submeta">
-                      <span>{item.category}</span>
-                      {item.barcode ? <span>{item.barcode}</span> : null}
                       <span>{formatMoneyFromCents(item.priceCents)} c/u</span>
+                      {item.barcode && <span className="tag-muted">{item.barcode}</span>}
                     </div>
                   </div>
-                  <strong>{formatMoneyFromCents(item.priceCents * item.qty)}</strong>
+                  <strong style={{ color: 'var(--color-slate-900)' }}>{formatMoneyFromCents(item.priceCents * item.qty)}</strong>
                 </div>
 
                 <div className="cart-row-controls">
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', background: 'var(--color-slate-200)', borderRadius: 'var(--radius-md)', padding: '0.25rem' }}>
+                    <button
+                      type="button"
+                      className="mini-btn"
+                      style={{ border: 'none', background: 'transparent', boxShadow: 'none' }}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        updateCartQty(index, item.qty - 1);
+                      }}
+                    >
+                      -
+                    </button>
+                    <input
+                      aria-label="Cantidad"
+                      className="cart-row-qty"
+                      style={{ border: 'none', background: '#ffffff', height: '1.75rem', fontSize: '0.875rem' }}
+                      value={item.qty}
+                      type="number"
+                      min={1}
+                      onClick={(event) => event.stopPropagation()}
+                      onChange={(event) => updateCartQty(index, Number(event.target.value))}
+                    />
+                    <button
+                      type="button"
+                      className="mini-btn"
+                      style={{ border: 'none', background: 'transparent', boxShadow: 'none' }}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        updateCartQty(index, item.qty + 1);
+                      }}
+                    >
+                      +
+                    </button>
+                  </div>
                   <button
                     type="button"
-                    className="mini-btn"
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      updateCartQty(index, item.qty - 1);
-                    }}
-                  >
-                    -
-                  </button>
-                  <input
-                    aria-label={`Cantidad de ${item.name}`}
-                    className="cart-row-qty"
-                    value={item.qty}
-                    type="number"
-                    min={1}
-                    onClick={(event) => event.stopPropagation()}
-                    onChange={(event) => updateCartQty(index, Number(event.target.value))}
-                  />
-                  <button
-                    type="button"
-                    className="mini-btn"
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      updateCartQty(index, item.qty + 1);
-                    }}
-                  >
-                    +
-                  </button>
-                  <button
-                    type="button"
-                    className="cart-row-remove"
+                    className="ghost-button"
+                    style={{ border: 'none', color: 'var(--color-error-600)', background: 'transparent', boxShadow: 'none', padding: '0.25rem' }}
                     onClick={(event) => {
                       event.stopPropagation();
                       removeCartItem(index);
                     }}
                   >
-                    Quitar
+                    🗑️
                   </button>
                 </div>
               </article>
@@ -739,190 +741,101 @@ export function PosScreen({
         </div>
 
         <div className="cart-summary-panel">
-          <div className="discount-card">
-            <div className="section-heading">
-              <div>
-                <h3>Descuento total</h3>
-                <p>Aplica descuento visible o técnico sin salir del flujo de caja</p>
-              </div>
-            </div>
-
-            <div className="discount-mode-toggle" role="tablist" aria-label="Modo de descuento">
-              <button
-                type="button"
-                className={`discount-mode-btn ${
-                  discountEntryMode === 'VISIBLE' ? 'active' : ''
-                }`}
-                onClick={() => handleDiscountModeChange('VISIBLE')}
-              >
-                Visible
-              </button>
-              <button
-                type="button"
-                className={`discount-mode-btn ${
-                  discountEntryMode === 'CENTS' ? 'active' : ''
-                }`}
-                onClick={() => handleDiscountModeChange('CENTS')}
-              >
-                Cents
-              </button>
-            </div>
-
-            <label className="field">
-              <span>
-                {discountEntryMode === 'VISIBLE'
-                  ? 'Descuento visible (COP)'
-                  : 'Descuento técnico (cents)'}
-              </span>
-              <input
-                inputMode={discountEntryMode === 'VISIBLE' ? 'decimal' : 'numeric'}
-                min={0}
-                step={discountEntryMode === 'VISIBLE' ? '0.01' : '1'}
-                type="number"
-                value={discountDraft}
-                onChange={(event) => handleDiscountInputChange(event.target.value)}
-              />
-            </label>
-
-            <p className="discount-helper">
-              Aplicado: <strong>{formatMoneyFromCents(discountCents)}</strong> · {discountCents} cents
-            </p>
-          </div>
-
-          <div className="totals-box totals-box-strong">
-            <div>
-              <span>Subtotal</span>
-              <strong>{formatMoneyFromCents(subtotalCents)}</strong>
-            </div>
-            <div>
-              <span>Descuento</span>
-              <strong>-{formatMoneyFromCents(discountCents)}</strong>
-            </div>
-            <div className="summary-highlight">
-              <span>Total a cobrar</span>
-              <strong>{formatMoneyFromCents(totalCents)}</strong>
-            </div>
-          </div>
-
-          {saleMessage ? <Banner tone="success">{saleMessage}</Banner> : null}
-
-          {lastPrintedSaleSnapshot && cartItems.length === 0 ? (
-            <div className="sale-result-card">
-              <div>
-                <span className="quick-product-badge">Venta confirmada</span>
-                <h3>Venta #{lastPrintedSaleSnapshot.sale.sale_number}</h3>
-                <p>
-                  Estado DIAN inicial:{' '}
-                  <strong>{lastPrintedSaleSnapshot.sale.dian_status ?? 'PENDING'}</strong>
-                </p>
-              </div>
-
-              <div className="sale-result-actions">
-                <button className="ghost-button" type="button" onClick={handlePrintLastSale}>
-                  Imprimir ticket
-                </button>
-              </div>
-            </div>
-          ) : null}
-
-          <div className="pending-sales-card">
-            <div className="section-heading">
-              <div>
-                <h3>Ventas pendientes</h3>
-                <p>
-                  {isOnline
-                    ? 'Listas para sincronizar con el backend.'
-                    : 'Sin conexión. Las ventas nuevas se guardarán localmente.'}
-                </p>
-              </div>
-
-              <div className="pending-sales-card-actions">
-                <span className={`tag ${hasPendingSales ? 'tag-warning' : 'tag-success'}`}>
-                  Pendientes {pendingSales.length}
-                </span>
+          <div className="discount-card" style={{ padding: '0.75rem' }}>
+            <div className="discount-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
+              <span style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--color-slate-500)' }}>DESCUENTO</span>
+              <div className="discount-mode-toggle" style={{ margin: 0, padding: '0.1rem' }}>
                 <button
                   type="button"
-                  className="ghost-button"
-                  onClick={() => void onSyncPendingSales?.()}
-                  disabled={!hasPendingSales || syncingPendingSales}
+                  className={`discount-mode-btn ${discountEntryMode === 'VISIBLE' ? 'active' : ''}`}
+                  onClick={() => handleDiscountModeChange('VISIBLE')}
+                  style={{ padding: '0.1rem 0.4rem', fontSize: '0.7rem' }}
                 >
-                  {syncingPendingSales ? 'Sincronizando...' : 'Sincronizar'}
+                  $
+                </button>
+                <button
+                  type="button"
+                  className={`discount-mode-btn ${discountEntryMode === 'CENTS' ? 'active' : ''}`}
+                  onClick={() => handleDiscountModeChange('CENTS')}
+                  style={{ padding: '0.1rem 0.4rem', fontSize: '0.7rem' }}
+                >
+                  ¢
                 </button>
               </div>
             </div>
 
-            {!isOnline ? (
-              <Banner tone="warning">
-                El equipo está sin internet. El POS seguirá guardando ventas para sincronizarlas luego.
-              </Banner>
-            ) : null}
-
-            {hasPendingSales ? (
-              <div className="pending-sales-list">
-                {pendingSales.map((pendingSale) => {
-                  const status = getPendingSaleStatus(pendingSale);
-                  return (
-                    <article key={pendingSale.id} className="pending-sale-row">
-                      <div className="pending-sale-row-head">
-                        <div>
-                          <strong>{formatMoneyFromCents(getPendingSaleTotalCents(pendingSale))}</strong>
-                          <p>
-                            Cola local {pendingSale.id.slice(0, 8)} · {formatPendingSaleDate(pendingSale.queued_at)}
-                          </p>
-                        </div>
-                        <span className={`tag ${status.tagClassName}`}>{status.label}</span>
-                      </div>
-
-                      <div className="pending-sale-row-meta">
-                        <span>{pendingSale.payload.items.length} item(s)</span>
-                        <span>{pendingSale.payload.payments.length} pago(s)</span>
-                        <span>Intentos {pendingSale.sync_attempts}</span>
-                      </div>
-
-                      {pendingSale.last_error ? (
-                        <div className="pending-sale-error">{pendingSale.last_error}</div>
-                      ) : null}
-
-                      <div className="pending-sale-actions">
-                        <button
-                          type="button"
-                          className="ghost-button"
-                          disabled={syncingPendingSales || syncingPendingSaleIds.includes(pendingSale.id)}
-                          onClick={() => void onRetryPendingSale?.(pendingSale.id)}
-                        >
-                          {syncingPendingSaleIds.includes(pendingSale.id) ? 'Reintentando...' : 'Reintentar'}
-                        </button>
-                      </div>
-                    </article>
-                  );
-                })}
-              </div>
-            ) : (
-              <div className="empty-state">
-                No hay ventas pendientes. Las ventas offline aparecerán aquí hasta sincronizarse.
-              </div>
-            )}
+            <input
+              inputMode={discountEntryMode === 'VISIBLE' ? 'decimal' : 'numeric'}
+              placeholder="0.00"
+              style={{ padding: '0.4rem', fontSize: '0.875rem', height: '2rem' }}
+              type="number"
+              value={discountDraft}
+              onChange={(event) => handleDiscountInputChange(event.target.value)}
+            />
           </div>
 
-          <div className="checkout-launch-card">
-            <div>
-              <h3>Cobro</h3>
-              <p>Define el método al momento de cobrar y valida el pago en una sola vista.</p>
+          <div className="totals-box">
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.875rem', color: 'rgba(255,255,255,0.7)' }}>
+              <span>Subtotal</span>
+              <span>{formatMoneyFromCents(subtotalCents)}</span>
             </div>
-
-            <button
-              className="charge-button"
-              disabled={!canOpenCheckout}
-              onClick={() => {
-                setSaleError(null);
-                setIsCheckoutModalOpen(true);
-              }}
-            >
-              <span>Cobrar ahora</span>
-              <strong>{checkoutLoading ? 'Procesando...' : formatMoneyFromCents(totalCents)}</strong>
-            </button>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.875rem', color: 'rgba(255,255,255,0.7)' }}>
+              <span>Descuento</span>
+              <span>-{formatMoneyFromCents(discountCents)}</span>
+            </div>
+            <div className="summary-highlight" style={{ marginTop: '0.5rem', paddingTop: '0.75rem', borderTop: '1px solid rgba(255,255,255,0.2)' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+                <span style={{ fontSize: '0.75rem', fontWeight: 700, textTransform: 'uppercase' }}>Total</span>
+                <strong style={{ fontSize: '1.75rem' }}>{formatMoneyFromCents(totalCents)}</strong>
+              </div>
+            </div>
           </div>
+
+          <button
+            type="button"
+            className="charge-button"
+            disabled={!canOpenCheckout}
+            onClick={() => {
+              setSaleError(null);
+              setIsCheckoutModalOpen(true);
+            }}
+          >
+            {checkoutLoading ? 'Procesando...' : '💳 Cobrar'}
+          </button>
         </div>
+
+        {saleError && <div style={{ marginTop: '1rem' }}><Banner tone="error">{saleError}</Banner></div>}
+        {saleMessage && <div style={{ marginTop: '1rem' }}><Banner tone="success">{saleMessage}</Banner></div>}
+
+        {lastPrintedSaleSnapshot && cartItems.length === 0 && (
+          <div className="sale-result-card" style={{ marginTop: '1rem', padding: '1rem', background: 'var(--color-primary-50)', borderRadius: 'var(--radius-lg)', border: '1px solid var(--color-primary-100)' }}>
+             <div style={{ marginBottom: '0.75rem' }}>
+                <span className="tag tag-info" style={{ fontSize: '0.65rem' }}>ÚLTIMA VENTA</span>
+                <h4 style={{ margin: '0.25rem 0' }}>#{lastPrintedSaleSnapshot?.sale.sale_number}</h4>
+             </div>
+             <button className="ghost-button" style={{ width: '100%', padding: '0.5rem' }} onClick={handlePrintLastSale}>
+               🖨️ Re-imprimir Ticket
+             </button>
+          </div>
+        )}
+
+        {hasPendingSales && (
+            <div className="pending-sales-card" style={{ marginTop: '1rem', padding: '1rem', background: 'var(--color-warning-50)', borderRadius: 'var(--radius-lg)', border: '1px solid var(--color-warning-100)' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
+                    <span style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--color-warning-700)' }}>
+                        {pendingSales.length} {pendingSales.length === 1 ? 'pendiente' : 'pendientes'}
+                    </span>
+                    <button 
+                        className="ghost-button" 
+                        style={{ padding: '0.25rem 0.5rem', fontSize: '0.7rem' }}
+                        onClick={() => void onSyncPendingSales?.()}
+                        disabled={syncingPendingSales}
+                    >
+                        {syncingPendingSales ? '...' : 'Sincronizar'}
+                    </button>
+                </div>
+            </div>
+        )}
       </aside>
 
       <CheckoutModal

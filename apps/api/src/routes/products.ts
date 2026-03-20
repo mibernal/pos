@@ -72,6 +72,8 @@ export const productsRoutes: FastifyPluginAsync = async (app) => {
           'barcode',
           'price_cents',
           'active',
+          'image_url',
+          'description',
           'created_at',
           'updated_at'
         ])
@@ -102,6 +104,8 @@ export const productsRoutes: FastifyPluginAsync = async (app) => {
         barcode: row.barcode,
         price_cents: row.price_cents,
         active: row.active,
+        imageUrl: row.image_url,
+        description: row.description,
         createdAt: row.created_at.toISOString(),
         updatedAt: row.updated_at.toISOString()
       }));
@@ -154,7 +158,9 @@ export const productsRoutes: FastifyPluginAsync = async (app) => {
           tax_category: payload.taxCategory,
           barcode: payload.barcode ?? null,
           price_cents: payload.price_cents,
-          active: payload.active
+          active: payload.active,
+          image_url: payload.imageUrl ?? null,
+          description: payload.description ?? null
         })
         .returning([
           'id',
@@ -166,6 +172,8 @@ export const productsRoutes: FastifyPluginAsync = async (app) => {
           'barcode',
           'price_cents',
           'active',
+          'image_url',
+          'description',
           'created_at',
           'updated_at'
         ])
@@ -181,6 +189,8 @@ export const productsRoutes: FastifyPluginAsync = async (app) => {
         barcode: createdProduct.barcode,
         price_cents: createdProduct.price_cents,
         active: createdProduct.active,
+        imageUrl: createdProduct.image_url,
+        description: createdProduct.description,
         createdAt: createdProduct.created_at.toISOString(),
         updatedAt: createdProduct.updated_at.toISOString()
       });
@@ -225,6 +235,8 @@ export const productsRoutes: FastifyPluginAsync = async (app) => {
             'barcode',
             'price_cents',
             'active',
+            'image_url',
+            'description',
             'created_at',
             'updated_at'
           ])
@@ -258,6 +270,8 @@ export const productsRoutes: FastifyPluginAsync = async (app) => {
             ...(payload.taxCategory !== undefined ? { tax_category: payload.taxCategory } : {}),
             ...(payload.barcode !== undefined ? { barcode: payload.barcode } : {}),
             ...(payload.price_cents !== undefined ? { price_cents: payload.price_cents } : {}),
+            ...(payload.imageUrl !== undefined ? { image_url: payload.imageUrl } : {}),
+            ...(payload.description !== undefined ? { description: payload.description } : {}),
             branch_id: resolvedBranchId
           })
           .where('tenant_id', '=', request.auth!.tenantId)
@@ -272,6 +286,8 @@ export const productsRoutes: FastifyPluginAsync = async (app) => {
             'barcode',
             'price_cents',
             'active',
+            'image_url',
+            'description',
             'created_at',
             'updated_at'
           ])
@@ -292,7 +308,9 @@ export const productsRoutes: FastifyPluginAsync = async (app) => {
               category: currentProduct.category,
               tax_category: currentProduct.tax_category,
               barcode: currentProduct.barcode,
-              price_cents: currentProduct.price_cents
+              price_cents: currentProduct.price_cents,
+              image_url: currentProduct.image_url,
+              description: currentProduct.description
             },
             next: {
               branch_id: nextProduct.branch_id,
@@ -300,7 +318,9 @@ export const productsRoutes: FastifyPluginAsync = async (app) => {
               category: nextProduct.category,
               tax_category: nextProduct.tax_category,
               barcode: nextProduct.barcode,
-              price_cents: nextProduct.price_cents
+              price_cents: nextProduct.price_cents,
+              image_url: nextProduct.image_url,
+              description: nextProduct.description
             }
           }
         });
@@ -333,6 +353,8 @@ export const productsRoutes: FastifyPluginAsync = async (app) => {
         barcode: updatedProduct.barcode,
         price_cents: updatedProduct.price_cents,
         active: updatedProduct.active,
+        imageUrl: updatedProduct.image_url,
+        description: updatedProduct.description,
         createdAt: updatedProduct.created_at.toISOString(),
         updatedAt: updatedProduct.updated_at.toISOString()
       };
@@ -387,6 +409,8 @@ export const productsRoutes: FastifyPluginAsync = async (app) => {
           'barcode',
           'price_cents',
           'active',
+          'image_url',
+          'description',
           'created_at',
           'updated_at'
         ])
@@ -402,6 +426,8 @@ export const productsRoutes: FastifyPluginAsync = async (app) => {
         barcode: updatedProduct.barcode,
         price_cents: updatedProduct.price_cents,
         active: updatedProduct.active,
+        imageUrl: updatedProduct.image_url,
+        description: updatedProduct.description,
         createdAt: updatedProduct.created_at.toISOString(),
         updatedAt: updatedProduct.updated_at.toISOString()
       };

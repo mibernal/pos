@@ -19,6 +19,8 @@ export const productItemSchema = z.object({
   barcode: z.string().min(1).nullable(),
   price_cents: z.number().int().nonnegative(),
   active: z.boolean(),
+  imageUrl: z.string().url().nullable().optional(),
+  description: z.string().max(1000).nullable().optional(),
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime()
 });
@@ -30,7 +32,9 @@ export const createProductBodySchema = z.object({
   taxCategory: productTaxCategorySchema.optional().default('IVA_19'),
   barcode: z.string().trim().min(1).max(120).nullable().optional(),
   price_cents: z.coerce.number().int().nonnegative(),
-  active: z.boolean().optional().default(true)
+  active: z.boolean().optional().default(true),
+  imageUrl: z.string().url().trim().nullable().optional(),
+  description: z.string().trim().max(1000).nullable().optional()
 }).strict();
 
 export const patchProductBodySchema = z.object({
@@ -39,7 +43,9 @@ export const patchProductBodySchema = z.object({
   category: z.string().trim().min(1).max(120).optional(),
   taxCategory: productTaxCategorySchema.optional(),
   barcode: z.string().trim().min(1).max(120).nullable().optional(),
-  price_cents: z.coerce.number().int().nonnegative().optional()
+  price_cents: z.coerce.number().int().nonnegative().optional(),
+  imageUrl: z.string().url().trim().nullable().optional(),
+  description: z.string().trim().max(1000).nullable().optional()
 }).strict();
 
 export const productsListResponseSchema = z.object({

@@ -109,7 +109,9 @@ export const salesListResponseSchema = z.object({
 });
 
 export const saleDetailItemSchema = saleItemSchema.extend({
-  product_name: z.string().min(1)
+  product_name: z.string().min(1),
+  imageUrl: z.string().url().nullable().optional(),
+  description: z.string().nullable().optional()
 });
 
 export const saleDianDocumentSchema = z.object({

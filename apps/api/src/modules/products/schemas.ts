@@ -21,7 +21,7 @@ const optionalSearchQuerySchema = z.preprocess(
 
 export const productsQuerySchema = z.object({
   query: optionalSearchQuerySchema,
-  limit: z.coerce.number().int().positive().max(100).default(20)
+  limit: z.coerce.number().int().positive().max(10000).default(20)
 });
 
 export const patchProductParamsSchema = z.object({

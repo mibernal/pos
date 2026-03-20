@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Banner, Modal } from '../../components/ui';
+import { Banner, Modal, PlaceholderImage } from '../../components/ui';
 import { formatMoneyFromCents, statusClassName, toDateInputValue } from '../../lib/format';
 import { extractTicketPayments, printSaleTicket } from '../../lib/ticket-printer';
 import type { SaleDetailResponse, SalesListItem, TenantTaxMode } from '../../lib/api';
@@ -228,25 +228,24 @@ export function HistoryScreen({
   return (
     <div className="history-layout">
       <section className="history-list">
-        <div className="section-heading">
-          <div>
-            <h2>Historial de ventas</h2>
-            <p>Consulta ventas recientes de esta sucursal y abre el detalle al instante.</p>
+        <header className="section-heading">
+          <div className="heading-copy">
+            <h2>Historial de Ventas</h2>
+            <p>Monitorea y audita las transacciones de esta sucursal</p>
           </div>
-
-          <button className="ghost-button" type="button" onClick={() => void loadSales()}>
-            Recargar
+          <button className="ghost-button" style={{ padding: '0.5rem 1rem' }} onClick={() => void loadSales()}>
+            🔄 Actualizar
           </button>
-        </div>
+        </header>
 
-        <div className="history-summary">
+        <div className="history-summary" style={{ marginBottom: '2rem' }}>
           <div className="metric-card">
-            <span>Ventas</span>
+            <span>Transacciones</span>
             <strong>{sales.length}</strong>
           </div>
-          <div className="metric-card">
-            <span>Total listado</span>
-            <strong>{formatMoneyFromCents(listedTotalCents)}</strong>
+          <div className="metric-card" style={{ background: 'var(--color-primary-600)', borderColor: 'var(--color-primary-700)' }}>
+            <span style={{ color: 'rgba(255,255,255,0.7)' }}>Total Facturado</span>
+            <strong style={{ color: '#ffffff' }}>{formatMoneyFromCents(listedTotalCents)}</strong>
           </div>
           <div className="metric-card">
             <span>Sucursal</span>
@@ -254,24 +253,26 @@ export function HistoryScreen({
           </div>
         </div>
 
-        <div className="filters-grid">
+        <div className="filters-grid" style={{ marginBottom: '2rem', padding: '1.25rem', background: 'var(--color-slate-50)', borderRadius: 'var(--radius-lg)', border: '1px solid var(--color-slate-100)' }}>
           <label className="field">
-            <span>Desde</span>
+            <span>Fecha Inicial</span>
             <input type="date" value={fromDate} onChange={(event) => setFromDate(event.target.value)} />
           </label>
           <label className="field">
-            <span>Hasta</span>
+            <span>Fecha Final</span>
             <input type="date" value={toDate} onChange={(event) => setToDate(event.target.value)} />
           </label>
           <label className="field">
-            <span>Límite</span>
-            <input
-              type="number"
-              min={1}
-              max={100}
+            <span>Registros</span>
+            <select
               value={limit}
               onChange={(event) => setLimit(Number(event.target.value))}
-            />
+              style={{ padding: '0.5rem', background: '#ffffff' }}
+            >
+              {[25, 50, 100, 200].map(val => (
+                <option key={val} value={val}>Mostrar {val}</option>
+              ))}
+            </select>
           </label>
         </div>
 
@@ -280,74 +281,94 @@ export function HistoryScreen({
 
         <div className="sales-list">
           {!loading && sales.length === 0 ? (
-            <div className="empty-state">No hay ventas en ese rango para esta sucursal.</div>
-          ) : null}
+            <div className="empty-state" style={{ padding: '4rem' }}>
+              No hay ventas registradas en este periodo.
+            </div>
+          ) : (
+            sales.map((sale) => {
+              const createdAt = formatSaleDateTime(sale.created_at);
+              const isVoid = sale.status === 'VOID';
 
-          {sales.map((sale) => {
-            const createdAt = formatSaleDateTime(sale.created_at);
-
-            return (
-              <button
-                key={sale.id}
-                className={`sale-row ${sale.id === selectedSaleId ? 'selected' : ''}`}
-                type="button"
-                onClick={() => void loadSaleDetail(sale.id)}
-              >
-                <div className="sale-row-head">
-                  <div>
-                    <strong>Venta #{sale.sale_number}</strong>
-                    <div className="subtle-text">
-                      {createdAt.date} · {createdAt.time}
+              return (
+                <button
+                  key={sale.id}
+                  className={`sale-row ${sale.id === selectedSaleId ? 'selected' : ''}`}
+                  type="button"
+                  style={{ 
+                    padding: '1.25rem', 
+                    textAlign: 'left', 
+                    width: '100%', 
+                    borderBottom: '1px solid var(--color-slate-100)',
+                    opacity: isVoid ? 0.6 : 1
+                  }}
+                  onClick={() => void loadSaleDetail(sale.id)}
+                >
+                  <div className="sale-row-head" style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '1rem' }}>
+                    <div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.25rem' }}>
+                        <strong style={{ fontSize: '1rem', color: 'var(--color-slate-900)' }}>Venta #{sale.sale_number}</strong>
+                        {isVoid && <span className="tag tag-danger" style={{ fontSize: '0.6rem' }}>ANULADA</span>}
+                      </div>
+                      <div className="subtle-text" style={{ fontSize: '0.8125rem' }}>
+                        {createdAt.date} · {createdAt.time}
+                      </div>
+                    </div>
+                    <div style={{ textAlign: 'right' }}>
+                      <strong className="sale-row-total" style={{ display: 'block', fontSize: '1.125rem', color: 'var(--color-slate-900)' }}>
+                        {formatMoneyFromCents(sale.total_cents)}
+                      </strong>
                     </div>
                   </div>
-                  <strong className="sale-row-total">{formatMoneyFromCents(sale.total_cents)}</strong>
-                </div>
 
-                <div className="history-sale-grid">
-                  <div>
-                    <span>Método</span>
-                    <strong>{paymentModeLabel(sale.payment_json.mode)}</strong>
+                  <div className="history-sale-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '1rem' }}>
+                    <div>
+                      <span style={{ display: 'block', fontSize: '0.65rem', color: 'var(--color-slate-400)', fontWeight: 700, textTransform: 'uppercase' }}>Pago</span>
+                      <strong style={{ fontSize: '0.875rem', fontWeight: 600 }}>{paymentModeLabel(sale.payment_json.mode)}</strong>
+                    </div>
+                    <div>
+                      <span style={{ display: 'block', fontSize: '0.65rem', color: 'var(--color-slate-400)', fontWeight: 700, textTransform: 'uppercase' }}>DIAN</span>
+                      <span className={statusClassName(sale.dian_status)} style={{ fontSize: '0.875rem', padding: '0.1rem 0.4rem', borderRadius: '4px' }}>
+                         {sale.dian_status ?? 'PENDING'}
+                      </span>
+                    </div>
                   </div>
-                  <div>
-                    <span>Estado</span>
-                    <strong>{sale.status}</strong>
-                  </div>
-                  <div>
-                    <span>DIAN</span>
-                    <span className={statusClassName(sale.dian_status)}>
-                      DIAN {sale.dian_status ?? 'PENDING'}
-                    </span>
-                  </div>
-                </div>
-              </button>
-            );
-          })}
+                </button>
+              );
+            })
+          )}
         </div>
       </section>
 
-      <aside className="history-detail">
-        <div className="section-heading">
-          <div>
-            <h3>Detalle de venta</h3>
-            <p>Visualiza items, pagos, impuestos y reimpresión del ticket.</p>
+      <aside className="history-detail" style={{ borderLeft: '1px solid var(--color-slate-100)', background: 'var(--color-slate-50)' }}>
+        <header className="section-heading" style={{ padding: '1.5rem 1.5rem 1rem' }}>
+          <div className="heading-copy">
+            <h3>Detalle de Transacción</h3>
+            <p>Auditoría completa de items, impuestos y estado legal</p>
           </div>
 
-          <div className="row-actions">
-            <button className="ghost-button" type="button" onClick={handlePrint} disabled={!selectedSaleDetail}>
-              Reimprimir ticket
+          <div className="row-actions" style={{ marginTop: '1rem', display: 'flex', gap: '0.5rem' }}>
+            <button 
+              className="button button-sm ghost-button" 
+              type="button" 
+              onClick={handlePrint} 
+              disabled={!selectedSaleDetail}
+              style={{ flex: 1 }}
+            >
+              🖨️ Ticket
             </button>
             <RoleGuard allowedRoles={['ADMIN']}>
               <button
-                className="danger-button"
+                className="button button-sm"
                 type="button"
                 onClick={openVoidModal}
                 disabled={!selectedSale || selectedSale.status === 'VOID'}
+                style={{ flex: 1, background: 'var(--color-slate-200)', color: 'var(--color-error-600)', border: 'none' }}
               >
-                Anular venta
+                Anular
               </button>
             </RoleGuard>
           </div>
-        </div>
+        </header>
 
         {detailLoading ? <Banner tone="info">Cargando detalle...</Banner> : null}
         {detailError ? <Banner tone="error">{detailError}</Banner> : null}
@@ -355,134 +376,102 @@ export function HistoryScreen({
         {!selectedSaleDetail ? (
           <div className="empty-state">Selecciona una venta para ver items, pagos y estado DIAN.</div>
         ) : (
-          <div className="stack-md">
+          <div className="stack-md" style={{ padding: '0 1.5rem 2rem' }}>
             {selectedSaleDetail.sale.status === 'VOID' ? (
               <Banner tone="warning">
-                Venta anulada
-                {selectedSaleDetail.sale.void_reason
-                  ? ` · Motivo: ${selectedSaleDetail.sale.void_reason}`
-                  : ''}
-                {selectedSaleRequiresDianAdjustment
-                  ? ' · Pendiente gestionar nota de ajuste DIAN.'
-                  : ''}
+                <strong>Venta Anulada</strong>
+                <p style={{ fontSize: '0.8125rem' }}>
+                  {selectedSaleDetail.sale.void_reason
+                    ? `Motivo: ${selectedSaleDetail.sale.void_reason}`
+                    : 'Sin motivo especificado'}
+                </p>
               </Banner>
             ) : null}
 
-            <div className="detail-card">
-              <div className="sale-row-head">
+            <div className="detail-card" style={{ padding: '1.25rem', background: '#ffffff', borderRadius: 'var(--radius-lg)', border: '1px solid var(--color-slate-100)' }}>
+              <div className="sale-row-head" style={{ marginBottom: '1.25rem', paddingBottom: '1rem', borderBottom: '1px solid var(--color-slate-100)' }}>
                 <div>
-                  <strong>Venta #{selectedSaleDetail.sale.sale_number}</strong>
-                  <div className="subtle-text">
+                  <strong style={{ fontSize: '1.125rem' }}>Venta #{selectedSaleDetail.sale.sale_number}</strong>
+                  <div className="subtle-text" style={{ fontSize: '0.875rem' }}>
                     {new Date(selectedSaleDetail.sale.created_at).toLocaleString('es-CO')}
                   </div>
                 </div>
-                <strong className="sale-row-total">
-                  {formatMoneyFromCents(selectedSaleDetail.sale.total_cents)}
-                </strong>
               </div>
 
-              <div className="detail-meta-grid">
+              <div className="detail-meta-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '1.25rem' }}>
                 <div>
-                  <span>Método</span>
-                  <strong>{paymentModeLabel(selectedSaleDetail.sale.payment_json.mode)}</strong>
+                  <span style={{ display: 'block', fontSize: '0.65rem', color: 'var(--color-slate-400)', fontWeight: 700, textTransform: 'uppercase' }}>Método de Pago</span>
+                  <strong style={{ fontSize: '0.875rem' }}>{paymentModeLabel(selectedSaleDetail.sale.payment_json.mode)}</strong>
                 </div>
                 <div>
-                  <span>Estado venta</span>
-                  <span
-                    className={`tag ${
-                      selectedSaleDetail.sale.status === 'VOID' ? 'tag-danger' : 'tag-success'
-                    }`}
-                  >
-                    {selectedSaleDetail.sale.status}
-                  </span>
-                </div>
-                <div>
-                  <span>Estado DIAN</span>
+                  <span style={{ display: 'block', fontSize: '0.65rem', color: 'var(--color-slate-400)', fontWeight: 700, textTransform: 'uppercase' }}>Estado Legal</span>
                   <span
                     className={statusClassName(
                       selectedSaleDetail.dian_document?.status ?? selectedSaleDetail.sale.dian_status
                     )}
+                    style={{ fontSize: '0.8125rem', padding: '0.1rem 0.4rem', borderRadius: '4px' }}
                   >
-                    DIAN{' '}
                     {selectedSaleDetail.dian_document?.status ??
                       selectedSaleDetail.sale.dian_status ??
                       'PENDING'}
                   </span>
                 </div>
-                <div>
-                  <span>CUDE</span>
-                  <strong className="history-cude">
-                    {selectedSaleDetail.dian_document?.cude ?? 'Pendiente'}
-                  </strong>
-                </div>
-                <div>
-                  <span>Anulada en</span>
-                  <strong>
-                    {selectedSaleDetail.sale.voided_at
-                      ? new Date(selectedSaleDetail.sale.voided_at).toLocaleString('es-CO')
-                      : 'No aplica'}
-                  </strong>
-                </div>
-                <div>
-                  <span>Motivo anulación</span>
-                  <strong>{selectedSaleDetail.sale.void_reason ?? 'No aplica'}</strong>
+                <div style={{ gridColumn: '1 / -1' }}>
+                  <span style={{ display: 'block', fontSize: '0.65rem', color: 'var(--color-slate-400)', fontWeight: 700, textTransform: 'uppercase' }}>CUDE / Hash DIAN</span>
+                  <code style={{ display: 'block', marginTop: '0.25rem', padding: '0.5rem', background: 'var(--color-slate-50)', borderRadius: '4px', fontSize: '0.7rem', wordBreak: 'break-all' }}>
+                    {selectedSaleDetail.dian_document?.cude ?? 'PENDIENTE DE PROCESAR'}
+                  </code>
                 </div>
               </div>
             </div>
-
-            <div className="detail-card">
-              <div className="section-heading">
-                <h3>Items</h3>
+            <div className="detail-card" style={{ padding: '1.25rem', background: '#ffffff', borderRadius: 'var(--radius-lg)', border: '1px solid var(--color-slate-100)' }}>
+              <div className="section-heading" style={{ marginBottom: '1rem' }}>
+                <h4 style={{ fontSize: '0.8125rem', fontWeight: 700, color: 'var(--color-slate-400)', textTransform: 'uppercase' }}>Artículos</h4>
               </div>
 
-              <div className="detail-items">
+              <div className="detail-items" style={{ display: 'grid', gap: '0.75rem' }}>
                 {selectedSaleDetail.items.map((item) => (
-                  <div key={item.id} className="detail-item-row">
-                    <span>
-                      {item.product_name} x {item.qty}
-                    </span>
-                    <strong>{formatMoneyFromCents(item.line_total_cents)}</strong>
+                  <div key={item.id} className="detail-item-row" style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', fontSize: '0.875rem' }}>
+                    <div style={{ width: '36px', height: '36px', borderRadius: '6px', overflow: 'hidden', flexShrink: 0, border: '1px solid var(--color-slate-100)' }}>
+                       {item.imageUrl ? (
+                         <img src={item.imageUrl} alt={item.product_name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                       ) : (
+                         <PlaceholderImage name={item.product_name ?? 'Producto'} size="sm" />
+                       )}
+                     </div>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.125rem' }}>
+                        <span style={{ color: 'var(--color-slate-900)', fontWeight: 600 }}>{item.product_name}</span>
+                        <strong style={{ color: 'var(--color-slate-900)' }}>{formatMoneyFromCents(item.line_total_cents)}</strong>
+                      </div>
+                      <div style={{ fontSize: '0.75rem', color: 'var(--color-slate-400)' }}>
+                        {formatMoneyFromCents(item.price_cents)} × {item.qty}
+                      </div>
+                    </div>
                   </div>
                 ))}
               </div>
             </div>
 
-            <div className="detail-card">
-              <div className="section-heading">
-                <h3>Pagos</h3>
-              </div>
-
-              <div className="payment-breakdown-list">
-                {selectedSalePayments.map((payment, index) => (
-                  <div key={`${payment.method}-${payment.amountCents}-${index}`} className="payment-breakdown-row">
-                    <span>{paymentMethodLabel(payment.method)}</span>
-                    <strong>{formatMoneyFromCents(payment.amountCents)}</strong>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            <div className="detail-card">
-              <div className="section-heading">
-                <h3>Resumen fiscal</h3>
-              </div>
-
+            <div className="detail-card" style={{ padding: '1.25rem', background: 'var(--color-slate-900)', color: '#ffffff', borderRadius: 'var(--radius-lg)' }}>
               <div className="totals-box">
-                <div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.875rem', color: 'rgba(255,255,255,0.6)', marginBottom: '0.5rem' }}>
                   <span>Subtotal</span>
-                  <strong>{formatMoneyFromCents(selectedSaleDetail.sale.subtotal_cents)}</strong>
+                  <span>{formatMoneyFromCents(selectedSaleDetail.sale.subtotal_cents)}</span>
                 </div>
-                <div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.875rem', color: 'rgba(255,255,255,0.6)', marginBottom: '0.5rem' }}>
                   <span>Descuento</span>
-                  <strong>{formatMoneyFromCents(selectedSaleDetail.sale.discount_cents)}</strong>
+                  <span>-{formatMoneyFromCents(selectedSaleDetail.sale.discount_cents)}</span>
                 </div>
-                <div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.875rem', color: 'rgba(255,255,255,0.6)', marginBottom: '0.5rem' }}>
                   <span>Impuestos</span>
-                  <strong>{formatMoneyFromCents(selectedSaleDetail.sale.tax_total_cents)}</strong>
+                  <span>{formatMoneyFromCents(selectedSaleDetail.sale.tax_total_cents)}</span>
                 </div>
-                <div className="summary-highlight">
-                  <span>Total</span>
-                  <strong>{formatMoneyFromCents(selectedSaleDetail.sale.total_cents)}</strong>
+                <div className="summary-highlight" style={{ marginTop: '0.75rem', paddingTop: '0.75rem', borderTop: '1px solid rgba(255,255,255,0.1)' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+                    <span style={{ fontSize: '0.75rem', fontWeight: 700, textTransform: 'uppercase', color: 'rgba(255,255,255,0.8)' }}>Total</span>
+                    <strong style={{ fontSize: '1.5rem' }}>{formatMoneyFromCents(selectedSaleDetail.sale.total_cents)}</strong>
+                  </div>
                 </div>
               </div>
             </div>

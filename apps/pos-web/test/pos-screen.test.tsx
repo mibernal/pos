@@ -130,22 +130,22 @@ describe('PosScreen', () => {
 
     expect(await screen.findByRole('button', { name: /agregar destacado/i })).toBeInTheDocument();
 
-    const searchInput = screen.getByLabelText('Búsqueda rápida');
+    const searchInput = screen.getByPlaceholderText(/buscar por nombre/i);
     searchInput.focus();
     fireEvent.keyDown(searchInput, { key: 'Enter' });
 
     expect(await screen.findByText('Carrito actual')).toBeInTheDocument();
     expect(screen.getByLabelText('Cantidad de Cafe Americano')).toBeInTheDocument();
     expect(
-      normalizeText(screen.getByRole('button', { name: /cobrar ahora/i }).textContent)
+      normalizeText(screen.getByRole('button', { name: /cobrar \(f12\)/i }).textContent)
     ).toContain(normalizeText(formatMoneyFromCents(1500)));
 
-    const visibleDiscountInput = screen.getByLabelText('Descuento visible (COP)');
+    const visibleDiscountInput = screen.getByPlaceholderText(/0.00/i);
     fireEvent.change(visibleDiscountInput, { target: { value: '2' } });
 
     await waitFor(() => {
       expect(
-        normalizeText(screen.getByRole('button', { name: /cobrar ahora/i }).textContent)
+        normalizeText(screen.getByRole('button', { name: /cobrar \(f12\)/i }).textContent)
       ).toContain(normalizeText(formatMoneyFromCents(1300)));
     });
 
@@ -153,9 +153,9 @@ describe('PosScreen', () => {
 
     await waitFor(() => {
       expect(
-        screen.getByText(/agrega productos desde la búsqueda o el catálogo/i)
+        screen.getByText(/el carrito está vacío/i)
       ).toBeInTheDocument();
-      expect(screen.getByRole('button', { name: /cobrar ahora/i })).toBeDisabled();
+      expect(screen.getByRole('button', { name: /cobrar \(f12\)/i })).toBeDisabled();
     });
   });
 
@@ -181,7 +181,7 @@ describe('PosScreen', () => {
     vi.spyOn(globalThis.crypto, 'randomUUID').mockImplementation(() => {
       const nextValue = randomValues[randomIndex] ?? 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee';
       randomIndex += 1;
-      return nextValue;
+      return nextValue as `${string}-${string}-${string}-${string}-${string}`;
     });
 
     render(
@@ -245,9 +245,9 @@ describe('PosScreen', () => {
 
     expect(await screen.findByText(/venta #23 registrada/i)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /imprimir ticket/i })).toBeInTheDocument();
-    expect(screen.getByText(/estado dian inicial/i)).toBeInTheDocument();
+    expect(screen.getByText(/facturación electrónica/i)).toBeInTheDocument();
     expect(
-      screen.getByText(/agrega productos desde la búsqueda o el catálogo/i)
+      screen.getByText(/el carrito está vacío/i)
     ).toBeInTheDocument();
   });
 
