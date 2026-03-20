@@ -3,29 +3,37 @@ import { sql, type Kysely } from 'kysely';
 export async function up(db: Kysely<unknown>): Promise<void> {
   await sql`
     ALTER TABLE sales
-    ADD COLUMN void_reason TEXT NULL
+    ADD COLUMN IF NOT EXISTS void_reason TEXT NULL
   `.execute(db);
 
   await sql`
     ALTER TABLE sales
-    ADD COLUMN voided_by_user_id UUID NULL
+    ADD COLUMN IF NOT EXISTS voided_by_user_id UUID NULL
   `.execute(db);
 
   await sql`
     ALTER TABLE sales
-    ADD COLUMN voided_at TIMESTAMPTZ NULL
+    ADD COLUMN IF NOT EXISTS voided_at TIMESTAMPTZ NULL
   `.execute(db);
 
   await sql`
-    ALTER TABLE sales
-    ADD CONSTRAINT fk_sales_voided_by_user
-    FOREIGN KEY (voided_by_user_id) REFERENCES users (id) ON DELETE RESTRICT
+    DO $$ BEGIN
+      IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_sales_voided_by_user') THEN
+        ALTER TABLE sales
+        ADD CONSTRAINT fk_sales_voided_by_user
+        FOREIGN KEY (voided_by_user_id) REFERENCES users (id) ON DELETE RESTRICT;
+      END IF;
+    END $$;
   `.execute(db);
 
   await sql`
-    ALTER TABLE sales
-    ADD CONSTRAINT ck_sales_void_reason_not_blank
-    CHECK (void_reason IS NULL OR char_length(trim(void_reason)) > 0)
+    DO $$ BEGIN
+      IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'ck_sales_void_reason_not_blank') THEN
+        ALTER TABLE sales
+        ADD CONSTRAINT ck_sales_void_reason_not_blank
+        CHECK (void_reason IS NULL OR char_length(trim(void_reason)) > 0);
+      END IF;
+    END $$;
   `.execute(db);
 
   await sql`
@@ -38,27 +46,31 @@ export async function up(db: Kysely<unknown>): Promise<void> {
   `.execute(db);
 
   await sql`
-    ALTER TABLE sales
-    ADD CONSTRAINT ck_sales_void_metadata_consistency
-    CHECK (
-      (
-        status = 'VOID'
-        AND void_reason IS NOT NULL
-        AND voided_by_user_id IS NOT NULL
-        AND voided_at IS NOT NULL
-      )
-      OR
-      (
-        status = 'COMPLETED'
-        AND void_reason IS NULL
-        AND voided_by_user_id IS NULL
-        AND voided_at IS NULL
-      )
-    )
+    DO $$ BEGIN
+      IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'ck_sales_void_metadata_consistency') THEN
+        ALTER TABLE sales
+        ADD CONSTRAINT ck_sales_void_metadata_consistency
+        CHECK (
+          (
+            status = 'VOID'
+            AND void_reason IS NOT NULL
+            AND voided_by_user_id IS NOT NULL
+            AND voided_at IS NOT NULL
+          )
+          OR
+          (
+            status = 'COMPLETED'
+            AND void_reason IS NULL
+            AND voided_by_user_id IS NULL
+            AND voided_at IS NULL
+          )
+        );
+      END IF;
+    END $$;
   `.execute(db);
 
   await sql`
-    CREATE INDEX idx_sales_tenant_voided_at
+    CREATE INDEX IF NOT EXISTS idx_sales_tenant_voided_at
     ON sales (tenant_id, voided_at DESC)
   `.execute(db);
 }

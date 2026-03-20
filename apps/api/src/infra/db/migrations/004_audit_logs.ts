@@ -2,7 +2,7 @@ import { sql, type Kysely } from 'kysely';
 
 export async function up(db: Kysely<unknown>): Promise<void> {
   await sql`
-    CREATE TABLE audit_logs (
+    CREATE TABLE IF NOT EXISTS audit_logs (
       id UUID PRIMARY KEY,
       tenant_id UUID NOT NULL,
       branch_id UUID NULL,
@@ -23,17 +23,17 @@ export async function up(db: Kysely<unknown>): Promise<void> {
   `.execute(db);
 
   await sql`
-    CREATE INDEX idx_audit_logs_tenant_created
+    CREATE INDEX IF NOT EXISTS idx_audit_logs_tenant_created
     ON audit_logs (tenant_id, created_at DESC)
   `.execute(db);
 
   await sql`
-    CREATE INDEX idx_audit_logs_tenant_entity
+    CREATE INDEX IF NOT EXISTS idx_audit_logs_tenant_entity
     ON audit_logs (tenant_id, entity_type, entity_id)
   `.execute(db);
 
   await sql`
-    CREATE INDEX idx_audit_logs_tenant_branch
+    CREATE INDEX IF NOT EXISTS idx_audit_logs_tenant_branch
     ON audit_logs (tenant_id, branch_id, created_at DESC)
   `.execute(db);
 }
