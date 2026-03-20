@@ -1,0 +1,11 @@
+{
+  "name": "@pos-dian/config",
+  "version": "0.1.0",
+  "private": true,
+  "type": "commonjs",
+  "files": [
+    "eslint",
+    "prettier",
+    "tsconfig"
+  ]
+}

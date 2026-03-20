@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-label="POS DIAN">
+  <rect width="256" height="256" rx="32" fill="#0f172a"/>
+  <path d="M56 78h144v100H56z" fill="#f8fafc"/>
+  <path d="M76 98h104v12H76zm0 26h52v12H76zm0 26h72v12H76z" fill="#0f172a"/>
+  <circle cx="174" cy="156" r="16" fill="#2563eb"/>
+</svg>

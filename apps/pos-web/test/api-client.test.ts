@@ -1,0 +1,197 @@
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { createApiClient, type AuthSession } from '../src/lib/api';
+
+const baseSession: AuthSession = {
+  accessToken: 'token-123',
+  user: {
+    id: '11111111-1111-4111-8111-111111111111',
+    tenantId: '22222222-2222-4222-8222-222222222222',
+    taxMode: 'IVA',
+    role: 'ADMIN',
+    email: 'admin@demo.posdian.local',
+    name: 'Admin Demo',
+    active: true
+  }
+};
+
+function buildClient(overrides?: Partial<Parameters<typeof createApiClient>[0]>) {
+  return createApiClient({
+    baseUrl: 'http://localhost:3000/api/v1',
+    getSession: () => baseSession,
+    setSession: vi.fn(),
+    ...overrides
+  });
+}
+
+function jsonResponse(body: unknown, status = 200): Response {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: {
+      'content-type': 'application/json'
+    }
+  });
+}
+
+describe('api-client DIAN/product contract', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('sends PATCH taxMode payload to tenant tax-profile endpoint', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      jsonResponse({
+        id: baseSession.user.tenantId,
+        name: 'Tenant Demo',
+        nit: '900123123',
+        businessName: 'Comercio Demo SAS',
+        address: 'Calle 10 # 20-30',
+        phone: '6011234567',
+        footerMessage: 'Gracias por tu compra',
+        taxMode: 'INC_RESTAURANT',
+        createdAt: new Date().toISOString()
+      })
+    );
+
+    const client = buildClient();
+    const result = await client.updateTenantTaxProfile(baseSession.user.tenantId, 'INC_RESTAURANT');
+
+    expect(result.taxMode).toBe('INC_RESTAURANT');
+    expect(fetchMock).toHaveBeenCalledOnce();
+    const [url, init] = fetchMock.mock.calls[0]!;
+    expect(String(url)).toBe(
+      `http://localhost:3000/api/v1/admin/tenants/${baseSession.user.tenantId}/tax-profile`
+    );
+    expect((init as RequestInit).method).toBe('PATCH');
+    expect((init as RequestInit).body).toBe(JSON.stringify({ taxMode: 'INC_RESTAURANT' }));
+  });
+
+  it('sends business profile payload to the current tenant endpoint', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      jsonResponse({
+        id: baseSession.user.tenantId,
+        name: 'Tenant Demo',
+        nit: '900123123',
+        businessName: 'Carnes Centro SAS',
+        address: 'Cra 7 # 15-20',
+        phone: '6011234567',
+        footerMessage: 'Gracias por su compra',
+        taxMode: 'IVA',
+        createdAt: new Date().toISOString()
+      })
+    );
+
+    const client = buildClient();
+    const result = await client.updateTenantBusinessProfile({
+      businessName: 'Carnes Centro SAS',
+      nit: '900123123',
+      address: 'Cra 7 # 15-20',
+      phone: '6011234567',
+      footerMessage: 'Gracias por su compra'
+    });
+
+    expect(result.address).toBe('Cra 7 # 15-20');
+    expect(result.phone).toBe('6011234567');
+    expect(result.footerMessage).toBe('Gracias por su compra');
+    const [url, init] = fetchMock.mock.calls[0]!;
+    expect(String(url)).toBe('http://localhost:3000/api/v1/admin/tenants/current');
+    expect((init as RequestInit).method).toBe('PATCH');
+    expect((init as RequestInit).body).toBe(
+      JSON.stringify({
+        businessName: 'Carnes Centro SAS',
+        nit: '900123123',
+        address: 'Cra 7 # 15-20',
+        phone: '6011234567',
+        footerMessage: 'Gracias por su compra'
+      })
+    );
+  });
+
+  it('returns tenant taxMode from login responses', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      jsonResponse({
+        accessToken: 'token-cashier',
+        tokenType: 'Bearer',
+        expiresIn: '8h',
+        user: {
+          id: '55555555-5555-4555-8555-555555555555',
+          tenantId: baseSession.user.tenantId,
+          taxMode: 'INC_RESTAURANT',
+          role: 'CASHIER',
+          email: 'cashier@demo.posdian.local',
+          name: 'Caja Uno',
+          active: true
+        }
+      })
+    );
+
+    const client = buildClient();
+    const result = await client.login('cashier@demo.posdian.local', 'Cashier123*');
+
+    expect(result.user.taxMode).toBe('INC_RESTAURANT');
+  });
+
+  it('sends product taxCategory and price_cents when creating products', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      jsonResponse({
+        id: '33333333-3333-4333-8333-333333333333',
+        tenantId: baseSession.user.tenantId,
+        branchId: '44444444-4444-4444-8444-444444444444',
+        name: 'Almuerzo ejecutivo',
+        category: 'Platos',
+        taxCategory: 'INC_8',
+        barcode: null,
+        price_cents: 32000,
+        active: true,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      })
+    );
+
+    const client = buildClient();
+    await client.createProduct(
+      {
+        branchId: '44444444-4444-4444-8444-444444444444',
+        name: 'Almuerzo ejecutivo',
+        category: 'Platos',
+        taxCategory: 'INC_8',
+        barcode: null,
+        price_cents: 32000,
+        active: true
+      },
+      '44444444-4444-4444-8444-444444444444'
+    );
+
+    expect(fetchMock).toHaveBeenCalledOnce();
+    const [, init] = fetchMock.mock.calls[0]!;
+    expect((init as RequestInit).method).toBe('POST');
+    expect((init as RequestInit).body).toBe(
+      JSON.stringify({
+        branchId: '44444444-4444-4444-8444-444444444444',
+        name: 'Almuerzo ejecutivo',
+        category: 'Platos',
+        taxCategory: 'INC_8',
+        barcode: null,
+        price_cents: 32000,
+        active: true
+      })
+    );
+  });
+
+  it('clears the persisted session when a protected request returns 401', async () => {
+    const setSession = vi.fn();
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      jsonResponse({ message: 'No autorizado' }, 401)
+    );
+
+    const client = buildClient({
+      setSession
+    });
+
+    await expect(client.me()).rejects.toMatchObject({
+      status: 401
+    });
+
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(setSession).toHaveBeenCalledWith(null);
+  });
+});

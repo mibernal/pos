@@ -1,0 +1,153 @@
+import * as http from 'node:http';
+import { Queue, QueueEvents, Worker } from 'bullmq';
+import { DIAN_QUEUE_NAME } from '@pos-dian/shared';
+import { env } from './config/env.js';
+import { createDbPool } from './infra/db/pool.js';
+import { buildDianProvider } from './providers/index.js';
+import { buildOutboxSaleCreatedProcessor } from './jobs/outbox-sale-created.processor.js';
+import { buildOutboxSaleVoidedProcessor } from './jobs/outbox-sale-voided.processor.js';
+import type { OutboxSaleCreatedJobData, OutboxSaleVoidedJobData } from './jobs/types.js';
+import { enqueueDueOutboxEvents } from './scheduler/outbox-events.scheduler.js';
+import { logWorkerError, logWorkerInfo } from './infra/logging/worker-log.js';
+
+const provider = buildDianProvider();
+const dbPool = createDbPool();
+
+type AnyOutboxJobData = OutboxSaleCreatedJobData | OutboxSaleVoidedJobData;
+
+const queue = new Queue<AnyOutboxJobData>(DIAN_QUEUE_NAME, {
+  connection: {
+    url: env.REDIS_URL
+  }
+});
+
+const outboxSaleCreatedProcessor = buildOutboxSaleCreatedProcessor({ pool: dbPool, provider });
+const outboxSaleVoidedProcessor = buildOutboxSaleVoidedProcessor({ pool: dbPool, provider });
+
+const worker = new Worker<AnyOutboxJobData>(
+  DIAN_QUEUE_NAME,
+  async (job) => {
+    if (job.name === 'process-sale-created-outbox-event') {
+      return outboxSaleCreatedProcessor(job as any);
+    } else if (job.name === 'process-sale-voided-outbox-event') {
+      return outboxSaleVoidedProcessor(job as any);
+    }
+    throw new Error(`Unknown job name: ${job.name}`);
+  },
+  {
+    connection: {
+      url: env.REDIS_URL
+    },
+    concurrency: 10
+  }
+);
+
+const queueEvents = new QueueEvents(DIAN_QUEUE_NAME, {
+  connection: {
+    url: env.REDIS_URL
+  }
+});
+
+worker.on('ready', () => {
+  logWorkerInfo({
+    event: 'worker_ready',
+    message: 'Worker listo y escuchando cola DIAN'
+  });
+});
+
+worker.on('completed', (job) => {
+  logWorkerInfo({
+    event: 'worker_job_completed',
+    message: 'Worker job completed',
+    job_id: job.id?.toString(),
+    outbox_event_id: job.data.outboxEventId
+  });
+});
+
+worker.on('failed', (job, error) => {
+  logWorkerError({
+    event: 'worker_job_failed',
+    message: 'Worker job failed',
+    job_id: job?.id?.toString(),
+    outbox_event_id: job?.data.outboxEventId,
+    error
+  });
+});
+
+queueEvents.on('waiting', ({ jobId }) => {
+  logWorkerInfo({
+    event: 'queue_job_waiting',
+    message: 'Job waiting in DIAN queue',
+    job_id: jobId
+  });
+});
+
+const schedulerTimer: NodeJS.Timeout = setInterval(() => {
+  void enqueueDueOutboxEvents(dbPool, queue, env.OUTBOX_BATCH_SIZE)
+    .then((enqueued) => {
+      if (enqueued > 0) {
+        logWorkerInfo({
+          event: 'scheduler_outbox_enqueued',
+          message: 'Outbox events enqueued by scheduler',
+          details: {
+            enqueued
+          }
+        });
+      }
+    })
+    .catch((error) => {
+      logWorkerError({
+        event: 'scheduler_outbox_enqueue_failed',
+        message: 'Scheduler failed while enqueuing outbox events',
+        error
+      });
+    });
+}, env.OUTBOX_POLL_INTERVAL_MS);
+
+void enqueueDueOutboxEvents(dbPool, queue, env.OUTBOX_BATCH_SIZE)
+  .then((enqueued) => {
+    if (enqueued > 0) {
+      logWorkerInfo({
+        event: 'scheduler_startup_outbox_enqueued',
+        message: 'Startup scheduler enqueued outbox events',
+        details: {
+          enqueued
+        }
+      });
+    }
+  })
+  .catch((error) => {
+    logWorkerError({
+      event: 'scheduler_startup_failed',
+      message: 'Scheduler failed on startup',
+      error
+    });
+  });
+
+const healthServer = http.createServer((req, res) => {
+  if (req.url === '/health') {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ status: 'ok', service: 'worker' }));
+    return;
+  }
+  res.writeHead(404);
+  res.end();
+});
+
+const port = process.env.PORT || 8080;
+healthServer.listen(port, () => {
+  logWorkerInfo({
+    event: 'health_server_started',
+    message: `Worker health server listening on port ${port}`
+  });
+});
+
+const shutdown = async () => {
+  healthServer.close();
+  clearInterval(schedulerTimer);
+  await Promise.all([worker.close(), queue.close(), queueEvents.close(), dbPool.end()]);
+  process.exit(0);
+};
+
+process.on('SIGINT', shutdown);
+process.on('SIGTERM', shutdown);

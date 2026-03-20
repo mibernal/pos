@@ -1,0 +1,10 @@
+{
+  "extends": "./packages/config/tsconfig/base.json",
+  "compilerOptions": {
+    "baseUrl": ".",
+    "paths": {
+      "@pos-dian/shared": ["packages/shared/src/index.ts"],
+      "@pos-dian/shared/*": ["packages/shared/src/*"]
+    }
+  }
+}

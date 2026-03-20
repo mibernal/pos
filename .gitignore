@@ -1,0 +1,15 @@
+node_modules
+.pnpm-store
+.turbo
+.DS_Store
+.env
+.env.*
+!.env.example
+
+dist
+build
+coverage
+*.log
+
+apps/pos-web/.vite
+apps/pos-web/dev-dist

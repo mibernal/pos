@@ -1,0 +1,301 @@
+import React from 'react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { PosScreen } from '../src/features/sales';
+import { formatMoneyFromCents } from '../src/lib/format';
+import type { PosApiClient } from '../src/types';
+
+function normalizeText(value: string | null | undefined) {
+  return (value ?? '').replace(/\s+/g, ' ').trim();
+}
+
+function buildApiMock(products: Array<{ id: string; name: string; barcode: string | null; price_cents: number }>) {
+  const apiMock = {
+    listProducts: vi.fn().mockResolvedValue({
+      items: products.map((product) => ({
+        id: product.id,
+        tenantId: 'tenant-1',
+        branchId: 'branch-1',
+        name: product.name,
+        category: 'Bebidas',
+        taxCategory: 'IVA_19',
+        barcode: product.barcode,
+        price_cents: product.price_cents,
+        active: true,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      })),
+      page: {
+        limit: 120,
+        count: products.length,
+        hasMore: false
+      }
+    }),
+    createSale: vi.fn(),
+    getSale: vi.fn(),
+    getCurrentCashSession: vi.fn(),
+    getCurrentTenantProfile: vi.fn(),
+    listBranches: vi.fn(),
+    listSales: vi.fn(),
+    login: vi.fn(),
+    me: vi.fn(),
+    openCashSession: vi.fn(),
+    patchProduct: vi.fn(),
+    createProduct: vi.fn(),
+    toggleProductActive: vi.fn(),
+    updateTenantBusinessProfile: vi.fn(),
+    updateTenantTaxProfile: vi.fn(),
+    voidSale: vi.fn()
+  };
+
+  return apiMock as typeof apiMock & PosApiClient;
+}
+
+function buildCreatedSaleResponse(totalCents: number) {
+  return {
+    sale: {
+      id: 'sale-1',
+      tenant_id: 'tenant-1',
+      branch_id: 'branch-1',
+      cash_session_id: 'cash-session-1',
+      sale_number: 23,
+      status: 'COMPLETED' as const,
+      subtotal_cents: totalCents,
+      discount_cents: 0,
+      total_cents: totalCents,
+      tax_total_cents: 0,
+      tax_lines_json: [],
+      payment_json: {
+        mode: 'CASH' as const,
+        total_cents: totalCents,
+        amounts: {
+          cash_cents: totalCents,
+          card_cents: 0,
+          transfer_cents: 0
+        },
+        payments: [{ method: 'CASH' as const, amount_cents: totalCents }]
+      },
+      dian_status: 'PENDING' as const,
+      created_by_user_id: 'user-1',
+      void_reason: null,
+      voided_by_user_id: null,
+      voided_at: null,
+      created_at: new Date().toISOString()
+    },
+    items: [
+      {
+        id: 'sale-item-1',
+        product_id: 'product-1',
+        qty: 1,
+        price_cents: totalCents,
+        line_total_cents: totalCents
+      }
+    ]
+  };
+}
+
+describe('PosScreen', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('adds the highlighted product with Enter, applies visible discount and removes selected item with Delete', async () => {
+    const api = buildApiMock([
+      {
+        id: 'product-1',
+        name: 'Cafe Americano',
+        barcode: '77010001',
+        price_cents: 1500
+      }
+    ]);
+
+    render(
+      <PosScreen
+        api={api}
+        branchId="branch-1"
+        cashSessionId="cash-session-1"
+        branchName="Sucursal Centro"
+        ticketTemplate={{
+          businessName: 'POS DIAN',
+          nit: '900123123',
+          address: 'Calle 1',
+          phone: '',
+          footerMessage: '',
+          logoUrl: ''
+        }}
+        tenantTaxMode="IVA"
+        onSaleQueued={vi.fn()}
+      />
+    );
+
+    expect(await screen.findByRole('button', { name: /agregar destacado/i })).toBeInTheDocument();
+
+    const searchInput = screen.getByLabelText('Búsqueda rápida');
+    searchInput.focus();
+    fireEvent.keyDown(searchInput, { key: 'Enter' });
+
+    expect(await screen.findByText('Carrito actual')).toBeInTheDocument();
+    expect(screen.getByLabelText('Cantidad de Cafe Americano')).toBeInTheDocument();
+    expect(
+      normalizeText(screen.getByRole('button', { name: /cobrar ahora/i }).textContent)
+    ).toContain(normalizeText(formatMoneyFromCents(1500)));
+
+    const visibleDiscountInput = screen.getByLabelText('Descuento visible (COP)');
+    fireEvent.change(visibleDiscountInput, { target: { value: '2' } });
+
+    await waitFor(() => {
+      expect(
+        normalizeText(screen.getByRole('button', { name: /cobrar ahora/i }).textContent)
+      ).toContain(normalizeText(formatMoneyFromCents(1300)));
+    });
+
+    fireEvent.keyDown(window, { key: 'Delete' });
+
+    await waitFor(() => {
+      expect(
+        screen.getByText(/agrega productos desde la búsqueda o el catálogo/i)
+      ).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /cobrar ahora/i })).toBeDisabled();
+    });
+  });
+
+  it('opens the checkout modal, calculates cash change and submits a compatible sale payload', async () => {
+    const api = buildApiMock([
+      {
+        id: 'product-1',
+        name: 'Cafe Americano',
+        barcode: '77010001',
+        price_cents: 1500
+      }
+    ]);
+    api.createSale.mockResolvedValue(buildCreatedSaleResponse(1500));
+
+    const randomValues = [
+      'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+      'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
+      'dddddddd-dddd-4ddd-8ddd-dddddddddddd'
+    ];
+    let randomIndex = 0;
+
+    vi.spyOn(globalThis.crypto, 'randomUUID').mockImplementation(() => {
+      const nextValue = randomValues[randomIndex] ?? 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee';
+      randomIndex += 1;
+      return nextValue;
+    });
+
+    render(
+      <PosScreen
+        api={api}
+        branchId="branch-1"
+        cashSessionId="cash-session-1"
+        branchName="Sucursal Centro"
+        ticketTemplate={{
+          businessName: 'POS DIAN',
+          nit: '900123123',
+          address: 'Calle 1',
+          phone: '',
+          footerMessage: '',
+          logoUrl: ''
+        }}
+        tenantTaxMode="IVA"
+        onSaleQueued={vi.fn()}
+      />
+    );
+
+    expect(await screen.findByRole('button', { name: /agregar destacado/i })).toBeInTheDocument();
+
+    fireEvent.keyDown(screen.getByLabelText('Búsqueda rápida'), { key: 'Enter' });
+    fireEvent.click(screen.getByRole('button', { name: /cobrar ahora/i }));
+
+    const dialog = screen.getByRole('dialog', { name: 'Cobrar venta' });
+    const receivedInput = within(dialog).getByLabelText('Recibido (COP)');
+
+    fireEvent.change(receivedInput, { target: { value: '20' } });
+
+    await waitFor(() => {
+      const changeCard = within(dialog).getByText('Cambio').closest('.metric-card');
+      expect(normalizeText(changeCard?.textContent)).toContain(
+        normalizeText(formatMoneyFromCents(500))
+      );
+    });
+
+    fireEvent.click(within(dialog).getByRole('button', { name: /confirmar cobro/i }));
+
+    await waitFor(() => {
+      expect(api.createSale).toHaveBeenCalledTimes(1);
+    });
+
+    expect(api.createSale).toHaveBeenCalledWith(
+      expect.objectContaining({
+        client_uuid: expect.stringMatching(/^[0-9a-f-]{36}$/i),
+        branch_id: 'branch-1',
+        cash_session_id: 'cash-session-1',
+        discount_cents: 0,
+        items: [
+          {
+            product_id: 'product-1',
+            qty: 1,
+            price_cents: 1500
+          }
+        ],
+        payments: [{ method: 'CASH', amount_cents: 1500 }]
+      })
+    );
+
+    expect(await screen.findByText(/venta #23 registrada/i)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /imprimir ticket/i })).toBeInTheDocument();
+    expect(screen.getByText(/estado dian inicial/i)).toBeInTheDocument();
+    expect(
+      screen.getByText(/agrega productos desde la búsqueda o el catálogo/i)
+    ).toBeInTheDocument();
+  });
+
+  it('requires exact mixed payment totals before enabling charge confirmation', async () => {
+    const api = buildApiMock([
+      {
+        id: 'product-1',
+        name: 'Cafe Americano',
+        barcode: '77010001',
+        price_cents: 1500
+      }
+    ]);
+
+    render(
+      <PosScreen
+        api={api}
+        branchId="branch-1"
+        cashSessionId="cash-session-1"
+        branchName="Sucursal Centro"
+        ticketTemplate={{
+          businessName: 'POS DIAN',
+          nit: '900123123',
+          address: 'Calle 1',
+          phone: '',
+          footerMessage: '',
+          logoUrl: ''
+        }}
+        tenantTaxMode="IVA"
+        onSaleQueued={vi.fn()}
+      />
+    );
+
+    expect(await screen.findByRole('button', { name: /agregar destacado/i })).toBeInTheDocument();
+
+    fireEvent.keyDown(screen.getByLabelText('Búsqueda rápida'), { key: 'Enter' });
+    fireEvent.click(screen.getByRole('button', { name: /cobrar ahora/i }));
+
+    const dialog = screen.getByRole('dialog', { name: 'Cobrar venta' });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Mixto' }));
+
+    const confirmButton = within(dialog).getByRole('button', { name: /confirmar cobro/i });
+    expect(confirmButton).toBeDisabled();
+
+    fireEvent.change(within(dialog).getByLabelText('Monto línea 1'), { target: { value: '10' } });
+    fireEvent.change(within(dialog).getByLabelText('Monto línea 2'), { target: { value: '5' } });
+
+    await waitFor(() => {
+      expect(confirmButton).toBeEnabled();
+    });
+  });
+});

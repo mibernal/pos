@@ -1,0 +1,268 @@
+import { randomUUID } from 'node:crypto';
+import type { FastifyInstance } from 'fastify';
+import { sql } from 'kysely';
+import { hashPassword } from '../../src/auth/password.js';
+import { createDb } from '../../src/infra/db/connection.js';
+import type { ProductTaxCategory, TenantTaxMode } from '../../src/infra/db/schema.js';
+
+const adminPassword = 'Admin123*';
+const cashierPassword = 'Cashier123*';
+
+let adminPasswordHashPromise: Promise<string> | null = null;
+let cashierPasswordHashPromise: Promise<string> | null = null;
+
+function getAdminPasswordHash(): Promise<string> {
+  adminPasswordHashPromise ??= hashPassword(adminPassword);
+  return adminPasswordHashPromise;
+}
+
+function getCashierPasswordHash(): Promise<string> {
+  cashierPasswordHashPromise ??= hashPassword(cashierPassword);
+  return cashierPasswordHashPromise;
+}
+
+export interface E2eFixture {
+  tenantId: string;
+  branchId: string;
+  adminUserId: string;
+  cashierUserId: string;
+  productId: string;
+  adminEmail: string;
+  cashierEmail: string;
+  adminPassword: string;
+  cashierPassword: string;
+  productPriceCents: number;
+}
+
+let schemaReadyPromise: Promise<void> | null = null;
+
+export function ensureE2eSchema(): Promise<void> {
+  schemaReadyPromise ??= (async () => {
+    const db = createDb();
+
+    try {
+      await sql`
+        ALTER TABLE tenants
+        ADD COLUMN IF NOT EXISTS tax_mode TEXT NOT NULL DEFAULT 'IVA'
+      `.execute(db);
+
+      await sql`
+        ALTER TABLE tenants
+        ADD COLUMN IF NOT EXISTS address TEXT NOT NULL DEFAULT 'Dirección no configurada'
+      `.execute(db);
+
+      await sql`
+        ALTER TABLE tenants
+        ADD COLUMN IF NOT EXISTS phone TEXT NULL
+      `.execute(db);
+
+      await sql`
+        ALTER TABLE tenants
+        ADD COLUMN IF NOT EXISTS footer_message TEXT NULL
+      `.execute(db);
+
+      await sql`
+        ALTER TABLE products
+        ADD COLUMN IF NOT EXISTS tax_category TEXT NOT NULL DEFAULT 'IVA_19'
+      `.execute(db);
+
+      await sql`
+        ALTER TABLE sales
+        ADD COLUMN IF NOT EXISTS client_uuid UUID
+      `.execute(db);
+
+      await sql`
+        ALTER TABLE sales
+        ADD COLUMN IF NOT EXISTS tax_total_cents INTEGER NOT NULL DEFAULT 0
+      `.execute(db);
+
+      await sql`
+        ALTER TABLE sales
+        ADD COLUMN IF NOT EXISTS tax_lines_json JSONB NOT NULL DEFAULT '[]'::jsonb
+      `.execute(db);
+
+      await sql`
+        ALTER TABLE sales
+        ADD COLUMN IF NOT EXISTS void_reason TEXT NULL
+      `.execute(db);
+
+      await sql`
+        ALTER TABLE sales
+        ADD COLUMN IF NOT EXISTS voided_by_user_id UUID NULL
+      `.execute(db);
+
+      await sql`
+        ALTER TABLE sales
+        ADD COLUMN IF NOT EXISTS voided_at TIMESTAMPTZ NULL
+      `.execute(db);
+
+      await sql`
+        CREATE TABLE IF NOT EXISTS audit_logs (
+          id UUID PRIMARY KEY,
+          tenant_id UUID NOT NULL,
+          branch_id UUID NULL,
+          user_id UUID NULL,
+          entity_type TEXT NOT NULL,
+          entity_id TEXT NOT NULL,
+          action TEXT NOT NULL,
+          payload_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          CONSTRAINT fk_audit_logs_tenant FOREIGN KEY (tenant_id) REFERENCES tenants (id) ON DELETE CASCADE,
+          CONSTRAINT fk_audit_logs_branch FOREIGN KEY (branch_id) REFERENCES branches (id) ON DELETE SET NULL,
+          CONSTRAINT fk_audit_logs_user FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE SET NULL
+        )
+      `.execute(db);
+    } finally {
+      await db.destroy();
+    }
+  })();
+
+  return schemaReadyPromise;
+}
+
+export async function seedE2eFixture(
+  app: FastifyInstance,
+  options?: {
+    taxMode?: TenantTaxMode;
+    productTaxCategory?: ProductTaxCategory;
+    productPriceCents?: number;
+  }
+): Promise<E2eFixture> {
+  const suffix = randomUUID();
+  const tenantId = randomUUID();
+  const branchId = randomUUID();
+  const adminUserId = randomUUID();
+  const cashierUserId = randomUUID();
+  const productId = randomUUID();
+  const taxMode = options?.taxMode ?? 'IVA';
+  const productTaxCategory = options?.productTaxCategory ?? 'IVA_19';
+  const productPriceCents = options?.productPriceCents ?? 11900;
+  const adminPasswordHash = await getAdminPasswordHash();
+  const cashierPasswordHash = await getCashierPasswordHash();
+
+  await app.db.transaction().execute(async (trx) => {
+    await trx
+      .insertInto('tenants')
+      .values({
+        id: tenantId,
+        name: `Tenant E2E ${suffix}`,
+        nit: suffix.slice(0, 10).replaceAll('-', ''),
+        business_name: 'Negocio E2E SAS',
+        address: 'Calle 10 # 20-30',
+        phone: '6012345678',
+        footer_message: 'Gracias por comprar en Negocio E2E SAS',
+        tax_mode: taxMode
+      })
+      .execute();
+
+    await trx
+      .insertInto('branches')
+      .values({
+        id: branchId,
+        tenant_id: tenantId,
+        name: 'Sucursal E2E',
+        address: 'Calle 10 # 20-30'
+      })
+      .execute();
+
+    await trx
+      .insertInto('users')
+      .values([
+        {
+          id: adminUserId,
+          tenant_id: tenantId,
+          email: `admin.${suffix}@e2e.posdian.local`,
+          password_hash: adminPasswordHash,
+          name: 'Admin E2E',
+          role: 'ADMIN',
+          active: true
+        },
+        {
+          id: cashierUserId,
+          tenant_id: tenantId,
+          email: `cashier.${suffix}@e2e.posdian.local`,
+          password_hash: cashierPasswordHash,
+          name: 'Cashier E2E',
+          role: 'CASHIER',
+          active: true
+        }
+      ])
+      .execute();
+
+    await trx
+      .insertInto('products')
+      .values({
+        id: productId,
+        tenant_id: tenantId,
+        branch_id: branchId,
+        name: 'Producto E2E',
+        category: 'General',
+        tax_category: productTaxCategory,
+        barcode: `770${suffix.slice(0, 8).replaceAll('-', '')}`,
+        price_cents: productPriceCents,
+        active: true
+      })
+      .execute();
+  });
+
+  return {
+    tenantId,
+    branchId,
+    adminUserId,
+    cashierUserId,
+    productId,
+    adminEmail: `admin.${suffix}@e2e.posdian.local`,
+    cashierEmail: `cashier.${suffix}@e2e.posdian.local`,
+    adminPassword,
+    cashierPassword,
+    productPriceCents
+  };
+}
+
+export async function cleanupE2eFixture(
+  app: FastifyInstance,
+  fixture: Pick<E2eFixture, 'tenantId'>
+): Promise<void> {
+  await app.db.transaction().execute(async (trx) => {
+    await trx.deleteFrom('audit_logs').where('tenant_id', '=', fixture.tenantId).execute();
+    await trx.deleteFrom('outbox_events').where('tenant_id', '=', fixture.tenantId).execute();
+    await trx.deleteFrom('dian_documents').where('tenant_id', '=', fixture.tenantId).execute();
+    await trx.deleteFrom('sale_items').where('tenant_id', '=', fixture.tenantId).execute();
+    await trx.deleteFrom('sales').where('tenant_id', '=', fixture.tenantId).execute();
+    await trx.deleteFrom('cash_sessions').where('tenant_id', '=', fixture.tenantId).execute();
+    await trx.deleteFrom('products').where('tenant_id', '=', fixture.tenantId).execute();
+    await trx.deleteFrom('users').where('tenant_id', '=', fixture.tenantId).execute();
+    await trx.deleteFrom('branches').where('tenant_id', '=', fixture.tenantId).execute();
+    await trx.deleteFrom('tenants').where('id', '=', fixture.tenantId).execute();
+  });
+}
+
+export async function loginE2eUser(
+  app: FastifyInstance,
+  credentials: {
+    email: string;
+    password: string;
+  }
+): Promise<string> {
+  const response = await app.inject({
+    method: 'POST',
+    url: '/api/v1/auth/login',
+    payload: credentials
+  });
+
+  if (response.statusCode !== 200) {
+    throw new Error(`No fue posible hacer login en e2e: ${response.statusCode} ${response.body}`);
+  }
+
+  const body = response.json() as {
+    accessToken: string;
+  };
+
+  return body.accessToken;
+}
+
+export function bearerHeaders(token: string): Record<string, string> {
+  return {
+    authorization: `Bearer ${token}`
+  };
+}

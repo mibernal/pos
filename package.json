@@ -1,0 +1,18 @@
+{
+  "name": "pos-dian",
+  "version": "0.1.0",
+  "private": true,
+  "packageManager": "pnpm@9.12.3",
+  "engines": {
+    "node": ">=20 <21"
+  },
+  "scripts": {
+    "dev": "pnpm -r --parallel --filter @pos-dian/api --filter @pos-dian/worker --filter @pos-dian/pos-web run dev",
+    "lint": "turbo run lint",
+    "test": "turbo run test",
+    "build": "turbo run build"
+  },
+  "devDependencies": {
+    "turbo": "^2.3.3"
+  }
+}
