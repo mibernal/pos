@@ -1,7 +1,3 @@
-<<<<<<< HEAD
-# pos
-Un Punto de Venta (POS) multi-tenant de alto rendimiento con emisión de facturación electrónica (DIAN) en Colombia. Diseñado con una arquitectura desacoplada asíncrona, capacidades Offline PWA y empaquetamiento listo para la Nube.
-=======
 # POS DIAN - Colombia (Multi-Tenant)
 
 Un Punto de Venta (POS) multi-tenant de alto rendimiento con emisión de facturación electrónica (DIAN) en Colombia. Diseñado con una arquitectura desacoplada asíncrona, capacidades Offline PWA y empaquetamiento listo para la Nube.
@@ -119,4 +115,3 @@ La App Frontend puede subirse gratis a Vercel, Netlify o S3 inyectando durante b
 
 ### CI/CD (GitHub Actions)
 La Integración continua ya está parametrizada en `.github/workflows/ci.yml`. Correrá `pnpm build`, `pnpm lint`, y `pnpm test` (Pruebas asombrosamente unitarias a ProviderMocks) en todos los Pull Requests hacia `main`.
->>>>>>> 843198e (Initial commit)
