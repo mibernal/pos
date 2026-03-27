@@ -17,7 +17,7 @@ import {
   shouldQueueSaleAsPending
 } from './utils';
 
-type DiscountEntryMode = 'VISIBLE' | 'CENTS';
+
 
 export function PosScreen({
   api,
@@ -58,7 +58,6 @@ export function PosScreen({
   const [cartItems, setCartItems] = useState<CartItem[]>([]);
   const [selectedCartIndex, setSelectedCartIndex] = useState(-1);
   const [discountCents, setDiscountCents] = useState(0);
-  const [discountEntryMode, setDiscountEntryMode] = useState<DiscountEntryMode>('VISIBLE');
   const [discountDraft, setDiscountDraft] = useState('0');
   const [isCheckoutModalOpen, setIsCheckoutModalOpen] = useState(false);
   const [checkoutLoading, setCheckoutLoading] = useState(false);
@@ -139,12 +138,8 @@ export function PosScreen({
   }, [subtotalCents]);
 
   useEffect(() => {
-    setDiscountDraft(
-      discountEntryMode === 'VISIBLE'
-        ? formatEditableMoneyFromCents(discountCents)
-        : String(discountCents)
-    );
-  }, [discountCents, discountEntryMode]);
+    setDiscountDraft(formatEditableMoneyFromCents(discountCents));
+  }, [discountCents]);
 
   const removeSelectedItem = useCallback(() => {
     if (selectedCartIndex < 0 || selectedCartIndex >= cartItems.length) {
@@ -256,17 +251,12 @@ export function PosScreen({
     setSelectedCartIndex(nextCartItems.length === 0 ? -1 : Math.min(index, nextCartItems.length - 1));
   }
 
-  function handleDiscountModeChange(mode: DiscountEntryMode) {
-    setDiscountEntryMode(mode);
-  }
+
 
   function handleDiscountInputChange(nextValue: string) {
     setDiscountDraft(nextValue);
 
-    const parsedDiscount =
-      discountEntryMode === 'VISIBLE'
-        ? parseVisibleMoneyToCents(nextValue)
-        : parseRawCents(nextValue);
+    const parsedDiscount = parseVisibleMoneyToCents(nextValue);
 
     setDiscountCents(Math.min(parsedDiscount, subtotalCents));
   }
@@ -743,32 +733,16 @@ export function PosScreen({
         <div className="cart-summary-panel">
           <div className="discount-card" style={{ padding: '0.75rem' }}>
             <div className="discount-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
-              <span style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--color-slate-500)' }}>DESCUENTO</span>
-              <div className="discount-mode-toggle" style={{ margin: 0, padding: '0.1rem' }}>
-                <button
-                  type="button"
-                  className={`discount-mode-btn ${discountEntryMode === 'VISIBLE' ? 'active' : ''}`}
-                  onClick={() => handleDiscountModeChange('VISIBLE')}
-                  style={{ padding: '0.1rem 0.4rem', fontSize: '0.7rem' }}
-                >
-                  $
-                </button>
-                <button
-                  type="button"
-                  className={`discount-mode-btn ${discountEntryMode === 'CENTS' ? 'active' : ''}`}
-                  onClick={() => handleDiscountModeChange('CENTS')}
-                  style={{ padding: '0.1rem 0.4rem', fontSize: '0.7rem' }}
-                >
-                  ¢
-                </button>
-              </div>
+              <span style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--color-slate-500)' }}>DESCUENTO (COP)</span>
             </div>
 
             <input
-              inputMode={discountEntryMode === 'VISIBLE' ? 'decimal' : 'numeric'}
-              placeholder="0.00"
+              inputMode="numeric"
+              placeholder="0"
               style={{ padding: '0.4rem', fontSize: '0.875rem', height: '2rem' }}
               type="number"
+              min="0"
+              step="50"
               value={discountDraft}
               onChange={(event) => handleDiscountInputChange(event.target.value)}
             />

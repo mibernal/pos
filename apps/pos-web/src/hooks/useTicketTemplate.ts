@@ -9,7 +9,8 @@ const DEFAULT_TICKET_TEMPLATE: TicketTemplateConfig = {
   address: 'Dirección no configurada',
   phone: '',
   footerMessage: '',
-  logoUrl: ''
+  logoUrl: '',
+  printerWidth: '80mm'
 };
 
 export function useTicketTemplate({
@@ -50,7 +51,8 @@ export function useTicketTemplate({
           address: profile.address,
           phone: profile.phone ?? '',
           footerMessage: profile.footerMessage ?? '',
-          logoUrl: storedTemplate.logoUrl
+          logoUrl: storedTemplate.logoUrl,
+          printerWidth: storedTemplate.printerWidth
         });
 
         setTicketTemplate(mergedTemplate);

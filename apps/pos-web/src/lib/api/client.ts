@@ -170,6 +170,11 @@ export function createApiClient({ baseUrl, getSession, setSession }: CreateApiCl
           opening_amount_cents: openingAmountCents
         })
       }),
+    closeCashSession: (sessionId: string, closingCashRealCents: number) =>
+      requestJson<{ cash_session: CashSession; summary: { completed_sales_count: number; expected_cash_cents: number; diff_cents: number } }>(`/cash-sessions/${sessionId}/close`, {
+        method: 'POST',
+        body: JSON.stringify({ closing_cash_real_cents: closingCashRealCents })
+      }),
     getCurrentTenantProfile: () => requestJson<AdminTenantProfile>('/admin/tenants/current'),
     updateTenantBusinessProfile: (payload: UpdateTenantBusinessProfileBody) =>
       requestJson<AdminTenantProfile>('/admin/tenants/current', {

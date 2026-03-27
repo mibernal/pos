@@ -17,7 +17,7 @@ export function BranchSetupScreen({
   const [error, setError] = useState<string | null>(null);
   const [branches, setBranches] = useState<BranchItem[]>([]);
   const [selectedBranchId, setSelectedBranchId] = useState('');
-  const [openingAmountCents, setOpeningAmountCents] = useState(100000);
+  const [openingAmountPesos, setOpeningAmountPesos] = useState(10000);
   const [opening, setOpening] = useState(false);
 
   const selectedBranch = useMemo(
@@ -70,7 +70,7 @@ export function BranchSetupScreen({
     setError(null);
 
     try {
-      const opened = await api.openCashSession(selectedBranchId, openingAmountCents);
+      const opened = await api.openCashSession(selectedBranchId, openingAmountPesos * 100);
       setCurrentSession(opened.cash_session);
 
       if (!selectedBranch) {
@@ -182,19 +182,19 @@ export function BranchSetupScreen({
               ) : (
                 <div className="stack-md" style={{ marginTop: '1.5rem' }}>
                   <label className="field" style={{ display: 'grid', gap: '0.5rem' }}>
-                    <span style={{ fontSize: '0.8125rem', fontWeight: 600, color: 'var(--color-slate-700)' }}>Monto Inicial (Base de Caja ¢)</span>
+                    <span style={{ fontSize: '0.8125rem', fontWeight: 600, color: 'var(--color-slate-700)' }}>Monto Inicial (Base de Caja COP)</span>
                     <div style={{ position: 'relative' }}>
                       <input
                         type="number"
                         min={0}
-                        step={1000}
-                        value={openingAmountCents}
-                        onChange={(event) => setOpeningAmountCents(Number(event.target.value))}
+                        step={100}
+                        value={openingAmountPesos}
+                        onChange={(event) => setOpeningAmountPesos(Number(event.target.value))}
                         style={{ padding: '0.75rem 1rem', borderRadius: 'var(--radius-lg)', border: '1px solid var(--color-slate-200)', fontSize: '0.875rem', width: '100%' }}
                       />
                     </div>
                     <p style={{ fontSize: '0.75rem', color: 'var(--color-slate-500)' }}>
-                      Monto sugerido para vueltas: <strong>{formatMoneyFromCents(openingAmountCents)}</strong>
+                      Monto sugerido para vueltas: <strong>{formatMoneyFromCents(openingAmountPesos * 100)}</strong>
                     </p>
                   </label>
                   <button 

@@ -11,6 +11,7 @@ export function AppTopbar({
   onNavigate,
   onOpenDianConfig,
   onOpenTicketTemplate,
+  onCloseRegister,
   onSyncPendingSales,
   pendingSalesCount,
   routeDefinitions,
@@ -26,6 +27,7 @@ export function AppTopbar({
   onNavigate: (route: AppRoute) => void;
   onOpenDianConfig: () => void;
   onOpenTicketTemplate: () => void;
+  onCloseRegister: () => void;
   onSyncPendingSales: () => void;
   pendingSalesCount: number;
   routeDefinitions: readonly AppRouteDefinition[];
@@ -89,6 +91,9 @@ export function AppTopbar({
           )}
           <button className="ghost-button" onClick={onChangeRegister} title="Cambiar caja">
             🔁
+          </button>
+          <button className="ghost-button" onClick={onCloseRegister} title="Cerrar caja">
+            🔒
           </button>
           <button className="danger-button" style={{ padding: '0.5rem', borderRadius: 'var(--radius-md)' }} onClick={onLogout} title="Cerrar sesión">
             🚪

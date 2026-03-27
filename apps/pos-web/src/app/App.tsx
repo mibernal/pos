@@ -2,6 +2,7 @@ import { useEffect, useState, type ReactNode } from 'react';
 import { AppShellLayout, AppTopbar } from '../components/layout';
 import { Banner, ShellMessage } from '../components/ui';
 import { LoginScreen, RequireSession, SessionProvider, useSession } from '../features/auth';
+import { useBranchCashSession, CloseCashSessionModal } from '../features/cash-sessions';
 import { BranchSetupScreen } from '../features/branches';
 import { HistoryScreen } from '../features/history';
 import { ProductsScreen } from '../features/products';
@@ -46,6 +47,7 @@ function AppShell() {
   });
   const [isTicketTemplateModalOpen, setIsTicketTemplateModalOpen] = useState(false);
   const [isDianConfigModalOpen, setIsDianConfigModalOpen] = useState(false);
+  const [isCloseSessionModalOpen, setIsCloseSessionModalOpen] = useState(false);
 
   useEffect(() => {
     if (!session && posContext) {
@@ -124,6 +126,7 @@ function AppShell() {
                   branchName={posContext.branchName}
                   cashSessionId={posContext.cashSessionId}
                   onChangeRegister={() => commitPosContext(null)}
+                  onCloseRegister={() => setIsCloseSessionModalOpen(true)}
                   onLogout={handleLogout}
                   onNavigate={navigate}
                   onOpenDianConfig={() => setIsDianConfigModalOpen(true)}
@@ -154,6 +157,19 @@ function AppShell() {
                 onClose={() => setIsDianConfigModalOpen(false)}
                 onSaved={setTenantTaxMode}
               />
+
+              {posContext && (
+                <CloseCashSessionModal
+                  api={api}
+                  isOpen={isCloseSessionModalOpen}
+                  sessionId={posContext.cashSessionId}
+                  onClose={() => setIsCloseSessionModalOpen(false)}
+                  onSuccess={() => {
+                    setIsCloseSessionModalOpen(false);
+                    commitPosContext(null); // Return to setup screen
+                  }}
+                />
+              )}
             </AppShellLayout>
           );
         })()

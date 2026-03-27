@@ -304,9 +304,9 @@ export function CheckoutModal({
                   <span>Recibido (COP)</span>
                   <input
                     ref={cashInputRef}
-                    inputMode="decimal"
+                    inputMode="numeric"
                     min={0}
-                    step="0.01"
+                    step="50"
                     type="number"
                     value={cashReceivedDraft}
                     onChange={(event) => setCashReceivedDraft(event.target.value)}
@@ -393,9 +393,9 @@ export function CheckoutModal({
                       <input
                         ref={index === 0 ? mixedFirstInputRef : undefined}
                         aria-label={`Monto línea ${index + 1}`}
-                        inputMode="decimal"
+                        inputMode="numeric"
                         min={0}
-                        step="0.01"
+                        step="50"
                         type="number"
                         value={line.amountDraft}
                         onChange={(event) => updateMixedLineAmount(line.id, event.target.value)}

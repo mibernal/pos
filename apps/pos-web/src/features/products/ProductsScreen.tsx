@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import { Banner, PlaceholderImage } from '../../components/ui';
-import { formatMoneyFromCents } from '../../lib/format';
+import { formatMoneyFromCents, pesosToCents, centsToPesos } from '../../lib/format';
 import type { ProductItem } from '../../lib/api';
 import type { PosApiClient } from '../../types';
 import { RoleGuard, useSession } from '../auth';
@@ -28,7 +28,7 @@ export function ProductsScreen({
   const [category, setCategory] = useState('');
   const [taxCategory, setTaxCategory] = useState<ProductTaxCategoryOption>('IVA_19');
   const [barcode, setBarcode] = useState('');
-  const [priceCents, setPriceCents] = useState(1000);
+  const [pricePesos, setPricePesos] = useState(1000);
   const [imageUrl, setImageUrl] = useState('');
   const [description, setDescription] = useState('');
 
@@ -67,7 +67,7 @@ export function ProductsScreen({
     setCategory('');
     setTaxCategory('IVA_19');
     setBarcode('');
-    setPriceCents(1000);
+    setPricePesos(1000);
     setImageUrl('');
     setDescription('');
     setShowForm(false);
@@ -91,7 +91,7 @@ export function ProductsScreen({
             category,
             taxCategory,
             barcode: barcode.trim() ? barcode : null,
-            price_cents: priceCents,
+            price_cents: pesosToCents(pricePesos),
             imageUrl: imageUrl.trim() ? imageUrl : null,
             description: description.trim() ? description : null
           },
@@ -106,7 +106,7 @@ export function ProductsScreen({
             category,
             taxCategory,
             barcode: barcode.trim() ? barcode : null,
-            price_cents: priceCents,
+            price_cents: pesosToCents(pricePesos),
             active: true,
             imageUrl: imageUrl.trim() ? imageUrl : null,
             description: description.trim() ? description : null
@@ -129,7 +129,7 @@ export function ProductsScreen({
     setCategory(product.category);
     setTaxCategory(product.taxCategory);
     setBarcode(product.barcode ?? '');
-    setPriceCents(product.price_cents);
+    setPricePesos(centsToPesos(product.price_cents));
     setImageUrl(product.imageUrl ?? '');
     setDescription(product.description ?? '');
     setShowForm(true);
@@ -328,23 +328,20 @@ export function ProductsScreen({
               </label>
 
               <label className="field">
-                <span>Precio Unitario (¢)</span>
+                <span>Precio Unitario (COP)</span>
                 <div style={{ position: 'relative' }}>
                   <input
                     type="number"
                     min={0}
                     step={100}
                     placeholder="1000"
-                    value={priceCents}
-                    onChange={(event) => setPriceCents(Number(event.target.value))}
+                    value={pricePesos}
+                    onChange={(event) => setPricePesos(Number(event.target.value))}
                     required
                     style={{ paddingRight: '4rem' }}
                   />
-                  <span style={{ position: 'absolute', right: '1rem', top: '50%', transform: 'translateY(-50%)', fontSize: '0.75rem', fontWeight: 600, color: 'var(--color-slate-400)' }}>CENTS</span>
+                  <span style={{ position: 'absolute', right: '1rem', top: '50%', transform: 'translateY(-50%)', fontSize: '0.75rem', fontWeight: 600, color: 'var(--color-slate-400)' }}>COP</span>
                 </div>
-                <p style={{ fontSize: '0.75rem', color: 'var(--color-slate-500)', marginTop: '0.4rem' }}>
-                  Equivale a <strong>{formatMoneyFromCents(priceCents)}</strong>
-                </p>
               </label>
 
               <label className="field">

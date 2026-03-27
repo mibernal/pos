@@ -6,6 +6,14 @@ export function formatMoneyFromCents(valueCents: number): string {
   }).format(valueCents / 100);
 }
 
+export function pesosToCents(pesos: number): number {
+  return Math.round(pesos * 100);
+}
+
+export function centsToPesos(cents: number): number {
+  return Math.round(cents / 100);
+}
+
 export function toDateInputValue(date: Date): string {
   return date.toISOString().slice(0, 10);
 }
