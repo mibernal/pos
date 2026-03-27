@@ -39,3 +39,13 @@ export function statusClassName(
 
   return 'tag tag-warning';
 }
+
+export function dianStatusLabel(
+  status: 'PENDING' | 'SENT' | 'ACCEPTED' | 'REJECTED' | null | undefined
+): string {
+  if (!status || status === 'PENDING') return 'Pendiente';
+  if (status === 'SENT') return 'Enviado';
+  if (status === 'ACCEPTED') return 'Aceptado DIAN';
+  if (status === 'REJECTED') return 'Rechazado DIAN';
+  return status;
+}

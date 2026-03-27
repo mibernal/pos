@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Banner, Modal, PlaceholderImage } from '../../components/ui';
-import { formatMoneyFromCents, statusClassName, toDateInputValue } from '../../lib/format';
+import { formatMoneyFromCents, statusClassName, dianStatusLabel, toDateInputValue } from '../../lib/format';
 import { extractTicketPayments, printSaleTicket } from '../../lib/ticket-printer';
 import type { SaleDetailResponse, SalesListItem, TenantTaxMode } from '../../lib/api';
 import type { TicketTemplateConfig } from '../../lib/ticket-template';
@@ -328,7 +328,7 @@ export function HistoryScreen({
                     <div>
                       <span style={{ display: 'block', fontSize: '0.65rem', color: 'var(--color-slate-400)', fontWeight: 700, textTransform: 'uppercase' }}>DIAN</span>
                       <span className={statusClassName(sale.dian_status)} style={{ fontSize: '0.875rem', padding: '0.1rem 0.4rem', borderRadius: '4px' }}>
-                         {sale.dian_status ?? 'PENDING'}
+                         {dianStatusLabel(sale.dian_status)}
                       </span>
                     </div>
                   </div>
@@ -411,9 +411,10 @@ export function HistoryScreen({
                     )}
                     style={{ fontSize: '0.8125rem', padding: '0.1rem 0.4rem', borderRadius: '4px' }}
                   >
-                    {selectedSaleDetail.dian_document?.status ??
-                      selectedSaleDetail.sale.dian_status ??
-                      'PENDING'}
+                    {dianStatusLabel(
+                      selectedSaleDetail.dian_document?.status ??
+                      selectedSaleDetail.sale.dian_status as any
+                    )}
                   </span>
                 </div>
                 <div style={{ gridColumn: '1 / -1' }}>
@@ -496,7 +497,7 @@ export function HistoryScreen({
               </div>
               <div className="detail-item-row">
                 <span>Estado DIAN actual</span>
-                <strong>{selectedSale.dian_status ?? 'PENDING'}</strong>
+                <strong>{dianStatusLabel(selectedSale.dian_status)}</strong>
               </div>
             </div>
 
