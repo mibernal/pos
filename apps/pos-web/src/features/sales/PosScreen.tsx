@@ -4,7 +4,7 @@ import { formatMoneyFromCents } from '../../lib/format';
 import { addPendingSale } from '../../lib/offline-queue';
 import type { PendingSaleRecord } from '../../lib/offline-queue';
 import { extractTicketPayments, printSaleTicket } from '../../lib/ticket-printer';
-import type { CreateSaleRequest, ProductItem, TenantTaxMode } from '../../lib/api';
+import type { Customer, CreateSaleRequest, ProductItem, TenantTaxMode } from '../../lib/api';
 import type { TicketTemplateConfig } from '../../lib/ticket-template';
 import type { CartItem, LastPrintedSaleSnapshot, PosApiClient } from '../../types';
 import { CheckoutModal } from './components';
@@ -12,7 +12,6 @@ import {
   formatEditableMoneyFromCents,
   getCheckoutErrorMessage,
   inferTaxModeFromSale,
-  parseRawCents,
   parseVisibleMoneyToCents,
   shouldQueueSaleAsPending
 } from './utils';
@@ -25,13 +24,13 @@ export function PosScreen({
   cashSessionId,
   branchName,
   branchAddress,
-  isOnline = true,
+  isOnline: _isOnline = true,
   pendingSales = [],
   syncingPendingSales = false,
-  syncingPendingSaleIds = [],
+  syncingPendingSaleIds: _syncingPendingSaleIds = [],
   ticketTemplate,
   tenantTaxMode,
-  onRetryPendingSale,
+  onRetryPendingSale: _onRetryPendingSale,
   onSaleQueued,
   onSyncPendingSales
 }: {
@@ -54,6 +53,7 @@ export function PosScreen({
   const [cachedProducts, setCachedProducts] = useState<ProductItem[]>([]);
   const [productsLoading, setProductsLoading] = useState(false);
   const [productsError, setProductsError] = useState<string | null>(null);
+  const [customers, setCustomers] = useState<Customer[]>([]);
   const [highlightedProductId, setHighlightedProductId] = useState<string | null>(null);
   const [cartItems, setCartItems] = useState<CartItem[]>([]);
   const [selectedCartIndex, setSelectedCartIndex] = useState(-1);
@@ -69,7 +69,6 @@ export function PosScreen({
   const searchInputRef = useRef<HTMLInputElement | null>(null);
 
   const hasSearchQuery = query.trim().length > 0;
-  const selectedCartItem = cartItems[selectedCartIndex] ?? null;
   const products = useMemo(() => {
     if (!hasSearchQuery) return cachedProducts;
     const q = query.trim().toLowerCase();
@@ -109,9 +108,12 @@ export function PosScreen({
         branchId
       });
       setCachedProducts(response.items.filter((item) => item.active));
+
+      const custs = await api.listCustomers();
+      setCustomers(custs);
     } catch (loadError) {
       setProductsError(
-        loadError instanceof Error ? loadError.message : 'No fue posible cargar productos'
+        loadError instanceof Error ? loadError.message : 'No fue posible cargar productos o clientes'
       );
     } finally {
       setProductsLoading(false);
@@ -261,7 +263,7 @@ export function PosScreen({
     setDiscountCents(Math.min(parsedDiscount, subtotalCents));
   }
 
-  const handleCheckout = useCallback(async (payments: CreateSaleRequest['payments']) => {
+  const handleCheckout = useCallback(async (payments: CreateSaleRequest['payments'], customerId: string | null) => {
     if (!canOpenCheckout) {
       setSaleError('Verifica el carrito antes de cobrar');
       return;
@@ -280,6 +282,7 @@ export function PosScreen({
 
     const salePayload: CreateSaleRequest = {
       client_uuid: crypto.randomUUID(),
+      customer_id: customerId ?? undefined,
       branch_id: branchId,
       cash_session_id: cashSessionId,
       discount_cents: discountCents,
@@ -366,44 +369,7 @@ export function PosScreen({
     });
   }
 
-  function getPendingSaleStatus(record: PendingSaleRecord) {
-    if (syncingPendingSaleIds.includes(record.id)) {
-      return {
-        label: 'Sincronizando',
-        tagClassName: 'tag-info'
-      };
-    }
 
-    if (record.sync_state === 'FAILED') {
-      return {
-        label: 'Con error',
-        tagClassName: 'tag-danger'
-      };
-    }
-
-    return {
-      label: 'Pendiente',
-      tagClassName: 'tag-warning'
-    };
-  }
-
-  function getPendingSaleTotalCents(record: PendingSaleRecord) {
-    const subtotal = record.payload.items.reduce(
-      (sum, item) => sum + Math.round(item.qty * (item.price_cents ?? 0)),
-      0
-    );
-
-    return Math.max(0, subtotal - record.payload.discount_cents);
-  }
-
-  function formatPendingSaleDate(value: string) {
-    return new Intl.DateTimeFormat('es-CO', {
-      day: '2-digit',
-      month: '2-digit',
-      hour: '2-digit',
-      minute: '2-digit'
-    }).format(new Date(value));
-  }
 
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
@@ -468,6 +434,9 @@ export function PosScreen({
 
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  // addProduct is intentionally omitted: it closes over cartItems state and
+  // is not memoised — adding it would cause an infinite re-render loop.
   }, [canOpenCheckout, highlightedProduct, isCheckoutModalOpen, moveHighlightedProduct, removeSelectedItem]);
 
   return (
@@ -814,6 +783,7 @@ export function PosScreen({
 
       <CheckoutModal
         cartItems={cartItems}
+        customers={customers}
         discountCents={discountCents}
         error={saleError}
         isOpen={isCheckoutModalOpen}

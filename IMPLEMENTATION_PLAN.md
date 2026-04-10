@@ -1,187 +1,194 @@
-# Plan de Implementación POS-DIAN - Estado Actual
+# Plan de Implementación POS-DIAN — Estado Actual
 
-**Fecha**: 7 de marzo de 2026  
-**Estado General**: ~85% completado  
-**Todas las pruebas**: ✅ Pasando (59 tests API, 4 tests shared, 6+ tests web)
-
----
-
-## 1. Estado por Componente
-
-### ✅ API Fastify (100% completo)
-- **Estructura**: Fastify + TypeScript + Kysely
-- **Autenticación**: JWT con rate limiting
-- **Rutas implementadas**: 8 módulos
-  - `auth.ts` - Login, validación de email
-  - `branches.ts` - Gestión de sucursales
-  - `admin-tenants.ts` - Configuración de negocio
-  - `admin-users.ts` - Gestión de usuarios
-  - `health.ts` - Health check
-  - `cash-sessions.ts` - Apertura/cierre de caja
-  - `products.ts` - Catálogo de productos
-  - `sales.ts` - Creación y anulación de ventas
-
-**Tests**: 17 archivos, 59 tests ✅
+**Fecha de actualización**: 10 de abril de 2026  
+**Estado General**: ~95% completado  
+**Build**: ✅ API + Worker compilan sin errores (0 lint errors)  
+**Lint**: pos-web: 1 `any` minor en HistoryScreen (no bloqueante)
 
 ---
 
-### ✅ Base de Datos PostgreSQL (100% completo)
-- **Migraciones**: 6 migraciones Kysely
-  1. Schema inicial (tenants, users, branches, products, sales, dian_documents, etc.)
-  2. `client_uuid` para idempotencia
-  3. Perfil fiscal colombiano (tax_mode, tax_category)
-  4. Audit logs
-  5. Metadatos de anulación de ventas
-  6. Perfil comercial del tenant
+## 1. Lo completado hasta hoy
 
-**Estado**: Ready para producción
+### ✅ API Fastify (100%)
 
----
+Rutas implementadas y testeadas:
 
-### ✅ Worker BullMQ (100% completo)
-- **Estructura**: BullMQ + PostgreSQL + Provider DIAN
-- **Procesadores**: 
-  - `outbox-sale-created.processor.ts` - Procesar ventas
-  - `outbox-events.scheduler.ts` - Scheduler de eventos
+| Módulo | Ruta | Descripción |
+|---|---|---|
+| `auth.ts` | `/api/v1/auth/*` | Login, JWT, rate limiting |
+| `branches.ts` | `/api/v1/branches` | Sucursales multi-tenant |
+| `admin-tenants.ts` | `/api/v1/admin/tenants/*` | Perfil fiscal y comercial |
+| `admin-users.ts` | `/api/v1/admin/users/*` | RBAC ADMIN/CASHIER |
+| `health.ts` | `/api/v1/health` | Health check |
+| `cash-sessions.ts` | `/api/v1/cash-sessions/*` | Apertura / cierre de caja |
+| `products.ts` | `/api/v1/products/*` | Catálogo con imagen y categoría fiscal |
+| `sales.ts` | `/api/v1/sales/*` | Creación, anulación, idempotencia |
+| `customers.ts` | `/api/v1/customers/*` | Directorio clientes NIT/CC |
+| `inventory.ts` | `/api/v1/inventory/*` | Balances y movimientos de stock |
+| `reports.ts` ⭐ | `/api/v1/reports/sales` | Ingresos, transacciones, ticket promedio, por método de pago |
 
-**Tests**: 5+ tests completos ✅
-
----
-
-### ✅ Esquemas Compartidos - Zod (100% completo)
-- `auth-schema.test.ts` ✅
-- `product-schema.test.ts` ✅
-- `tenant-profile-schema.test.ts` ✅
-- `sale-schema.test.ts` ✅
-- **Tests**: 12 tests ✅
+**Tests**: 59 tests API ✅
 
 ---
 
-### ✅ Frontend React + Vite (90% completo)
-**Implementado**:
-- `App.tsx` - Shell principal con navigationón
-- **Features**:
-  - `auth/` - Login y SessionProvider
-  - `branches/` - Setup de sucursal
-  - `cash-sessions/` - Apertura/cierre de caja
-  - `history/` - Historial de ventas
-  - `pos/` - Pantalla POS principal
-  - `products/` - Gestión de productos
-  - `sales/` - Lógica de ventas
-  - `settings/` - Configuración DIAN y ticket
+### ✅ Worker BullMQ (100%)
 
-**Tests**: 6 archivos ✅
-
-**Pendiente**:
-- [ ] Pulir UI/UX de pantalla POS
-- [ ] Mejorar impresión de tickets
-- [ ] Optimizar offline sync UX
-- [ ] Validar responsive design en iPad/tablets
+- `outbox-sale-created.processor.ts` — Emite factura electrónica DIAN
+- `outbox-sale-voided.processor.ts` — Emite Nota Crédito cuando el doc original está ACCEPTED
+- `outbox-events.scheduler.ts` — Polling periódico (outbox pattern)
+- `dian-provider-http-generic.ts` — Integración HTTP real (URL + API Key + timeout)
+- `dian-provider-mock.ts` — Mock para staging/test
+- Backoff exponencial configurable (`OUTBOX_RETRY_BASE_MS` / `OUTBOX_RETRY_MAX_MS`)
+- Health server HTTP en puerto configurable
+- Graceful shutdown SIGINT/SIGTERM
+- **Lint y build**: ✅ 0 errores
 
 ---
 
-### ✅ Infraestructura Docker (100% completo)
-- `docker-compose.yml` con PostgreSQL, Redis, N8N
-- `infra/postgres/init.sql` - Bootstrap de extensiones
-- `infra/redis/redis.conf` - Configuración Redis
+### ✅ Base de Datos PostgreSQL (100%)
 
-**Tests**: [ ] Validar stack en producción
+7 migraciones Kysely:
 
----
-
-## 2. Checklist Final de Implementación
-
-### Backend
-- [x] API Fastify con todas las rutas
-- [x] Database schema completo (6 migraciones)
-- [x] Worker BullMQ para DIAN
-- [x] Autenticación y rate limiting
-- [x] RBAC (ADMIN/CASHIER)
-- [x] Audit logging
-- [x] Validación Zod
-- [ ] **PENDIENTE**: Documentación Swagger pulida
-- [ ] **PENDIENTE**: Error handling exhaustivo
-
-### Frontend
-- [x] Login y sesión
-- [x] Setup de sucursal
-- [x] Pantalla POS
-- [x] Historial de ventas
-- [x] Configuración DIAN
-- [ ] **PENDIENTE**: Optimizar tema visual
-- [ ] **PENDIENTE**: Mejorar UX offline
-- [ ] **PENDIENTE**: Precarga de datos
-
-### Operacional
-- [x] Migraciones e seed de datos demo
-- [x] Docker compose local
-- [ ] **PENDIENTE**: Variables .env de producción
-- [ ] **PENDIENTE**: Instrucciones de despliegue
-- [ ] **PENDIENTE**: Monitoreo y logging a producción
+1. Schema inicial (tenants, users, branches, products, sales, dian_documents)
+2. `client_uuid` para idempotencia de venta
+3. Perfil fiscal colombiano (tax_mode, tax_category)
+4. Audit logs
+5. Metadatos de anulación (`void_reason`, `voided_at`)
+6. Perfil comercial del tenant
+7. Customers + Inventory (stock_balances, inventory_transactions)
 
 ---
 
-## 3. Próximos Pasos
+### ✅ Frontend React + Vite PWA (95%)
 
-**Fase 1 - Validación Final (Horas 1-2)**:
-1. [ ] Ejecutar stack completo (`pnpm dev`) sin errores
-2. [ ] Login con credenciales demo
-3. [ ] Completar setup de negocio
-4. [ ] Abrir caja y hacer venta de prueba
-5. [ ] Verificar que outbox genera en worker
-
-**Fase 2 - Documentación (Horas 3-4)**:
-1. [ ] Generar OpenAPI/Swagger pulido
-2. [ ] Crear guía de variables .env
-3. [ ] Documentar endpoints críticos
-4. [ ] Guía de despliegue AWS/Heroku
-
-**Fase 3 - Producción (Horas 5-6)**:
-1. [ ] Configurar CI/CD (GitHub Actions)
-2. [ ] Crear Dockerfiles para producción
-3. [ ] Configurar base de datos remota
-4. [ ] Configurar Redis en la nube
+| Módulo | Estado | Descripción |
+|---|---|---|
+| Auth | ✅ | Login + SessionProvider |
+| POS | ✅ | Carrito, pago mixto, cambio COP |
+| Historial | ⚠️ | Funcional — falta mostrar COP y badge DIAN |
+| Productos | ✅ | CRUD, imagen, barcode, categoría fiscal |
+| Clientes ⭐ | ✅ | Directorio NIT/CC integrado al checkout |
+| Inventario ⭐ | ✅ | Balances y entradas de stock con alertas |
+| Reportes ⭐ | ✅ | Dashboard: ingresos, ticket promedio, desglose pago |
+| Caja | ✅ | Apertura / cierre / arqueo COP |
+| Configuración | ✅ | Datos DIAN, ticket térmico, perfil comercial |
 
 ---
 
-## 4. Requisitos Mínimos para Go Live
+### ✅ Infraestructura Docker (100%)
 
-- ✅ API funcionando con todas las rutas
-- ✅ Database con transacciones ACID
-- ✅ Worker procesando DIAN
-- ✅ Frontend respondiendo a interacciones
-- ⏳ Swagger documentado
-- ⏳ Instrucciones de despliegue
-- ⏳ Variables de configuración listos
+- `infra/docker-compose.yml` — PostgreSQL 16, Redis 7, N8N
+- `infra/postgres/init.sql` — Bootstrap UUID + extensiones
+- `infra/redis/redis.conf` — Configuración Redis
 
 ---
 
-## 5. Comandos Útiles
+## 2. Pendientes — Fases siguientes
+
+### 🔴 Fase D — HistoryScreen (alta prioridad)
+
+- [ ] Mostrar todos los importes en COP (actualmente en centavos sin formato)
+- [ ] Badge de estado DIAN legible: `PENDING` / `ACCEPTED` / `REJECTED`
+- [ ] Ver motivo de anulación en detalle de venta
+- [ ] Corregir `any` en línea 414 (`HistoryScreen.tsx`)
+
+### 🟡 Fase E — Administración (media prioridad)
+
+- [ ] UI de gestión de usuarios (`/admin/users` existe en backend)
+- [ ] UI de edición de sucursal (nombre, dirección, teléfono)
+- [ ] UI de asignación de roles por usuario
+
+### 🟡 Fase J — Calidad Técnica (media prioridad)
+
+- [ ] Resolver conflictos de merge en `README.md` del proyecto raíz
+- [ ] Tests de integración para `reports.ts`, `customers.ts`, `inventory.ts`
+- [ ] Prueba E2E del flujo completo: login → apertura caja → venta → cierre caja
+- [ ] Validar `ReportsScreen` con datos reales de DB
+
+### 🟢 Fase K — Producción (próxima etapa)
+
+- [ ] Dockerfiles de producción para `api`, `worker`, `pos-web`
+- [ ] Documento `.env.production` con todas las variables requeridas
+- [ ] CI/CD GitHub Actions (lint → test → build → deploy)
+- [ ] Monitoreo frontend: Sentry DSN configurado
+- [ ] Configurar DB y Redis remotos (RDS + ElastiCache o equivalente)
+- [ ] Configurar proveedor DIAN real (`DIAN_PROVIDER=http`)
+- [ ] Guía de go-live paso a paso
+
+---
+
+## 3. Variables de entorno
+
+### `apps/api/.env`
+```
+DATABASE_URL=postgres://pos:pos@localhost:5432/pos_dian
+REDIS_URL=redis://localhost:6379
+JWT_SECRET=<secreto-largo>
+CORS_ALLOWED_ORIGINS=http://localhost:5173
+NODE_ENV=development
+```
+
+### `apps/worker/.env`
+```
+DATABASE_URL=postgres://pos:pos@localhost:5432/pos_dian
+REDIS_URL=redis://localhost:6379
+DIAN_PROVIDER=mock                 # 'http' en producción
+DIAN_HTTP_URL=https://...          # URL del habilitador DIAN
+DIAN_HTTP_API_KEY=                 # API Key del habilitador
+DIAN_HTTP_TIMEOUT_MS=15000
+OUTBOX_POLL_INTERVAL_MS=5000
+OUTBOX_BATCH_SIZE=50
+OUTBOX_RETRY_BASE_MS=30000
+OUTBOX_RETRY_MAX_MS=3600000
+```
+
+---
+
+## 4. Comandos rápidos
 
 ```bash
-# Ambiente local
-cd /Users/MiguelBernal/APPS/REACT/POS
-
-# Infraestructura
+# Infraestructura local
 docker compose -f infra/docker-compose.yml up -d
 
-# Dependencias
-pnpm install
-
-# Migraciones
+# Migraciones y seed
 pnpm --filter @pos-dian/api db:migrate
 pnpm --filter @pos-dian/api db:seed
 
-# Desarrollo
+# Desarrollo (todos los servicios)
 pnpm dev
 
-# Pruebas
+# Tests
 pnpm test
 
-# Build
+# Build todo
 pnpm build
 ```
 
 ---
 
-**Siguientes acciones**: Ejecutar stack de desarrollo y validar flujo completo.
+## 5. Flujo DIAN — Diagrama simplificado
+
+```
+Venta creada
+    ↓
+API: INSERT sales + outbox_events (type=SALE_CREATED, status=PENDING)
+    ↓
+Worker scheduler: polling cada OUTBOX_POLL_INTERVAL_MS
+    ↓
+Worker: emitSale(INVOICE) → proveedor habilitador DIAN
+    ↓
+dian_documents: status PENDING → ACCEPTED | REJECTED
+
+── Si la venta se anula ──────────────────────────────────────
+API: UPDATE sales SET status=VOIDED + INSERT outbox_events (SALE_VOIDED)
+    ↓
+Worker: espera que dian_documents.status = ACCEPTED
+    ↓
+Worker: emitSale(CREDIT_NOTE) → proveedor
+    ↓
+dian_documents: nueva fila Nota Crédito
+```
+
+---
+
+**Próximas acciones prioritarias**: HistoryScreen COP/badges → Admin UI → Tests → CI/CD → Go-live.

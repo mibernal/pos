@@ -31,6 +31,7 @@ export const saleItemInputSchema = z.object({
 
 export const createSaleSchema = z.object({
   client_uuid: z.string().uuid(),
+  customer_id: z.string().uuid().optional().nullable(),
   branch_id: z.string().uuid(),
   cash_session_id: z.string().uuid(),
   items: z.array(saleItemInputSchema).min(1).max(200),
@@ -68,6 +69,7 @@ export const salePaymentJsonSchema = z.object({
 export const saleSchema = z.object({
   id: z.string().uuid(),
   tenant_id: z.string().uuid(),
+  customer_id: z.string().uuid().nullable(),
   branch_id: z.string().uuid(),
   cash_session_id: z.string().uuid(),
   sale_number: z.number().int().nonnegative(),

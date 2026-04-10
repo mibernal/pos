@@ -14,7 +14,13 @@ import type {
   SaleDetailResponse as SharedSaleDetailResponse,
   SalesListResponse as SharedSalesListResponse,
   VoidSaleBody as SharedVoidSaleBody,
-  VoidSaleResponse as SharedVoidSaleResponse
+  VoidSaleResponse as SharedVoidSaleResponse,
+  Customer as SharedCustomer,
+  CreateCustomerInput as SharedCreateCustomerInput,
+  UpdateCustomerInput as SharedUpdateCustomerInput,
+  InventoryBalance as SharedInventoryBalance,
+  CreateInventoryTransactionInput as SharedCreateInventoryTransactionInput,
+  SalesReportResponse as SharedSalesReportResponse
 } from '@pos-dian/shared';
 
 export type UserRole = SharedAuthUser['role'];
@@ -54,6 +60,9 @@ export type ProductItem = SharedProductItem;
 export type SalesListItem = SharedSale;
 export type SaleDetailResponse = SharedSaleDetailResponse;
 export type CreateSaleRequest = SharedCreateSaleInput;
+export type Customer = SharedCustomer;
+export type InventoryBalance = SharedInventoryBalance;
+export type SalesReportResponse = SharedSalesReportResponse;
 
 export class ApiClientError extends Error {
   readonly status?: number;
@@ -233,6 +242,34 @@ export function createApiClient({ baseUrl, getSession, setSession }: CreateApiCl
       requestJson<SharedVoidSaleResponse>(`/sales/${saleId}/void`, {
         method: 'POST',
         body: JSON.stringify(payload)
-      })
+      }),
+    listCustomers: () => requestJson<Customer[]>('/customers'),
+    createCustomer: (payload: SharedCreateCustomerInput) =>
+      requestJson<Customer>('/customers', {
+        method: 'POST',
+        body: JSON.stringify(payload)
+      }),
+    updateCustomer: (id: string, payload: SharedUpdateCustomerInput) =>
+      requestJson<Customer>(`/customers/${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify(payload)
+      }),
+    listInventoryBalances: (branchId: string, productId?: string) =>
+      requestJson<InventoryBalance[]>(
+        `/inventory/balances?${toQueryString({ branch_id: branchId, product_id: productId })}`
+      ),
+    createInventoryTransaction: (payload: SharedCreateInventoryTransactionInput) =>
+      requestJson<{ success: boolean }>('/inventory/transactions', {
+        method: 'POST',
+        body: JSON.stringify(payload)
+      }),
+    getSalesReport: (params: { branchId: string; from?: string; to?: string }) =>
+      requestJson<SalesReportResponse>(
+        `/reports/sales?${toQueryString({
+          branch_id: params.branchId,
+          from: params.from,
+          to: params.to
+        })}`
+      )
   };
 }

@@ -12,5 +12,17 @@ export const APP_ROUTE_DEFINITIONS: readonly AppRouteDefinition[] = [
   {
     id: 'products',
     label: 'Productos'
+  },
+  {
+    id: 'customers',
+    label: 'Clientes'
+  },
+  {
+    id: 'inventory',
+    label: 'Inventario'
+  },
+  {
+    id: 'reports',
+    label: 'Reportes'
   }
 ] as const;

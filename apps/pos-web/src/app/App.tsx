@@ -2,10 +2,15 @@ import { useEffect, useState, type ReactNode } from 'react';
 import { AppShellLayout, AppTopbar } from '../components/layout';
 import { Banner, ShellMessage } from '../components/ui';
 import { LoginScreen, RequireSession, SessionProvider, useSession } from '../features/auth';
-import { useBranchCashSession, CloseCashSessionModal } from '../features/cash-sessions';
+import { CloseCashSessionModal } from '../features/cash-sessions';
+import { CustomersScreen } from '../features/customers';
 import { BranchSetupScreen } from '../features/branches';
 import { HistoryScreen } from '../features/history';
+import { InventoryScreen } from '../features/inventory';
 import { ProductsScreen } from '../features/products';
+import { ReportsScreen } from '../features/reports';
+
+
 import { PosScreen } from '../features/sales';
 import { DianConfigModal, TicketTemplateModal } from '../features/settings';
 import {
@@ -115,6 +120,18 @@ function AppShell() {
 
           if (activeRoute === 'products') {
             currentScreen = <ProductsScreen api={api} branchId={posContext.branchId} />;
+          }
+
+          if (activeRoute === 'customers') {
+            currentScreen = <CustomersScreen api={api} />;
+          }
+
+          if (activeRoute === 'inventory') {
+            currentScreen = <InventoryScreen api={api} branchId={posContext.branchId} />;
+          }
+
+          if (activeRoute === 'reports') {
+            currentScreen = <ReportsScreen api={api} branchId={posContext.branchId} />;
           }
 
           return (

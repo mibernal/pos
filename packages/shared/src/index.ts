@@ -5,4 +5,7 @@ export * from './schemas/auth.js';
 export * from './schemas/product.js';
 export * from './schemas/sale.js';
 export * from './schemas/dian-provider.js';
+export * from './schemas/customer.js';
+export * from './schemas/inventory.js';
 export * from './schemas/tenant-profile.js';
+export * from './schemas/reports.js';

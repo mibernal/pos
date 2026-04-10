@@ -86,9 +86,7 @@ export function HistoryScreen({
     () => (selectedSaleDetail ? extractTicketPayments(selectedSaleDetail.sale.payment_json) : []),
     [selectedSaleDetail]
   );
-  const selectedSaleRequiresDianAdjustment = Boolean(
-    selectedSaleDetail?.sale.status === 'VOID' && selectedSaleDetail.dian_document
-  );
+
 
   const loadSaleDetail = useCallback(
     async (saleId: string) => {
@@ -380,11 +378,16 @@ export function HistoryScreen({
             {selectedSaleDetail.sale.status === 'VOID' ? (
               <Banner tone="warning">
                 <strong>Venta Anulada</strong>
-                <p style={{ fontSize: '0.8125rem' }}>
+                <p style={{ fontSize: '0.8125rem', marginTop: '0.25rem' }}>
                   {selectedSaleDetail.sale.void_reason
                     ? `Motivo: ${selectedSaleDetail.sale.void_reason}`
                     : 'Sin motivo especificado'}
                 </p>
+                {selectedSaleDetail.sale.voided_at ? (
+                  <p style={{ fontSize: '0.75rem', color: 'rgba(0,0,0,0.5)', marginTop: '0.25rem' }}>
+                    Anulada el {new Date(selectedSaleDetail.sale.voided_at).toLocaleString('es-CO')}
+                  </p>
+                ) : null}
               </Banner>
             ) : null}
 
@@ -412,8 +415,7 @@ export function HistoryScreen({
                     style={{ fontSize: '0.8125rem', padding: '0.1rem 0.4rem', borderRadius: '4px' }}
                   >
                     {dianStatusLabel(
-                      selectedSaleDetail.dian_document?.status ??
-                      selectedSaleDetail.sale.dian_status as any
+                      selectedSaleDetail.dian_document?.status ?? selectedSaleDetail.sale.dian_status ?? undefined
                     )}
                   </span>
                 </div>
@@ -476,6 +478,22 @@ export function HistoryScreen({
                 </div>
               </div>
             </div>
+
+            {selectedSalePayments.length > 0 && (
+              <div className="detail-card" style={{ padding: '1.25rem', background: '#ffffff', borderRadius: 'var(--radius-lg)', border: '1px solid var(--color-slate-100)' }}>
+                <div className="section-heading" style={{ marginBottom: '0.75rem' }}>
+                  <h4 style={{ fontSize: '0.8125rem', fontWeight: 700, color: 'var(--color-slate-400)', textTransform: 'uppercase' }}>Forma de Pago</h4>
+                </div>
+                <div style={{ display: 'grid', gap: '0.5rem' }}>
+                  {selectedSalePayments.map((p, i) => (
+                    <div key={i} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.875rem', padding: '0.5rem 0', borderBottom: i < selectedSalePayments.length - 1 ? '1px solid var(--color-slate-100)' : 'none' }}>
+                      <span style={{ color: 'var(--color-slate-600)' }}>{paymentMethodLabel(p.method)}</span>
+                      <strong>{formatMoneyFromCents(p.amountCents)}</strong>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         )}
       </aside>

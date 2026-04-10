@@ -4,6 +4,7 @@ export type UserRole = 'ADMIN' | 'CASHIER';
 export type SaleStatus = 'COMPLETED' | 'VOID';
 export type DianDocumentStatus = 'PENDING' | 'SENT' | 'ACCEPTED' | 'REJECTED';
 export type OutboxStatus = 'PENDING' | 'SENT' | 'FAILED';
+export type InventoryOperation = 'SALE' | 'SALE_VOID' | 'MANUAL_ENTRY' | 'MANUAL_EXIT' | 'PURCHASE';
 export type TenantTaxMode = 'IVA' | 'INC_RESTAURANT';
 export type ProductTaxCategory = 'IVA_0' | 'IVA_5' | 'IVA_19' | 'EXEMPT' | 'EXCLUDED' | 'INC_8';
 type JsonObject = Record<string, unknown>;
@@ -80,6 +81,7 @@ export interface SalesTable {
   id: string;
   tenant_id: string;
   client_uuid: string;
+  customer_id: string | null;
   branch_id: string;
   cash_session_id: string;
   sale_number: number;
@@ -145,11 +147,48 @@ export interface AuditLogsTable {
   created_at: Generated<Date>;
 }
 
+export interface CustomersTable {
+  id: string;
+  tenant_id: string;
+  document_type: string;
+  document_number: string;
+  name: string;
+  email: string | null;
+  phone: string | null;
+  address: string | null;
+  created_at: Generated<Date>;
+  updated_at: Generated<Date>;
+}
+
+export interface InventoryBalancesTable {
+  tenant_id: string;
+  branch_id: string;
+  product_id: string;
+  qty: string;
+  updated_at: Generated<Date>;
+}
+
+export interface InventoryTransactionsTable {
+  id: string;
+  tenant_id: string;
+  branch_id: string;
+  product_id: string;
+  operation: InventoryOperation;
+  reference_id: string | null;
+  qty_change: string;
+  notes: string | null;
+  created_by_user_id: string;
+  created_at: Generated<Date>;
+}
+
 export interface Database {
   tenants: TenantsTable;
   branches: BranchesTable;
   users: UsersTable;
   products: ProductsTable;
+  customers: CustomersTable;
+  inventory_balances: InventoryBalancesTable;
+  inventory_transactions: InventoryTransactionsTable;
   cash_sessions: CashSessionsTable;
   sales: SalesTable;
   sale_items: SaleItemsTable;

@@ -19,6 +19,9 @@ import { adminTenantsRoutes } from '../routes/admin-tenants.js';
 import { adminUsersRoutes } from '../routes/admin-users.js';
 import { productsRoutes } from '../routes/products.js';
 import { cashSessionsRoutes } from '../routes/cash-sessions.js';
+import { customersRoutes } from '../routes/customers.js';
+import { inventoryRoutes } from '../routes/inventory.js';
+import { reportsRoutes } from '../routes/reports.js';
 import { buildDianQueue } from '../infra/queue/dian-queue.js';
 import { createDb } from '../infra/db/connection.js';
 import { env } from './env.js';
@@ -107,6 +110,9 @@ export async function buildApp() {
   await app.register(productsRoutes, { prefix: '/api/v1' });
   await app.register(cashSessionsRoutes, { prefix: '/api/v1' });
   await app.register(salesRoutes, { prefix: '/api/v1' });
+  await app.register(customersRoutes, { prefix: '/api/v1' });
+  await app.register(inventoryRoutes, { prefix: '/api/v1' });
+  await app.register(reportsRoutes, { prefix: '/api/v1' });
 
   app.addHook('onClose', async (instance) => {
     await instance.dianQueue.close();

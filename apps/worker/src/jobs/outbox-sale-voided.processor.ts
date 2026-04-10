@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+
 import type { Job } from 'bullmq';
 import type { Pool } from 'pg';
 import type { DianStatus } from '@pos-dian/shared';
@@ -15,7 +15,6 @@ import type {
 } from '@pos-dian/shared/types/dian-provider.js';
 import {
   formatDianStatusTransitions,
-  getDianEmissionBlockReason,
   planDianStatusTransition
 } from '../domain/dian-document-status.js';
 import type { OutboxSaleVoidedJobData } from './types.js';

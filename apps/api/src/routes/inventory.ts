@@ -1,0 +1,125 @@
+import { randomUUID } from 'node:crypto';
+import { sql } from 'kysely';
+import type { FastifyPluginAsync } from 'fastify';
+import { ZodTypeProvider } from 'fastify-type-provider-zod';
+import { AppError } from '../infra/errors/app-error.js';
+import {
+  createInventoryTransactionBodySchema,
+  inventoryBalancesQuerySchema
+} from '@pos-dian/shared';
+
+export const inventoryRoutes: FastifyPluginAsync = async (app) => {
+  const typedApp = app.withTypeProvider<ZodTypeProvider>();
+
+  typedApp.get(
+    '/inventory/balances',
+    {
+      preHandler: [app.requireRoles(['ADMIN', 'CASHIER'])],
+      schema: {
+        tags: ['inventory'],
+        security: [{ bearerAuth: [] }],
+        querystring: inventoryBalancesQuerySchema
+      }
+    },
+    async (request) => {
+      const { branch_id, product_id } = request.query;
+
+      let query = app.db
+        .selectFrom('inventory_balances as b')
+        .innerJoin('products as p', (join) =>
+          join
+            .onRef('p.id', '=', 'b.product_id')
+            .onRef('p.tenant_id', '=', 'b.tenant_id')
+        )
+        .select([
+          'b.tenant_id',
+          'b.branch_id',
+          'b.product_id',
+          'b.qty',
+          'b.updated_at',
+          'p.name as product_name',
+          'p.image_url'
+        ])
+        .where('b.tenant_id', '=', request.auth!.tenantId)
+        .where('b.branch_id', '=', branch_id);
+
+      if (product_id) {
+        query = query.where('b.product_id', '=', product_id);
+      }
+
+      const rows = await query.orderBy('p.name', 'asc').execute();
+
+      return rows.map((row) => ({
+        tenant_id: row.tenant_id,
+        branch_id: row.branch_id,
+        product_id: row.product_id,
+        qty: Number(row.qty),
+        updated_at: row.updated_at.toISOString(),
+        product_name: row.product_name,
+        image_url: row.image_url
+      }));
+    }
+  );
+
+  typedApp.post(
+    '/inventory/transactions',
+    {
+      preHandler: [app.requireRoles(['ADMIN'])],
+      schema: {
+        tags: ['inventory'],
+        security: [{ bearerAuth: [] }],
+        body: createInventoryTransactionBodySchema
+      }
+    },
+    async (request, reply) => {
+      const payload = request.body;
+
+      const product = await app.db
+        .selectFrom('products')
+        .select(['id', 'branch_id'])
+        .where('tenant_id', '=', request.auth!.tenantId)
+        .where('id', '=', payload.product_id)
+        .executeTakeFirst();
+
+      if (!product || (product.branch_id && product.branch_id !== payload.branch_id)) {
+        throw new AppError(404, 'PRODUCT_NOT_FOUND', 'Producto no encontrado en esta sucursal');
+      }
+
+      await app.db.transaction().execute(async (trx) => {
+        const txId = randomUUID();
+        await trx
+          .insertInto('inventory_transactions')
+          .values({
+            id: txId,
+            tenant_id: request.auth!.tenantId,
+            branch_id: payload.branch_id,
+            product_id: payload.product_id,
+            operation: payload.operation,
+            reference_id: null,
+            qty_change: payload.qty_change.toString(),
+            notes: payload.notes ?? null,
+            created_by_user_id: request.auth!.userId
+          })
+          .execute();
+
+        await trx
+          .insertInto('inventory_balances')
+          .values({
+            tenant_id: request.auth!.tenantId,
+            branch_id: payload.branch_id,
+            product_id: payload.product_id,
+            qty: payload.qty_change.toString()
+          })
+          .onConflict((oc) =>
+            oc.columns(['tenant_id', 'branch_id', 'product_id']).doUpdateSet({
+              qty: sql`inventory_balances.qty + EXCLUDED.qty`,
+              updated_at: sql`NOW()`
+            })
+          )
+          .execute();
+      });
+
+      return reply.code(201).send({ success: true });
+    }
+  );
+};

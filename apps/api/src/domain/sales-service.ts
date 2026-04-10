@@ -106,6 +106,7 @@ export async function createSaleAndEnqueueEmission(
   const sale: Sale = {
     id: randomUUID(),
     tenant_id: input.tenant_id,
+    customer_id: parsedPayload.customer_id ?? null,
     branch_id: parsedPayload.branch_id,
     cash_session_id: parsedPayload.cash_session_id,
     sale_number: getNextSaleNumberFromCollection(salesInMemory, {

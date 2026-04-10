@@ -1,5 +1,5 @@
 import * as http from 'node:http';
-import { Queue, QueueEvents, Worker } from 'bullmq';
+import { Job, Queue, QueueEvents, Worker } from 'bullmq';
 import { DIAN_QUEUE_NAME } from '@pos-dian/shared';
 import { env } from './config/env.js';
 import { createDbPool } from './infra/db/pool.js';
@@ -28,9 +28,9 @@ const worker = new Worker<AnyOutboxJobData>(
   DIAN_QUEUE_NAME,
   async (job) => {
     if (job.name === 'process-sale-created-outbox-event') {
-      return outboxSaleCreatedProcessor(job as any);
+      return outboxSaleCreatedProcessor(job as Job<OutboxSaleCreatedJobData>);
     } else if (job.name === 'process-sale-voided-outbox-event') {
-      return outboxSaleVoidedProcessor(job as any);
+      return outboxSaleVoidedProcessor(job as Job<OutboxSaleVoidedJobData>);
     }
     throw new Error(`Unknown job name: ${job.name}`);
   },

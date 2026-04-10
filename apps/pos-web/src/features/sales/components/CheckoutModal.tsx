@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Banner, Modal } from '../../../components/ui';
 import { formatMoneyFromCents } from '../../../lib/format';
-import type { CreateSaleRequest } from '../../../lib/api';
+import type { Customer, CreateSaleRequest } from '../../../lib/api';
 import type { CartItem, PaymentMethod } from '../../../types';
 import { formatEditableMoneyFromCents, parseVisibleMoneyToCents } from '../utils';
 
@@ -61,6 +61,7 @@ function suggestNextMethod(lines: ReadonlyArray<MixedPaymentLine>): SimplePaymen
 
 export function CheckoutModal({
   cartItems,
+  customers,
   discountCents,
   error,
   isOpen,
@@ -70,16 +71,18 @@ export function CheckoutModal({
   totalCents
 }: {
   cartItems: CartItem[];
+  customers: Customer[];
   discountCents: number;
   error: string | null;
   isOpen: boolean;
   isSubmitting: boolean;
   onClose: () => void;
-  onConfirm: (payments: CreateSaleRequest['payments']) => Promise<void> | void;
+  onConfirm: (payments: CreateSaleRequest['payments'], customerId: string | null) => Promise<void> | void;
   totalCents: number;
 }) {
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('CASH');
   const [cashReceivedDraft, setCashReceivedDraft] = useState('0');
+  const [selectedCustomerId, setSelectedCustomerId] = useState<string>('');
   const [mixedLines, setMixedLines] = useState<MixedPaymentLine[]>(() =>
     buildDefaultMixedLines(totalCents)
   );
@@ -95,6 +98,7 @@ export function CheckoutModal({
     setPaymentMethod('CASH');
     setCashReceivedDraft(formatEditableMoneyFromCents(totalCents));
     setMixedLines(buildDefaultMixedLines(totalCents));
+    setSelectedCustomerId('');
   }, [isOpen, totalCents]);
 
   useEffect(() => {
@@ -215,7 +219,7 @@ export function CheckoutModal({
             }
           ];
 
-    void onConfirm(payments);
+    void onConfirm(payments, selectedCustomerId || null);
   }
 
   return (
@@ -242,7 +246,7 @@ export function CheckoutModal({
               <strong>{formatMoneyFromCents(totalCents)}</strong>
             </div>
 
-            <div className="totals-box totals-box-strong">
+            <div className="totals-box totals-box-strong" style={{ marginBottom: '1rem' }}>
               <div>
                 <span>Subtotal</span>
                 <strong>{formatMoneyFromCents(subtotalCents)}</strong>
@@ -252,6 +256,24 @@ export function CheckoutModal({
                 <strong>-{formatMoneyFromCents(discountCents)}</strong>
               </div>
             </div>
+
+            <label className="field" style={{ marginBottom: '1.5rem', background: 'var(--color-bg)', padding: '1rem', borderRadius: '8px', border: '1px solid var(--color-slate-200)' }}>
+              <span style={{ fontWeight: 600, color: 'var(--color-slate-900)' }}>Asociar Cliente (Opcional)</span>
+              <p style={{ fontSize: '0.75rem', color: 'var(--color-slate-500)', marginBottom: '0.5rem' }}>
+                Requerido por DIAN para compras altas.
+              </p>
+              <select
+                value={selectedCustomerId}
+                onChange={(e) => setSelectedCustomerId(e.target.value)}
+              >
+                <option value="">Consumidor Final (No identificado)</option>
+                {customers.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.document_type} {c.document_number} - {c.name}
+                  </option>
+                ))}
+              </select>
+            </label>
 
             <div className="checkout-cart-preview">
               {cartItems.slice(0, 4).map((item) => (

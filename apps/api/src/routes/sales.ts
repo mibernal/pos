@@ -34,6 +34,7 @@ interface SaleInsertItem {
 const saleColumnList = [
   'id',
   'tenant_id',
+  'customer_id',
   'branch_id',
   'cash_session_id',
   'sale_number',
@@ -76,6 +77,7 @@ function serializeJsonArrayForDb(
 function mapSaleRow(row: {
   id: string;
   tenant_id: string;
+  customer_id: string | null;
   branch_id: string;
   cash_session_id: string;
   sale_number: number;
@@ -96,6 +98,7 @@ function mapSaleRow(row: {
   return {
     id: row.id,
     tenant_id: row.tenant_id,
+    customer_id: row.customer_id ?? null,
     branch_id: row.branch_id,
     cash_session_id: row.cash_session_id,
     sale_number: parseSaleNumber(row.sale_number),
@@ -336,6 +339,7 @@ export const salesRoutes: FastifyPluginAsync = async (app) => {
               id: saleId,
               tenant_id: request.auth!.tenantId,
               client_uuid: payload.client_uuid,
+              customer_id: payload.customer_id ?? null,
               branch_id: payload.branch_id,
               cash_session_id: payload.cash_session_id,
               sale_number: nextSaleNumber,
@@ -355,6 +359,40 @@ export const salesRoutes: FastifyPluginAsync = async (app) => {
             .executeTakeFirstOrThrow();
 
           await trx.insertInto('sale_items').values(saleItemsToInsert).execute();
+
+          for (const item of saleItemsToInsert) {
+            const txId = randomUUID();
+            await trx
+              .insertInto('inventory_transactions')
+              .values({
+                id: txId,
+                tenant_id: request.auth!.tenantId,
+                branch_id: payload.branch_id,
+                product_id: item.product_id,
+                operation: 'SALE',
+                reference_id: saleId,
+                qty_change: (-Number(item.qty)).toString(),
+                notes: `Venta #${nextSaleNumber}`,
+                created_by_user_id: request.auth!.userId
+              })
+              .execute();
+
+            await trx
+              .insertInto('inventory_balances')
+              .values({
+                tenant_id: request.auth!.tenantId,
+                branch_id: payload.branch_id,
+                product_id: item.product_id,
+                qty: (-Number(item.qty)).toString()
+              })
+              .onConflict((oc) =>
+                oc.columns(['tenant_id', 'branch_id', 'product_id']).doUpdateSet({
+                  qty: sql`inventory_balances.qty + EXCLUDED.qty`,
+                  updated_at: sql`NOW()`
+                })
+              )
+              .execute();
+          }
 
           await trx
             .insertInto('dian_documents')
@@ -711,6 +749,47 @@ export const salesRoutes: FastifyPluginAsync = async (app) => {
           .where('id', '=', params.id)
           .returning([...saleColumnList])
           .executeTakeFirstOrThrow();
+
+        const saleItems = await trx
+          .selectFrom('sale_items')
+          .select(['product_id', 'qty'])
+          .where('tenant_id', '=', request.auth!.tenantId)
+          .where('sale_id', '=', params.id)
+          .execute();
+
+        for (const item of saleItems) {
+          const txId = randomUUID();
+          await trx
+            .insertInto('inventory_transactions')
+            .values({
+              id: txId,
+              tenant_id: request.auth!.tenantId,
+              branch_id: updatedSale.branch_id,
+              product_id: item.product_id,
+              operation: 'SALE_VOID',
+              reference_id: updatedSale.id,
+              qty_change: Number(item.qty).toString(),
+              notes: `Anulación Venta #${updatedSale.sale_number}`,
+              created_by_user_id: request.auth!.userId
+            })
+            .execute();
+
+          await trx
+            .insertInto('inventory_balances')
+            .values({
+              tenant_id: request.auth!.tenantId,
+              branch_id: updatedSale.branch_id,
+              product_id: item.product_id,
+              qty: Number(item.qty).toString()
+            })
+            .onConflict((oc) =>
+              oc.columns(['tenant_id', 'branch_id', 'product_id']).doUpdateSet({
+                qty: sql`inventory_balances.qty + EXCLUDED.qty`,
+                updated_at: sql`NOW()`
+              })
+            )
+            .execute();
+        }
 
         await writeAuditLog(trx, {
           tenantId: request.auth!.tenantId,
