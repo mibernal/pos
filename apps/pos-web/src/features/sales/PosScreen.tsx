@@ -185,47 +185,48 @@ export function PosScreen({
     setSaleMessage(null);
   }
 
-  function addProduct(product: ProductItem, options?: { clearSearch?: boolean }) {
-    const existingIndex = cartItems.findIndex((item) => item.productId === product.id);
+  const addProduct = useCallback((product: ProductItem, options?: { clearSearch?: boolean }) => {
+    setCartItems((currentCartItems) => {
+      const existingIndex = currentCartItems.findIndex((item) => item.productId === product.id);
 
-    if (existingIndex === -1) {
-      setCartItems([
-        ...cartItems,
-        {
-          productId: product.id,
-          name: product.name,
-          category: product.category,
-          barcode: product.barcode,
-          priceCents: product.price_cents,
-          qty: 1
-        }
-      ]);
-      setSelectedCartIndex(cartItems.length);
-    } else {
-      const nextCartItems = [...cartItems];
-      const existingItem = nextCartItems[existingIndex];
-
-      if (!existingItem) {
-        return;
+      if (existingIndex === -1) {
+        setSelectedCartIndex(currentCartItems.length);
+        return [
+          ...currentCartItems,
+          {
+            productId: product.id,
+            name: product.name,
+            category: product.category,
+            barcode: product.barcode,
+            priceCents: product.price_cents,
+            qty: 1
+          }
+        ];
       }
 
+      const existingItem = currentCartItems[existingIndex];
+
+      if (!existingItem) {
+        return currentCartItems;
+      }
+
+      const nextCartItems = [...currentCartItems];
       nextCartItems[existingIndex] = {
         ...existingItem,
         qty: existingItem.qty + 1
       };
-
-      setCartItems(nextCartItems);
       setSelectedCartIndex(existingIndex);
-    }
+      return nextCartItems;
+    });
 
     setSaleError(null);
     setSaleMessage(null);
 
-    if (options?.clearSearch && hasSearchQuery) {
+    if (options?.clearSearch) {
       setQuery('');
       searchInputRef.current?.focus();
     }
-  }
+  }, []);
 
   function updateCartQty(index: number, qty: number) {
     if (qty <= 0) {
@@ -403,6 +404,15 @@ export function PosScreen({
         return;
       }
 
+      if (event.key === 'F12') {
+        event.preventDefault();
+        if (canOpenCheckout) {
+          setSaleError(null);
+          setIsCheckoutModalOpen(true);
+        }
+        return;
+      }
+
       if (event.key === 'Enter') {
         if (isSearchInput && highlightedProduct) {
           event.preventDefault();
@@ -434,10 +444,14 @@ export function PosScreen({
 
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  // addProduct is intentionally omitted: it closes over cartItems state and
-  // is not memoised — adding it would cause an infinite re-render loop.
-  }, [canOpenCheckout, highlightedProduct, isCheckoutModalOpen, moveHighlightedProduct, removeSelectedItem]);
+  }, [
+    addProduct,
+    canOpenCheckout,
+    highlightedProduct,
+    isCheckoutModalOpen,
+    moveHighlightedProduct,
+    removeSelectedItem
+  ]);
 
   return (
     <div className="pos-screen">
@@ -467,6 +481,7 @@ export function PosScreen({
           <div className="pos-search-toolbar">
             <div className="pos-search-field">
               <input
+                aria-label="Búsqueda rápida"
                 ref={searchInputRef}
                 placeholder="Escanea o busca un producto... (Ctrl+K)"
                 value={query}
@@ -537,6 +552,7 @@ export function PosScreen({
               <div className="quick-product-actions">
                 <strong>{formatMoneyFromCents(highlightedProduct.price_cents)}</strong>
                 <button
+                  aria-label="Agregar destacado"
                   type="button"
                   className="quick-product-button"
                   style={{ background: 'var(--color-primary-600)', padding: '0.75rem 2rem' }}
@@ -707,7 +723,7 @@ export function PosScreen({
 
             <input
               inputMode="numeric"
-              placeholder="0"
+              placeholder="0.00"
               style={{ padding: '0.4rem', fontSize: '0.875rem', height: '2rem' }}
               type="number"
               min="0"
@@ -735,6 +751,7 @@ export function PosScreen({
           </div>
 
           <button
+            aria-label="Cobrar (F12)"
             type="button"
             className="charge-button"
             disabled={!canOpenCheckout}

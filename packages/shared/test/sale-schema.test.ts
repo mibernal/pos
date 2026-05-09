@@ -73,6 +73,7 @@ describe('createSaleSchema', () => {
       sale: {
         id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
         tenant_id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+        customer_id: null,
         branch_id: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
         cash_session_id: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
         sale_number: 15,
@@ -140,6 +141,7 @@ describe('createSaleSchema', () => {
       sale: {
         id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
         tenant_id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+        customer_id: null,
         branch_id: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
         cash_session_id: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
         sale_number: 15,

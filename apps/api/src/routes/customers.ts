@@ -114,13 +114,34 @@ export const customersRoutes: FastifyPluginAsync = async (app) => {
 
       const existing = await app.db
         .selectFrom('customers')
-        .select('id')
+        .select(['id', 'document_type', 'document_number'])
         .where('tenant_id', '=', request.auth!.tenantId)
         .where('id', '=', id)
         .executeTakeFirst();
 
       if (!existing) {
         throw new AppError(404, 'CUSTOMER_NOT_FOUND', 'Cliente no encontrado');
+      }
+
+      const nextDocumentType = payload.document_type ?? existing.document_type;
+      const nextDocumentNumber = payload.document_number ?? existing.document_number;
+
+      if (
+        nextDocumentType !== existing.document_type ||
+        nextDocumentNumber !== existing.document_number
+      ) {
+        const duplicatedCustomer = await app.db
+          .selectFrom('customers')
+          .select('id')
+          .where('tenant_id', '=', request.auth!.tenantId)
+          .where('document_type', '=', nextDocumentType)
+          .where('document_number', '=', nextDocumentNumber)
+          .where('id', '!=', id)
+          .executeTakeFirst();
+
+        if (duplicatedCustomer) {
+          throw new AppError(409, 'CUSTOMER_EXISTS', 'Ya existe un cliente con este documento');
+        }
       }
 
       const toUpdate: Record<string, unknown> = {};

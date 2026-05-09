@@ -6,6 +6,14 @@ import type { SalesReportResponse } from '../../lib/api';
 
 type DateFilter = 'TODAY' | 'WEEK' | 'MONTH' | 'CUSTOM';
 
+function toStartOfDayIso(value: string): string {
+  return new Date(`${value}T00:00:00`).toISOString();
+}
+
+function toEndOfDayIso(value: string): string {
+  return new Date(`${value}T23:59:59.999`).toISOString();
+}
+
 export function ReportsScreen({
   api,
   branchId
@@ -41,8 +49,8 @@ export function ReportsScreen({
         const start = new Date(now.getFullYear(), now.getMonth(), 1);
         from = start.toISOString();
       } else if (filter === 'CUSTOM') {
-        from = customFrom ? new Date(customFrom).toISOString() : undefined;
-        to = customTo ? new Date(customTo).toISOString() : undefined;
+        from = customFrom ? toStartOfDayIso(customFrom) : undefined;
+        to = customTo ? toEndOfDayIso(customTo) : undefined;
       }
 
       const res = await api.getSalesReport({ branchId, from, to });
