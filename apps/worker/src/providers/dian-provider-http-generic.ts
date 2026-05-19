@@ -11,9 +11,9 @@ interface DianProviderHttpGenericConfig {
   timeoutMs: number;
 }
 
-function normalizeProviderStatus(value: unknown): DianProviderResultStatus {
+function normalizeProviderStatus(value: unknown): DianProviderResultStatus | null {
   if (typeof value !== 'string') {
-    return 'ACCEPTED';
+    return null;
   }
 
   const status = value.toUpperCase();
@@ -21,7 +21,7 @@ function normalizeProviderStatus(value: unknown): DianProviderResultStatus {
     return status;
   }
 
-  return 'ACCEPTED';
+  return null;
 }
 
 function extractCude(value: unknown): string | null {
@@ -78,6 +78,16 @@ export class DianProviderHttpGeneric implements DianProvider {
 
       const cude = extractCude(bodyRecord.cude ?? bodyRecord.CUDE ?? bodyRecord.uuid);
       const status = normalizeProviderStatus(bodyRecord.status);
+
+      if (!status) {
+        throw new Error(
+          `DianProviderHttpGeneric invalid provider status: ${JSON.stringify(bodyRecord.status)}`
+        );
+      }
+
+      if (status === 'ACCEPTED' && !cude) {
+        throw new Error('DianProviderHttpGeneric accepted response missing CUDE');
+      }
 
       return {
         status,

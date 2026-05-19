@@ -1,4 +1,4 @@
-
+import { randomUUID } from 'node:crypto';
 import type { Job } from 'bullmq';
 import type { Pool } from 'pg';
 import type { DianStatus } from '@pos-dian/shared';
@@ -15,6 +15,7 @@ import type {
 } from '@pos-dian/shared/types/dian-provider.js';
 import {
   formatDianStatusTransitions,
+  getDianEmissionBlockReason,
   planDianStatusTransition
 } from '../domain/dian-document-status.js';
 import type { OutboxSaleVoidedJobData } from './types.js';
@@ -309,7 +310,7 @@ async function claimOutboxEvent(
   return rows[0] ?? null;
 }
 
-async function getDianDocument(
+async function getInvoiceDianDocument(
   pool: Pool,
   tenantId: string,
   saleId: string
@@ -320,12 +321,60 @@ async function getDianDocument(
       FROM dian_documents
       WHERE tenant_id = $1
         AND sale_id = $2
+        AND document_type = 'INVOICE'
       ORDER BY created_at DESC
       LIMIT 1
     `,
     [tenantId, saleId]
   );
   return found.rows[0] ?? null;
+}
+
+async function getOrCreateCreditNoteDianDocument(
+  pool: Pool,
+  tenantId: string,
+  saleId: string,
+  invoiceDocumentId: string
+): Promise<DianDocumentRow> {
+  const found = await pool.query<DianDocumentRow>(
+    `
+      SELECT id, status, cude
+      FROM dian_documents
+      WHERE tenant_id = $1
+        AND sale_id = $2
+        AND document_type = 'CREDIT_NOTE'
+      ORDER BY created_at DESC
+      LIMIT 1
+    `,
+    [tenantId, saleId]
+  );
+
+  const existing = found.rows[0];
+  if (existing) {
+    return existing;
+  }
+
+  const inserted = await pool.query<DianDocumentRow>(
+    `
+      INSERT INTO dian_documents (
+        id,
+        tenant_id,
+        sale_id,
+        document_type,
+        parent_document_id,
+        provider,
+        status,
+        cude,
+        provider_payload_json,
+        provider_response_json
+      )
+      VALUES ($1, $2, $3, 'CREDIT_NOTE', $4, $5, 'PENDING', NULL, '{}'::jsonb, NULL)
+      RETURNING id, status, cude
+    `,
+    [randomUUID(), tenantId, saleId, invoiceDocumentId, env.DIAN_PROVIDER]
+  );
+
+  return inserted.rows[0]!;
 }
 
 async function loadProviderPayload(
@@ -506,9 +555,9 @@ export function buildOutboxSaleVoidedProcessor({
     const nextAttemptNumber = claimedEvent.attempts + 1;
     const idempotencyKey = buildIdempotencyKey(claimedEvent.payload_json, tenantId, saleId);
 
-    const dianDocument = await getDianDocument(pool, tenantId, saleId);
-    if (!dianDocument) {
-      await job.log(`No se encontró dian_document para la venta. Emitir nota de ajuste omitido.`);
+    const invoiceDianDocument = await getInvoiceDianDocument(pool, tenantId, saleId);
+    if (!invoiceDianDocument) {
+      await job.log(`No se encontró dian_document INVOICE para la venta. Emitir nota de ajuste omitido.`);
       await markOutboxSent(pool, claimedEvent.id, nextAttemptNumber);
       return;
     }
@@ -521,15 +570,14 @@ export function buildOutboxSaleVoidedProcessor({
       sale_id: saleId,
       tenant_id: tenantId,
       attempt: nextAttemptNumber,
-      dian_document_id: dianDocument.id,
+      dian_document_id: invoiceDianDocument.id,
       details: {
-        current_dian_status: dianDocument.status
+        current_dian_status: invoiceDianDocument.status,
+        document_type: 'INVOICE'
       }
     });
 
-    // Validar estado actual - si no esta APPROVED, no deberiamos enviar nota credito todavía,
-    // o el worker va a reintentar hasta que lo este.
-    if (dianDocument.status !== 'ACCEPTED') {
+    if (invoiceDianDocument.status !== 'ACCEPTED') {
       const nextRetryAt = computeNextRetryAt(
         nextAttemptNumber,
         new Date(),
@@ -538,26 +586,63 @@ export function buildOutboxSaleVoidedProcessor({
       );
       await markOutboxFailed(pool, claimedEvent.id, nextAttemptNumber, nextRetryAt);
       await job.log(
-        `Outbox ${claimedEvent.id} pospuesto. document=${dianDocument.id} aún no está ACCEPTED. current_status=${dianDocument.status}`
+        `Outbox ${claimedEvent.id} pospuesto. invoice_document=${invoiceDianDocument.id} aún no está ACCEPTED. current_status=${invoiceDianDocument.status}`
       );
-      throw new Error('Dian document not yet ACCEPTED');
+      throw new Error('Dian invoice document not yet ACCEPTED');
+    }
+
+    const creditNoteDianDocument = await getOrCreateCreditNoteDianDocument(
+      pool,
+      tenantId,
+      saleId,
+      invoiceDianDocument.id
+    );
+
+    const emissionBlockReason = getDianEmissionBlockReason(
+      creditNoteDianDocument.status,
+      creditNoteDianDocument.cude
+    );
+    if (emissionBlockReason) {
+      await markOutboxSent(pool, claimedEvent.id, claimedEvent.attempts);
+      logWorkerInfo({
+        event: 'dian_outbox_void_job_skipped',
+        message: 'Skipped DIAN credit note emission due to idempotency guard',
+        job_id: job.id?.toString(),
+        outbox_event_id: claimedEvent.id,
+        sale_id: saleId,
+        tenant_id: tenantId,
+        attempt: nextAttemptNumber,
+        dian_document_id: creditNoteDianDocument.id,
+        provider_result: 'SKIPPED',
+        reason: emissionBlockReason,
+        details: {
+          invoice_dian_document_id: invoiceDianDocument.id,
+          current_dian_status: creditNoteDianDocument.status,
+          document_type: 'CREDIT_NOTE'
+        }
+      });
+      await job.log(
+        `Outbox ${claimedEvent.id} omitido por idempotencia. credit_note_document=${creditNoteDianDocument.id} status=${creditNoteDianDocument.status} reason=${emissionBlockReason}`
+      );
+      return;
     }
 
     const providerPayload = await loadProviderPayload(pool, tenantId, saleId, idempotencyKey);
 
     try {
       const providerResult = await provider.emitSale(providerPayload);
-      
-      // Mantenemos ACCEPTED si la NC se envió o pasa a estado acorde.
-      const transitionPlan = planDianStatusTransition(dianDocument.status, providerResult.status);
+      const transitionPlan = planDianStatusTransition(
+        creditNoteDianDocument.status,
+        providerResult.status
+      );
 
       await updateDianDocumentMetadata(
         pool,
-        dianDocument.id,
+        creditNoteDianDocument.id,
         providerPayload,
         providerResult.raw,
         transitionPlan.finalStatus,
-        providerResult.cude // En credit notes, un nuevo CUDE podria volver...
+        providerResult.cude
       );
       await markOutboxSent(pool, claimedEvent.id, nextAttemptNumber);
       logWorkerInfo({
@@ -568,16 +653,18 @@ export function buildOutboxSaleVoidedProcessor({
         sale_id: saleId,
         tenant_id: tenantId,
         attempt: nextAttemptNumber,
-        dian_document_id: dianDocument.id,
+        dian_document_id: creditNoteDianDocument.id,
         dian_transition: formatDianStatusTransitions(transitionPlan.transitions),
         provider_result: providerResult.status,
         details: {
+          invoice_dian_document_id: invoiceDianDocument.id,
           final_dian_status: transitionPlan.finalStatus,
-          cude: providerResult.cude ?? null
+          cude: providerResult.cude ?? null,
+          document_type: 'CREDIT_NOTE'
         }
       });
       await job.log(
-        `Outbox ${claimedEvent.id} procesado para anulación. document=${dianDocument.id} provider_status=${providerResult.status} final_status=${transitionPlan.finalStatus}`
+        `Outbox ${claimedEvent.id} procesado para anulación. credit_note_document=${creditNoteDianDocument.id} provider_status=${providerResult.status} final_status=${transitionPlan.finalStatus}`
       );
       return;
     } catch (error) {
@@ -593,7 +680,7 @@ export function buildOutboxSaleVoidedProcessor({
         error: error instanceof Error ? error.message : 'Unknown error'
       };
 
-      await updateDianDocumentMetadata(pool, dianDocument.id, providerPayload, errorPayload);
+      await updateDianDocumentMetadata(pool, creditNoteDianDocument.id, providerPayload, errorPayload);
       await markOutboxFailed(pool, claimedEvent.id, nextAttemptNumber, nextRetryAt);
       logWorkerError({
         event: 'dian_outbox_void_job_failed',
@@ -603,18 +690,20 @@ export function buildOutboxSaleVoidedProcessor({
         sale_id: saleId,
         tenant_id: tenantId,
         attempt: nextAttemptNumber,
-        dian_document_id: dianDocument.id,
-        dian_transition: `${dianDocument.status}->${dianDocument.status}`,
+        dian_document_id: creditNoteDianDocument.id,
+        dian_transition: `${creditNoteDianDocument.status}->${creditNoteDianDocument.status}`,
         provider_result: 'ERROR',
         next_retry_at: nextRetryAt.toISOString(),
         details: {
-          current_dian_status: dianDocument.status,
-          provider: env.DIAN_PROVIDER
+          invoice_dian_document_id: invoiceDianDocument.id,
+          current_dian_status: creditNoteDianDocument.status,
+          provider: env.DIAN_PROVIDER,
+          document_type: 'CREDIT_NOTE'
         },
         error
       });
       await job.log(
-        `Outbox ${claimedEvent.id} falló emitiendo Nota Crédito. document=${dianDocument.id} current_status=${dianDocument.status} next_retry_at=${nextRetryAt.toISOString()} error=${errorPayload.error}`
+        `Outbox ${claimedEvent.id} falló emitiendo Nota Crédito. credit_note_document=${creditNoteDianDocument.id} current_status=${creditNoteDianDocument.status} next_retry_at=${nextRetryAt.toISOString()} error=${errorPayload.error}`
       );
 
       throw error;

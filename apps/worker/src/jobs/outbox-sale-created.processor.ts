@@ -320,6 +320,7 @@ async function getOrCreateDianDocument(
       FROM dian_documents
       WHERE tenant_id = $1
         AND sale_id = $2
+        AND document_type = 'INVOICE'
       ORDER BY created_at DESC
       LIMIT 1
     `,
@@ -337,13 +338,15 @@ async function getOrCreateDianDocument(
         id,
         tenant_id,
         sale_id,
+        document_type,
+        parent_document_id,
         provider,
         status,
         cude,
         provider_payload_json,
         provider_response_json
       )
-      VALUES ($1, $2, $3, $4, 'PENDING', NULL, '{}'::jsonb, NULL)
+      VALUES ($1, $2, $3, 'INVOICE', NULL, $4, 'PENDING', NULL, '{}'::jsonb, NULL)
       RETURNING id, status, cude
     `,
     [randomUUID(), tenantId, saleId, env.DIAN_PROVIDER]

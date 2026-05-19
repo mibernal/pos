@@ -3,6 +3,7 @@ import type { ColumnType, Generated } from 'kysely';
 export type UserRole = 'ADMIN' | 'CASHIER';
 export type SaleStatus = 'COMPLETED' | 'VOID';
 export type DianDocumentStatus = 'PENDING' | 'SENT' | 'ACCEPTED' | 'REJECTED';
+export type DianDocumentType = 'INVOICE' | 'CREDIT_NOTE';
 export type OutboxStatus = 'PENDING' | 'SENT' | 'FAILED';
 export type InventoryOperation = 'SALE' | 'SALE_VOID' | 'MANUAL_ENTRY' | 'MANUAL_EXIT' | 'PURCHASE';
 export type TenantTaxMode = 'IVA' | 'INC_RESTAURANT';
@@ -113,6 +114,8 @@ export interface DianDocumentsTable {
   id: string;
   tenant_id: string;
   sale_id: string;
+  document_type: Generated<DianDocumentType>;
+  parent_document_id: string | null;
   provider: string;
   status: DianDocumentStatus;
   cude: string | null;

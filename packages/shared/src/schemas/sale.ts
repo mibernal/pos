@@ -3,6 +3,7 @@ import { productTaxCategorySchema } from './product.js';
 
 export const saleStatusSchema = z.enum(['COMPLETED', 'VOID']);
 export const dianStatusSchema = z.enum(['PENDING', 'SENT', 'ACCEPTED', 'REJECTED']);
+export const dianDocumentTypeSchema = z.enum(['INVOICE', 'CREDIT_NOTE']);
 
 export const salePaymentMethodSchema = z.enum(['CASH', 'CARD', 'TRANSFER']);
 export const salePaymentModeSchema = z.enum(['CASH', 'CARD', 'TRANSFER', 'MIXED']);
@@ -121,6 +122,8 @@ export const saleDianDocumentSchema = z.object({
   provider: z.string().min(1),
   status: dianStatusSchema,
   cude: z.string().min(1).nullable(),
+  document_type: dianDocumentTypeSchema.optional(),
+  parent_document_id: z.string().uuid().nullable().optional(),
   created_at: z.string().datetime(),
   updated_at: z.string().datetime()
 });
@@ -145,6 +148,7 @@ export const dianEmissionRequestSchema = z.object({
 
 export type SaleStatus = z.infer<typeof saleStatusSchema>;
 export type DianStatus = z.infer<typeof dianStatusSchema>;
+export type DianDocumentType = z.infer<typeof dianDocumentTypeSchema>;
 export type SalePaymentMethod = z.infer<typeof salePaymentMethodSchema>;
 export type SalePaymentMode = z.infer<typeof salePaymentModeSchema>;
 export type SimpleSalePayment = z.infer<typeof simpleSalePaymentSchema>;
@@ -167,6 +171,7 @@ export type DianEmissionRequest = z.infer<typeof dianEmissionRequestSchema>;
 
 export type SaleStatusInput = z.infer<typeof saleStatusSchema>;
 export type DianStatusInput = z.infer<typeof dianStatusSchema>;
+export type DianDocumentTypeInput = z.infer<typeof dianDocumentTypeSchema>;
 export type SalePaymentMethodInput = z.infer<typeof salePaymentMethodSchema>;
 export type SalePaymentModeInput = z.infer<typeof salePaymentModeSchema>;
 export type SimpleSalePaymentInput = z.infer<typeof simpleSalePaymentSchema>;

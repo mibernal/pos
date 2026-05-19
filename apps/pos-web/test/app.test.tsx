@@ -5,6 +5,18 @@ import App from '../src/app/App';
 import { addPendingSale, clearPendingSales } from '../src/lib/offline-queue';
 import { writeAuthSession, writePosContext } from '../src/lib/session';
 
+function normalizeText(value: string | null | undefined) {
+  return (value ?? '').replace(/\s+/g, ' ').trim();
+}
+
+function expectPendingCount(count: number) {
+  const label = `${count} ${count === 1 ? 'pendiente' : 'pendientes'}`;
+
+  expect(
+    screen.getAllByText((_, node) => normalizeText(node?.textContent) === label).length
+  ).toBeGreaterThan(0);
+}
+
 function seedSession(role: 'ADMIN' | 'CASHIER' = 'ADMIN') {
   writeAuthSession({
     accessToken: 'token-admin',
@@ -60,6 +72,13 @@ function mockAuthenticatedAppFetch(role: 'ADMIN' | 'CASHIER' = 'ADMIN') {
         }),
         { status: 200, headers: { 'content-type': 'application/json' } }
       );
+    }
+
+    if (url.endsWith('/customers')) {
+      return new Response(JSON.stringify([]), {
+        status: 200,
+        headers: { 'content-type': 'application/json' }
+      });
     }
 
     if (url.endsWith('/admin/tenants/current')) {
@@ -196,6 +215,13 @@ function mockAuthenticatedPosFetch(options?: {
       );
     }
 
+    if (url.endsWith('/customers')) {
+      return new Response(JSON.stringify([]), {
+        status: 200,
+        headers: { 'content-type': 'application/json' }
+      });
+    }
+
     if (url.endsWith('/sales') && init?.method === 'POST') {
       saleCalls += 1;
       if (options?.onCreateSale) {
@@ -287,7 +313,8 @@ describe('App', () => {
 
   it('renders POS title', () => {
     render(<App />);
-    expect(screen.getByText('POS DIAN')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'BIENVENIDO' })).toBeInTheDocument();
+    expect(screen.getByLabelText('Correo Electrónico')).toBeInTheDocument();
   });
 
   it('logs in and loads branch setup when credentials are valid', async () => {
@@ -295,17 +322,15 @@ describe('App', () => {
 
     render(<App />);
 
-    fireEvent.change(screen.getByLabelText('Email'), {
+    fireEvent.change(screen.getByLabelText('Correo Electrónico'), {
       target: { value: 'cashier@demo.posdian.local' }
     });
     fireEvent.change(screen.getByLabelText('Contraseña'), {
       target: { value: 'Cashier123*' }
     });
-    fireEvent.click(screen.getByRole('button', { name: 'Iniciar sesión' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Iniciar Sesión' }));
 
-    expect(
-      await screen.findByRole('heading', { name: 'Selecciona sucursal y caja' })
-    ).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'PUNTO DE VENTA' })).toBeInTheDocument();
   });
 
   it('redirects to login when a persisted session is no longer valid', async () => {
@@ -319,7 +344,7 @@ describe('App', () => {
 
     render(<App />);
 
-    expect(await screen.findByLabelText('Email')).toBeInTheDocument();
+    expect(await screen.findByLabelText('Correo Electrónico')).toBeInTheDocument();
     expect(screen.getByText(/tu sesión expiró/i)).toBeInTheDocument();
   });
 
@@ -329,12 +354,12 @@ describe('App', () => {
 
     render(<App />);
 
-    const openConfigButton = await screen.findByRole('button', { name: 'Configuración DIAN' });
+    const openConfigButton = await screen.findByTitle('Configuración DIAN');
     fireEvent.click(openConfigButton);
 
-    await screen.findByRole('dialog', { name: 'Configurar DIAN' });
+    const dialog = await screen.findByRole('dialog', { name: 'Configurar DIAN' });
 
-    const taxModeSelect = await screen.findByLabelText('Modo tributario');
+    const taxModeSelect = within(dialog).getByRole('combobox');
     await waitFor(() => {
       expect((taxModeSelect as HTMLSelectElement).value).toBe('INC_RESTAURANT');
     });
@@ -352,7 +377,7 @@ describe('App', () => {
     const productsTab = await screen.findByRole('button', { name: 'Productos' });
     fireEvent.click(productsTab);
 
-    expect(await screen.findByRole('heading', { name: 'Productos' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'Catálogo de Productos' })).toBeInTheDocument();
   });
 
   it('hides admin actions for cashier users', async () => {
@@ -366,7 +391,7 @@ describe('App', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Productos' }));
 
     expect(
-      await screen.findByText(/acceso de solo lectura al catálogo/i)
+      await screen.findByText(/como cajero, puedes ver el catálogo pero no realizar modificaciones/i)
     ).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Crear producto' })).not.toBeInTheDocument();
   });
@@ -404,7 +429,7 @@ describe('App', () => {
 
     await screen.findByRole('button', { name: /agregar destacado/i });
     fireEvent.keyDown(await screen.findByLabelText('Búsqueda rápida'), { key: 'Enter' });
-    fireEvent.click(screen.getByRole('button', { name: /cobrar ahora/i }));
+    fireEvent.click(screen.getByRole('button', { name: /cobrar \(f12\)/i }));
 
     const checkoutDialog = screen.getByRole('dialog', { name: 'Cobrar venta' });
     fireEvent.change(screen.getByLabelText('Recibido (COP)'), {
@@ -416,7 +441,7 @@ describe('App', () => {
       await screen.findByText(/venta guardada como pendiente por falta de conexión/i)
     ).toBeInTheDocument();
     await waitFor(() => {
-      expect(screen.getAllByText('Pendientes 1').length).toBeGreaterThan(0);
+      expectPendingCount(1);
     });
 
     fireEvent.click(screen.getAllByRole('button', { name: 'Sincronizar' })[0]!);
@@ -424,7 +449,7 @@ describe('App', () => {
     expect(
       await screen.findByText(/1 venta\(s\) pendiente\(s\) sincronizada\(s\) correctamente/i)
     ).toBeInTheDocument();
-    expect(screen.getAllByText('Pendientes 0').length).toBeGreaterThan(0);
+    expectPendingCount(0);
   });
 
   it('shows sync error per pending sale and allows retrying it', async () => {
@@ -454,7 +479,7 @@ describe('App', () => {
     render(<App />);
 
     await waitFor(() => {
-      expect(screen.getAllByText('Pendientes 1').length).toBeGreaterThan(0);
+      expectPendingCount(1);
     });
 
     fireEvent.click(screen.getAllByRole('button', { name: 'Sincronizar' })[0]!);
@@ -462,13 +487,13 @@ describe('App', () => {
     expect(
       await screen.findByText(/la caja está cerrada\. abre una nueva sesión antes de registrar más ventas/i)
     ).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Reintentar' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Sincronizar' })).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Reintentar' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Sincronizar' }));
 
     expect(
       await screen.findByText(/1 venta\(s\) pendiente\(s\) sincronizada\(s\) correctamente/i)
     ).toBeInTheDocument();
-    expect(screen.getAllByText('Pendientes 0').length).toBeGreaterThan(0);
+    expectPendingCount(0);
   });
 });

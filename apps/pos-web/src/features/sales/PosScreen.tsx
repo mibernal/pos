@@ -490,12 +490,15 @@ export function PosScreen({
                 onKeyDown={(event) => {
                   if (event.key === 'ArrowDown') {
                     event.preventDefault();
+                    event.stopPropagation();
                     moveHighlightedProduct('next');
                   } else if (event.key === 'ArrowUp') {
                     event.preventDefault();
+                    event.stopPropagation();
                     moveHighlightedProduct('previous');
                   } else if (event.key === 'Enter' && highlightedProduct) {
                     event.preventDefault();
+                    event.stopPropagation();
                     addProduct(highlightedProduct, { clearSearch: true });
                   }
                 }}

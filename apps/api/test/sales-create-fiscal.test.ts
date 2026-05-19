@@ -23,7 +23,9 @@ type TableName =
   | 'sale_items'
   | 'dian_documents'
   | 'outbox_events'
-  | 'audit_logs';
+  | 'audit_logs'
+  | 'inventory_transactions'
+  | 'inventory_balances';
 
 interface FakeDbState {
   tenants: Array<{ id: string; tax_mode: TenantTaxMode }>;
@@ -42,6 +44,8 @@ interface FakeDbState {
   dian_documents: Array<Record<string, unknown>>;
   outbox_events: Array<Record<string, unknown>>;
   audit_logs: Array<Record<string, unknown>>;
+  inventory_transactions: Array<Record<string, unknown>>;
+  inventory_balances: Array<Record<string, unknown>>;
   hooks?: {
     beforeInsert?: (
       tableName: TableName,
@@ -217,6 +221,10 @@ class FakeInsertBuilder {
 
   returning(columns: string[]): this {
     this.returningColumns = columns;
+    return this;
+  }
+
+  onConflict(): this {
     return this;
   }
 
@@ -419,7 +427,9 @@ function createFixture(
     sale_items: [],
     dian_documents: [],
     outbox_events: [],
-    audit_logs: []
+    audit_logs: [],
+    inventory_transactions: [],
+    inventory_balances: []
   };
 
   return {

@@ -1,9 +1,10 @@
 # Plan de Implementación POS-DIAN — Estado Actual
 
-**Fecha de actualización**: 10 de abril de 2026  
-**Estado General**: ~95% completado  
-**Build**: ✅ API + Worker compilan sin errores (0 lint errors)  
-**Lint**: pos-web: 1 `any` minor en HistoryScreen (no bloqueante)
+**Fecha de actualización**: 16 de mayo de 2026
+**Estado General**: ~96% completado
+**Build**: ✅ Monorepo completo (`pnpm build`)
+**Lint**: ✅ Monorepo completo (`pnpm lint`)
+**Tests verificados**: API 59, Worker 23, Shared 12, POS Web 24 (118 total)
 
 ---
 
@@ -34,9 +35,9 @@ Rutas implementadas y testeadas:
 ### ✅ Worker BullMQ (100%)
 
 - `outbox-sale-created.processor.ts` — Emite factura electrónica DIAN
-- `outbox-sale-voided.processor.ts` — Emite Nota Crédito cuando el doc original está ACCEPTED
+- `outbox-sale-voided.processor.ts` — Emite Nota Crédito `CREDIT_NOTE` separada cuando la factura `INVOICE` está `ACCEPTED`
 - `outbox-events.scheduler.ts` — Polling periódico (outbox pattern)
-- `dian-provider-http-generic.ts` — Integración HTTP real (URL + API Key + timeout)
+- `dian-provider-http-generic.ts` — Integración HTTP real (URL + API Key + timeout), con validación estricta de `status` y CUDE en `ACCEPTED`
 - `dian-provider-mock.ts` — Mock para staging/test
 - Backoff exponencial configurable (`OUTBOX_RETRY_BASE_MS` / `OUTBOX_RETRY_MAX_MS`)
 - Health server HTTP en puerto configurable
@@ -47,7 +48,7 @@ Rutas implementadas y testeadas:
 
 ### ✅ Base de Datos PostgreSQL (100%)
 
-7 migraciones Kysely:
+9 migraciones Kysely:
 
 1. Schema inicial (tenants, users, branches, products, sales, dian_documents)
 2. `client_uuid` para idempotencia de venta
@@ -55,7 +56,9 @@ Rutas implementadas y testeadas:
 4. Audit logs
 5. Metadatos de anulación (`void_reason`, `voided_at`)
 6. Perfil comercial del tenant
-7. Customers + Inventory (stock_balances, inventory_transactions)
+7. Soporte de media/productos
+8. Customers + Inventory (inventory_balances, inventory_transactions)
+9. Tipos de documento fiscal DIAN (`INVOICE`, `CREDIT_NOTE`, `parent_document_id`)
 
 ---
 
@@ -100,10 +103,10 @@ Rutas implementadas y testeadas:
 
 ### 🟡 Fase J — Calidad Técnica (media prioridad)
 
-- [ ] Resolver conflictos de merge en `README.md` del proyecto raíz
 - [ ] Tests de integración para `reports.ts`, `customers.ts`, `inventory.ts`
-- [ ] Prueba E2E del flujo completo: login → apertura caja → venta → cierre caja
+- [x] Prueba E2E del flujo completo: login → apertura caja → venta → cierre caja
 - [ ] Validar `ReportsScreen` con datos reales de DB
+- [ ] Resolver documentos DIAN que queden en `SENT` mediante polling o webhook del provider
 
 ### 🟢 Fase K — Producción (próxima etapa)
 
@@ -180,13 +183,13 @@ Worker: emitSale(INVOICE) → proveedor habilitador DIAN
 dian_documents: status PENDING → ACCEPTED | REJECTED
 
 ── Si la venta se anula ──────────────────────────────────────
-API: UPDATE sales SET status=VOIDED + INSERT outbox_events (SALE_VOIDED)
+API: UPDATE sales SET status=VOID + INSERT outbox_events (SALE_VOIDED)
     ↓
-Worker: espera que dian_documents.status = ACCEPTED
+Worker: espera que dian_documents(INVOICE).status = ACCEPTED
     ↓
-Worker: emitSale(CREDIT_NOTE) → proveedor
+Worker: crea/reutiliza dian_documents(CREDIT_NOTE) y emitSale(CREDIT_NOTE) → proveedor
     ↓
-dian_documents: nueva fila Nota Crédito
+dian_documents(CREDIT_NOTE): status PENDING → ACCEPTED | REJECTED
 ```
 
 ---

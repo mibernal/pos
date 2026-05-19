@@ -103,7 +103,17 @@
 4. Usar `Reimprimir ticket` para reimpresion.
 5. Solo `ADMIN` puede usar `Anular venta`.
 6. La anulacion exige motivo, refresca el detalle y marca la venta como `VOID`.
-7. Si existe documento DIAN, la UI deja visible que falta gestionar la nota de ajuste real.
+7. Si existe factura DIAN, API crea outbox `SALE_VOIDED`.
+8. El worker emitira una nota credito `CREDIT_NOTE` separada cuando la factura `INVOICE` este `ACCEPTED`.
+
+## Operacion DIAN y outbox
+1. Verificar que API y worker compartan `DATABASE_URL`.
+2. Verificar que worker tenga `REDIS_URL` y `DIAN_PROVIDER`.
+3. Para ventas nuevas, revisar `outbox_events.type = SALE_CREATED`.
+4. Para anulaciones, revisar `outbox_events.type = SALE_VOIDED`.
+5. `SALE_VOIDED` puede quedar en retry si la factura original aun no esta `ACCEPTED`.
+6. Con `DIAN_PROVIDER=http`, la respuesta debe traer `status` valido: `SENT`, `ACCEPTED` o `REJECTED`.
+7. Si el provider responde `ACCEPTED`, debe traer `cude`, `CUDE` o `uuid`; si no, el worker falla y reintenta.
 
 ## Cierre de caja
 1. Consultar la caja actual de la sucursal.
@@ -122,10 +132,13 @@
 - `CASH_SESSION_ALREADY_OPEN`: ya existe una caja abierta en esa sucursal.
 - `CASH_SESSION_CLOSED`: la venta intento usar una caja cerrada.
 - Sin estado DIAN final: revisar worker, Redis y `DIAN_PROVIDER`.
+- Documento DIAN en `SENT` por mucho tiempo: falta implementar consulta/webhook de finalizacion del provider.
+- `SALE_VOIDED` reintentando: confirmar que la factura `INVOICE` de la venta este `ACCEPTED`.
+- Provider HTTP falla por status invalido: revisar contrato y mapeo de respuesta del PAC.
 - Pendientes que no sincronizan: revisar conectividad, API y errores guardados en la cola local.
 
 ## Pendientes para produccion final
-- Provider DIAN real y flujo formal de nota de ajuste para anulaciones.
+- Provider DIAN real certificado y finalizacion para documentos `SENT`.
 - Despliegue con HTTPS, secretos, backups y monitoreo centralizado.
 - Impresion integrada con hardware o ESC/POS si se requiere fuera del navegador.
 - Politicas operativas de soporte, rotacion de usuarios y recuperacion de incidentes.

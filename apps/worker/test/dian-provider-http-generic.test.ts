@@ -101,17 +101,17 @@ describe('DianProviderHttpGeneric', () => {
     expect(parsedPayload.sale.tax_lines).toEqual([
       {
         lineIndex: 0,
-        category: 'INC',
-        base_cents: 9259,
-        tax_cents: 741,
+        category: 'INC_8',
+        base_cents: 10000,
+        tax_cents: 800,
         rate: 0.08
       }
     ]);
     expect(parsedPayload.sale.items[0]).toMatchObject({
       tax_category: 'INC_8',
-      category: 'INC',
-      base_cents: 9259,
-      tax_cents: 741,
+      category: 'INC_8',
+      base_cents: 10000,
+      tax_cents: 800,
       rate: 0.08
     });
     expect(result.status).toBe('ACCEPTED');
@@ -158,5 +158,35 @@ describe('DianProviderHttpGeneric', () => {
 
     expect(result.status).toBe('REJECTED');
     expect(result.cude).toBeNull();
+  });
+
+  it('throws when the provider omits the fiscal status', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(JSON.stringify({ cude: 'CUDE-123' }), { status: 200 })
+    );
+
+    const provider = new DianProviderHttpGeneric({
+      url: 'https://example.com/dian',
+      timeoutMs: 3000
+    });
+
+    await expect(provider.emitSale(validPayload)).rejects.toThrowError(
+      /invalid provider status/
+    );
+  });
+
+  it('throws when an accepted response has no CUDE', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(JSON.stringify({ status: 'ACCEPTED' }), { status: 200 })
+    );
+
+    const provider = new DianProviderHttpGeneric({
+      url: 'https://example.com/dian',
+      timeoutMs: 3000
+    });
+
+    await expect(provider.emitSale(validPayload)).rejects.toThrowError(
+      /accepted response missing CUDE/
+    );
   });
 });

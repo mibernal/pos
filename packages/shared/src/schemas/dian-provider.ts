@@ -1,6 +1,7 @@
 import { z } from 'zod';
 
 export const dianProviderTaxModeSchema = z.enum(['IVA', 'INC_RESTAURANT']);
+export const dianProviderDocumentTypeSchema = z.enum(['INVOICE', 'CREDIT_NOTE']);
 export const dianProviderTaxCategorySchema = z.enum([
   'IVA_0',
   'IVA_5',
@@ -57,6 +58,8 @@ export const dianProviderEmitSaleInputSchema = z.object({
   sale_id: z.string().uuid(),
   tenant_id: z.string().uuid(),
   branch_id: z.string().uuid(),
+  document_type: dianProviderDocumentTypeSchema.optional(),
+  void_reason: z.string().min(1).optional(),
   taxMode: dianProviderTaxModeSchema,
   idempotency_key: z.string().min(1),
   tenant: z.object({

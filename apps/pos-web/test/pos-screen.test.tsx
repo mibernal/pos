@@ -31,6 +31,7 @@ function buildApiMock(products: Array<{ id: string; name: string; barcode: strin
         hasMore: false
       }
     }),
+    listCustomers: vi.fn().mockResolvedValue([]),
     createSale: vi.fn(),
     getSale: vi.fn(),
     getCurrentCashSession: vi.fn(),
@@ -94,6 +95,14 @@ function buildCreatedSaleResponse(totalCents: number) {
   };
 }
 
+function expectMoneyVisible(cents: number) {
+  expect(
+    screen.getAllByText(
+      (content) => normalizeText(content) === normalizeText(formatMoneyFromCents(cents))
+    ).length
+  ).toBeGreaterThan(0);
+}
+
 describe('PosScreen', () => {
   afterEach(() => {
     vi.restoreAllMocks();
@@ -130,24 +139,18 @@ describe('PosScreen', () => {
 
     expect(await screen.findByRole('button', { name: /agregar destacado/i })).toBeInTheDocument();
 
-    const searchInput = screen.getByPlaceholderText(/buscar por nombre/i);
+    const searchInput = screen.getByLabelText('Búsqueda rápida');
     searchInput.focus();
     fireEvent.keyDown(searchInput, { key: 'Enter' });
 
-    expect(await screen.findByText('Carrito actual')).toBeInTheDocument();
-    expect(screen.getByLabelText('Cantidad de Cafe Americano')).toBeInTheDocument();
-    expect(
-      normalizeText(screen.getByRole('button', { name: /cobrar \(f12\)/i }).textContent)
-    ).toContain(normalizeText(formatMoneyFromCents(1500)));
+    expect(await screen.findByText('Orden Actual')).toBeInTheDocument();
+    expect(screen.getByLabelText('Cantidad')).toBeInTheDocument();
+    expectMoneyVisible(1500);
 
     const visibleDiscountInput = screen.getByPlaceholderText(/0.00/i);
     fireEvent.change(visibleDiscountInput, { target: { value: '2' } });
 
-    await waitFor(() => {
-      expect(
-        normalizeText(screen.getByRole('button', { name: /cobrar \(f12\)/i }).textContent)
-      ).toContain(normalizeText(formatMoneyFromCents(1300)));
-    });
+    await waitFor(() => expectMoneyVisible(1300));
 
     fireEvent.keyDown(window, { key: 'Delete' });
 
@@ -206,7 +209,7 @@ describe('PosScreen', () => {
     expect(await screen.findByRole('button', { name: /agregar destacado/i })).toBeInTheDocument();
 
     fireEvent.keyDown(screen.getByLabelText('Búsqueda rápida'), { key: 'Enter' });
-    fireEvent.click(screen.getByRole('button', { name: /cobrar ahora/i }));
+    fireEvent.click(screen.getByRole('button', { name: /cobrar \(f12\)/i }));
 
     const dialog = screen.getByRole('dialog', { name: 'Cobrar venta' });
     const receivedInput = within(dialog).getByLabelText('Recibido (COP)');
@@ -244,8 +247,8 @@ describe('PosScreen', () => {
     );
 
     expect(await screen.findByText(/venta #23 registrada/i)).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /imprimir ticket/i })).toBeInTheDocument();
-    expect(screen.getByText(/facturación electrónica/i)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /re-imprimir ticket/i })).toBeInTheDocument();
+    expect(screen.getByText(/estado dian/i)).toBeInTheDocument();
     expect(
       screen.getByText(/el carrito está vacío/i)
     ).toBeInTheDocument();
@@ -283,7 +286,7 @@ describe('PosScreen', () => {
     expect(await screen.findByRole('button', { name: /agregar destacado/i })).toBeInTheDocument();
 
     fireEvent.keyDown(screen.getByLabelText('Búsqueda rápida'), { key: 'Enter' });
-    fireEvent.click(screen.getByRole('button', { name: /cobrar ahora/i }));
+    fireEvent.click(screen.getByRole('button', { name: /cobrar \(f12\)/i }));
 
     const dialog = screen.getByRole('dialog', { name: 'Cobrar venta' });
     fireEvent.click(within(dialog).getByRole('button', { name: 'Mixto' }));

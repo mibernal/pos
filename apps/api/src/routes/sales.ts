@@ -400,6 +400,8 @@ export const salesRoutes: FastifyPluginAsync = async (app) => {
               id: randomUUID(),
               tenant_id: request.auth!.tenantId,
               sale_id: saleId,
+              document_type: 'INVOICE',
+              parent_document_id: null,
               provider: DIAN_PROVIDER,
               status: 'PENDING',
               cude: null,
@@ -566,6 +568,7 @@ export const salesRoutes: FastifyPluginAsync = async (app) => {
           join
             .onRef('dian_documents.sale_id', '=', 'sales.id')
             .onRef('dian_documents.tenant_id', '=', 'sales.tenant_id')
+            .on('dian_documents.document_type', '=', 'INVOICE')
         )
         .selectAll('sales')
         .select('dian_documents.status as dian_status')
@@ -652,9 +655,19 @@ export const salesRoutes: FastifyPluginAsync = async (app) => {
 
       const dianDocument = await app.db
         .selectFrom('dian_documents')
-        .select(['id', 'provider', 'status', 'cude', 'created_at', 'updated_at'])
+        .select([
+          'id',
+          'provider',
+          'status',
+          'cude',
+          'document_type',
+          'parent_document_id',
+          'created_at',
+          'updated_at'
+        ])
         .where('tenant_id', '=', request.auth.tenantId)
         .where('sale_id', '=', sale.id)
+        .where('document_type', '=', 'INVOICE')
         .executeTakeFirst();
 
       return {
@@ -675,6 +688,8 @@ export const salesRoutes: FastifyPluginAsync = async (app) => {
               provider: dianDocument.provider,
               status: dianDocument.status,
               cude: dianDocument.cude,
+              document_type: dianDocument.document_type,
+              parent_document_id: dianDocument.parent_document_id,
               created_at: dianDocument.created_at.toISOString(),
               updated_at: dianDocument.updated_at.toISOString()
             }
@@ -733,6 +748,7 @@ export const salesRoutes: FastifyPluginAsync = async (app) => {
           .select(['id', 'status'])
           .where('tenant_id', '=', request.auth!.tenantId)
           .where('sale_id', '=', currentSale.id)
+          .where('document_type', '=', 'INVOICE')
           .executeTakeFirst();
 
         const voidedAt = new Date();
@@ -823,6 +839,7 @@ export const salesRoutes: FastifyPluginAsync = async (app) => {
                 sale_id: updatedSale.id,
                 tenant_id: request.auth!.tenantId,
                 branch_id: updatedSale.branch_id,
+                invoice_dian_document_id: dianDocument.id,
                 sale_number: updatedSale.sale_number,
                 total_cents: updatedSale.total_cents,
                 void_reason: updatedSale.void_reason

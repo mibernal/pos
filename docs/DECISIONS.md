@@ -59,3 +59,14 @@
 - CORS configurable por env.
 - `request_id`, logs estructurados y `audit_logs`.
 - Motivo: dejar una base razonable para ambientes reales sin introducir una plataforma enterprise.
+
+## D-013 Documento fiscal por tipo
+- `dian_documents.document_type` separa `INVOICE` y `CREDIT_NOTE`.
+- Las notas credito usan `parent_document_id` para apuntar a la factura original.
+- `GET /sales/:id` mantiene `dian_document` como factura principal para no romper clientes.
+- Motivo: una nota credito debe tener estado y CUDE propios; reutilizar la factura aceptada produce transiciones invalidas.
+
+## D-014 Provider HTTP estricto
+- El provider HTTP no asume respuestas desconocidas como `ACCEPTED`.
+- `ACCEPTED` requiere CUDE/UUID fiscal en la respuesta.
+- Motivo: evitar falsos positivos fiscales ante proveedores mal configurados o payloads inesperados.

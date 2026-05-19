@@ -16,7 +16,7 @@
 - `cash_sessions`: apertura y cierre de caja por sucursal.
 - `products`: catálogo por tenant, con `tax_category` y alcance por sucursal o global.
 - `sales` y `sale_items`: venta operativa, totales en `*_cents`, `client_uuid`, metadata de anulación.
-- `dian_documents`: documento fiscal por venta, con estado DIAN y CUDE.
+- `dian_documents`: documentos fiscales por venta. Distingue `INVOICE` y `CREDIT_NOTE`, conserva CUDE por documento y enlaza notas crédito con `parent_document_id`.
 - `outbox_events`: eventos de negocio para el worker.
 - `audit_logs`: trazabilidad operativa de acciones críticas.
 
@@ -26,7 +26,7 @@
 3. El usuario selecciona sucursal y abre caja con `POST /cash-sessions/open`.
 4. La pantalla POS consume catálogo desde API, busca por nombre o código de barras y arma carrito local.
 5. El checkout construye `CreateSaleInput` con `client_uuid`, `branch_id`, `cash_session_id`, `discount_cents`, `items` y `payments`.
-6. API valida, calcula impuestos desde DB, asigna consecutivo por sucursal, guarda venta, items, `dian_documents` en `PENDING` y outbox `SALE_CREATED`.
+6. API valida, calcula impuestos desde DB, asigna consecutivo por sucursal, guarda venta, items, `dian_documents.document_type = INVOICE` en `PENDING` y outbox `SALE_CREATED`.
 7. POS muestra confirmación e imprime ticket. Si falla por red, la venta queda en cola offline local.
 8. Historial lista ventas recientes por sucursal, permite reimpresión y, para `ADMIN`, anulación con motivo.
 
@@ -74,6 +74,16 @@
 7. Transiciones inválidas se rechazan y documentos `ACCEPTED` no se reemiten.
 8. Si el provider falla, el outbox pasa a retry con backoff.
 
+## Anulación fiscal y nota crédito
+1. `POST /sales/:id/void` es solo para `ADMIN`.
+2. API cambia la venta a `VOID`, persiste motivo, usuario y fecha de anulación.
+3. API repone inventario, audita `SALE_VOIDED` y crea outbox `SALE_VOIDED` si existe factura fiscal.
+4. El worker busca la factura `INVOICE`; si no está `ACCEPTED`, marca el outbox como retry.
+5. Cuando la factura está aceptada, el worker crea o reutiliza `dian_documents.document_type = CREDIT_NOTE`.
+6. La nota crédito inicia su propia máquina de estados desde `PENDING`; la factura original no se reescribe.
+7. La nota crédito guarda `parent_document_id` con el id de la factura original y usa `document_type = CREDIT_NOTE` en el payload al provider.
+8. `GET /sales/:id` mantiene compatibilidad exponiendo `dian_document` como la factura principal.
+
 ## Flujo offline con `client_uuid`
 1. Cada venta se crea en web con `client_uuid`.
 2. Si `POST /sales` falla por red, `pos-web` guarda el payload completo en IndexedDB, con estado de sincronización, intentos y último error.
@@ -111,11 +121,15 @@ flowchart LR
   D --> E["Carrito + checkout"]
   E --> F["POST /sales"]
   F --> G["Sales + sale_items"]
-  F --> H["dian_documents = PENDING"]
+  F --> H["dian_documents INVOICE = PENDING"]
   F --> I["outbox SALE_CREATED"]
   I --> J["Worker"]
   J --> K["Provider DIAN"]
   K --> L["SENT / ACCEPTED / REJECTED"]
+  F --> P["POST /sales/:id/void"]
+  P --> Q["outbox SALE_VOIDED"]
+  Q --> R["dian_documents CREDIT_NOTE"]
+  R --> K
   E --> M["Falla de red"]
   M --> N["Cola offline con client_uuid"]
   N --> O["Sincronizar"]
@@ -123,7 +137,8 @@ flowchart LR
 ```
 
 ## Lo que falta para producción final
-- Provider DIAN real end-to-end con gestión de nota de ajuste al anular.
+- Provider DIAN real end-to-end certificado contra el contrato exacto del PAC.
+- Mecanismo de consulta/finalización para documentos que queden en `SENT`.
 - Observabilidad centralizada fuera de logs locales.
 - Despliegue con secretos, HTTPS, backups y operación multi-instancia.
 - Integraciones de hardware de impresión y, si aplica, medios de pago físicos.

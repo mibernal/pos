@@ -227,11 +227,11 @@ describe('HistoryScreen', () => {
     expect((await screen.findAllByText('Venta #42')).length).toBeGreaterThan(0);
     expect(screen.getAllByText('Mixto').length).toBeGreaterThan(0);
 
-    expect(await screen.findByText('Combo ejecutivo x 1')).toBeInTheDocument();
+    expect(await screen.findByText('Combo ejecutivo')).toBeInTheDocument();
     expect(screen.getByText('CUDE-123456789')).toBeInTheDocument();
     expect(screen.getByText('Impuestos')).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole('button', { name: /reimprimir ticket/i }));
+    fireEvent.click(screen.getByRole('button', { name: /ticket/i }));
 
     await waitFor(() => {
       expect(openSpy).toHaveBeenCalledOnce();
@@ -272,7 +272,7 @@ describe('HistoryScreen', () => {
       </SessionProvider>
     );
 
-    fireEvent.click(await screen.findByRole('button', { name: /anular venta/i }));
+    fireEvent.click(await screen.findByRole('button', { name: /anular/i }));
 
     const dialog = await screen.findByRole('dialog', { name: 'Anular venta' });
     const confirmButton = within(dialog).getByRole('button', { name: /confirmar anulación/i });
@@ -291,11 +291,10 @@ describe('HistoryScreen', () => {
       });
     });
 
-    expect(await screen.findAllByText('VOID')).not.toHaveLength(0);
+    expect(await screen.findAllByText(/anulada/i)).not.toHaveLength(0);
     expect(screen.getAllByText(/cliente canceló el pedido/i).length).toBeGreaterThan(0);
-    expect(screen.getByText(/pendiente gestionar nota de ajuste dian/i)).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole('button', { name: /reimprimir ticket/i }));
+    fireEvent.click(screen.getByRole('button', { name: /ticket/i }));
 
     await waitFor(() => {
       expect(writeSpy).toHaveBeenCalledWith(expect.stringContaining('VENTA ANULADA'));
@@ -328,7 +327,7 @@ describe('HistoryScreen', () => {
       </SessionProvider>
     );
 
-    await screen.findByText('Combo ejecutivo x 1');
-    expect(screen.queryByRole('button', { name: /anular venta/i })).not.toBeInTheDocument();
+    await screen.findByText('Combo ejecutivo');
+    expect(screen.queryByRole('button', { name: /anular/i })).not.toBeInTheDocument();
   });
 });

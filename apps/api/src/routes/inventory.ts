@@ -11,6 +11,19 @@ import {
 export const inventoryRoutes: FastifyPluginAsync = async (app) => {
   const typedApp = app.withTypeProvider<ZodTypeProvider>();
 
+  async function ensureBranchBelongsToTenant(tenantId: string, branchId: string): Promise<void> {
+    const branch = await app.db
+      .selectFrom('branches')
+      .select('id')
+      .where('tenant_id', '=', tenantId)
+      .where('id', '=', branchId)
+      .executeTakeFirst();
+
+    if (!branch) {
+      throw new AppError(404, 'BRANCH_NOT_FOUND', 'Sucursal no encontrada para este tenant');
+    }
+  }
+
   typedApp.get(
     '/inventory/balances',
     {
@@ -23,6 +36,7 @@ export const inventoryRoutes: FastifyPluginAsync = async (app) => {
     },
     async (request) => {
       const { branch_id, product_id } = request.query;
+      await ensureBranchBelongsToTenant(request.auth!.tenantId, branch_id);
 
       let query = app.db
         .selectFrom('inventory_balances as b')
@@ -73,6 +87,7 @@ export const inventoryRoutes: FastifyPluginAsync = async (app) => {
     },
     async (request, reply) => {
       const payload = request.body;
+      await ensureBranchBelongsToTenant(request.auth!.tenantId, payload.branch_id);
 
       const product = await app.db
         .selectFrom('products')

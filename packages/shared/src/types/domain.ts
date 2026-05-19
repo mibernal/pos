@@ -1,6 +1,7 @@
 export type UserRole = 'ADMIN' | 'CASHIER';
 
 export type DianStatus = 'PENDING' | 'SENT' | 'ACCEPTED' | 'REJECTED';
+export type DianDocumentType = 'INVOICE' | 'CREDIT_NOTE';
 
 export type SaleStatus = 'COMPLETED' | 'VOID';
 
@@ -78,6 +79,7 @@ export interface SaleItem {
 export interface Sale {
   id: string;
   tenant_id: string;
+  customer_id: string | null;
   branch_id: string;
   cash_session_id: string;
   sale_number: number;
@@ -98,6 +100,7 @@ export interface Sale {
 
 export interface CreateSale {
   client_uuid: string;
+  customer_id?: string | null;
   branch_id: string;
   cash_session_id: string;
   items: SaleItemInput[];

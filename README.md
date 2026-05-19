@@ -7,15 +7,15 @@ Un Punto de Venta (POS) multi-tenant de alto rendimiento con emisión de factura
 Este proyecto está construido como un monorepo administrado con `pnpm` workspace y `turborepo`. Sus módulos son:
 
 - `apps/api`: Backend principal impulsado por **Fastify, Kysely, TypeScript, y Zod**. Maneja la lógica core, seguridad (JWT) y expone la API RESTful.
-- `apps/worker`: Servidor de Background Jobs impulsado por **BullMQ**. Extrae eventos desde la base de datos (Patrón *Transactional Outbox*) para emision a la DIAN mediante Providers simulados o reales (HTTP), asegurando resiliencia a caídas de la DIAN.
-- `apps/pos-web`: Frontend (Aplicación Web Progresiva) en **React + Vite**. Interfaz para cajas, responsiva para Tablets, con precarga inteligente offline en memoria para cero latencia en locales físicos.
+- `apps/worker`: Servidor de Background Jobs impulsado por **BullMQ**. Extrae eventos desde la base de datos (Patrón *Transactional Outbox*) para emisión a la DIAN mediante providers simulados o reales (HTTP), asegurando resiliencia a caídas de la DIAN.
+- `apps/pos-web`: Frontend (Aplicación Web Progresiva) en **React + Vite**. Interfaz para cajas, responsiva para tablets, con catálogo precargado en memoria y cola local de ventas pendientes.
 - `packages/shared`: Tipos, esquemas `Zod` y contratos utilitarios compartidos en todo el proyecto.
 
 ## 🚀 Capacidades y Enfoque
 
-- **Offline-Resilient / PWA:** La app cliente descarga y cachea en memoria íntegramente de producto (hasta 5k items). Buscar, escanear y poner productos en el carrito funciona sin depender de la red, resolviendo de manera local en `0ms`.
-- **Emisión Asíncrona Robusta:** La venta se persiste atómicamente en PostgreSQL junto al evento Outbox. El Worker toma la posta para reintentar cuantas veces sea necesario (Retry pattern) la conexión con el PAC_DIAN hasta obtener el CUFE/QR, sin trabar al cajero.
-- **Anulaciones Fiscales:** Creación paralela de *Notas de Crédito* por devoluciones o errores, canalizado automáticamente por el Worker hacia el Proveedor DIAN.
+- **Offline-Resilient / PWA:** La app cachea assets y mantiene una cola IndexedDB para ventas pendientes. El catálogo opera desde memoria mientras la sesión está cargada; recargar completamente offline no garantiza catálogo persistente todavía.
+- **Emisión Asíncrona Robusta:** La venta se persiste atómicamente en PostgreSQL junto al evento Outbox. El Worker reintenta la conexión con el provider DIAN sin bloquear al cajero.
+- **Anulaciones Fiscales:** Una anulación genera outbox `SALE_VOIDED`. El worker espera que la factura `INVOICE` esté `ACCEPTED` y crea/reutiliza un documento fiscal `CREDIT_NOTE` separado, enlazado con `parent_document_id`.
 - **Impresión Tickets Dinámicos:** Soporte HTML multi-formato (Ticket ancho estándar 80mm ó pequeño de 58mm). Todo configurable por cada negocio.
 - **Micro-Deployments listos:** Empaque Multi-Stage de Docker con `pnpm deploy`, reduciendo drásticamente el peso de las imágenes. Servidor Nativo `HTTP Health / Uptime` en el Worker para SLA's en PaaS (Render, AWS, Railway).
 
@@ -86,8 +86,18 @@ Puedes utilizar estas credenciales iniciales en `http://localhost:5173`:
 3. Ve a **Configuración Fiscal** e identifica si requieres emitir en Base a INC_RESTAURANT (Impoconsumo) o Tienda Múltiple (Tasas IVA mixtas).
 4. Abre la la caja. Comienza a tipear en el buscador (Observará latencia `0ms` off-grid).
 5. Completa una Venta en efectivo o Mixta. El Pos Screen renderizará la ventana de impresión al finalizar.
-6. Ve al **Historial**. Allí figurará la venta indicando si la emisión a la DIAN está "Pendiente" (Worker Queue) o "Exitosa" (Acompañada de UUID).
-7. Simula una anulación desde el Historial. La venta pasará a Emitir Nota Crédito en el background a través del Worker.
+6. Ve al **Historial**. Allí figurará la venta indicando si la emisión a la DIAN está pendiente, enviada, aceptada o rechazada.
+7. Simula una anulación desde el Historial. La venta quedará `VOID`, el inventario se repondrá y el worker emitirá una nota crédito fiscal separada cuando la factura original esté aceptada.
+
+---
+
+## 🧾 Modelo Fiscal Actual
+
+- `dian_documents.document_type` distingue `INVOICE` y `CREDIT_NOTE`.
+- Las facturas se crean con la venta y se procesan desde outbox `SALE_CREATED`.
+- Las notas crédito se crean desde outbox `SALE_VOIDED` y guardan `parent_document_id` apuntando a la factura original.
+- El endpoint `GET /api/v1/sales/:id` conserva compatibilidad: `dian_document` sigue exponiendo la factura principal.
+- El provider HTTP exige `status` válido (`SENT`, `ACCEPTED`, `REJECTED`) y exige `CUDE` cuando responde `ACCEPTED`.
 
 ---
 

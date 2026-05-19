@@ -39,8 +39,12 @@ let schemaReadyPromise: Promise<void> | null = null;
 export function ensureE2eSchema(): Promise<void> {
   schemaReadyPromise ??= (async () => {
     const db = createDb();
+    let schemaLockAcquired = false;
 
     try {
+      await sql`SELECT pg_advisory_lock(hashtext('pos_dian_e2e_schema'))`.execute(db);
+      schemaLockAcquired = true;
+
       await sql`
         ALTER TABLE tenants
         ADD COLUMN IF NOT EXISTS tax_mode TEXT NOT NULL DEFAULT 'IVA'
@@ -112,7 +116,75 @@ export function ensureE2eSchema(): Promise<void> {
           CONSTRAINT fk_audit_logs_user FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE SET NULL
         )
       `.execute(db);
+
+      await sql`
+        ALTER TABLE dian_documents
+        ADD COLUMN IF NOT EXISTS document_type TEXT NOT NULL DEFAULT 'INVOICE'
+      `.execute(db);
+
+      await sql`
+        ALTER TABLE dian_documents
+        ADD COLUMN IF NOT EXISTS parent_document_id UUID NULL
+      `.execute(db);
+
+      await sql`
+        DO $$ BEGIN
+          IF NOT EXISTS (
+            SELECT 1
+            FROM pg_constraint
+            WHERE conname = 'ck_dian_documents_document_type'
+              AND conrelid = 'dian_documents'::regclass
+          ) THEN
+            ALTER TABLE dian_documents
+            ADD CONSTRAINT ck_dian_documents_document_type
+            CHECK (document_type IN ('INVOICE', 'CREDIT_NOTE'));
+          END IF;
+        END $$
+      `.execute(db);
+
+      await sql`
+        DO $$ BEGIN
+          IF NOT EXISTS (
+            SELECT 1
+            FROM pg_constraint
+            WHERE conname = 'fk_dian_documents_parent_document'
+              AND conrelid = 'dian_documents'::regclass
+          ) THEN
+            ALTER TABLE dian_documents
+            ADD CONSTRAINT fk_dian_documents_parent_document
+            FOREIGN KEY (parent_document_id) REFERENCES dian_documents (id) ON DELETE SET NULL;
+          END IF;
+        END $$
+      `.execute(db);
+
+      await sql`
+        ALTER TABLE dian_documents
+        DROP CONSTRAINT IF EXISTS uq_dian_documents_tenant_sale
+      `.execute(db);
+
+      await sql`
+        DO $$ BEGIN
+          IF NOT EXISTS (
+            SELECT 1
+            FROM pg_constraint
+            WHERE conname = 'uq_dian_documents_tenant_sale_type'
+              AND conrelid = 'dian_documents'::regclass
+          ) THEN
+            ALTER TABLE dian_documents
+            ADD CONSTRAINT uq_dian_documents_tenant_sale_type
+            UNIQUE (tenant_id, sale_id, document_type);
+          END IF;
+        END $$
+      `.execute(db);
+
+      await sql`
+        CREATE INDEX IF NOT EXISTS idx_dian_documents_tenant_sale_type
+        ON dian_documents (tenant_id, sale_id, document_type)
+      `.execute(db);
     } finally {
+      if (schemaLockAcquired) {
+        await sql`SELECT pg_advisory_unlock(hashtext('pos_dian_e2e_schema'))`.execute(db);
+      }
       await db.destroy();
     }
   })();
@@ -230,6 +302,8 @@ export async function cleanupE2eFixture(
     await trx.deleteFrom('sale_items').where('tenant_id', '=', fixture.tenantId).execute();
     await trx.deleteFrom('sales').where('tenant_id', '=', fixture.tenantId).execute();
     await trx.deleteFrom('cash_sessions').where('tenant_id', '=', fixture.tenantId).execute();
+    await trx.deleteFrom('inventory_transactions').where('tenant_id', '=', fixture.tenantId).execute();
+    await trx.deleteFrom('inventory_balances').where('tenant_id', '=', fixture.tenantId).execute();
     await trx.deleteFrom('products').where('tenant_id', '=', fixture.tenantId).execute();
     await trx.deleteFrom('users').where('tenant_id', '=', fixture.tenantId).execute();
     await trx.deleteFrom('branches').where('tenant_id', '=', fixture.tenantId).execute();
