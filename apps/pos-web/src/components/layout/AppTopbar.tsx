@@ -11,6 +11,7 @@ export function AppTopbar({
   onNavigate,
   onOpenDianConfig,
   onOpenTicketTemplate,
+  onOpenCashMovements,
   onCloseRegister,
   onSyncPendingSales,
   pendingSalesCount,
@@ -27,6 +28,7 @@ export function AppTopbar({
   onNavigate: (route: AppRoute) => void;
   onOpenDianConfig: () => void;
   onOpenTicketTemplate: () => void;
+  onOpenCashMovements: () => void;
   onCloseRegister: () => void;
   onSyncPendingSales: () => void;
   pendingSalesCount: number;
@@ -79,7 +81,7 @@ export function AppTopbar({
         </div>
 
         <div className="topbar-actions" style={{ display: 'flex', gap: '0.5rem' }}>
-          {session.user.role === 'ADMIN' && (
+          {['ADMIN', 'MANAGER'].includes(session.user.role) && (
             <>
               <button className="ghost-button" onClick={onOpenTicketTemplate} title="Configuración de negocio">
                 ⚙️
@@ -89,6 +91,9 @@ export function AppTopbar({
               </button>
             </>
           )}
+          <button className="ghost-button" onClick={onOpenCashMovements} title="Ingreso/Egreso de Caja">
+            💸
+          </button>
           <button className="ghost-button" onClick={onChangeRegister} title="Cambiar caja">
             🔁
           </button>

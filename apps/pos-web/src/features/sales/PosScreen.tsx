@@ -1,22 +1,19 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import { Banner, PlaceholderImage } from '../../components/ui';
 import { formatMoneyFromCents } from '../../lib/format';
-import { addPendingSale } from '../../lib/offline-queue';
+import { extractTicketPayments, printSaleTicket, printSaleTicketESCPOS } from '../../lib/ticket-printer';
 import type { PendingSaleRecord } from '../../lib/offline-queue';
-import { extractTicketPayments, printSaleTicket } from '../../lib/ticket-printer';
-import type { Customer, CreateSaleRequest, ProductItem, TenantTaxMode } from '../../lib/api';
+import type { TenantTaxMode } from '../../lib/api';
 import type { TicketTemplateConfig } from '../../lib/ticket-template';
-import type { CartItem, LastPrintedSaleSnapshot, PosApiClient } from '../../types';
-import { CheckoutModal } from './components';
-import {
-  formatEditableMoneyFromCents,
-  getCheckoutErrorMessage,
-  inferTaxModeFromSale,
-  parseVisibleMoneyToCents,
-  shouldQueueSaleAsPending
-} from './utils';
+import type { PosApiClient } from '../../types';
+import { CheckoutModal, CartPanel, ProductGrid, VariantSelectorModal } from './components';
+import { inferTaxModeFromSale } from './utils';
+import { useState } from 'react';
 
-
+import { useBarcodeScanner } from './hooks/useBarcodeScanner';
+import { useProductCatalog } from './hooks/useProductCatalog';
+import { useCart } from './hooks/useCart';
+import { useCheckout } from './hooks/useCheckout';
 
 export function PosScreen({
   api,
@@ -49,306 +46,103 @@ export function PosScreen({
   onSaleQueued: () => Promise<void> | void;
   onSyncPendingSales?: () => Promise<void> | void;
 }) {
-  const [query, setQuery] = useState('');
-  const [cachedProducts, setCachedProducts] = useState<ProductItem[]>([]);
-  const [productsLoading, setProductsLoading] = useState(false);
-  const [productsError, setProductsError] = useState<string | null>(null);
-  const [customers, setCustomers] = useState<Customer[]>([]);
-  const [highlightedProductId, setHighlightedProductId] = useState<string | null>(null);
-  const [cartItems, setCartItems] = useState<CartItem[]>([]);
-  const [selectedCartIndex, setSelectedCartIndex] = useState(-1);
-  const [discountCents, setDiscountCents] = useState(0);
-  const [discountDraft, setDiscountDraft] = useState('0');
-  const [isCheckoutModalOpen, setIsCheckoutModalOpen] = useState(false);
-  const [checkoutLoading, setCheckoutLoading] = useState(false);
-  const [saleError, setSaleError] = useState<string | null>(null);
-  const [saleMessage, setSaleMessage] = useState<string | null>(null);
-  const [lastPrintedSaleSnapshot, setLastPrintedSaleSnapshot] =
-    useState<LastPrintedSaleSnapshot | null>(null);
-
   const searchInputRef = useRef<HTMLInputElement | null>(null);
+  const [variantSelectionProduct, setVariantSelectionProduct] = useState<ProductItem | null>(null);
 
-  const hasSearchQuery = query.trim().length > 0;
-  const products = useMemo(() => {
-    if (!hasSearchQuery) return cachedProducts;
-    const q = query.trim().toLowerCase();
-    return cachedProducts
-      .filter(
-        (p) =>
-          p.name.toLowerCase().includes(q) ||
-          (p.barcode && p.barcode.toLowerCase().includes(q))
-      )
-      .slice(0, 120);
-  }, [cachedProducts, hasSearchQuery, query]);
+  // 1. Catalog Hook
+  const {
+    query,
+    setQuery,
+    hasSearchQuery,
+    products,
+    cachedProducts,
+    customers,
+    productsLoading,
+    productsError,
+    loadProducts,
+    highlightedProduct,
+    setHighlightedProductId,
+    moveHighlightedProduct
+  } = useProductCatalog({ api, branchId });
 
-  const highlightedProduct = useMemo(
-    () => products.find((product) => product.id === highlightedProductId) ?? products[0] ?? null,
-    [highlightedProductId, products]
-  );
+  // 2. Cart Hook
+  const {
+    cartItems,
+    selectedCartIndex,
+    setSelectedCartIndex,
+    discountCents,
+    subtotalCents,
+    cartQuantity,
+    totalCents,
+    addProduct,
+    removeSelectedItem,
+    updateCartQty,
+    resetCartState
+  } = useCart();
 
-  const subtotalCents = useMemo(
-    () => cartItems.reduce((sum, item) => sum + item.qty * item.priceCents, 0),
-    [cartItems]
-  );
-  const cartQuantity = useMemo(
-    () => cartItems.reduce((sum, item) => sum + item.qty, 0),
-    [cartItems]
-  );
-  const totalCents = Math.max(0, subtotalCents - discountCents);
-  const canOpenCheckout = cartItems.length > 0 && totalCents > 0 && !checkoutLoading;
+  const canOpenCheckout = cartItems.length > 0 && totalCents > 0;
   const hasPendingSales = pendingSales.length > 0;
 
-  const loadProducts = useCallback(async () => {
-    setProductsLoading(true);
-    setProductsError(null);
-
-    try {
-      const response = await api.listProducts({
-        limit: 5000,
-        branchId
-      });
-      setCachedProducts(response.items.filter((item) => item.active));
-
-      const custs = await api.listCustomers();
-      setCustomers(custs);
-    } catch (loadError) {
-      setProductsError(
-        loadError instanceof Error ? loadError.message : 'No fue posible cargar productos o clientes'
-      );
-    } finally {
-      setProductsLoading(false);
-    }
-  }, [api, branchId]);
-
-  useEffect(() => {
-    void loadProducts();
-  }, [loadProducts]);
-
-  useEffect(() => {
-    if (products.length === 0) {
-      setHighlightedProductId(null);
-      return;
-    }
-
-    setHighlightedProductId((current) =>
-      current && products.some((product) => product.id === current) ? current : products[0]!.id
-    );
-  }, [products]);
-
-  useEffect(() => {
-    setDiscountCents((current) => Math.min(current, subtotalCents));
-  }, [subtotalCents]);
-
-  useEffect(() => {
-    setDiscountDraft(formatEditableMoneyFromCents(discountCents));
-  }, [discountCents]);
-
-  const removeSelectedItem = useCallback(() => {
-    if (selectedCartIndex < 0 || selectedCartIndex >= cartItems.length) {
-      return;
-    }
-
-    const nextCartItems = cartItems.filter((_, index) => index !== selectedCartIndex);
-    setCartItems(nextCartItems);
-    setSelectedCartIndex(
-      nextCartItems.length === 0 ? -1 : Math.min(selectedCartIndex, nextCartItems.length - 1)
-    );
-  }, [cartItems, selectedCartIndex]);
-
-  const moveHighlightedProduct = useCallback(
-    (direction: 'next' | 'previous') => {
-      if (products.length === 0) {
-        return;
-      }
-
-      const currentIndex = products.findIndex((product) => product.id === highlightedProduct?.id);
-      const safeIndex = currentIndex === -1 ? 0 : currentIndex;
-      const nextIndex =
-        direction === 'next'
-          ? (safeIndex + 1) % products.length
-          : (safeIndex - 1 + products.length) % products.length;
-
-      setHighlightedProductId(products[nextIndex]!.id);
+  // 3. Checkout Hook
+  const {
+    isCheckoutModalOpen,
+    setIsCheckoutModalOpen,
+    checkoutLoading,
+    saleError,
+    setSaleError,
+    saleMessage,
+    setSaleMessage,
+    lastPrintedSaleSnapshot,
+    processSale
+  } = useCheckout({
+    api,
+    branchId,
+    cashSessionId,
+    onSaleSuccess: () => {
+      resetCartState();
+      searchInputRef.current?.focus();
+      void loadProducts();
     },
-    [highlightedProduct?.id, products]
-  );
+    onSaleQueued: async () => {
+      await onSaleQueued();
+    }
+  });
 
-  function resetCartState() {
-    setCartItems([]);
-    setSelectedCartIndex(-1);
-    setDiscountCents(0);
-  }
-
-  function clearCart() {
-    resetCartState();
-    setSaleError(null);
-    setSaleMessage(null);
-  }
-
-  const addProduct = useCallback((product: ProductItem, options?: { clearSearch?: boolean }) => {
-    setCartItems((currentCartItems) => {
-      const existingIndex = currentCartItems.findIndex((item) => item.productId === product.id);
-
-      if (existingIndex === -1) {
-        setSelectedCartIndex(currentCartItems.length);
-        return [
-          ...currentCartItems,
-          {
-            productId: product.id,
-            name: product.name,
-            category: product.category,
-            barcode: product.barcode,
-            priceCents: product.price_cents,
-            qty: 1
-          }
-        ];
+  // HW Scanner Support
+  useBarcodeScanner((barcode) => {
+    const product = cachedProducts.find((p) => p.barcode === barcode);
+    if (product) {
+      if (product.variants && product.variants.length > 0) {
+        setVariantSelectionProduct(product);
+      } else {
+        addProduct(product);
+        setSaleError(null);
+        setQuery('');
+        searchInputRef.current?.focus();
       }
+    } else {
+      setSaleError(`Producto no encontrado (${barcode})`);
+    }
+  });
 
-      const existingItem = currentCartItems[existingIndex];
-
-      if (!existingItem) {
-        return currentCartItems;
-      }
-
-      const nextCartItems = [...currentCartItems];
-      nextCartItems[existingIndex] = {
-        ...existingItem,
-        qty: existingItem.qty + 1
-      };
-      setSelectedCartIndex(existingIndex);
-      return nextCartItems;
-    });
-
-    setSaleError(null);
-    setSaleMessage(null);
-
-    if (options?.clearSearch) {
+  const handleProductSelect = useCallback((product: ProductItem) => {
+    if (product.variants && product.variants.length > 0) {
+      setVariantSelectionProduct(product);
+    } else {
+      addProduct(product);
       setQuery('');
       searchInputRef.current?.focus();
     }
-  }, []);
+  }, [addProduct, setQuery]);
 
-  function updateCartQty(index: number, qty: number) {
-    if (qty <= 0) {
-      const nextCartItems = cartItems.filter((_, itemIndex) => itemIndex !== index);
-      setCartItems(nextCartItems);
-      setSelectedCartIndex(nextCartItems.length === 0 ? -1 : Math.min(index, nextCartItems.length - 1));
-      return;
-    }
-
-    const nextCartItems = [...cartItems];
-    const target = nextCartItems[index];
-
-    if (!target) {
-      return;
-    }
-
-    nextCartItems[index] = { ...target, qty };
-    setCartItems(nextCartItems);
-    setSelectedCartIndex(index);
-  }
-
-  function removeCartItem(index: number) {
-    const nextCartItems = cartItems.filter((_, itemIndex) => itemIndex !== index);
-    setCartItems(nextCartItems);
-    setSelectedCartIndex(nextCartItems.length === 0 ? -1 : Math.min(index, nextCartItems.length - 1));
-  }
-
-
-
-  function handleDiscountInputChange(nextValue: string) {
-    setDiscountDraft(nextValue);
-
-    const parsedDiscount = parseVisibleMoneyToCents(nextValue);
-
-    setDiscountCents(Math.min(parsedDiscount, subtotalCents));
-  }
-
-  const handleCheckout = useCallback(async (payments: CreateSaleRequest['payments'], customerId: string | null) => {
-    if (!canOpenCheckout) {
-      setSaleError('Verifica el carrito antes de cobrar');
-      return;
-    }
-
-    setCheckoutLoading(true);
+  const clearCart = useCallback(() => {
+    resetCartState();
     setSaleError(null);
     setSaleMessage(null);
-
-    const ticketItemsSnapshot = cartItems.map((item) => ({
-      name: item.name,
-      qty: item.qty,
-      priceCents: item.priceCents,
-      lineTotalCents: item.priceCents * item.qty
-    }));
-
-    const salePayload: CreateSaleRequest = {
-      client_uuid: crypto.randomUUID(),
-      customer_id: customerId ?? undefined,
-      branch_id: branchId,
-      cash_session_id: cashSessionId,
-      discount_cents: discountCents,
-      items: cartItems.map((item) => ({
-        product_id: item.productId,
-        qty: item.qty,
-        price_cents: item.priceCents
-      })),
-      payments
-    };
-
-    try {
-      const result = await api.createSale(salePayload);
-
-      resetCartState();
-      setIsCheckoutModalOpen(false);
-      setLastPrintedSaleSnapshot({
-        sale: result.sale,
-        items: ticketItemsSnapshot
-      });
-      setSaleMessage(
-        `Venta #${result.sale.sale_number} registrada. Estado DIAN: ${
-          result.sale.dian_status ?? 'PENDING'
-        }`
-      );
-      searchInputRef.current?.focus();
-      void loadProducts();
-    } catch (checkoutError) {
-      if (shouldQueueSaleAsPending(checkoutError)) {
-        try {
-          await addPendingSale(salePayload);
-          await onSaleQueued();
-          resetCartState();
-          setIsCheckoutModalOpen(false);
-          setLastPrintedSaleSnapshot(null);
-          setSaleMessage(
-            'Venta guardada como pendiente por falta de conexión. Sincroniza cuando vuelva internet.'
-          );
-          searchInputRef.current?.focus();
-          return;
-        } catch (queueError) {
-          setSaleError(getCheckoutErrorMessage(queueError));
-          return;
-        }
-      }
-
-      setSaleError(getCheckoutErrorMessage(checkoutError));
-    } finally {
-      setCheckoutLoading(false);
-    }
-  }, [
-    api,
-    branchId,
-    canOpenCheckout,
-    cartItems,
-    cashSessionId,
-    discountCents,
-    loadProducts,
-    onSaleQueued
-  ]);
+  }, [resetCartState, setSaleError, setSaleMessage]);
 
   function handlePrintLastSale() {
-    if (!lastPrintedSaleSnapshot) {
-      return;
-    }
+    if (!lastPrintedSaleSnapshot) return;
 
     printSaleTicket({
       template: ticketTemplate,
@@ -370,13 +164,36 @@ export function PosScreen({
     });
   }
 
+  async function handlePrintLastSaleESCPOS() {
+    if (!lastPrintedSaleSnapshot) return;
 
+    try {
+      await printSaleTicketESCPOS({
+        template: ticketTemplate,
+        branchName,
+        branchAddress,
+        saleNumber: lastPrintedSaleSnapshot.sale.sale_number,
+        createdAt: lastPrintedSaleSnapshot.sale.created_at,
+        saleStatus: lastPrintedSaleSnapshot.sale.status,
+        items: lastPrintedSaleSnapshot.items,
+        subtotalCents: lastPrintedSaleSnapshot.sale.subtotal_cents,
+        discountCents: lastPrintedSaleSnapshot.sale.discount_cents,
+        totalCents: lastPrintedSaleSnapshot.sale.total_cents,
+        payments: extractTicketPayments(lastPrintedSaleSnapshot.sale.payment_json),
+        taxMode: tenantTaxMode ?? inferTaxModeFromSale(lastPrintedSaleSnapshot.sale),
+        dianStatus: lastPrintedSaleSnapshot.sale.dian_status ?? 'PENDING',
+        voidReason: lastPrintedSaleSnapshot.sale.void_reason,
+        voidedAt: lastPrintedSaleSnapshot.sale.voided_at,
+        cude: null
+      });
+    } catch (err) {
+      setSaleError(err instanceof Error ? err.message : 'Error al imprimir ESC/POS');
+    }
+  }
 
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
-      if (isCheckoutModalOpen) {
-        return;
-      }
+      if (isCheckoutModalOpen) return;
 
       const target = event.target as HTMLElement | null;
       const isTypingTarget =
@@ -406,7 +223,7 @@ export function PosScreen({
 
       if (event.key === 'F12') {
         event.preventDefault();
-        if (canOpenCheckout) {
+        if (canOpenCheckout && !checkoutLoading) {
           setSaleError(null);
           setIsCheckoutModalOpen(true);
         }
@@ -416,16 +233,14 @@ export function PosScreen({
       if (event.key === 'Enter') {
         if (isSearchInput && highlightedProduct) {
           event.preventDefault();
-          addProduct(highlightedProduct, { clearSearch: true });
+          handleProductSelect(highlightedProduct);
           return;
         }
 
-        if (isTypingTarget) {
-          return;
-        }
+        if (isTypingTarget) return;
 
         event.preventDefault();
-        if (canOpenCheckout) {
+        if (canOpenCheckout && !checkoutLoading) {
           setSaleError(null);
           setIsCheckoutModalOpen(true);
         }
@@ -433,10 +248,7 @@ export function PosScreen({
       }
 
       if (event.key === 'Delete') {
-        if (isTypingTarget) {
-          return;
-        }
-
+        if (isTypingTarget) return;
         event.preventDefault();
         removeSelectedItem();
       }
@@ -447,10 +259,15 @@ export function PosScreen({
   }, [
     addProduct,
     canOpenCheckout,
+    checkoutLoading,
     highlightedProduct,
     isCheckoutModalOpen,
     moveHighlightedProduct,
-    removeSelectedItem
+    removeSelectedItem,
+    setQuery,
+    setSaleError,
+    setIsCheckoutModalOpen,
+    handleProductSelect
   ]);
 
   return (
@@ -499,7 +316,12 @@ export function PosScreen({
                   } else if (event.key === 'Enter' && highlightedProduct) {
                     event.preventDefault();
                     event.stopPropagation();
+<<<<<<< HEAD
                     addProduct(highlightedProduct, { clearSearch: true });
+=======
+                    addProduct(highlightedProduct);
+                    setQuery('');
+>>>>>>> aa2b4ca (refactor)
                   }
                 }}
               />
@@ -560,9 +382,9 @@ export function PosScreen({
                   className="quick-product-button"
                   style={{ background: 'var(--color-primary-600)', padding: '0.75rem 2rem' }}
                   onClick={() => {
-                    if (highlightedProduct) {
-                      addProduct(highlightedProduct, { clearSearch: true });
-                    }
+                    addProduct(highlightedProduct);
+                    setQuery('');
+                    searchInputRef.current?.focus();
                   }}
                 >
                   Agregar (Enter)
@@ -578,243 +400,132 @@ export function PosScreen({
           )}
         </div>
 
-        <div className="product-grid-header">
-          <div>
-            <strong style={{ fontSize: '1.125rem' }}>Catálogo de Productos</strong>
-            <p style={{ margin: 0, fontSize: '0.875rem', color: 'var(--color-slate-500)' }}>
-              {hasSearchQuery
-                ? `Mostrando ${products.length} coincidencias`
-                : 'Selecciona un item para añadirlo al carrito'}
-            </p>
-          </div>
-        </div>
-
-        <div className="product-grid">
-          {products.length === 0 && !productsLoading ? (
-            <div className="empty-state" style={{ gridColumn: '1 / -1', padding: '4rem', textAlign: 'center' }}>
-              No hay productos disponibles para mostrar.
-            </div>
-          ) : (
-            products.map((product) => (
-              <button
-                key={product.id}
-                className={`product-card ${highlightedProduct?.id === product.id ? 'is-highlighted' : ''}`}
-                onMouseEnter={() => setHighlightedProductId(product.id)}
-                onTouchStart={() => setHighlightedProductId(product.id)}
-                onClick={() => addProduct(product, { clearSearch: true })}
-                type="button"
-              >
-                <div style={{ height: '95px', width: '100%', overflow: 'hidden', borderBottom: '1px solid var(--color-slate-100)', flexShrink: 0 }}>
-                  {product.imageUrl ? (
-                    <img src={product.imageUrl} alt={product.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                  ) : (
-                    <PlaceholderImage name={product.name} category={product.category} size="md" />
-                  )}
-                </div>
-                <div style={{ padding: '0.625rem 0.75rem', flex: 1, display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
-                  <span className="product-name">{product.name}</span>
-                  <span className="product-meta">{product.category}</span>
-                </div>
-                <div style={{ borderTop: '1px solid var(--color-slate-100)', padding: '0.4rem 0.75rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexShrink: 0 }}>
-                  <span style={{ fontSize: '0.6rem', color: 'var(--color-slate-400)', fontWeight: 500 }}>{product.barcode || 'S/C'}</span>
-                  <span className="product-price">{formatMoneyFromCents(product.price_cents)}</span>
-                </div>
-              </button>
-            ))
-          )}
-        </div>
+        <ProductGrid
+          products={products}
+          productsLoading={productsLoading}
+          hasSearchQuery={hasSearchQuery}
+          highlightedProductId={highlightedProductId}
+          setHighlightedProductId={setHighlightedProductId}
+          addProduct={(p) => handleProductSelect(p)}
+        />
       </section>
 
-      <aside className="cart-panel">
-        <header className="section-heading">
-          <div className="heading-copy">
-            <h3>Orden Actual</h3>
-            <p>{cartQuantity} {cartQuantity === 1 ? 'producto' : 'productos'}</p>
-          </div>
-          {cartItems.length > 0 && (
-            <button className="ghost-button" style={{ padding: '0.4rem 0.6rem', fontSize: '0.75rem' }} onClick={clearCart}>
-              Vaciar
-            </button>
-          )}
-        </header>
+      <CartPanel
+        cartItems={cartItems}
+        cartQuantity={cartQuantity}
+        selectedCartIndex={selectedCartIndex}
+        clearCart={clearCart}
+        setSelectedCartIndex={setSelectedCartIndex}
+        updateCartQty={updateCartQty}
+        removeCartItem={(index) => {
+          setSelectedCartIndex(index);
+          removeSelectedItem();
+        }}
+      />
 
-        <div className="cart-list">
-          {cartItems.length === 0 ? (
-            <div className="empty-state" style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', textAlign: 'center', padding: '2rem', color: 'var(--color-slate-400)' }}>
-              <div>
-                <div style={{ fontSize: '2rem', marginBottom: '1rem' }}>🛒</div>
-                <p>El carrito está vacío</p>
-              </div>
+      <div className="pos-footer">
+        {hasPendingSales && (
+          <div className="sync-banner" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div>
+              <strong>{pendingSales.length} {pendingSales.length === 1 ? 'venta offline pendiente' : 'ventas offline pendientes'}</strong>
+              <p>Sincroniza cuando tengas conexión estable.</p>
             </div>
-          ) : (
-            cartItems.map((item, index) => (
-              <article
-                key={item.productId}
-                className={`cart-row ${index === selectedCartIndex ? 'selected' : ''}`}
-                onClick={() => setSelectedCartIndex(index)}
-                role="button"
-                tabIndex={0}
+            {onSyncPendingSales && (
+              <button
+                className="secondary-button"
+                onClick={() => void onSyncPendingSales()}
+                disabled={syncingPendingSales}
               >
-                <div className="cart-row-main">
-                  <div className="cart-row-name">
-                    <strong>{item.name}</strong>
-                    <div className="cart-row-submeta">
-                      <span>{formatMoneyFromCents(item.priceCents)} c/u</span>
-                      {item.barcode && <span className="tag-muted">{item.barcode}</span>}
-                    </div>
-                  </div>
-                  <strong style={{ color: 'var(--color-slate-900)' }}>{formatMoneyFromCents(item.priceCents * item.qty)}</strong>
-                </div>
-
-                <div className="cart-row-controls">
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', background: 'var(--color-slate-200)', borderRadius: 'var(--radius-md)', padding: '0.25rem' }}>
-                    <button
-                      type="button"
-                      className="mini-btn"
-                      style={{ border: 'none', background: 'transparent', boxShadow: 'none' }}
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        updateCartQty(index, item.qty - 1);
-                      }}
-                    >
-                      -
-                    </button>
-                    <input
-                      aria-label="Cantidad"
-                      className="cart-row-qty"
-                      style={{ border: 'none', background: '#ffffff', height: '1.75rem', fontSize: '0.875rem' }}
-                      value={item.qty}
-                      type="number"
-                      min={1}
-                      onClick={(event) => event.stopPropagation()}
-                      onChange={(event) => updateCartQty(index, Number(event.target.value))}
-                    />
-                    <button
-                      type="button"
-                      className="mini-btn"
-                      style={{ border: 'none', background: 'transparent', boxShadow: 'none' }}
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        updateCartQty(index, item.qty + 1);
-                      }}
-                    >
-                      +
-                    </button>
-                  </div>
-                  <button
-                    type="button"
-                    className="ghost-button"
-                    style={{ border: 'none', color: 'var(--color-error-600)', background: 'transparent', boxShadow: 'none', padding: '0.25rem' }}
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      removeCartItem(index);
-                    }}
-                  >
-                    🗑️
-                  </button>
-                </div>
-              </article>
-            ))
-          )}
-        </div>
-
-        <div className="cart-summary-panel">
-          <div className="discount-card" style={{ padding: '0.75rem' }}>
-            <div className="discount-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
-              <span style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--color-slate-500)' }}>DESCUENTO (COP)</span>
-            </div>
-
-            <input
-              inputMode="numeric"
-              placeholder="0.00"
-              style={{ padding: '0.4rem', fontSize: '0.875rem', height: '2rem' }}
-              type="number"
-              min="0"
-              step="50"
-              value={discountDraft}
-              onChange={(event) => handleDiscountInputChange(event.target.value)}
-            />
+                {syncingPendingSales ? 'Sincronizando...' : 'Sincronizar ahora'}
+              </button>
+            )}
           </div>
+        )}
 
-          <div className="totals-box">
-            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.875rem', color: 'rgba(255,255,255,0.7)' }}>
-              <span>Subtotal</span>
-              <span>{formatMoneyFromCents(subtotalCents)}</span>
-            </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.875rem', color: 'rgba(255,255,255,0.7)' }}>
-              <span>Descuento</span>
-              <span>-{formatMoneyFromCents(discountCents)}</span>
-            </div>
-            <div className="summary-highlight" style={{ marginTop: '0.5rem', paddingTop: '0.75rem', borderTop: '1px solid rgba(255,255,255,0.2)' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
-                <span style={{ fontSize: '0.75rem', fontWeight: 700, textTransform: 'uppercase' }}>Total</span>
-                <strong style={{ fontSize: '1.75rem' }}>{formatMoneyFromCents(totalCents)}</strong>
+        {saleError && (
+          <Banner tone="error" onClose={() => setSaleError(null)}>
+            {saleError}
+          </Banner>
+        )}
+        {saleMessage && (
+          <Banner tone="success" onClose={() => setSaleMessage(null)}>
+            {saleMessage}
+          </Banner>
+        )}
+        {lastPrintedSaleSnapshot && (
+          <Banner
+            tone="info"
+            action={
+              <div style={{ display: 'flex', gap: '0.5rem' }}>
+                <button className="secondary-button" onClick={handlePrintLastSale}>
+                  Imprimir HTML
+                </button>
+                {'serial' in navigator && (
+                  <button className="secondary-button" onClick={() => void handlePrintLastSaleESCPOS()}>
+                    Imprimir ESC/POS
+                  </button>
+                )}
               </div>
-            </div>
+            }
+          >
+            Venta registrada exitosamente.
+          </Banner>
+        )}
+
+        <div className="pos-totals">
+          <div className="pos-totals-row">
+            <span>Subtotal</span>
+            <span>{formatMoneyFromCents(subtotalCents)}</span>
+          </div>
+          <div className="pos-totals-row">
+            <span>Descuento</span>
+            <span>-{formatMoneyFromCents(discountCents)}</span>
+          </div>
+          <div className="pos-totals-row is-total">
+            <span>Total a Pagar</span>
+            <span>{formatMoneyFromCents(totalCents)}</span>
           </div>
 
           <button
-            aria-label="Cobrar (F12)"
-            type="button"
-            className="charge-button"
-            disabled={!canOpenCheckout}
+            className={`checkout-button ${canOpenCheckout ? 'is-active' : ''}`}
+            disabled={!canOpenCheckout || checkoutLoading}
             onClick={() => {
               setSaleError(null);
               setIsCheckoutModalOpen(true);
             }}
           >
-            {checkoutLoading ? 'Procesando...' : '💳 Cobrar'}
+            {checkoutLoading ? 'Procesando...' : `Cobrar ${formatMoneyFromCents(totalCents)} (F12)`}
           </button>
         </div>
-
-        {saleError && <div style={{ marginTop: '1rem' }}><Banner tone="error">{saleError}</Banner></div>}
-        {saleMessage && <div style={{ marginTop: '1rem' }}><Banner tone="success">{saleMessage}</Banner></div>}
-
-        {lastPrintedSaleSnapshot && cartItems.length === 0 && (
-          <div className="sale-result-card" style={{ marginTop: '1rem', padding: '1rem', background: 'var(--color-primary-50)', borderRadius: 'var(--radius-lg)', border: '1px solid var(--color-primary-100)' }}>
-             <div style={{ marginBottom: '0.75rem' }}>
-                <span className="tag tag-info" style={{ fontSize: '0.65rem' }}>ÚLTIMA VENTA</span>
-                <h4 style={{ margin: '0.25rem 0' }}>#{lastPrintedSaleSnapshot?.sale.sale_number}</h4>
-             </div>
-             <button className="ghost-button" style={{ width: '100%', padding: '0.5rem' }} onClick={handlePrintLastSale}>
-               🖨️ Re-imprimir Ticket
-             </button>
-          </div>
-        )}
-
-        {hasPendingSales && (
-            <div className="pending-sales-card" style={{ marginTop: '1rem', padding: '1rem', background: 'var(--color-warning-50)', borderRadius: 'var(--radius-lg)', border: '1px solid var(--color-warning-100)' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
-                    <span style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--color-warning-700)' }}>
-                        {pendingSales.length} {pendingSales.length === 1 ? 'pendiente' : 'pendientes'}
-                    </span>
-                    <button 
-                        className="ghost-button" 
-                        style={{ padding: '0.25rem 0.5rem', fontSize: '0.7rem' }}
-                        onClick={() => void onSyncPendingSales?.()}
-                        disabled={syncingPendingSales}
-                    >
-                        {syncingPendingSales ? '...' : 'Sincronizar'}
-                    </button>
-                </div>
-            </div>
-        )}
-      </aside>
+      </div>
 
       <CheckoutModal
-        cartItems={cartItems}
-        customers={customers}
-        discountCents={discountCents}
-        error={saleError}
         isOpen={isCheckoutModalOpen}
-        isSubmitting={checkoutLoading}
-        onClose={() => {
-          if (!checkoutLoading) {
-            setIsCheckoutModalOpen(false);
+        onClose={() => setIsCheckoutModalOpen(false)}
+        cartItems={cartItems}
+        totalCents={totalCents}
+        subtotalCents={subtotalCents}
+        discountCents={discountCents}
+        customers={customers}
+        onConfirm={async (payments, customerId) => {
+          await processSale(cartItems, discountCents, payments, customerId);
+        }}
+        isLoading={checkoutLoading}
+        api={api}
+      />
+
+      <VariantSelectorModal
+        isOpen={!!variantSelectionProduct}
+        product={variantSelectionProduct}
+        onClose={() => setVariantSelectionProduct(null)}
+        onSelect={(variant) => {
+          if (variantSelectionProduct) {
+            addProduct(variantSelectionProduct, variant);
+            setVariantSelectionProduct(null);
+            setQuery('');
+            searchInputRef.current?.focus();
           }
         }}
-        onConfirm={handleCheckout}
-        totalCents={totalCents}
       />
     </div>
   );

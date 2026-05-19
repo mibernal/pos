@@ -24,7 +24,7 @@ export async function enqueueDueOutboxEvents(
     `
       SELECT id, type
       FROM outbox_events
-      WHERE type IN ('SALE_CREATED', 'SALE_VOIDED')
+      WHERE type IN ('SALE_CREATED', 'SALE_VOIDED', 'sale_returned')
         AND status IN ('PENDING', 'FAILED')
         AND (next_retry_at IS NULL OR next_retry_at <= NOW())
       ORDER BY created_at ASC
@@ -35,10 +35,12 @@ export async function enqueueDueOutboxEvents(
 
   for (const row of rows) {
     try {
-      const jobName =
-        row.type === 'SALE_CREATED'
-          ? 'process-sale-created-outbox-event'
-          : 'process-sale-voided-outbox-event';
+      let jobName = 'process-sale-created-outbox-event';
+      if (row.type === 'SALE_VOIDED') {
+        jobName = 'process-sale-voided-outbox-event';
+      } else if (row.type === 'sale_returned') {
+        jobName = 'process-sale-returned-outbox-event';
+      }
 
       await queue.add(
         jobName,

@@ -5,3 +5,5 @@ export interface OutboxSaleCreatedJobData {
 export interface OutboxSaleVoidedJobData {
   outboxEventId: string;
 }
+
+export type AnyOutboxJobData = OutboxSaleCreatedJobData | OutboxSaleVoidedJobData;

@@ -703,8 +703,8 @@ describe('outbox sale created processor', () => {
     const [dianDocumentId, providerPayloadJson, providerResponseJson, status, cude] =
       dianDocumentUpdates[0]!;
     expect(dianDocumentId).toBe('doc-failed');
-    expect(status).toBeNull();
-    expect(cude).toBeNull();
+    expect(status).toBeUndefined();
+    expect(cude).toBeUndefined();
     expect(JSON.parse(providerPayloadJson as string)).toMatchObject({
       sale_id: 'sale-failed',
       taxMode: 'IVA'

@@ -1,162 +1,26 @@
-import { randomUUID } from 'node:crypto';
-import { sql, type Insertable } from 'kysely';
 import type { FastifyPluginAsync } from 'fastify';
 import { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { AppError } from '../infra/errors/app-error.js';
-import type { Database } from '../infra/db/schema.js';
 import {
   createSaleBodySchema,
   saleIdParamsSchema,
   salesListQuerySchema,
   voidSaleBodySchema
 } from '../modules/sales/schemas.js';
-import { normalizeSalePayments } from '../modules/sales/payments.js';
-import {
-  getNextSaleNumberForBranchInTransaction,
-  isSaleNumberUniqueConstraintError
-} from '../domain/sale-numbering-service.js';
-import { computeTaxes, type ComputeTaxesLineInput } from '../domain/tax/index.js';
-import { writeAuditLog } from '../domain/audit/write-audit-log.js';
 import { buildRequestLogContext } from '../infra/logging/request-log-context.js';
-
-const DIAN_PROVIDER = process.env.DIAN_PROVIDER ?? 'mock';
-
-interface SaleInsertItem {
-  id: string;
-  tenant_id: string;
-  sale_id: string;
-  product_id: string;
-  qty: string;
-  price_cents: number;
-  line_total_cents: number;
-}
-
-const saleColumnList = [
-  'id',
-  'tenant_id',
-  'customer_id',
-  'branch_id',
-  'cash_session_id',
-  'sale_number',
-  'status',
-  'subtotal_cents',
-  'discount_cents',
-  'total_cents',
-  'tax_total_cents',
-  'tax_lines_json',
-  'payment_json',
-  'created_by_user_id',
-  'void_reason',
-  'voided_by_user_id',
-  'voided_at',
-  'created_at'
-] as const;
-
-function parseSaleNumber(value: unknown): number {
-  if (typeof value === 'number' && Number.isFinite(value)) {
-    return Math.trunc(value);
-  }
-
-  if (typeof value === 'string' && value.length > 0) {
-    const parsed = Number(value);
-    if (Number.isFinite(parsed)) {
-      return Math.trunc(parsed);
-    }
-  }
-
-  return 0;
-}
-
-function serializeJsonArrayForDb(
-  value: ReadonlyArray<unknown>
-): Insertable<Database['sales']>['tax_lines_json'] {
-  // pg serializes JS arrays as PostgreSQL arrays, not JSON. We stringify before insert.
-  return JSON.stringify(value) as unknown as Insertable<Database['sales']>['tax_lines_json'];
-}
-
-function mapSaleRow(row: {
-  id: string;
-  tenant_id: string;
-  customer_id: string | null;
-  branch_id: string;
-  cash_session_id: string;
-  sale_number: number;
-  status: 'COMPLETED' | 'VOID';
-  subtotal_cents: number;
-  discount_cents: number;
-  total_cents: number;
-  tax_total_cents: number;
-  tax_lines_json: unknown;
-  payment_json: unknown;
-  created_by_user_id: string;
-  void_reason: string | null;
-  voided_by_user_id: string | null;
-  voided_at: Date | null;
-  created_at: Date;
-  dian_status?: 'PENDING' | 'SENT' | 'ACCEPTED' | 'REJECTED' | null;
-}) {
-  return {
-    id: row.id,
-    tenant_id: row.tenant_id,
-    customer_id: row.customer_id ?? null,
-    branch_id: row.branch_id,
-    cash_session_id: row.cash_session_id,
-    sale_number: parseSaleNumber(row.sale_number),
-    status: row.status,
-    subtotal_cents: row.subtotal_cents,
-    discount_cents: row.discount_cents,
-    total_cents: row.total_cents,
-    tax_total_cents: row.tax_total_cents,
-    tax_lines_json: row.tax_lines_json,
-    payment_json: row.payment_json,
-    dian_status: row.dian_status ?? null,
-    created_by_user_id: row.created_by_user_id,
-    void_reason: row.void_reason ?? null,
-    voided_by_user_id: row.voided_by_user_id ?? null,
-    voided_at: row.voided_at ? row.voided_at.toISOString() : null,
-    created_at: row.created_at.toISOString()
-  };
-}
+import { mapSaleRow, saleColumnList } from '../modules/sales/sale-mapper.js';
+import { createSaleService } from '../modules/sales/create-sale.service.js';
+import { voidSaleService } from '../modules/sales/void-sale.service.js';
+import { processPartialReturn } from '../modules/sales/create-return.service.js';
+import { CreateReturnRequestSchema } from '@pos-dian/shared';
 
 export const salesRoutes: FastifyPluginAsync = async (app) => {
   const typedApp = app.withTypeProvider<ZodTypeProvider>();
 
-  async function loadExistingSaleByClientUuid(tenantId: string, clientUuid: string) {
-    const existingSale = await app.db
-      .selectFrom('sales')
-      .select([...saleColumnList])
-      .where('tenant_id', '=', tenantId)
-      .where('client_uuid', '=', clientUuid)
-      .executeTakeFirst();
-
-    if (!existingSale) {
-      return null;
-    }
-
-    const saleItems = await app.db
-      .selectFrom('sale_items')
-      .select(['id', 'product_id', 'qty', 'price_cents', 'line_total_cents'])
-      .where('tenant_id', '=', tenantId)
-      .where('sale_id', '=', existingSale.id)
-      .orderBy('id', 'asc')
-      .execute();
-
-    return {
-      sale: mapSaleRow(existingSale),
-      items: saleItems.map((item) => ({
-        id: item.id,
-        product_id: item.product_id,
-        qty: Number(item.qty),
-        price_cents: item.price_cents,
-        line_total_cents: item.line_total_cents
-      }))
-    };
-  }
-
   typedApp.post(
     '/sales',
     {
-      preHandler: [app.requireRoles(['ADMIN', 'CASHIER'])],
+      preHandler: [app.requireRoles(['ADMIN', 'MANAGER', 'CASHIER'])],
       schema: {
         tags: ['sales'],
         security: [{ bearerAuth: [] }],
@@ -169,28 +33,17 @@ export const salesRoutes: FastifyPluginAsync = async (app) => {
       }
 
       const payload = createSaleBodySchema.parse(request.body);
-      const existingSale = await loadExistingSaleByClientUuid(
-        request.auth.tenantId,
-        payload.client_uuid
-      );
-      if (existingSale) {
-        request.log.info(
-          {
-            ...buildRequestLogContext(request, {
-              branchId: existingSale.sale.branch_id,
-              saleId: existingSale.sale.id
-            }),
-            event: 'sale_idempotency_hit',
-            client_uuid: payload.client_uuid,
-            sale_number: existingSale.sale.sale_number
-          },
-          'Sale already exists for client_uuid'
-        );
-        return reply.code(200).send(existingSale);
-      }
 
-      const normalizedPayments = normalizeSalePayments(payload.payments);
+      const result = await createSaleService({
+        db: app.db,
+        logger: request.log,
+        tenantId: request.auth.tenantId,
+        userId: request.auth.userId,
+        payload,
+        requestLogContext: buildRequestLogContext(request, {})
+      });
 
+<<<<<<< HEAD
       let createdSale:
         | {
             sale: ReturnType<typeof mapSaleRow>;
@@ -518,36 +371,39 @@ export const salesRoutes: FastifyPluginAsync = async (app) => {
 
       if (!createdSale) {
         throw lastCreateError ?? new Error('No fue posible crear la venta');
+=======
+      if (result.isIdempotentHit) {
+        return reply.code(200).send(result.sale);
+>>>>>>> aa2b4ca (refactor)
       }
 
       request.log.info(
         {
           ...buildRequestLogContext(request, {
             branchId: payload.branch_id,
-            saleId: createdSale.sale.id
+            saleId: result.sale.sale.id
           }),
           event: 'sale_created',
           client_uuid: payload.client_uuid,
-          sale_number: createdSale.sale.sale_number,
+          sale_number: result.sale.sale.sale_number,
           cash_session_id: payload.cash_session_id,
-          items_count: createdSale.items.length,
-          subtotal_cents: createdSale.sale.subtotal_cents,
-          discount_cents: createdSale.sale.discount_cents,
-          tax_total_cents: createdSale.sale.tax_total_cents,
-          total_cents: createdSale.sale.total_cents,
-          payment_mode: normalizedPayments.mode
+          items_count: result.sale.items.length,
+          subtotal_cents: result.sale.sale.subtotal_cents,
+          discount_cents: result.sale.sale.discount_cents,
+          tax_total_cents: result.sale.sale.tax_total_cents,
+          total_cents: result.sale.sale.total_cents
         },
         'Sale created'
       );
 
-      return reply.code(201).send(createdSale);
+      return reply.code(201).send(result.sale);
     }
   );
 
   typedApp.get(
     '/sales',
     {
-      preHandler: [app.requireRoles(['ADMIN', 'CASHIER'])],
+      preHandler: [app.requireRoles(['ADMIN', 'MANAGER', 'CASHIER', 'AUDITOR'])],
       schema: {
         tags: ['sales'],
         security: [{ bearerAuth: [] }],
@@ -606,7 +462,7 @@ export const salesRoutes: FastifyPluginAsync = async (app) => {
   typedApp.get(
     '/sales/:id',
     {
-      preHandler: [app.requireRoles(['ADMIN', 'CASHIER'])],
+      preHandler: [app.requireRoles(['ADMIN', 'MANAGER', 'CASHIER', 'AUDITOR'])],
       schema: {
         tags: ['sales'],
         security: [{ bearerAuth: [] }],
@@ -638,13 +494,20 @@ export const salesRoutes: FastifyPluginAsync = async (app) => {
             .onRef('products.id', '=', 'sale_items.product_id')
             .onRef('products.tenant_id', '=', 'sale_items.tenant_id')
         )
+        .leftJoin('product_variants', (join) =>
+          join
+            .onRef('product_variants.id', '=', 'sale_items.variant_id')
+            .onRef('product_variants.tenant_id', '=', 'sale_items.tenant_id')
+        )
         .select([
           'sale_items.id',
           'sale_items.product_id',
+          'sale_items.variant_id',
           'sale_items.qty',
           'sale_items.price_cents',
           'sale_items.line_total_cents',
           'products.name as product_name',
+          'product_variants.name as variant_name',
           'products.image_url as product_image_url',
           'products.description as product_description'
         ])
@@ -675,7 +538,9 @@ export const salesRoutes: FastifyPluginAsync = async (app) => {
         items: saleItems.map((item) => ({
           id: item.id,
           product_id: item.product_id,
+          variant_id: item.variant_id,
           product_name: item.product_name,
+          variant_name: item.variant_name,
           imageUrl: item.product_image_url,
           description: item.product_description,
           qty: Number(item.qty),
@@ -701,7 +566,7 @@ export const salesRoutes: FastifyPluginAsync = async (app) => {
   typedApp.post(
     '/sales/:id/void',
     {
-      preHandler: [app.requireRoles(['ADMIN'])],
+      preHandler: [app.requireRoles(['ADMIN', 'MANAGER'])],
       schema: {
         tags: ['sales'],
         security: [{ bearerAuth: [] }],
@@ -717,6 +582,7 @@ export const salesRoutes: FastifyPluginAsync = async (app) => {
       const params = saleIdParamsSchema.parse(request.params);
       const payload = voidSaleBodySchema.parse(request.body);
 
+<<<<<<< HEAD
       const voidedSale = await app.db.transaction().execute(async (trx) => {
         const currentSale = await trx
           .selectFrom('sales')
@@ -852,6 +718,14 @@ export const salesRoutes: FastifyPluginAsync = async (app) => {
         }
 
         return mapSaleRow(updatedSale);
+=======
+      const voidedSale = await voidSaleService({
+        db: app.db,
+        tenantId: request.auth.tenantId,
+        userId: request.auth.userId,
+        saleId: params.id,
+        payload
+>>>>>>> aa2b4ca (refactor)
       });
 
       request.log.info(
@@ -872,6 +746,52 @@ export const salesRoutes: FastifyPluginAsync = async (app) => {
       return {
         sale: voidedSale
       };
+    }
+  );
+
+  typedApp.post(
+    '/sales/:id/returns',
+    {
+      preHandler: [app.requireRoles(['ADMIN', 'MANAGER'])],
+      schema: {
+        tags: ['sales'],
+        security: [{ bearerAuth: [] }],
+        params: saleIdParamsSchema,
+        body: CreateReturnRequestSchema
+      }
+    },
+    async (request) => {
+      if (!request.auth) {
+        throw new AppError(401, 'AUTH_UNAUTHORIZED', 'No autorizado');
+      }
+
+      const params = saleIdParamsSchema.parse(request.params);
+      const payload = CreateReturnRequestSchema.parse(request.body);
+
+      const result = await processPartialReturn(
+        {
+          db: app.db,
+          tenantId: request.auth.tenantId,
+          userId: request.auth.userId,
+          branchId: '00000000-0000-0000-0000-000000000000' // It will be looked up inside
+        },
+        params.id,
+        payload
+      );
+
+      request.log.info(
+        {
+          ...buildRequestLogContext(request, {
+            saleId: params.id
+          }),
+          event: 'sale_returned',
+          return_id: result.return_id,
+          total_refund_cents: result.total_refund_cents
+        },
+        'Sale returned'
+      );
+
+      return result;
     }
   );
 };

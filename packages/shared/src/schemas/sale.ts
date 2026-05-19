@@ -25,6 +25,7 @@ export const salePaymentSchema = z.union([simpleSalePaymentSchema, mixedSalePaym
 
 export const saleItemInputSchema = z.object({
   product_id: z.string().uuid(),
+  variant_id: z.string().uuid().optional().nullable(),
   qty: saleQtySchema,
   price_cents: centsSchema.optional(),
   tax_category: productTaxCategorySchema.optional()
@@ -92,6 +93,7 @@ export const saleSchema = z.object({
 export const saleItemSchema = z.object({
   id: z.string().uuid(),
   product_id: z.string().uuid(),
+  variant_id: z.string().uuid().nullable().optional(),
   qty: z.number().positive(),
   price_cents: z.number().int().nonnegative(),
   line_total_cents: z.number().int().nonnegative()
@@ -113,6 +115,7 @@ export const salesListResponseSchema = z.object({
 
 export const saleDetailItemSchema = saleItemSchema.extend({
   product_name: z.string().min(1),
+  variant_name: z.string().nullable().optional(),
   imageUrl: z.string().url().nullable().optional(),
   description: z.string().nullable().optional()
 });

@@ -1,4 +1,4 @@
-export type UserRole = 'ADMIN' | 'CASHIER';
+export type UserRole = 'ADMIN' | 'MANAGER' | 'CASHIER' | 'AUDITOR';
 
 export interface JwtClaims {
   sub: string;

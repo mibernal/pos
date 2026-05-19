@@ -480,3 +480,123 @@ export function printSaleTicket(input: TicketPrintInput): void {
   printWindow.document.write(html);
   printWindow.document.close();
 }
+
+/**
+ * Imprime un ticket directamente a una impresora ESC/POS a través de la Web Serial API (navigator.serial).
+ * Requiere interacción del usuario y HTTPS (o localhost).
+ */
+export async function printSaleTicketESCPOS(input: TicketPrintInput): Promise<void> {
+  if (!('serial' in navigator)) {
+    throw new Error('Web Serial API no está soportada en este navegador (requiere Chrome/Edge y HTTPS).');
+  }
+
+  // Comandos ESC/POS básicos
+  const ESC = 0x1b;
+  const GS = 0x1d;
+  const LF = 0x0a;
+  
+  const initPrinter = [ESC, 0x40];
+  const alignCenter = [ESC, 0x61, 1];
+  const alignLeft = [ESC, 0x61, 0];
+  const boldOn = [ESC, 0x45, 1];
+  const boldOff = [ESC, 0x45, 0];
+  const cutPaper = [GS, 0x56, 0x41, 0x10]; // Cut paper (partial)
+
+  const encoder = new TextEncoder();
+  const data: number[] = [];
+
+  const pushCmd = (cmd: number[]) => data.push(...cmd);
+  const pushText = (text: string) => {
+    // Normalizar a ASCII básico sin acentos (opcional: usar codepage)
+    const normalized = text.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+    data.push(...encoder.encode(normalized));
+  };
+  const pushLine = (text: string = '') => {
+    pushText(text);
+    data.push(LF);
+  };
+
+  // 1. Init
+  pushCmd(initPrinter);
+  pushCmd(alignCenter);
+  
+  // 2. Header
+  pushCmd(boldOn);
+  pushLine(input.template.businessName);
+  pushCmd(boldOff);
+  pushLine(`NIT: ${input.template.nit}`);
+  pushLine(`Sucursal: ${input.branchName}`);
+  if (input.branchAddress) pushLine(input.branchAddress);
+  pushLine(input.template.address);
+  if (input.template.phone) pushLine(`Tel: ${input.template.phone}`);
+  
+  pushLine('--------------------------------');
+  
+  // 3. Info de Venta
+  pushCmd(alignLeft);
+  pushLine(`Venta #${input.saleNumber}`);
+  const { date, time } = formatDateTimeParts(input.createdAt);
+  pushLine(`Fecha: ${date} ${time}`);
+  if (input.dianStatus !== 'PENDING') pushLine(`DIAN: ${formatStatusLabel(input.dianStatus)}`);
+  if (input.cude) pushLine(`CUDE: ${input.cude.substring(0, 32)}...`);
+  
+  pushLine('--------------------------------');
+  
+  // 4. Items
+  input.items.forEach(item => {
+    // Nombre del item en una linea
+    pushCmd(boldOn);
+    pushLine(`${item.qty}x ${item.name}`);
+    pushCmd(boldOff);
+    // Precios
+    const totalStr = formatMoneyFromCents(item.lineTotalCents);
+    pushLine(`  ${formatMoneyFromCents(item.priceCents)} c/u -> ${totalStr}`);
+  });
+  
+  pushLine('--------------------------------');
+  
+  // 5. Totales
+  pushCmd(alignLeft);
+  pushLine(`Subtotal:  ${formatMoneyFromCents(input.subtotalCents)}`);
+  if (input.discountCents > 0) {
+    pushLine(`Descuento: -${formatMoneyFromCents(input.discountCents)}`);
+  }
+  pushCmd(boldOn);
+  pushLine(`TOTAL:     ${formatMoneyFromCents(input.totalCents)}`);
+  pushCmd(boldOff);
+  
+  pushLine('--------------------------------');
+  
+  // 6. Pagos
+  pushLine('PAGOS:');
+  input.payments.forEach(p => {
+    pushLine(`${paymentMethodLabel(p.method)}: ${formatMoneyFromCents(p.amountCents)}`);
+  });
+  
+  pushLine('--------------------------------');
+  
+  // 7. Footer
+  pushCmd(alignCenter);
+  pushLine(input.template.footerMessage || 'Gracias por tu compra');
+  
+  pushLine();
+  pushLine();
+  pushLine();
+  pushCmd(cutPaper);
+
+  // Ejecutar escritura en puerto serie
+  try {
+    const nav = navigator as any;
+    const port = await nav.serial.requestPort();
+    await port.open({ baudRate: 9600 });
+    
+    const writer = port.writable.getWriter();
+    const uint8Array = new Uint8Array(data);
+    await writer.write(uint8Array);
+    await writer.releaseLock();
+    
+    await port.close();
+  } catch (err) {
+    throw new Error(`Fallo al imprimir por serial: ${err instanceof Error ? err.message : String(err)}`);
+  }
+}

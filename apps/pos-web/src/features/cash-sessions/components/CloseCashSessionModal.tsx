@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Banner, Modal } from '../../../components/ui';
 import { formatMoneyFromCents } from '../../../lib/format';
 import type { PosApiClient } from '../../../types';
+import { useSession } from '../../auth';
 
 export function CloseCashSessionModal({
   api,
@@ -23,6 +24,7 @@ export function CloseCashSessionModal({
     expected_cash_cents: number;
     diff_cents: number;
   } | null>(null);
+  const { role } = useSession();
 
   if (!isOpen) {
     return null;
@@ -71,22 +73,47 @@ export function CloseCashSessionModal({
               <p>El arqueo ha finalizado, revisa el resumen.</p>
             </Banner>
 
-            <div className="detail-card">
-              <div className="detail-item-row">
-                <span>Total Esperado (COP)</span>
-                <strong>{formatMoneyFromCents(summary.expected_cash_cents)}</strong>
+            {role !== 'CASHIER' ? (
+              <div className="detail-card">
+                <div className="detail-item-row">
+                  <span>Total Esperado (COP)</span>
+                  <strong>{formatMoneyFromCents(summary.expected_cash_cents)}</strong>
+                </div>
+                <div className="detail-item-row">
+                  <span>Diferencia</span>
+                  <strong style={{ color: summary.diff_cents < 0 ? 'var(--color-error-600)' : summary.diff_cents > 0 ? 'var(--color-success-600)' : 'inherit' }}>
+                    {formatMoneyFromCents(summary.diff_cents)}
+                  </strong>
+                </div>
               </div>
-              <div className="detail-item-row">
-                <span>Diferencia</span>
-                <strong style={{ color: summary.diff_cents < 0 ? 'var(--color-error-600)' : summary.diff_cents > 0 ? 'var(--color-success-600)' : 'inherit' }}>
-                  {formatMoneyFromCents(summary.diff_cents)}
-                </strong>
+            ) : (
+              <div className="detail-card">
+                <p style={{ textAlign: 'center', color: 'var(--color-slate-600)' }}>Arqueo registrado exitosamente.</p>
               </div>
-            </div>
+            )}
 
-            <button className="button" style={{ background: 'var(--color-primary-600)', color: '#fff', padding: '0.75rem', width: '100%' }} onClick={handleFinish}>
-              Entendido
-            </button>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem' }}>
+              <button
+                type="button"
+                className="button button-outline"
+                onClick={() => {
+                  let ticketInfo = 'Imprimiendo Ticket Z...\n' + 
+                    'Ventas: ' + summary.completed_sales_count + '\n';
+                  if (role !== 'CASHIER') {
+                    ticketInfo += 'Esperado: ' + formatMoneyFromCents(summary.expected_cash_cents) + '\n' +
+                                  'Diferencia: ' + formatMoneyFromCents(summary.diff_cents);
+                  } else {
+                    ticketInfo += 'Arqueo: Ciego\n';
+                  }
+                  alert(ticketInfo);
+                }}
+              >
+                🖨️ Imprimir Ticket Z
+              </button>
+              <button className="button" style={{ background: 'var(--color-primary-600)', color: '#fff', padding: '0.75rem' }} onClick={handleFinish}>
+                Terminar
+              </button>
+            </div>
           </div>
         ) : (
           <div className="stack-md">

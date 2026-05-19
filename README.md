@@ -11,12 +11,22 @@ Este proyecto está construido como un monorepo administrado con `pnpm` workspac
 - `apps/pos-web`: Frontend (Aplicación Web Progresiva) en **React + Vite**. Interfaz para cajas, responsiva para tablets, con catálogo precargado en memoria y cola local de ventas pendientes.
 - `packages/shared`: Tipos, esquemas `Zod` y contratos utilitarios compartidos en todo el proyecto.
 
-## 🚀 Capacidades y Enfoque
+## 🚀 Capacidades y Enfoque (SaaS Enterprise)
 
+<<<<<<< HEAD
 - **Offline-Resilient / PWA:** La app cachea assets y mantiene una cola IndexedDB para ventas pendientes. El catálogo opera desde memoria mientras la sesión está cargada; recargar completamente offline no garantiza catálogo persistente todavía.
 - **Emisión Asíncrona Robusta:** La venta se persiste atómicamente en PostgreSQL junto al evento Outbox. El Worker reintenta la conexión con el provider DIAN sin bloquear al cajero.
 - **Anulaciones Fiscales:** Una anulación genera outbox `SALE_VOIDED`. El worker espera que la factura `INVOICE` esté `ACCEPTED` y crea/reutiliza un documento fiscal `CREDIT_NOTE` separado, enlazado con `parent_document_id`.
 - **Impresión Tickets Dinámicos:** Soporte HTML multi-formato (Ticket ancho estándar 80mm ó pequeño de 58mm). Todo configurable por cada negocio.
+=======
+- **Multi-Tenant Global & Roles Granulares:** Cada negocio opera en su propio tenant aislado lógicamente (RLS) con selector en el login. Control de acceso robusto basado en roles (`ADMIN`, `MANAGER`, `CASHIER`, `AUDITOR`).
+- **Offline-Resilient / PWA:** La app cachea assets y mantiene una cola IndexedDB para ventas pendientes. El catálogo virtualizado soporta miles de SKUs renderizando a 60fps constantes.
+- **Control de Efectivo Avanzado:** Arqueos de caja intermedios, cierres Z, reportes por turno y cajero. Control estricto de descuadres de caja y dashboard analítico en tiempo real (SSE).
+- **Inventario Enterprise:** Catálogo con productos variantes, promociones avanzadas (porcentaje, dinero fijo, Buy X Get Y), vista de stock consolidada multi-sucursal y disparadores asíncronos de alertas por stock mínimo (vía Outbox).
+- **Emisión Asíncrona Robusta:** La venta se persiste atómicamente en PostgreSQL junto al evento Outbox. El Worker reintenta la conexión con el provider DIAN sin bloquear al cajero.
+- **Anulaciones y Devoluciones Fiscales:** Soporta anulación completa (`SALE_VOIDED`) y devoluciones parciales (`SALE_RETURNED`). El worker se encarga de que la factura original esté `ACCEPTED` y genera automáticamente la nota crédito `CREDIT_NOTE` enlazada.
+- **Impresión Hardware Acelerada:** Soporte HTML dinámico tradicional y conexión directa por puerto serial (Web Serial API `navigator.serial`) a impresoras de tickets (ESC/POS) omitiendo diálogos del sistema para velocidad en caja insuperable.
+>>>>>>> aa2b4ca (refactor)
 - **Micro-Deployments listos:** Empaque Multi-Stage de Docker con `pnpm deploy`, reduciendo drásticamente el peso de las imágenes. Servidor Nativo `HTTP Health / Uptime` en el Worker para SLA's en PaaS (Render, AWS, Railway).
 
 ---
@@ -87,7 +97,11 @@ Puedes utilizar estas credenciales iniciales en `http://localhost:5173`:
 4. Abre la la caja. Comienza a tipear en el buscador (Observará latencia `0ms` off-grid).
 5. Completa una Venta en efectivo o Mixta. El Pos Screen renderizará la ventana de impresión al finalizar.
 6. Ve al **Historial**. Allí figurará la venta indicando si la emisión a la DIAN está pendiente, enviada, aceptada o rechazada.
+<<<<<<< HEAD
 7. Simula una anulación desde el Historial. La venta quedará `VOID`, el inventario se repondrá y el worker emitirá una nota crédito fiscal separada cuando la factura original esté aceptada.
+=======
+7. Simula una anulación desde el Historial o procesa una devolución parcial de ítems. La venta o devolución repondrá el inventario y el worker emitirá una nota de crédito fiscal separada a la DIAN.
+>>>>>>> aa2b4ca (refactor)
 
 ---
 

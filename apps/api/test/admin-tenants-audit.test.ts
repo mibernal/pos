@@ -24,6 +24,7 @@ interface FakeDbState {
     phone: string | null;
     footer_message: string | null;
     tax_mode: TenantTaxMode;
+    allow_negative_stock: boolean;
     created_at: Date;
   }>;
   audit_logs: Array<Record<string, unknown>>;
@@ -178,7 +179,8 @@ class FakeInsertBuilder {
       ...row,
       created_at: new Date()
     }));
-    this.state[this.tableName].push(...rows);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (this.state[this.tableName] as any[]).push(...rows);
   }
 }
 
@@ -246,6 +248,7 @@ describe('tenant tax mode audit logs', () => {
           phone: null,
           footer_message: null,
           tax_mode: 'IVA',
+          allow_negative_stock: true,
           created_at: new Date('2026-03-07T00:00:00.000Z')
         }
       ],
@@ -307,6 +310,7 @@ describe('tenant tax mode audit logs', () => {
           phone: null,
           footer_message: null,
           tax_mode: 'IVA',
+          allow_negative_stock: true,
           created_at: new Date('2026-03-07T00:00:00.000Z')
         }
       ],

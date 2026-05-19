@@ -3,6 +3,11 @@ interface PaymentSnapshot {
   total_cents: number;
 }
 
+interface CashMovementSnapshot {
+  type: 'IN' | 'OUT';
+  amount_cents: number;
+}
+
 type JsonRecord = Record<string, unknown>;
 
 const CASH_AMOUNT_PATHS: ReadonlyArray<ReadonlyArray<string>> = [
@@ -98,12 +103,21 @@ export function extractCashPaidCents(paymentJson: unknown, totalCents: number): 
 
 export function calculateExpectedCashCents(
   openingAmountCents: number,
-  salePayments: ReadonlyArray<PaymentSnapshot>
+  salePayments: ReadonlyArray<PaymentSnapshot>,
+  cashMovements: ReadonlyArray<CashMovementSnapshot> = []
 ): number {
   let expectedCashCents = openingAmountCents;
 
   for (const salePayment of salePayments) {
     expectedCashCents += extractCashPaidCents(salePayment.payment_json, salePayment.total_cents);
+  }
+
+  for (const movement of cashMovements) {
+    if (movement.type === 'IN') {
+      expectedCashCents += movement.amount_cents;
+    } else {
+      expectedCashCents -= movement.amount_cents;
+    }
   }
 
   return expectedCashCents;

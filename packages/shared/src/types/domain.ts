@@ -1,4 +1,4 @@
-export type UserRole = 'ADMIN' | 'CASHIER';
+export type UserRole = 'ADMIN' | 'MANAGER' | 'CASHIER' | 'AUDITOR';
 
 export type DianStatus = 'PENDING' | 'SENT' | 'ACCEPTED' | 'REJECTED';
 export type DianDocumentType = 'INVOICE' | 'CREDIT_NOTE';

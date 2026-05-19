@@ -42,7 +42,7 @@ export const productsRoutes: FastifyPluginAsync = async (app) => {
   typedApp.get(
     '/products',
     {
-      preHandler: [app.requireRoles(['ADMIN', 'CASHIER'])],
+      preHandler: [app.requireRoles(['ADMIN', 'MANAGER', 'CASHIER', 'AUDITOR'])],
       schema: {
         tags: ['products'],
         security: [{ bearerAuth: [] }],
@@ -94,7 +94,56 @@ export const productsRoutes: FastifyPluginAsync = async (app) => {
       const rows = await queryBuilder.orderBy('name', 'asc').orderBy('id', 'asc').limit(limit + 1).execute();
 
       const hasMore = rows.length > limit;
-      const items = rows.slice(0, limit).map((row) => ({
+      const productRows = rows.slice(0, limit);
+
+      const variantsByProductId: Record<string, Array<{ id: string; name: string; price_cents: number; barcode: string | null }>> = {};
+      const promotionsByProductId: Record<string, { type: string; value_cents: number; buy_qty: number | null; get_qty: number | null }> = {};
+      
+      if (productRows.length > 0) {
+        const productIds = productRows.map(r => r.id);
+        
+        const variants = await app.db
+          .selectFrom('product_variants')
+          .select(['id', 'product_id', 'name', 'price_cents', 'barcode', 'active'])
+          .where('product_id', 'in', productIds)
+          .where('active', '=', true)
+          .execute();
+          
+        variants.forEach(v => {
+          if (!variantsByProductId[v.product_id]) {
+            variantsByProductId[v.product_id] = [];
+          }
+          variantsByProductId[v.product_id]!.push({
+            id: v.id,
+            name: v.name,
+            price_cents: v.price_cents,
+            barcode: v.barcode
+          });
+        });
+
+        const activePromotions = await app.db
+          .selectFrom('promotions')
+          .selectAll()
+          .where('product_id', 'in', productIds)
+          .where('tenant_id', '=', request.auth.tenantId)
+          .where('active', '=', true)
+          .where('start_date', '<=', sql<Date>`NOW()`)
+          .where(sql<boolean>`(end_date IS NULL OR end_date >= NOW())`)
+          .execute();
+          
+        activePromotions.forEach(promo => {
+          if (!promotionsByProductId[promo.product_id]) {
+            promotionsByProductId[promo.product_id] = {
+              type: promo.type,
+              value_cents: promo.value_cents,
+              buy_qty: promo.buy_qty,
+              get_qty: promo.get_qty
+            };
+          }
+        });
+      }
+
+      const items = productRows.map((row) => ({
         id: row.id,
         tenantId: row.tenant_id,
         branchId: row.branch_id,
@@ -106,6 +155,8 @@ export const productsRoutes: FastifyPluginAsync = async (app) => {
         active: row.active,
         imageUrl: row.image_url,
         description: row.description,
+        variants: variantsByProductId[row.id] || [],
+        promotion: promotionsByProductId[row.id] || null,
         createdAt: row.created_at.toISOString(),
         updatedAt: row.updated_at.toISOString()
       }));
@@ -124,7 +175,7 @@ export const productsRoutes: FastifyPluginAsync = async (app) => {
   typedApp.post(
     '/products',
     {
-      preHandler: [app.requireRoles(['ADMIN'])],
+      preHandler: [app.requireRoles(['ADMIN', 'MANAGER'])],
       schema: {
         tags: ['products'],
         security: [{ bearerAuth: [] }],
@@ -200,7 +251,7 @@ export const productsRoutes: FastifyPluginAsync = async (app) => {
   typedApp.patch(
     '/products/:id',
     {
-      preHandler: [app.requireRoles(['ADMIN'])],
+      preHandler: [app.requireRoles(['ADMIN', 'MANAGER'])],
       schema: {
         tags: ['products'],
         security: [{ bearerAuth: [] }],
@@ -364,7 +415,7 @@ export const productsRoutes: FastifyPluginAsync = async (app) => {
   typedApp.post(
     '/products/:id/toggle-active',
     {
-      preHandler: [app.requireRoles(['ADMIN'])],
+      preHandler: [app.requireRoles(['ADMIN', 'MANAGER'])],
       schema: {
         tags: ['products'],
         security: [{ bearerAuth: [] }],

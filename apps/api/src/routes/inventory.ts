@@ -5,7 +5,8 @@ import { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { AppError } from '../infra/errors/app-error.js';
 import {
   createInventoryTransactionBodySchema,
-  inventoryBalancesQuerySchema
+  inventoryBalancesQuerySchema,
+  consolidatedInventoryResponseSchema
 } from '@pos-dian/shared';
 
 export const inventoryRoutes: FastifyPluginAsync = async (app) => {
@@ -27,7 +28,7 @@ export const inventoryRoutes: FastifyPluginAsync = async (app) => {
   typedApp.get(
     '/inventory/balances',
     {
-      preHandler: [app.requireRoles(['ADMIN', 'CASHIER'])],
+      preHandler: [app.requireRoles(['ADMIN', 'MANAGER', 'CASHIER', 'AUDITOR'])],
       schema: {
         tags: ['inventory'],
         security: [{ bearerAuth: [] }],
@@ -75,10 +76,63 @@ export const inventoryRoutes: FastifyPluginAsync = async (app) => {
     }
   );
 
+  typedApp.get(
+    '/inventory/consolidated',
+    {
+      preHandler: [app.requireRoles(['ADMIN', 'MANAGER', 'AUDITOR'])],
+      schema: {
+        tags: ['inventory'],
+        security: [{ bearerAuth: [] }],
+        response: {
+          200: consolidatedInventoryResponseSchema
+        }
+      }
+    },
+    async (request) => {
+      const rows = await app.db
+        .selectFrom('inventory_balances as b')
+        .innerJoin('products as p', (join) =>
+          join
+            .onRef('p.id', '=', 'b.product_id')
+            .onRef('p.tenant_id', '=', 'b.tenant_id')
+        )
+        .innerJoin('branches as br', (join) =>
+          join
+            .onRef('br.id', '=', 'b.branch_id')
+            .onRef('br.tenant_id', '=', 'b.tenant_id')
+        )
+        .select([
+          'b.product_id',
+          'p.name as product_name',
+          'p.category',
+          'p.image_url',
+          sql<number>`sum(b.qty)`.as('total_qty'),
+          sql<unknown[]>`json_agg(json_build_object(
+            'branch_id', br.id,
+            'branch_name', br.name,
+            'qty', b.qty
+          ))`.as('branches_breakdown')
+        ])
+        .where('b.tenant_id', '=', request.auth!.tenantId)
+        .groupBy(['b.product_id', 'p.name', 'p.category', 'p.image_url'])
+        .orderBy('p.name', 'asc')
+        .execute();
+
+      return rows.map((row) => ({
+        product_id: row.product_id,
+        product_name: row.product_name,
+        category: row.category,
+        image_url: row.image_url,
+        total_qty: Number(row.total_qty),
+        branches_breakdown: row.branches_breakdown
+      }));
+    }
+  );
+
   typedApp.post(
     '/inventory/transactions',
     {
-      preHandler: [app.requireRoles(['ADMIN'])],
+      preHandler: [app.requireRoles(['ADMIN', 'MANAGER'])],
       schema: {
         tags: ['inventory'],
         security: [{ bearerAuth: [] }],

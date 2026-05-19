@@ -21,9 +21,13 @@ describe('health endpoint', () => {
     });
 
     expect(response.statusCode).toBe(200);
-    expect(response.json()).toEqual({
+    expect(response.json()).toMatchObject({
       status: 'ok',
-      service: 'api'
+      service: 'api',
+      checks: {
+        database: 'ok',
+        redis: 'ok'
+      }
     });
   });
 

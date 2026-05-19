@@ -107,6 +107,7 @@ export function createApiClient({ baseUrl, getSession, setSession }: CreateApiCl
     headers.set('Content-Type', 'application/json');
 
     if (session?.accessToken) {
+      // Retaining this for fallback just in case some servers rely on it initially
       headers.set('Authorization', `Bearer ${session.accessToken}`);
     }
 
@@ -117,6 +118,7 @@ export function createApiClient({ baseUrl, getSession, setSession }: CreateApiCl
     let response: Response;
     try {
       response = await fetch(`${baseUrl}${path}`, {
+        credentials: 'include',
         ...options,
         headers
       });
@@ -151,20 +153,26 @@ export function createApiClient({ baseUrl, getSession, setSession }: CreateApiCl
     return (await response.json()) as T;
   }
 
-  async function login(email: string, password: string): Promise<AuthSession> {
+  async function login(email: string, password: string, tenantId?: string): Promise<LoginResponse> {
     const response = await requestJson<LoginResponse>('/auth/login', {
       method: 'POST',
-      body: JSON.stringify({ email, password })
+      body: JSON.stringify({ email, password, tenantId })
     });
 
-    return {
-      accessToken: response.accessToken,
-      user: response.user
-    };
+    return response;
+  }
+
+  async function logout(): Promise<void> {
+    try {
+      await requestJson('/auth/logout', { method: 'POST' });
+    } catch {
+      // Ignore errors on logout
+    }
   }
 
   return {
     login,
+    logout,
     me: () => requestJson<SharedMeResponse>('/auth/me'),
     listBranches: () => requestJson<{ items: BranchItem[] }>('/branches'),
     getCurrentCashSession: (branchId: string) =>
@@ -179,10 +187,20 @@ export function createApiClient({ baseUrl, getSession, setSession }: CreateApiCl
           opening_amount_cents: openingAmountCents
         })
       }),
+    auditCashSession: (sessionId: string, observedCashCents: number, notes?: string) =>
+      requestJson<{ audit: { id: string; cash_session_id: string; observed_cash_cents: number; expected_cash_cents: number; diff_cents: number; notes: string | null; created_at: string } }>(`/cash-sessions/${sessionId}/audit`, {
+        method: 'POST',
+        body: JSON.stringify({ observed_cash_cents: observedCashCents, notes })
+      }),
     closeCashSession: (sessionId: string, closingCashRealCents: number) =>
       requestJson<{ cash_session: CashSession; summary: { completed_sales_count: number; expected_cash_cents: number; diff_cents: number } }>(`/cash-sessions/${sessionId}/close`, {
         method: 'POST',
         body: JSON.stringify({ closing_cash_real_cents: closingCashRealCents })
+      }),
+    addCashMovement: (sessionId: string, type: 'IN' | 'OUT', amountCents: number, reason: string) =>
+      requestJson<{ movement: any }>(`/cash-sessions/${sessionId}/movements`, {
+        method: 'POST',
+        body: JSON.stringify({ type, amount_cents: amountCents, reason })
       }),
     getCurrentTenantProfile: () => requestJson<AdminTenantProfile>('/admin/tenants/current'),
     updateTenantBusinessProfile: (payload: UpdateTenantBusinessProfileBody) =>
@@ -258,18 +276,26 @@ export function createApiClient({ baseUrl, getSession, setSession }: CreateApiCl
       requestJson<InventoryBalance[]>(
         `/inventory/balances?${toQueryString({ branch_id: branchId, product_id: productId })}`
       ),
+    listConsolidatedInventory: () =>
+      requestJson<any[]>('/inventory/consolidated'),
     createInventoryTransaction: (payload: SharedCreateInventoryTransactionInput) =>
       requestJson<{ success: boolean }>('/inventory/transactions', {
         method: 'POST',
         body: JSON.stringify(payload)
       }),
-    getSalesReport: (params: { branchId: string; from?: string; to?: string }) =>
-      requestJson<SalesReportResponse>(
-        `/reports/sales?${toQueryString({
-          branch_id: params.branchId,
-          from: params.from,
-          to: params.to
-        })}`
-      )
+    getSalesReport: (params: { branchId: string; from?: string; to?: string }) => {
+      const searchParams = new URLSearchParams();
+      searchParams.set('branch_id', params.branchId);
+      if (params.from) searchParams.set('from', params.from);
+      if (params.to) searchParams.set('to', params.to);
+      return requestJson<SalesReportResponse>(`/reports/sales?${searchParams.toString()}`);
+    },
+    getShiftsReport: (params: { branchId: string; from?: string; to?: string }) => {
+      const searchParams = new URLSearchParams();
+      searchParams.set('branch_id', params.branchId);
+      if (params.from) searchParams.set('from', params.from);
+      if (params.to) searchParams.set('to', params.to);
+      return requestJson<{ items: any[] }>(`/reports/shifts?${searchParams.toString()}`);
+    }
   };
 }

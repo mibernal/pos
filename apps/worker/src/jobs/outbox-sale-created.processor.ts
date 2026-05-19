@@ -1,18 +1,8 @@
-import { randomUUID } from 'node:crypto';
 import type { Job } from 'bullmq';
 import type { Pool } from 'pg';
-import type { DianStatus } from '@pos-dian/shared';
 import { env } from '../config/env.js';
 import { computeNextRetryAt } from '../outbox/backoff.js';
-import type {
-  DianProvider,
-  DianProviderEmitSaleInput,
-  DianProviderPaymentBreakdown,
-  DianProviderSaleItemPayload,
-  DianProviderTaxCategory,
-  DianProviderTaxLinePayload,
-  DianProviderTaxMode
-} from '@pos-dian/shared/types/dian-provider.js';
+import type { DianProvider } from '@pos-dian/shared/types/dian-provider.js';
 import {
   formatDianStatusTransitions,
   getDianEmissionBlockReason,
@@ -20,12 +10,24 @@ import {
 } from '../domain/dian-document-status.js';
 import type { OutboxSaleCreatedJobData } from './types.js';
 import { logWorkerError, logWorkerInfo } from '../infra/logging/worker-log.js';
+import {
+  buildIdempotencyKey,
+  loadProviderPayload
+} from './shared/dian-payload-builder.js';
+import {
+  claimOutboxEvent,
+  getOrCreateDianDocument,
+  markOutboxFailed,
+  markOutboxSent,
+  updateDianDocumentMetadata
+} from './shared/outbox-store.js';
 
 interface BuildOutboxSaleCreatedProcessorInput {
   pool: Pool;
   provider: DianProvider;
 }
 
+<<<<<<< HEAD
 interface OutboxEventRow {
   id: string;
   tenant_id: string;
@@ -513,6 +515,8 @@ async function updateDianDocumentMetadata(
   );
 }
 
+=======
+>>>>>>> aa2b4ca (refactor)
 export function buildOutboxSaleCreatedProcessor({
   pool,
   provider

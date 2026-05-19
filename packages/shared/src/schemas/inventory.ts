@@ -47,3 +47,18 @@ export const inventoryBalancesQuerySchema = z.object({
   branch_id: z.string().uuid(),
   product_id: z.string().uuid().optional()
 });
+
+export const consolidatedInventoryResponseSchema = z.array(z.object({
+  product_id: z.string().uuid(),
+  product_name: z.string(),
+  category: z.string(),
+  image_url: z.string().nullable(),
+  total_qty: z.number(),
+  branches_breakdown: z.array(z.object({
+    branch_id: z.string().uuid(),
+    branch_name: z.string(),
+    qty: z.number()
+  }))
+}));
+
+export type ConsolidatedInventoryResponse = z.infer<typeof consolidatedInventoryResponseSchema>;

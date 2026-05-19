@@ -9,7 +9,7 @@ export const reportsRoutes: FastifyPluginAsync = async (app) => {
   typedApp.get(
     '/reports/sales',
     {
-      preHandler: [app.requireRoles(['ADMIN'])],
+      preHandler: [app.requireRoles(['ADMIN', 'MANAGER', 'AUDITOR'])],
       schema: {
         tags: ['reports'],
         security: [{ bearerAuth: [] }],
@@ -92,6 +92,66 @@ export const reportsRoutes: FastifyPluginAsync = async (app) => {
         total_sales_count: Number(rows?.total_sales_count || 0),
         average_ticket_cents: Math.round(Number(rows?.average_ticket_cents || 0)),
         revenue_by_method
+      };
+    }
+  );
+
+  typedApp.get(
+    '/reports/shifts',
+    {
+      preHandler: [app.requireRoles(['ADMIN', 'MANAGER', 'AUDITOR'])],
+      schema: {
+        tags: ['reports'],
+        security: [{ bearerAuth: [] }]
+      }
+    },
+    async (request) => {
+      // Re-use salesReportQuerySchema structure manually or just extract from query
+      const { branch_id, from, to } = request.query as Record<string, string | undefined>;
+
+      let query = app.db
+        .selectFrom('cash_sessions')
+        .leftJoin('users', 'users.id', 'cash_sessions.opened_by_user_id')
+        .where('cash_sessions.tenant_id', '=', request.auth!.tenantId)
+        .where('cash_sessions.branch_id', '=', branch_id);
+
+      if (from) {
+        query = query.where('cash_sessions.opened_at', '>=', new Date(from));
+      }
+
+      if (to) {
+        query = query.where('cash_sessions.opened_at', '<=', new Date(to));
+      }
+
+      const rows = await query
+        .select([
+          'cash_sessions.id',
+          'cash_sessions.branch_id',
+          'cash_sessions.opened_at',
+          'cash_sessions.closed_at',
+          'cash_sessions.opened_by_user_id',
+          'users.name as user_name',
+          'cash_sessions.opening_amount_cents',
+          'cash_sessions.closing_cash_real_cents',
+          'cash_sessions.expected_cash_cents',
+          'cash_sessions.diff_cents'
+        ])
+        .orderBy('cash_sessions.opened_at', 'desc')
+        .execute();
+
+      return {
+        items: rows.map(row => ({
+          id: row.id,
+          branch_id: row.branch_id,
+          opened_at: row.opened_at.toISOString(),
+          closed_at: row.closed_at ? row.closed_at.toISOString() : null,
+          opened_by_user_id: row.opened_by_user_id,
+          user_name: row.user_name ?? 'Desconocido',
+          opening_amount_cents: row.opening_amount_cents,
+          closing_cash_real_cents: row.closing_cash_real_cents,
+          expected_cash_cents: row.expected_cash_cents,
+          diff_cents: row.diff_cents
+        }))
       };
     }
   );

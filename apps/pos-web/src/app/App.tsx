@@ -2,7 +2,7 @@ import { useEffect, useState, type ReactNode } from 'react';
 import { AppShellLayout, AppTopbar } from '../components/layout';
 import { Banner, ShellMessage } from '../components/ui';
 import { LoginScreen, RequireSession, SessionProvider, useSession } from '../features/auth';
-import { CloseCashSessionModal } from '../features/cash-sessions';
+import { CloseCashSessionModal, CashControlScreen, CashMovementModal } from '../features/cash-sessions';
 import { CustomersScreen } from '../features/customers';
 import { BranchSetupScreen } from '../features/branches';
 import { HistoryScreen } from '../features/history';
@@ -24,7 +24,7 @@ import {
 function AppShell() {
   const { api, logout, session } = useSession();
   const { commitPosContext, posContext } = usePosContextState();
-  const { activeRoute, navigate, resetNavigation, routeDefinitions } = usePosNavigation();
+  const { activeRoute, navigate, resetNavigation, routeDefinitions } = usePosNavigation(session?.user.role ?? null);
   const {
     isOnline,
     pendingSales,
@@ -53,6 +53,7 @@ function AppShell() {
   const [isTicketTemplateModalOpen, setIsTicketTemplateModalOpen] = useState(false);
   const [isDianConfigModalOpen, setIsDianConfigModalOpen] = useState(false);
   const [isCloseSessionModalOpen, setIsCloseSessionModalOpen] = useState(false);
+  const [isCashMovementModalOpen, setIsCashMovementModalOpen] = useState(false);
 
   useEffect(() => {
     if (!session && posContext) {
@@ -118,6 +119,16 @@ function AppShell() {
             );
           }
 
+          if (activeRoute === 'cash-control') {
+            currentScreen = (
+              <CashControlScreen
+                api={api}
+                branchId={posContext.branchId}
+                cashSessionId={posContext.cashSessionId}
+              />
+            );
+          }
+
           if (activeRoute === 'products') {
             currentScreen = <ProductsScreen api={api} branchId={posContext.branchId} />;
           }
@@ -148,6 +159,7 @@ function AppShell() {
                   onNavigate={navigate}
                   onOpenDianConfig={() => setIsDianConfigModalOpen(true)}
                   onOpenTicketTemplate={() => setIsTicketTemplateModalOpen(true)}
+                  onOpenCashMovements={() => setIsCashMovementModalOpen(true)}
                   onSyncPendingSales={() => void syncPendingSales()}
                   pendingSalesCount={pendingSalesCount}
                   routeDefinitions={routeDefinitions}
@@ -183,7 +195,20 @@ function AppShell() {
                   onClose={() => setIsCloseSessionModalOpen(false)}
                   onSuccess={() => {
                     setIsCloseSessionModalOpen(false);
-                    commitPosContext(null); // Return to setup screen
+                    commitPosContext(null);
+                    resetNavigation();
+                  }}
+                />
+              )}
+              {posContext && (
+                <CashMovementModal
+                  api={api}
+                  isOpen={isCashMovementModalOpen}
+                  sessionId={posContext.cashSessionId}
+                  onClose={() => setIsCashMovementModalOpen(false)}
+                  onSuccess={() => {
+                    setIsCashMovementModalOpen(false);
+                    alert('Movimiento registrado correctamente');
                   }}
                 />
               )}

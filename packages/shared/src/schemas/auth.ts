@@ -1,11 +1,12 @@
 import { z } from 'zod';
 
-export const userRoleSchema = z.enum(['ADMIN', 'CASHIER']);
+export const userRoleSchema = z.enum(['ADMIN', 'MANAGER', 'CASHIER', 'AUDITOR']);
 export const tenantTaxModeSchema = z.enum(['IVA', 'INC_RESTAURANT']);
 
 export const loginBodySchema = z.object({
   email: z.string().trim().max(254).email().transform((value) => value.toLowerCase()),
-  password: z.string().min(8).max(200)
+  password: z.string().min(8).max(200),
+  tenantId: z.string().uuid().optional()
 }).strict();
 
 export const authUserSchema = z.object({
@@ -19,10 +20,16 @@ export const authUserSchema = z.object({
 });
 
 export const loginResponseSchema = z.object({
-  accessToken: z.string().min(1),
-  tokenType: z.literal('Bearer'),
-  expiresIn: z.string().min(1),
-  user: authUserSchema
+  accessToken: z.string().min(1).optional(),
+  tokenType: z.literal('Bearer').optional(),
+  expiresIn: z.string().min(1).optional(),
+  user: authUserSchema.optional(),
+  requireTenantSelection: z.boolean().optional(),
+  tenants: z.array(z.object({
+    id: z.string().uuid(),
+    name: z.string(),
+    business_name: z.string()
+  })).optional()
 });
 
 export const meResponseSchema = z.object({

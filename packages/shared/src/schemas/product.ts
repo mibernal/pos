@@ -21,6 +21,20 @@ export const productItemSchema = z.object({
   active: z.boolean(),
   imageUrl: z.string().url().nullable().optional(),
   description: z.string().max(1000).nullable().optional(),
+  variants: z.array(
+    z.object({
+      id: z.string().uuid(),
+      name: z.string(),
+      price_cents: z.number().int().nonnegative(),
+      barcode: z.string().nullable()
+    })
+  ).optional().default([]),
+  promotion: z.object({
+    type: z.enum(['PERCENTAGE', 'FIXED_AMOUNT', 'BUY_X_GET_Y']),
+    value_cents: z.number().int(),
+    buy_qty: z.number().int().nullable(),
+    get_qty: z.number().int().nullable()
+  }).nullable().optional(),
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime()
 });

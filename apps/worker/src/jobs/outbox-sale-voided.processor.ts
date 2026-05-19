@@ -1,18 +1,9 @@
 import { randomUUID } from 'node:crypto';
 import type { Job } from 'bullmq';
 import type { Pool } from 'pg';
-import type { DianStatus } from '@pos-dian/shared';
 import { env } from '../config/env.js';
 import { computeNextRetryAt } from '../outbox/backoff.js';
-import type {
-  DianProvider,
-  DianProviderEmitSaleInput,
-  DianProviderPaymentBreakdown,
-  DianProviderSaleItemPayload,
-  DianProviderTaxCategory,
-  DianProviderTaxLinePayload,
-  DianProviderTaxMode
-} from '@pos-dian/shared/types/dian-provider.js';
+import type { DianProvider } from '@pos-dian/shared/types/dian-provider.js';
 import {
   formatDianStatusTransitions,
   getDianEmissionBlockReason,
@@ -20,12 +11,24 @@ import {
 } from '../domain/dian-document-status.js';
 import type { OutboxSaleVoidedJobData } from './types.js';
 import { logWorkerError, logWorkerInfo } from '../infra/logging/worker-log.js';
+import {
+  buildIdempotencyKey,
+  loadProviderPayload
+} from './shared/dian-payload-builder.js';
+import {
+  claimOutboxEvent,
+  markOutboxFailed,
+  markOutboxSent,
+  updateDianDocumentMetadata,
+  type DianDocumentRow
+} from './shared/outbox-store.js';
 
 interface BuildOutboxSaleVoidedProcessorInput {
   pool: Pool;
   provider: DianProvider;
 }
 
+<<<<<<< HEAD
 interface OutboxEventRow {
   id: string;
   tenant_id: string;
@@ -310,6 +313,8 @@ async function claimOutboxEvent(
   return rows[0] ?? null;
 }
 
+=======
+>>>>>>> aa2b4ca (refactor)
 async function getInvoiceDianDocument(
   pool: Pool,
   tenantId: string,
@@ -331,6 +336,7 @@ async function getInvoiceDianDocument(
 }
 
 async function getOrCreateCreditNoteDianDocument(
+<<<<<<< HEAD
   pool: Pool,
   tenantId: string,
   saleId: string,
@@ -378,165 +384,54 @@ async function getOrCreateCreditNoteDianDocument(
 }
 
 async function loadProviderPayload(
+=======
+>>>>>>> aa2b4ca (refactor)
   pool: Pool,
   tenantId: string,
   saleId: string,
-  idempotencyKey: string
-): Promise<DianProviderEmitSaleInput> {
-  const headerResult = await pool.query<SaleHeaderRow>(
+  invoiceDocumentId: string
+): Promise<DianDocumentRow> {
+  const found = await pool.query<DianDocumentRow>(
     `
-      SELECT
-        s.id AS sale_id,
-        s.sale_number::text AS sale_number,
-        s.created_at,
-        s.subtotal_cents,
-        s.discount_cents,
-        s.total_cents,
-        s.tax_total_cents,
-        s.tax_lines_json,
-        s.payment_json,
-        s.void_reason,
-        t.tax_mode,
-        t.id AS tenant_id,
-        t.name AS tenant_name,
-        t.nit AS tenant_nit,
-        t.business_name AS tenant_business_name,
-        b.id AS branch_id,
-        b.name AS branch_name,
-        b.address AS branch_address
-      FROM sales s
-      INNER JOIN tenants t ON t.id = s.tenant_id
-      INNER JOIN branches b ON b.id = s.branch_id AND b.tenant_id = s.tenant_id
-      WHERE s.tenant_id = $1
-        AND s.id = $2
+      SELECT id, status, cude
+      FROM dian_documents
+      WHERE tenant_id = $1
+        AND sale_id = $2
+        AND document_type = 'CREDIT_NOTE'
+      ORDER BY created_at DESC
       LIMIT 1
     `,
     [tenantId, saleId]
   );
 
-  const header = headerResult.rows[0];
-  if (!header) {
-    throw new Error(`Sale not found for tenant=${tenantId} sale=${saleId}`);
+  const existing = found.rows[0];
+  if (existing) {
+    return existing;
   }
 
-  const taxMode = normalizeTaxMode(header.tax_mode);
-  const taxLines = normalizeTaxLines(header.tax_lines_json);
-  const taxTotalCents = header.tax_total_cents;
-
-  const itemsResult = await pool.query<SaleItemRow>(
+  const inserted = await pool.query<DianDocumentRow>(
     `
-      SELECT
-        si.id,
-        si.product_id,
-        si.qty::text AS qty,
-        si.price_cents,
-        si.line_total_cents,
-        p.name AS product_name,
-        p.barcode,
-        p.tax_category
-      FROM sale_items si
-      INNER JOIN products p ON p.id = si.product_id AND p.tenant_id = si.tenant_id
-      WHERE si.tenant_id = $1
-        AND si.sale_id = $2
-      ORDER BY si.id ASC
+      INSERT INTO dian_documents (
+        id,
+        tenant_id,
+        sale_id,
+        document_type,
+        parent_document_id,
+        provider,
+        status,
+        cude,
+        provider_payload_json,
+        provider_response_json
+      )
+      VALUES ($1, $2, $3, 'CREDIT_NOTE', $4, $5, 'PENDING', NULL, '{}'::jsonb, NULL)
+      RETURNING id, status, cude
     `,
-    [tenantId, saleId]
+    [randomUUID(), tenantId, saleId, invoiceDocumentId, env.DIAN_PROVIDER]
   );
 
-  const items = toProviderItems(itemsResult.rows, taxLines);
-  const payments = normalizePaymentBreakdown(header.payment_json, header.total_cents);
-
-  return {
-    sale_id: header.sale_id,
-    tenant_id: header.tenant_id,
-    branch_id: header.branch_id,
-    document_type: 'CREDIT_NOTE',
-    void_reason: header.void_reason ?? 'Anulación de venta',
-    taxMode,
-    idempotency_key: idempotencyKey,
-    tenant: {
-      id: header.tenant_id,
-      nit: header.tenant_nit,
-      name: header.tenant_name,
-      business_name: header.tenant_business_name
-    },
-    branch: {
-      id: header.branch_id,
-      name: header.branch_name,
-      address: header.branch_address
-    },
-    sale: {
-      id: header.sale_id,
-      sale_number: parseSaleNumber(header.sale_number),
-      created_at: header.created_at.toISOString(),
-      subtotal_cents: header.subtotal_cents,
-      discount_cents: header.discount_cents,
-      total_cents: header.total_cents,
-      tax_total_cents: taxTotalCents,
-      tax_lines: taxLines,
-      payments,
-      items
-    }
-  };
+  return inserted.rows[0]!;
 }
 
-async function markOutboxSent(pool: Pool, outboxEventId: string, attempts: number): Promise<void> {
-  await pool.query(
-    `
-      UPDATE outbox_events
-      SET status = 'SENT',
-          attempts = $2,
-          next_retry_at = NULL,
-          updated_at = NOW()
-      WHERE id = $1
-    `,
-    [outboxEventId, attempts]
-  );
-}
-
-async function markOutboxFailed(
-  pool: Pool,
-  outboxEventId: string,
-  attempts: number,
-  nextRetryAt: Date
-): Promise<void> {
-  await pool.query(
-    `
-      UPDATE outbox_events
-      SET status = 'FAILED',
-          attempts = $2,
-          next_retry_at = $3,
-          updated_at = NOW()
-      WHERE id = $1
-    `,
-    [outboxEventId, attempts, nextRetryAt]
-  );
-}
-
-async function updateDianDocumentMetadata(
-  pool: Pool,
-  dianDocumentId: string,
-  providerPayload: DianProviderEmitSaleInput,
-  providerResponse: Record<string, unknown> | null,
-  status?: DianStatus,
-  cude?: string | null
-): Promise<void> {
-  const payloadJson = JSON.stringify(providerPayload);
-  const responseJson = providerResponse ? JSON.stringify(providerResponse) : null;
-
-  await pool.query(
-    `
-      UPDATE dian_documents
-      SET provider_payload_json = $2::jsonb,
-          provider_response_json = $3::jsonb,
-          status = COALESCE($4, status),
-          cude = COALESCE($5, cude),
-          updated_at = NOW()
-      WHERE id = $1
-    `,
-    [dianDocumentId, payloadJson, responseJson, status ?? null, cude ?? null]
-  );
-}
 
 export function buildOutboxSaleVoidedProcessor({
   pool,
@@ -589,6 +484,45 @@ export function buildOutboxSaleVoidedProcessor({
         `Outbox ${claimedEvent.id} pospuesto. invoice_document=${invoiceDianDocument.id} aún no está ACCEPTED. current_status=${invoiceDianDocument.status}`
       );
       throw new Error('Dian invoice document not yet ACCEPTED');
+<<<<<<< HEAD
+    }
+
+    const creditNoteDianDocument = await getOrCreateCreditNoteDianDocument(
+      pool,
+      tenantId,
+      saleId,
+      invoiceDianDocument.id
+    );
+
+    const emissionBlockReason = getDianEmissionBlockReason(
+      creditNoteDianDocument.status,
+      creditNoteDianDocument.cude
+    );
+    if (emissionBlockReason) {
+      await markOutboxSent(pool, claimedEvent.id, claimedEvent.attempts);
+      logWorkerInfo({
+        event: 'dian_outbox_void_job_skipped',
+        message: 'Skipped DIAN credit note emission due to idempotency guard',
+        job_id: job.id?.toString(),
+        outbox_event_id: claimedEvent.id,
+        sale_id: saleId,
+        tenant_id: tenantId,
+        attempt: nextAttemptNumber,
+        dian_document_id: creditNoteDianDocument.id,
+        provider_result: 'SKIPPED',
+        reason: emissionBlockReason,
+        details: {
+          invoice_dian_document_id: invoiceDianDocument.id,
+          current_dian_status: creditNoteDianDocument.status,
+          document_type: 'CREDIT_NOTE'
+        }
+      });
+      await job.log(
+        `Outbox ${claimedEvent.id} omitido por idempotencia. credit_note_document=${creditNoteDianDocument.id} status=${creditNoteDianDocument.status} reason=${emissionBlockReason}`
+      );
+      return;
+=======
+>>>>>>> aa2b4ca (refactor)
     }
 
     const creditNoteDianDocument = await getOrCreateCreditNoteDianDocument(
@@ -627,7 +561,9 @@ export function buildOutboxSaleVoidedProcessor({
       return;
     }
 
-    const providerPayload = await loadProviderPayload(pool, tenantId, saleId, idempotencyKey);
+    const providerPayload = await loadProviderPayload(pool, tenantId, saleId, idempotencyKey, {
+      document_type: 'CREDIT_NOTE'
+    });
 
     try {
       const providerResult = await provider.emitSale(providerPayload);

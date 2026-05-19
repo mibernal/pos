@@ -6,14 +6,14 @@ import { createDbPool } from './infra/db/pool.js';
 import { buildDianProvider } from './providers/index.js';
 import { buildOutboxSaleCreatedProcessor } from './jobs/outbox-sale-created.processor.js';
 import { buildOutboxSaleVoidedProcessor } from './jobs/outbox-sale-voided.processor.js';
-import type { OutboxSaleCreatedJobData, OutboxSaleVoidedJobData } from './jobs/types.js';
+import { buildOutboxSaleReturnedProcessor } from './jobs/outbox-sale-returned.processor.js';
+import type { AnyOutboxJobData, OutboxSaleCreatedJobData, OutboxSaleVoidedJobData } from './jobs/types.js';
 import { enqueueDueOutboxEvents } from './scheduler/outbox-events.scheduler.js';
+import { recheckStuckDianDocuments } from './scheduler/dian-sent-recheck.scheduler.js';
 import { logWorkerError, logWorkerInfo } from './infra/logging/worker-log.js';
 
 const provider = buildDianProvider();
 const dbPool = createDbPool();
-
-type AnyOutboxJobData = OutboxSaleCreatedJobData | OutboxSaleVoidedJobData;
 
 const queue = new Queue<AnyOutboxJobData>(DIAN_QUEUE_NAME, {
   connection: {
@@ -23,6 +23,7 @@ const queue = new Queue<AnyOutboxJobData>(DIAN_QUEUE_NAME, {
 
 const outboxSaleCreatedProcessor = buildOutboxSaleCreatedProcessor({ pool: dbPool, provider });
 const outboxSaleVoidedProcessor = buildOutboxSaleVoidedProcessor({ pool: dbPool, provider });
+const outboxSaleReturnedProcessor = buildOutboxSaleReturnedProcessor({ pool: dbPool, provider });
 
 const worker = new Worker<AnyOutboxJobData>(
   DIAN_QUEUE_NAME,
@@ -31,6 +32,8 @@ const worker = new Worker<AnyOutboxJobData>(
       return outboxSaleCreatedProcessor(job as Job<OutboxSaleCreatedJobData>);
     } else if (job.name === 'process-sale-voided-outbox-event') {
       return outboxSaleVoidedProcessor(job as Job<OutboxSaleVoidedJobData>);
+    } else if (job.name === 'process-sale-returned-outbox-event') {
+      return outboxSaleReturnedProcessor(job as Job);
     }
     throw new Error(`Unknown job name: ${job.name}`);
   },
@@ -104,6 +107,29 @@ const schedulerTimer: NodeJS.Timeout = setInterval(() => {
     });
 }, env.OUTBOX_POLL_INTERVAL_MS);
 
+// C4: Scheduler de recheck para documentos DIAN en estado SENT
+// Se ejecuta cada 5 minutos (3 veces el intervalo del outbox)
+const dianRecheckIntervalMs = env.OUTBOX_POLL_INTERVAL_MS * 3;
+const dianRecheckTimer: NodeJS.Timeout = setInterval(() => {
+  void recheckStuckDianDocuments(dbPool, queue, env.OUTBOX_BATCH_SIZE)
+    .then((recheckCount) => {
+      if (recheckCount > 0) {
+        logWorkerInfo({
+          event: 'dian_sent_recheck_scheduled',
+          message: 'DIAN SENT recheck enqueued stuck documents',
+          details: { recheckCount }
+        });
+      }
+    })
+    .catch((error) => {
+      logWorkerError({
+        event: 'dian_sent_recheck_scheduler_failed',
+        message: 'DIAN SENT recheck scheduler failed',
+        error
+      });
+    });
+}, dianRecheckIntervalMs);
+
 void enqueueDueOutboxEvents(dbPool, queue, env.OUTBOX_BATCH_SIZE)
   .then((enqueued) => {
     if (enqueued > 0) {
@@ -145,6 +171,7 @@ healthServer.listen(port, () => {
 const shutdown = async () => {
   healthServer.close();
   clearInterval(schedulerTimer);
+  clearInterval(dianRecheckTimer);  // C4: cancelar el recheck timer
   await Promise.all([worker.close(), queue.close(), queueEvents.close(), dbPool.end()]);
   process.exit(0);
 };

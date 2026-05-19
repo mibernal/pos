@@ -2,8 +2,8 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Banner, Modal } from '../../../components/ui';
 import { formatMoneyFromCents } from '../../../lib/format';
 import type { Customer, CreateSaleRequest } from '../../../lib/api';
-import type { CartItem, PaymentMethod } from '../../../types';
 import { formatEditableMoneyFromCents, parseVisibleMoneyToCents } from '../utils';
+import { sendToPaymentTerminal } from '../../../lib/hardware';
 
 type SimplePaymentMethod = Exclude<PaymentMethod, 'MIXED'>;
 
@@ -83,6 +83,9 @@ export function CheckoutModal({
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('CASH');
   const [cashReceivedDraft, setCashReceivedDraft] = useState('0');
   const [selectedCustomerId, setSelectedCustomerId] = useState<string>('');
+  const [terminalProcessing, setTerminalProcessing] = useState(false);
+  const [terminalError, setTerminalError] = useState<string | null>(null);
+  const [terminalSuccess, setTerminalSuccess] = useState(false);
   const [mixedLines, setMixedLines] = useState<MixedPaymentLine[]>(() =>
     buildDefaultMixedLines(totalCents)
   );
@@ -95,10 +98,12 @@ export function CheckoutModal({
       return;
     }
 
-    setPaymentMethod('CASH');
     setCashReceivedDraft(formatEditableMoneyFromCents(totalCents));
     setMixedLines(buildDefaultMixedLines(totalCents));
     setSelectedCustomerId('');
+    setTerminalProcessing(false);
+    setTerminalError(null);
+    setTerminalSuccess(false);
   }, [isOpen, totalCents]);
 
   useEffect(() => {
@@ -146,7 +151,9 @@ export function CheckoutModal({
       ? canConfirmCash
       : paymentMethod === 'MIXED'
         ? canConfirmMixed
-        : true);
+        : paymentMethod === 'CARD'
+          ? terminalSuccess || true // permitimos manual if they want, pero la UI puede bloquear
+          : true);
 
   if (!isOpen) {
     return null;
@@ -220,6 +227,27 @@ export function CheckoutModal({
           ];
 
     void onConfirm(payments, selectedCustomerId || null);
+  }
+
+  async function handleTerminalCharge() {
+    setTerminalProcessing(true);
+    setTerminalError(null);
+    try {
+      const res = await sendToPaymentTerminal({
+        ipAddress: '192.168.1.50', // Mock IP
+        amountCents: totalCents,
+        invoiceNumber: `T-${Date.now()}` // Mock Invoice
+      });
+      if (res.approved) {
+        setTerminalSuccess(true);
+      } else {
+        setTerminalError(res.errorMessage || 'Transacción denegada');
+      }
+    } catch (_err) {
+      setTerminalError('Error conectando al datáfono');
+    } finally {
+      setTerminalProcessing(false);
+    }
   }
 
   return (
@@ -367,6 +395,18 @@ export function CheckoutModal({
                 <div className="checkout-exact-charge">
                   <span>Total a procesar</span>
                   <strong>{formatMoneyFromCents(totalCents)}</strong>
+                </div>
+
+                <div style={{ marginTop: '1rem' }}>
+                  <button 
+                    className="secondary-button" 
+                    type="button" 
+                    onClick={() => void handleTerminalCharge()}
+                    disabled={terminalProcessing || terminalSuccess}
+                  >
+                    {terminalProcessing ? 'Esperando al cliente (PIN)...' : terminalSuccess ? 'Aprobado ✅' : 'Cobrar con Datáfono (LAN)'}
+                  </button>
+                  {terminalError && <p style={{ color: 'var(--color-red-600)', marginTop: '0.5rem', fontSize: '0.875rem' }}>{terminalError}</p>}
                 </div>
               </div>
             ) : null}

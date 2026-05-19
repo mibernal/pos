@@ -122,6 +122,17 @@ describe('system flow e2e', () => {
       email: fixture.cashierEmail,
       password: fixture.cashierPassword
     });
+
+    // 1. Initial inventory balance
+    const initialBalanceResponse = await app.inject({
+      method: 'GET',
+      url: `/api/v1/inventory/balances?branch_id=${fixture.branchId}&product_id=${fixture.productId}`,
+      headers: bearerHeaders(cashierToken)
+    });
+    expect(initialBalanceResponse.statusCode).toBe(200);
+    const initialBalanceJson = initialBalanceResponse.json() as any[];
+    const initialQty = initialBalanceJson[0]?.qty ?? 0;
+
     const openedSession = await openCashSession(app, cashierToken, fixture.branchId, 5000);
     const createdSale = await createSale(app, cashierToken, fixture, openedSession.cash_session.id);
 
@@ -155,6 +166,19 @@ describe('system flow e2e', () => {
         total_cents: fixture.productPriceCents
       })
     });
+
+    // 2. Final inventory balance should be initialQty - 1
+    const finalBalanceResponse = await app.inject({
+      method: 'GET',
+      url: `/api/v1/inventory/balances?branch_id=${fixture.branchId}&product_id=${fixture.productId}`,
+      headers: bearerHeaders(cashierToken)
+    });
+    expect(finalBalanceResponse.statusCode).toBe(200);
+    const finalBalanceJson = finalBalanceResponse.json() as any[];
+    const finalQty = finalBalanceJson[0]?.qty ?? 0;
+    
+    // In test DB without seed inventory balance, qty might be negative or undefined initially, but it must be decreased by 1
+    expect(finalQty).toBe(initialQty - 1);
   });
 
   it('persists fiscal tax fields when creating a sale', async () => {

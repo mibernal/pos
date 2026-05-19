@@ -29,6 +29,9 @@ export function ReportsScreen({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const [shiftsData, setShiftsData] = useState<{ items: Record<string, unknown>[] } | null>(null);
+  const [activeTab, setActiveTab] = useState<'METRICS' | 'SHIFTS'>('METRICS');
+
   const fetchReport = useCallback(async () => {
     setLoading(true);
     setError(null);
@@ -53,20 +56,25 @@ export function ReportsScreen({
         to = customTo ? toEndOfDayIso(customTo) : undefined;
       }
 
-      const res = await api.getSalesReport({ branchId, from, to });
-      setReportData(res);
+      if (activeTab === 'METRICS') {
+        const res = await api.getSalesReport({ branchId, from, to });
+        setReportData(res);
+      } else {
+        const res = await api.getShiftsReport({ branchId, from, to });
+        setShiftsData(res);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Error al cargar reporte');
     } finally {
       setLoading(false);
     }
-  }, [api, branchId, filter, customFrom, customTo]);
+  }, [api, branchId, filter, customFrom, customTo, activeTab]);
 
   useEffect(() => {
     if (filter !== 'CUSTOM') {
       void fetchReport();
     }
-  }, [fetchReport, filter]);
+  }, [fetchReport, filter, activeTab]);
 
   return (
     <div className="pos-screen" style={{ flexDirection: 'column', overflowY: 'auto' }}>
@@ -78,6 +86,23 @@ export function ReportsScreen({
       </header>
       
       <div style={{ padding: '1.5rem', maxWidth: '1000px', margin: '0 auto', width: '100%' }}>
+        <div style={{ display: 'flex', gap: '1rem', marginBottom: '1.5rem' }}>
+          <button
+            className={`button ${activeTab === 'METRICS' ? '' : 'button-outline'}`}
+            style={activeTab === 'METRICS' ? { background: 'var(--color-primary-600)', color: '#fff' } : {}}
+            onClick={() => setActiveTab('METRICS')}
+          >
+            📊 Analíticas Generales
+          </button>
+          <button
+            className={`button ${activeTab === 'SHIFTS' ? '' : 'button-outline'}`}
+            style={activeTab === 'SHIFTS' ? { background: 'var(--color-primary-600)', color: '#fff' } : {}}
+            onClick={() => setActiveTab('SHIFTS')}
+          >
+            👤 Turnos y Cajeros
+          </button>
+        </div>
+
         <div className="form-card" style={{ marginBottom: '2rem' }}>
           <div style={{ display: 'flex', gap: '1rem', alignItems: 'flex-end', flexWrap: 'wrap' }}>
             <label className="field">
@@ -109,9 +134,9 @@ export function ReportsScreen({
         </div>
 
         {error && <Banner tone="error">{error}</Banner>}
-        {loading && !reportData && <Banner tone="info">Generando reporte...</Banner>}
+        {loading && <Banner tone="info">Generando reporte...</Banner>}
 
-        {reportData && (
+        {activeTab === 'METRICS' && reportData && !loading && (
           <>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: '1.5rem', marginBottom: '2rem' }}>
               <div className="metric-card" style={{ background: '#ffffff', border: '1px solid var(--color-slate-200)', borderRadius: '12px', padding: '1.5rem', boxShadow: 'var(--shadow-sm)' }}>
@@ -155,6 +180,52 @@ export function ReportsScreen({
               )}
             </div>
           </>
+        )}
+
+        {activeTab === 'SHIFTS' && shiftsData && !loading && (
+          <div className="form-card">
+            <h3>Historial de Turnos de Caja</h3>
+            {shiftsData.items.length === 0 ? (
+               <p style={{ color: 'var(--color-slate-400)', marginTop: '1rem' }}>No hay turnos registrados en este periodo.</p>
+            ) : (
+              <div style={{ marginTop: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                {shiftsData.items.map((shift) => (
+                  <div key={shift.id} style={{ padding: '1.25rem', border: '1px solid var(--color-slate-200)', borderRadius: '8px', background: '#fafafa' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
+                      <strong>Cajero: {shift.user_name}</strong>
+                      <span className={`tag ${shift.closed_at ? 'tag-info' : 'tag-success'}`}>
+                        {shift.closed_at ? 'CERRADA' : 'ABIERTA'}
+                      </span>
+                    </div>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '1rem', fontSize: '0.875rem' }}>
+                      <div>
+                        <span style={{ color: 'var(--color-slate-500)', display: 'block', fontSize: '0.75rem' }}>Apertura</span>
+                        {new Date(shift.opened_at).toLocaleString('es-CO')}
+                      </div>
+                      <div>
+                        <span style={{ color: 'var(--color-slate-500)', display: 'block', fontSize: '0.75rem' }}>Base</span>
+                        {formatMoneyFromCents(shift.opening_amount_cents)}
+                      </div>
+                      {shift.closed_at && (
+                        <>
+                          <div>
+                            <span style={{ color: 'var(--color-slate-500)', display: 'block', fontSize: '0.75rem' }}>Ventas Finales</span>
+                            {formatMoneyFromCents(shift.expected_cash_cents)}
+                          </div>
+                          <div>
+                            <span style={{ color: 'var(--color-slate-500)', display: 'block', fontSize: '0.75rem' }}>Diferencia (Sobrante/Faltante)</span>
+                            <strong style={{ color: shift.diff_cents < 0 ? 'var(--color-error-600)' : shift.diff_cents > 0 ? 'var(--color-success-600)' : 'inherit' }}>
+                              {formatMoneyFromCents(shift.diff_cents)}
+                            </strong>
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
         )}
       </div>
     </div>

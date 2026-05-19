@@ -9,3 +9,4 @@ export * from './schemas/customer.js';
 export * from './schemas/inventory.js';
 export * from './schemas/tenant-profile.js';
 export * from './schemas/reports.js';
+export * from './schemas/returns.js';

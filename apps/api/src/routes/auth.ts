@@ -22,12 +22,13 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
         body: loginBodySchema
       }
     },
-    async (request) => {
-      const { email, password } = loginBodySchema.parse(request.body);
+    async (request, reply) => {
+      const { email, password, tenantId } = loginBodySchema.parse(request.body);
       const rateLimitKey = buildLoginRateLimitKey(request.ip, email);
 
+      // C2: Rate limit persistido en Redis — sobrevive restarts y escala horizontal
       try {
-        assertLoginRateLimitAllowed(rateLimitKey);
+        await assertLoginRateLimitAllowed(app.redis, rateLimitKey);
       } catch {
         throw new AppError(
           429,
@@ -36,12 +37,14 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
         );
       }
 
-      const candidates = await app.db
+      let candidatesQuery = app.db
         .selectFrom('users')
         .innerJoin('tenants', 'tenants.id', 'users.tenant_id')
         .select([
           'users.id as id',
           'users.tenant_id as tenant_id',
+          'tenants.name as tenant_name',
+          'tenants.business_name as tenant_business_name',
           'tenants.tax_mode as tax_mode',
           'users.email as email',
           'users.password_hash as password_hash',
@@ -50,32 +53,46 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
           'users.active as active'
         ])
         .where('users.email', '=', email)
-        .where('users.active', '=', true)
-        .execute();
+        .where('users.active', '=', true);
+
+      if (tenantId) {
+        candidatesQuery = candidatesQuery.where('users.tenant_id', '=', tenantId);
+      }
+
+      const candidates = await candidatesQuery.execute();
 
       if (candidates.length === 0) {
-        recordLoginRateLimitFailure(rateLimitKey);
+        await recordLoginRateLimitFailure(app.redis, rateLimitKey);
         throw new AppError(401, 'AUTH_INVALID_CREDENTIALS', 'Credenciales inválidas');
       }
 
-      if (candidates.length > 1) {
-        recordLoginRateLimitFailure(rateLimitKey);
+      const validCandidates = [];
+      for (const candidate of candidates) {
+        const isValidPassword = await verifyPassword(password, candidate.password_hash);
+        if (isValidPassword) {
+          validCandidates.push(candidate);
+        }
+      }
+
+      if (validCandidates.length === 0) {
+        await recordLoginRateLimitFailure(app.redis, rateLimitKey);
         throw new AppError(401, 'AUTH_INVALID_CREDENTIALS', 'Credenciales inválidas');
       }
 
-      const [user] = candidates;
-      if (!user) {
-        throw new AppError(401, 'AUTH_INVALID_CREDENTIALS', 'Credenciales inválidas');
+      await clearLoginRateLimit(app.redis, rateLimitKey);
+
+      if (validCandidates.length > 1) {
+        return {
+          requireTenantSelection: true,
+          tenants: validCandidates.map(c => ({
+            id: c.tenant_id,
+            name: c.tenant_name,
+            business_name: c.tenant_business_name
+          }))
+        };
       }
 
-      const isValidPassword = await verifyPassword(password, user.password_hash);
-
-      if (!isValidPassword) {
-        recordLoginRateLimitFailure(rateLimitKey);
-        throw new AppError(401, 'AUTH_INVALID_CREDENTIALS', 'Credenciales inválidas');
-      }
-
-      clearLoginRateLimit(rateLimitKey);
+      const user = validCandidates[0]!;
 
       const claims = {
         sub: user.id,
@@ -88,6 +105,15 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
 
       const accessToken = await app.jwt.sign(claims, {
         expiresIn: env.JWT_EXPIRES_IN
+      });
+
+      // @ts-expect-error fastify-cookie types are not installed yet
+      reply.setCookie('access_token', accessToken, {
+        path: '/',
+        httpOnly: true,
+        secure: env.NODE_ENV === 'production',
+        sameSite: 'lax',
+        maxAge: 7 * 24 * 60 * 60 // 7 days (or match token expiry)
       });
 
       return {
@@ -153,6 +179,22 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
           active: user.active
         }
       };
+    }
+  );
+
+  typedApp.post(
+    '/auth/logout',
+    {
+      schema: {
+        tags: ['auth']
+      }
+    },
+    async (request, reply) => {
+      // @ts-expect-error fastify-cookie types are not installed yet
+      reply.clearCookie('access_token', {
+        path: '/'
+      });
+      return { success: true };
     }
   );
 };

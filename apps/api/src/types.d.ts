@@ -1,13 +1,14 @@
-import type { Queue } from 'bullmq';
 import type { Kysely } from 'kysely';
+import type { Redis } from 'ioredis';
 import type { FastifyReply } from 'fastify';
-import type { DianEmissionRequest } from '@pos-dian/shared';
 import type { AuthContext, JwtClaims, UserRole } from './auth/types.js';
 import type { Database } from './infra/db/schema.js';
 
 declare module 'fastify' {
   interface FastifyInstance {
-    dianQueue: Queue<DianEmissionRequest>;
+    // C7: dianQueue eliminado del API — el worker consume el outbox directamente.
+    // C2: Redis para rate-limit y futuros usos.
+    redis: Redis;
     db: Kysely<Database>;
     authenticate: (request: FastifyRequest, reply?: FastifyReply) => Promise<void>;
     requireRoles: (

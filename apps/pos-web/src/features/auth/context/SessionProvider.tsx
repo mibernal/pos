@@ -20,7 +20,7 @@ interface SessionContextValue {
   clearAuthMessage: () => void;
   isHydrating: boolean;
   isAuthenticated: boolean;
-  login: (credentials: { email: string; password: string }) => Promise<void>;
+  login: (credentials: { email: string; password: string; tenantId?: string }) => Promise<void>;
   logout: () => void;
   role: UserRole | null;
   session: AuthSession | null;
@@ -82,17 +82,29 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const login = useCallback(
-    async (credentials: { email: string; password: string }) => {
+    async (credentials: { email: string; password: string; tenantId?: string }) => {
       clearAuthMessage();
-      const nextSession = await api.login(credentials.email, credentials.password);
-      commitSession(nextSession);
+      const response = await api.login(credentials.email, credentials.password, credentials.tenantId);
+      
+      if (response.requireTenantSelection && response.tenants) {
+        // We throw an object or handle it via a special error so LoginScreen can catch it
+        throw { requireTenantSelection: true, tenants: response.tenants };
+      }
+
+      if (!response.accessToken || !response.user) {
+         throw new Error('Credenciales inválidas');
+      }
+
+      commitSession({ accessToken: response.accessToken, user: response.user });
     },
     [api, clearAuthMessage, commitSession]
   );
 
   const logout = useCallback(() => {
-    clearSession();
-  }, [clearSession]);
+    void api.logout().finally(() => {
+      clearSession();
+    });
+  }, [api, clearSession]);
 
   useEffect(() => {
     let cancelled = false;

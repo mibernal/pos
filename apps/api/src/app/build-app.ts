@@ -6,8 +6,7 @@ import {
   validatorCompiler,
   type ZodTypeProvider
 } from 'fastify-type-provider-zod';
-import type { Queue } from 'bullmq';
-import type { DianEmissionRequest } from '@pos-dian/shared';
+import { Redis } from 'ioredis';
 import { authPlugin } from '../plugins/auth.js';
 import { errorHandlerPlugin } from '../plugins/error-handler.js';
 import { registerSwagger } from '../plugins/swagger.js';
@@ -22,7 +21,7 @@ import { cashSessionsRoutes } from '../routes/cash-sessions.js';
 import { customersRoutes } from '../routes/customers.js';
 import { inventoryRoutes } from '../routes/inventory.js';
 import { reportsRoutes } from '../routes/reports.js';
-import { buildDianQueue } from '../infra/queue/dian-queue.js';
+import { dashboardRoutes } from '../routes/dashboard.js';
 import { createDb } from '../infra/db/connection.js';
 import { env } from './env.js';
 import { resolveCorsAllowedOrigins } from './cors.js';
@@ -34,19 +33,38 @@ const requestIdHeaderSchema = z
   .max(120)
   .regex(/^[A-Za-z0-9._:-]+$/);
 
-function buildQueueForRuntime(): Queue<DianEmissionRequest> {
+/**
+ * C2: Crea el cliente Redis para rate-limit y otros usos futuros.
+ * En tests, devuelve un stub noop para no requerir Redis real.
+ */
+function buildRedisClient(): Redis {
   if (env.NODE_ENV === 'test') {
     return {
-      add: async () => ({ id: 'test-job-id' }),
-      close: async () => undefined
-    } as unknown as Queue<DianEmissionRequest>;
+      get: async () => null,
+      pipeline: () => ({
+        incr: () => ({ expire: () => ({ exec: async () => null }) }),
+        exec: async () => null
+      }),
+      del: async () => 0,
+      ping: async () => 'PONG',
+      quit: async () => 'OK'
+    } as unknown as Redis;
   }
 
-  return buildDianQueue(env.REDIS_URL);
+  return new Redis(env.REDIS_URL, {
+    maxRetriesPerRequest: 3,
+    enableReadyCheck: false,
+    lazyConnect: true
+  });
 }
 
 export async function buildApp() {
   const allowedOrigins = new Set(resolveCorsAllowedOrigins(env.NODE_ENV, env.CORS_ALLOWED_ORIGINS));
+
+  // C7: La API NO usa BullMQ directamente — el worker consume el outbox.
+  // Solo necesitamos Redis para rate-limit. dianQueue eliminado del API.
+  const redisClient = buildRedisClient();
+
   const app = Fastify({
     logger: {
       transport:
@@ -72,10 +90,18 @@ export async function buildApp() {
 
   app.setValidatorCompiler(validatorCompiler);
 
-  app.decorate('dianQueue', buildQueueForRuntime());
+  // C7: Eliminado app.decorate('dianQueue', ...) — el API no publica en BullMQ,
+  // el outbox en DB es el mecanismo de comunicación con el worker.
+  app.decorate('redis', redisClient);
   app.decorate('db', createDb());
 
+  // @ts-expect-error fastify-cookie not yet installed
+  await app.register(import('@fastify/cookie').then((m) => m.default), {
+    secret: env.JWT_SECRET // Use same secret for signed cookies if needed later
+  });
+
   await app.register(cors, {
+    credentials: true,
     origin: (origin, callback) => {
       if (!origin) {
         callback(null, true);
@@ -89,7 +115,6 @@ export async function buildApp() {
 
       callback(new Error(`Origin not allowed by CORS: ${origin}`), false);
     },
-    credentials: true,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization', 'X-Request-Id', 'X-Branch-Id'],
     exposedHeaders: ['X-Request-Id']
@@ -113,9 +138,11 @@ export async function buildApp() {
   await app.register(customersRoutes, { prefix: '/api/v1' });
   await app.register(inventoryRoutes, { prefix: '/api/v1' });
   await app.register(reportsRoutes, { prefix: '/api/v1' });
+  await app.register(dashboardRoutes, { prefix: '/api/v1' });
 
   app.addHook('onClose', async (instance) => {
-    await instance.dianQueue.close();
+    // C7: sin dianQueue, solo cerramos DB y Redis
+    await instance.redis.quit();
     await instance.db.destroy();
   });
 

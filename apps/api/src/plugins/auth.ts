@@ -19,7 +19,11 @@ function mapClaimsToAuthContext(claims: JwtClaims): AuthContext {
 
 const authPluginImpl: FastifyPluginAsync = async (app) => {
   await app.register(jwt, {
-    secret: env.JWT_SECRET
+    secret: env.JWT_SECRET,
+    cookie: {
+      cookieName: 'access_token',
+      signed: false
+    }
   });
 
   app.decorateRequest('auth', null);

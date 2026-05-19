@@ -11,9 +11,12 @@ interface InventoryScreenProps {
 export function InventoryScreen({ api, branchId }: InventoryScreenProps) {
   const { role } = useSession();
   const isAdmin = role === 'ADMIN';
+  const roleRef = role; // hack for dependencies
 
   const [products, setProducts] = useState<ProductItem[]>([]);
   const [balances, setBalances] = useState<Record<string, number>>({});
+  const [consolidatedData, setConsolidatedData] = useState<Array<Record<string, unknown>>>([]);
+  const [viewMode, setViewMode] = useState<'LOCAL' | 'CONSOLIDATED'>('LOCAL');
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -43,12 +46,17 @@ export function InventoryScreen({ api, branchId }: InventoryScreenProps) {
       });
       setBalances(balancesMap);
 
+      if (isAdmin || role === 'MANAGER' || role === 'AUDITOR') {
+        const consolidatedRes = await api.listConsolidatedInventory();
+        setConsolidatedData(consolidatedRes);
+      }
+
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Error al cargar inventario');
     } finally {
       setIsLoading(false);
     }
-  }, [api, branchId]);
+  }, [api, branchId, isAdmin, role]);
 
   useEffect(() => {
     void loadData();
@@ -101,10 +109,30 @@ export function InventoryScreen({ api, branchId }: InventoryScreenProps) {
             Control de entrada y salida de mercancía
           </p>
         </div>
-        <RoleGuard allowedRoles={['ADMIN']}>
-          <button onClick={() => openAdjustModal()} className="button" style={{ background: 'var(--color-primary-600)', color: '#fff' }}>
-            + Ajuste Manual
-          </button>
+        <RoleGuard allowedRoles={['ADMIN', 'MANAGER', 'AUDITOR']}>
+          <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
+            <div style={{ display: 'flex', background: 'var(--color-slate-800)', borderRadius: '6px', padding: '0.25rem' }}>
+              <button
+                className={`ghost-button button-sm ${viewMode === 'LOCAL' ? 'is-active' : ''}`}
+                style={{ background: viewMode === 'LOCAL' ? 'var(--color-slate-700)' : 'transparent', color: viewMode === 'LOCAL' ? '#fff' : 'inherit' }}
+                onClick={() => setViewMode('LOCAL')}
+              >
+                Local
+              </button>
+              <button
+                className={`ghost-button button-sm ${viewMode === 'CONSOLIDATED' ? 'is-active' : ''}`}
+                style={{ background: viewMode === 'CONSOLIDATED' ? 'var(--color-slate-700)' : 'transparent', color: viewMode === 'CONSOLIDATED' ? '#fff' : 'inherit' }}
+                onClick={() => setViewMode('CONSOLIDATED')}
+              >
+                Consolidado
+              </button>
+            </div>
+            <RoleGuard allowedRoles={['ADMIN']}>
+              <button onClick={() => openAdjustModal()} className="button" style={{ background: 'var(--color-primary-600)', color: '#fff' }}>
+                + Ajuste Manual
+              </button>
+            </RoleGuard>
+          </div>
         </RoleGuard>
       </div>
 
@@ -125,14 +153,19 @@ export function InventoryScreen({ api, branchId }: InventoryScreenProps) {
                 <th style={{ padding: '0.75rem 1rem', width: '50px' }}>Img</th>
                 <th style={{ padding: '0.75rem 1rem' }}>Producto</th>
                 <th style={{ padding: '0.75rem 1rem' }}>Categoría</th>
-                <th style={{ padding: '0.75rem 1rem', textAlign: 'right' }}>Stock Disponible</th>
-                {isAdmin && (
+                <th style={{ padding: '0.75rem 1rem', textAlign: 'right' }}>
+                  {viewMode === 'LOCAL' ? 'Stock Disponible' : 'Stock Total'}
+                </th>
+                {viewMode === 'CONSOLIDATED' && (
+                  <th style={{ padding: '0.75rem 1rem' }}>Desglose por Sucursal</th>
+                )}
+                {isAdmin && viewMode === 'LOCAL' && (
                   <th style={{ padding: '0.75rem 1rem', textAlign: 'center', width: '100px' }}>Acciones</th>
                 )}
               </tr>
             </thead>
             <tbody>
-              {products.map((p) => {
+              {viewMode === 'LOCAL' && products.map((p) => {
                 const qty = balances[p.id] || 0;
                 const isLowStock = qty <= 5;
                 const isOutOfStock = qty <= 0;
@@ -165,6 +198,44 @@ export function InventoryScreen({ api, branchId }: InventoryScreenProps) {
                         </button>
                       </td>
                     )}
+                  </tr>
+                );
+              })}
+              
+              {viewMode === 'CONSOLIDATED' && consolidatedData.map((p) => {
+                const isLowStock = p.total_qty <= 10;
+                const isOutOfStock = p.total_qty <= 0;
+
+                return (
+                  <tr key={p.product_id} style={{ borderBottom: '1px solid var(--color-slate-800)' }}>
+                    <td style={{ padding: '0.5rem 1rem' }}>
+                      <div style={{ width: '32px', height: '32px', borderRadius: '4px', overflow: 'hidden' }}>
+                        {p.image_url ? (
+                          <img src={p.image_url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                        ) : (
+                          <PlaceholderImage name={p.product_name} category={p.category} size="sm" />
+                        )}
+                      </div>
+                    </td>
+                    <td style={{ padding: '0.75rem 1rem' }}>
+                      <strong>{p.product_name}</strong>
+                    </td>
+                    <td style={{ padding: '0.75rem 1rem', color: 'var(--color-slate-400)' }}>{p.category}</td>
+                    <td style={{ padding: '0.75rem 1rem', textAlign: 'right' }}>
+                      <span className={`tag ${isOutOfStock ? 'tag-error' : isLowStock ? 'tag-warning' : 'tag-success'}`} style={{ fontSize: '0.875rem', fontWeight: 600 }}>
+                        {p.total_qty} unds
+                      </span>
+                    </td>
+                    <td style={{ padding: '0.75rem 1rem', color: 'var(--color-slate-400)', fontSize: '0.8rem' }}>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+                        {(p.branches_breakdown as Array<{ branch_id: string; branch_name: string; qty: number }>).map((b) => (
+                          <div key={b.branch_id} style={{ display: 'flex', justifyContent: 'space-between', gap: '1rem' }}>
+                            <span>{b.branch_name}:</span>
+                            <strong>{b.qty}</strong>
+                          </div>
+                        ))}
+                      </div>
+                    </td>
                   </tr>
                 );
               })}

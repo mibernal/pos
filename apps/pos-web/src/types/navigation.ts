@@ -1,6 +1,9 @@
-export type AppRoute = 'pos' | 'history' | 'products' | 'customers' | 'inventory' | 'reports';
+import type { UserRole } from '../lib/api';
+
+export type AppRoute = 'pos' | 'history' | 'cash-control' | 'products' | 'customers' | 'inventory' | 'reports';
 
 export interface AppRouteDefinition {
   id: AppRoute;
   label: string;
+  allowedRoles?: UserRole[];
 }

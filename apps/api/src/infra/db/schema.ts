@@ -1,11 +1,15 @@
 import type { ColumnType, Generated } from 'kysely';
 
-export type UserRole = 'ADMIN' | 'CASHIER';
+export type UserRole = 'ADMIN' | 'MANAGER' | 'CASHIER' | 'AUDITOR';
 export type SaleStatus = 'COMPLETED' | 'VOID';
 export type DianDocumentStatus = 'PENDING' | 'SENT' | 'ACCEPTED' | 'REJECTED';
+<<<<<<< HEAD
 export type DianDocumentType = 'INVOICE' | 'CREDIT_NOTE';
+=======
+export type DianDocumentType = 'INVOICE' | 'CREDIT_NOTE' | 'SUPPORT_DOC';
+>>>>>>> aa2b4ca (refactor)
 export type OutboxStatus = 'PENDING' | 'SENT' | 'FAILED';
-export type InventoryOperation = 'SALE' | 'SALE_VOID' | 'MANUAL_ENTRY' | 'MANUAL_EXIT' | 'PURCHASE';
+export type InventoryOperation = 'SALE' | 'SALE_VOID' | 'SALE_RETURN' | 'MANUAL_ENTRY' | 'MANUAL_EXIT' | 'PURCHASE';
 export type TenantTaxMode = 'IVA' | 'INC_RESTAURANT';
 export type ProductTaxCategory = 'IVA_0' | 'IVA_5' | 'IVA_19' | 'EXEMPT' | 'EXCLUDED' | 'INC_8';
 type JsonObject = Record<string, unknown>;
@@ -27,6 +31,9 @@ export interface TenantsTable {
   phone: string | null;
   footer_message: string | null;
   tax_mode: Generated<TenantTaxMode>;
+  /** C3: Si TRUE (default), las ventas pueden dejar el inventario en negativo.
+   *  Si FALSE, la API bloquea ventas sin stock suficiente. Migration 010. */
+  allow_negative_stock: Generated<boolean>;
   created_at: Generated<Date>;
 }
 
@@ -58,9 +65,37 @@ export interface ProductsTable {
   tax_category: Generated<ProductTaxCategory>;
   barcode: string | null;
   price_cents: number;
+  min_stock_alert_qty: number | null;
   active: Generated<boolean>;
   image_url: string | null;
   description: string | null;
+  created_at: Generated<Date>;
+  updated_at: Generated<Date>;
+}
+
+export interface ProductVariantsTable {
+  id: string;
+  tenant_id: string;
+  product_id: string;
+  name: string;
+  price_cents: number;
+  barcode: string | null;
+  active: Generated<boolean>;
+  created_at: Generated<Date>;
+  updated_at: Generated<Date>;
+}
+
+export interface PromotionsTable {
+  id: string;
+  tenant_id: string;
+  product_id: string;
+  type: 'PERCENTAGE' | 'FIXED_AMOUNT' | 'BUY_X_GET_Y';
+  value_cents: number;
+  buy_qty: number | null;
+  get_qty: number | null;
+  start_date: Date;
+  end_date: Date | null;
+  active: Generated<boolean>;
   created_at: Generated<Date>;
   updated_at: Generated<Date>;
 }
@@ -76,6 +111,29 @@ export interface CashSessionsTable {
   closing_cash_real_cents: number | null;
   expected_cash_cents: number | null;
   diff_cents: number | null;
+}
+
+export interface CashSessionAuditsTable {
+  id: string;
+  tenant_id: string;
+  cash_session_id: string;
+  user_id: string;
+  observed_cash_cents: number;
+  expected_cash_cents: number;
+  diff_cents: number;
+  notes: string | null;
+  created_at: Generated<Date>;
+}
+
+export interface CashMovementsTable {
+  id: string;
+  tenant_id: string;
+  cash_session_id: string;
+  user_id: string;
+  type: 'IN' | 'OUT';
+  amount_cents: number;
+  reason: string;
+  created_at: Generated<Date>;
 }
 
 export interface SalesTable {
@@ -105,9 +163,11 @@ export interface SaleItemsTable {
   tenant_id: string;
   sale_id: string;
   product_id: string;
+  variant_id: string | null;
   qty: string;
   price_cents: number;
   line_total_cents: number;
+  created_at: Generated<Date>;
 }
 
 export interface DianDocumentsTable {
@@ -184,18 +244,44 @@ export interface InventoryTransactionsTable {
   created_at: Generated<Date>;
 }
 
+export interface SaleReturnsTable {
+  id: string;
+  tenant_id: string;
+  sale_id: string;
+  created_by_user_id: string;
+  total_refund_cents: number;
+  reason: string | null;
+  created_at: Generated<Date>;
+}
+
+export interface ReturnItemsTable {
+  id: string;
+  tenant_id: string;
+  return_id: string;
+  product_id: string;
+  qty: string;
+  refund_cents: number;
+  created_at: Generated<Date>;
+}
+
 export interface Database {
   tenants: TenantsTable;
   branches: BranchesTable;
   users: UsersTable;
   products: ProductsTable;
+  product_variants: ProductVariantsTable;
+  promotions: PromotionsTable;
   customers: CustomersTable;
   inventory_balances: InventoryBalancesTable;
   inventory_transactions: InventoryTransactionsTable;
   cash_sessions: CashSessionsTable;
+  cash_session_audits: CashSessionAuditsTable;
   sales: SalesTable;
   sale_items: SaleItemsTable;
+  sale_returns: SaleReturnsTable;
+  return_items: ReturnItemsTable;
   dian_documents: DianDocumentsTable;
   outbox_events: OutboxEventsTable;
   audit_logs: AuditLogsTable;
+  cash_movements: CashMovementsTable;
 }

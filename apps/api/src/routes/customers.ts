@@ -27,7 +27,7 @@ export const customersRoutes: FastifyPluginAsync = async (app) => {
   typedApp.post(
     '/customers',
     {
-      preHandler: [app.requireRoles(['ADMIN', 'CASHIER'])],
+      preHandler: [app.requireRoles(['ADMIN', 'MANAGER', 'CASHIER'])],
       schema: {
         tags: ['customers'],
         security: [{ bearerAuth: [] }],
@@ -75,7 +75,7 @@ export const customersRoutes: FastifyPluginAsync = async (app) => {
   typedApp.get(
     '/customers',
     {
-      preHandler: [app.requireRoles(['ADMIN', 'CASHIER'])],
+      preHandler: [app.requireRoles(['ADMIN', 'MANAGER', 'CASHIER', 'AUDITOR'])],
       schema: {
         tags: ['customers'],
         security: [{ bearerAuth: [] }]
@@ -100,7 +100,7 @@ export const customersRoutes: FastifyPluginAsync = async (app) => {
   typedApp.patch(
     '/customers/:id',
     {
-      preHandler: [app.requireRoles(['ADMIN', 'CASHIER'])],
+      preHandler: [app.requireRoles(['ADMIN', 'MANAGER', 'CASHIER'])],
       schema: {
         tags: ['customers'],
         security: [{ bearerAuth: [] }],

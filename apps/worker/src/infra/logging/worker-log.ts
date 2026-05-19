@@ -4,6 +4,7 @@ interface WorkerLogRecord {
   job_id?: string | undefined;
   outbox_event_id?: string | undefined;
   sale_id?: string | undefined;
+  return_id?: string | undefined;
   tenant_id?: string | undefined;
   attempt?: number | undefined;
   dian_document_id?: string | undefined;
