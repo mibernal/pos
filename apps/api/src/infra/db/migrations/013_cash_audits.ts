@@ -3,6 +3,7 @@ import { Kysely, sql } from 'kysely';
 export async function up(db: Kysely<unknown>): Promise<void> {
   await db.schema
     .createTable('cash_session_audits')
+    .ifNotExists()
     .addColumn('id', 'uuid', (col) => col.primaryKey().defaultTo(sql`gen_random_uuid()`))
     .addColumn('tenant_id', 'uuid', (col) =>
       col.notNull().references('tenants.id').onDelete('cascade')
@@ -20,6 +21,7 @@ export async function up(db: Kysely<unknown>): Promise<void> {
 
   await db.schema
     .createIndex('idx_cash_session_audits_session_id')
+    .ifNotExists()
     .on('cash_session_audits')
     .columns(['tenant_id', 'cash_session_id'])
     .execute();

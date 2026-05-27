@@ -2,7 +2,7 @@ import { sql, type Kysely } from 'kysely';
 
 export async function up(db: Kysely<unknown>): Promise<void> {
   // Add SALE_RETURN to InventoryOperation enum
-  await sql`ALTER TYPE inventory_operation ADD VALUE IF NOT EXISTS 'SALE_RETURN'`.execute(db);
+  await sql`ALTER TYPE inventory_operation_enum ADD VALUE IF NOT EXISTS 'SALE_RETURN'`.execute(db);
 
   await sql`
     CREATE TABLE IF NOT EXISTS sale_returns (

@@ -14,6 +14,7 @@ export function BranchSetupScreen({
   onReady: (context: PosContext) => void;
 }) {
   const [loading, setLoading] = useState(true);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [branches, setBranches] = useState<BranchItem[]>([]);
   const [selectedBranchId, setSelectedBranchId] = useState('');
@@ -31,8 +32,12 @@ export function BranchSetupScreen({
     selectedBranchId
   });
 
-  const loadBranches = useCallback(async () => {
-    setLoading(true);
+  const loadBranches = useCallback(async (showFullLoader = true) => {
+    if (showFullLoader) {
+      setLoading(true);
+    } else {
+      setIsRefreshing(true);
+    }
     setError(null);
 
     try {
@@ -47,11 +52,12 @@ export function BranchSetupScreen({
       );
     } finally {
       setLoading(false);
+      setIsRefreshing(false);
     }
   }, [api]);
 
   useEffect(() => {
-    void loadBranches();
+    void loadBranches(true);
   }, [loadBranches]);
 
   useEffect(() => {
@@ -228,10 +234,11 @@ export function BranchSetupScreen({
           <div style={{ marginTop: '2rem', textAlign: 'center' }}>
             <button 
               className="ghost-button" 
-              onClick={() => void loadBranches()}
+              disabled={isRefreshing}
+              onClick={() => void loadBranches(false)}
               style={{ fontSize: '0.75rem', color: 'var(--color-slate-500)' }}
             >
-              🔄 Actualizar Datos de Sucursales
+              {isRefreshing ? '🔄 Actualizando...' : '🔄 Actualizar Datos de Sucursales'}
             </button>
           </div>
         </div>
