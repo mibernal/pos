@@ -316,12 +316,9 @@ export function PosScreen({
                   } else if (event.key === 'Enter' && highlightedProduct) {
                     event.preventDefault();
                     event.stopPropagation();
-<<<<<<< HEAD
                     addProduct(highlightedProduct, { clearSearch: true });
-=======
                     addProduct(highlightedProduct);
                     setQuery('');
->>>>>>> aa2b4ca (refactor)
                   }
                 }}
               />

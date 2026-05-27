@@ -43,18 +43,17 @@ export const salesRoutes: FastifyPluginAsync = async (app) => {
         requestLogContext: buildRequestLogContext(request, {})
       });
 
-<<<<<<< HEAD
       let createdSale:
         | {
-            sale: ReturnType<typeof mapSaleRow>;
-            items: Array<{
-              id: string;
-              product_id: string;
-              qty: number;
-              price_cents: number;
-              line_total_cents: number;
-            }>;
-          }
+          sale: ReturnType<typeof mapSaleRow>;
+          items: Array<{
+            id: string;
+            product_id: string;
+            qty: number;
+            price_cents: number;
+            line_total_cents: number;
+          }>;
+        }
         | undefined;
 
       const createSaleInTransaction = () =>
@@ -371,33 +370,31 @@ export const salesRoutes: FastifyPluginAsync = async (app) => {
 
       if (!createdSale) {
         throw lastCreateError ?? new Error('No fue posible crear la venta');
-=======
-      if (result.isIdempotentHit) {
-        return reply.code(200).send(result.sale);
->>>>>>> aa2b4ca (refactor)
+        if (result.isIdempotentHit) {
+          return reply.code(200).send(result.sale);
+        }
+
+        request.log.info(
+          {
+            ...buildRequestLogContext(request, {
+              branchId: payload.branch_id,
+              saleId: result.sale.sale.id
+            }),
+            event: 'sale_created',
+            client_uuid: payload.client_uuid,
+            sale_number: result.sale.sale.sale_number,
+            cash_session_id: payload.cash_session_id,
+            items_count: result.sale.items.length,
+            subtotal_cents: result.sale.sale.subtotal_cents,
+            discount_cents: result.sale.sale.discount_cents,
+            tax_total_cents: result.sale.sale.tax_total_cents,
+            total_cents: result.sale.sale.total_cents
+          },
+          'Sale created'
+        );
+
+        return reply.code(201).send(result.sale);
       }
-
-      request.log.info(
-        {
-          ...buildRequestLogContext(request, {
-            branchId: payload.branch_id,
-            saleId: result.sale.sale.id
-          }),
-          event: 'sale_created',
-          client_uuid: payload.client_uuid,
-          sale_number: result.sale.sale.sale_number,
-          cash_session_id: payload.cash_session_id,
-          items_count: result.sale.items.length,
-          subtotal_cents: result.sale.sale.subtotal_cents,
-          discount_cents: result.sale.sale.discount_cents,
-          tax_total_cents: result.sale.sale.tax_total_cents,
-          total_cents: result.sale.sale.total_cents
-        },
-        'Sale created'
-      );
-
-      return reply.code(201).send(result.sale);
-    }
   );
 
   typedApp.get(
@@ -549,15 +546,15 @@ export const salesRoutes: FastifyPluginAsync = async (app) => {
         })),
         dian_document: dianDocument
           ? {
-              id: dianDocument.id,
-              provider: dianDocument.provider,
-              status: dianDocument.status,
-              cude: dianDocument.cude,
-              document_type: dianDocument.document_type,
-              parent_document_id: dianDocument.parent_document_id,
-              created_at: dianDocument.created_at.toISOString(),
-              updated_at: dianDocument.updated_at.toISOString()
-            }
+            id: dianDocument.id,
+            provider: dianDocument.provider,
+            status: dianDocument.status,
+            cude: dianDocument.cude,
+            document_type: dianDocument.document_type,
+            parent_document_id: dianDocument.parent_document_id,
+            created_at: dianDocument.created_at.toISOString(),
+            updated_at: dianDocument.updated_at.toISOString()
+          }
           : null
       };
     }
@@ -582,7 +579,6 @@ export const salesRoutes: FastifyPluginAsync = async (app) => {
       const params = saleIdParamsSchema.parse(request.params);
       const payload = voidSaleBodySchema.parse(request.body);
 
-<<<<<<< HEAD
       const voidedSale = await app.db.transaction().execute(async (trx) => {
         const currentSale = await trx
           .selectFrom('sales')
@@ -718,80 +714,78 @@ export const salesRoutes: FastifyPluginAsync = async (app) => {
         }
 
         return mapSaleRow(updatedSale);
-=======
-      const voidedSale = await voidSaleService({
-        db: app.db,
-        tenantId: request.auth.tenantId,
-        userId: request.auth.userId,
-        saleId: params.id,
-        payload
->>>>>>> aa2b4ca (refactor)
-      });
-
-      request.log.info(
-        {
-          ...buildRequestLogContext(request, {
-            branchId: voidedSale.branch_id,
-            saleId: voidedSale.id
-          }),
-          event: 'sale_voided',
-          sale_number: voidedSale.sale_number,
-          total_cents: voidedSale.total_cents,
-          void_reason: voidedSale.void_reason,
-          voided_at: voidedSale.voided_at
-        },
-        'Sale voided'
-      );
-
-      return {
-        sale: voidedSale
-      };
-    }
-  );
-
-  typedApp.post(
-    '/sales/:id/returns',
-    {
-      preHandler: [app.requireRoles(['ADMIN', 'MANAGER'])],
-      schema: {
-        tags: ['sales'],
-        security: [{ bearerAuth: [] }],
-        params: saleIdParamsSchema,
-        body: CreateReturnRequestSchema
-      }
-    },
-    async (request) => {
-      if (!request.auth) {
-        throw new AppError(401, 'AUTH_UNAUTHORIZED', 'No autorizado');
-      }
-
-      const params = saleIdParamsSchema.parse(request.params);
-      const payload = CreateReturnRequestSchema.parse(request.body);
-
-      const result = await processPartialReturn(
-        {
+        const voidedSale = await voidSaleService({
           db: app.db,
           tenantId: request.auth.tenantId,
           userId: request.auth.userId,
-          branchId: '00000000-0000-0000-0000-000000000000' // It will be looked up inside
-        },
-        params.id,
-        payload
+          saleId: params.id,
+          payload
+        });
+
+        request.log.info(
+          {
+            ...buildRequestLogContext(request, {
+              branchId: voidedSale.branch_id,
+              saleId: voidedSale.id
+            }),
+            event: 'sale_voided',
+            sale_number: voidedSale.sale_number,
+            total_cents: voidedSale.total_cents,
+            void_reason: voidedSale.void_reason,
+            voided_at: voidedSale.voided_at
+          },
+          'Sale voided'
+        );
+
+        return {
+          sale: voidedSale
+        };
+      }
       );
 
-      request.log.info(
+      typedApp.post(
+        '/sales/:id/returns',
         {
-          ...buildRequestLogContext(request, {
-            saleId: params.id
-          }),
-          event: 'sale_returned',
-          return_id: result.return_id,
-          total_refund_cents: result.total_refund_cents
+          preHandler: [app.requireRoles(['ADMIN', 'MANAGER'])],
+          schema: {
+            tags: ['sales'],
+            security: [{ bearerAuth: [] }],
+            params: saleIdParamsSchema,
+            body: CreateReturnRequestSchema
+          }
         },
-        'Sale returned'
-      );
+        async (request) => {
+          if (!request.auth) {
+            throw new AppError(401, 'AUTH_UNAUTHORIZED', 'No autorizado');
+          }
 
-      return result;
-    }
-  );
-};
+          const params = saleIdParamsSchema.parse(request.params);
+          const payload = CreateReturnRequestSchema.parse(request.body);
+
+          const result = await processPartialReturn(
+            {
+              db: app.db,
+              tenantId: request.auth.tenantId,
+              userId: request.auth.userId,
+              branchId: '00000000-0000-0000-0000-000000000000' // It will be looked up inside
+            },
+            params.id,
+            payload
+          );
+
+          request.log.info(
+            {
+              ...buildRequestLogContext(request, {
+                saleId: params.id
+              }),
+              event: 'sale_returned',
+              return_id: result.return_id,
+              total_refund_cents: result.total_refund_cents
+            },
+            'Sale returned'
+          );
+
+          return result;
+        }
+      );
+    };

@@ -24,11 +24,8 @@ describe('outbox events scheduler', () => {
 
     expect(pool.query).toHaveBeenCalledOnce();
     expect(pool.query).toHaveBeenCalledWith(
-<<<<<<< HEAD
       expect.stringContaining("WHERE type IN ('SALE_CREATED', 'SALE_VOIDED')"),
-=======
       expect.stringContaining("WHERE type IN ('SALE_CREATED', 'SALE_VOIDED', 'sale_returned')"),
->>>>>>> aa2b4ca (refactor)
       [25]
     );
     expect(enqueued).toBe(2);

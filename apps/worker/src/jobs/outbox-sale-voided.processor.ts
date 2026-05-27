@@ -28,7 +28,6 @@ interface BuildOutboxSaleVoidedProcessorInput {
   provider: DianProvider;
 }
 
-<<<<<<< HEAD
 interface OutboxEventRow {
   id: string;
   tenant_id: string;
@@ -313,8 +312,6 @@ async function claimOutboxEvent(
   return rows[0] ?? null;
 }
 
-=======
->>>>>>> aa2b4ca (refactor)
 async function getInvoiceDianDocument(
   pool: Pool,
   tenantId: string,
@@ -336,7 +333,6 @@ async function getInvoiceDianDocument(
 }
 
 async function getOrCreateCreditNoteDianDocument(
-<<<<<<< HEAD
   pool: Pool,
   tenantId: string,
   saleId: string,
@@ -384,8 +380,6 @@ async function getOrCreateCreditNoteDianDocument(
 }
 
 async function loadProviderPayload(
-=======
->>>>>>> aa2b4ca (refactor)
   pool: Pool,
   tenantId: string,
   saleId: string,
@@ -484,7 +478,6 @@ export function buildOutboxSaleVoidedProcessor({
         `Outbox ${claimedEvent.id} pospuesto. invoice_document=${invoiceDianDocument.id} aún no está ACCEPTED. current_status=${invoiceDianDocument.status}`
       );
       throw new Error('Dian invoice document not yet ACCEPTED');
-<<<<<<< HEAD
     }
 
     const creditNoteDianDocument = await getOrCreateCreditNoteDianDocument(
@@ -521,8 +514,6 @@ export function buildOutboxSaleVoidedProcessor({
         `Outbox ${claimedEvent.id} omitido por idempotencia. credit_note_document=${creditNoteDianDocument.id} status=${creditNoteDianDocument.status} reason=${emissionBlockReason}`
       );
       return;
-=======
->>>>>>> aa2b4ca (refactor)
     }
 
     const creditNoteDianDocument = await getOrCreateCreditNoteDianDocument(

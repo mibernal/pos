@@ -3,11 +3,8 @@ import type { ColumnType, Generated } from 'kysely';
 export type UserRole = 'ADMIN' | 'MANAGER' | 'CASHIER' | 'AUDITOR';
 export type SaleStatus = 'COMPLETED' | 'VOID';
 export type DianDocumentStatus = 'PENDING' | 'SENT' | 'ACCEPTED' | 'REJECTED';
-<<<<<<< HEAD
 export type DianDocumentType = 'INVOICE' | 'CREDIT_NOTE';
-=======
 export type DianDocumentType = 'INVOICE' | 'CREDIT_NOTE' | 'SUPPORT_DOC';
->>>>>>> aa2b4ca (refactor)
 export type OutboxStatus = 'PENDING' | 'SENT' | 'FAILED';
 export type InventoryOperation = 'SALE' | 'SALE_VOID' | 'SALE_RETURN' | 'MANUAL_ENTRY' | 'MANUAL_EXIT' | 'PURCHASE';
 export type TenantTaxMode = 'IVA' | 'INC_RESTAURANT';

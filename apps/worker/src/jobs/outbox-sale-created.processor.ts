@@ -27,7 +27,6 @@ interface BuildOutboxSaleCreatedProcessorInput {
   provider: DianProvider;
 }
 
-<<<<<<< HEAD
 interface OutboxEventRow {
   id: string;
   tenant_id: string;
@@ -515,8 +514,6 @@ async function updateDianDocumentMetadata(
   );
 }
 
-=======
->>>>>>> aa2b4ca (refactor)
 export function buildOutboxSaleCreatedProcessor({
   pool,
   provider
