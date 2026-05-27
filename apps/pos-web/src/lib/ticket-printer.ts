@@ -586,7 +586,7 @@ export async function printSaleTicketESCPOS(input: TicketPrintInput): Promise<vo
 
   // Ejecutar escritura en puerto serie
   try {
-    const nav = navigator as any;
+    const nav = navigator as Navigator & { serial: { requestPort: () => Promise<{ open: (opts: { baudRate: number }) => Promise<void>; writable: WritableStream; close: () => Promise<void> }> } };
     const port = await nav.serial.requestPort();
     await port.open({ baudRate: 9600 });
     

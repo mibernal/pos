@@ -181,6 +181,103 @@ export function ensureE2eSchema(): Promise<void> {
         CREATE INDEX IF NOT EXISTS idx_dian_documents_tenant_sale_type
         ON dian_documents (tenant_id, sale_id, document_type)
       `.execute(db);
+
+      await sql`
+        ALTER TABLE tenants
+        ADD COLUMN IF NOT EXISTS allow_negative_stock BOOLEAN NOT NULL DEFAULT TRUE
+      `.execute(db);
+
+      await sql`
+        ALTER TABLE products
+        ADD COLUMN IF NOT EXISTS min_stock_alert_qty INTEGER NULL
+      `.execute(db);
+
+      await sql`
+        CREATE TABLE IF NOT EXISTS product_variants (
+          id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+          product_id UUID NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+          name VARCHAR NOT NULL,
+          price_cents INTEGER NOT NULL,
+          barcode VARCHAR NULL,
+          active BOOLEAN NOT NULL DEFAULT TRUE,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )
+      `.execute(db);
+
+      await sql`
+        ALTER TABLE sale_items
+        ADD COLUMN IF NOT EXISTS variant_id UUID REFERENCES product_variants(id) ON DELETE SET NULL
+      `.execute(db);
+
+      await sql`
+        CREATE TABLE IF NOT EXISTS promotions (
+          id UUID PRIMARY KEY,
+          tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+          product_id UUID NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+          type VARCHAR NOT NULL,
+          value_cents INTEGER NOT NULL,
+          buy_qty INTEGER NULL,
+          get_qty INTEGER NULL,
+          start_date TIMESTAMP NOT NULL,
+          end_date TIMESTAMP NULL,
+          active BOOLEAN NOT NULL DEFAULT TRUE,
+          created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )
+      `.execute(db);
+
+      await sql`
+        CREATE TABLE IF NOT EXISTS sale_returns (
+          id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+          sale_id UUID NOT NULL REFERENCES sales(id) ON DELETE CASCADE,
+          created_by_user_id UUID NOT NULL REFERENCES users(id),
+          total_refund_cents INTEGER NOT NULL CHECK (total_refund_cents >= 0),
+          reason TEXT,
+          created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
+        )
+      `.execute(db);
+
+      await sql`
+        CREATE TABLE IF NOT EXISTS return_items (
+          id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+          return_id UUID NOT NULL REFERENCES sale_returns(id) ON DELETE CASCADE,
+          product_id UUID NOT NULL REFERENCES products(id),
+          qty NUMERIC(10,3) NOT NULL CHECK (qty > 0),
+          refund_cents INTEGER NOT NULL CHECK (refund_cents >= 0),
+          created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
+        )
+      `.execute(db);
+
+      await sql`
+        CREATE TABLE IF NOT EXISTS cash_movements (
+          id UUID PRIMARY KEY,
+          tenant_id UUID NOT NULL REFERENCES tenants(id),
+          cash_session_id UUID NOT NULL REFERENCES cash_sessions(id),
+          user_id UUID NOT NULL REFERENCES users(id),
+          type VARCHAR(10) NOT NULL,
+          amount_cents INTEGER NOT NULL,
+          reason TEXT NOT NULL,
+          created_at TIMESTAMP NOT NULL DEFAULT NOW()
+        )
+      `.execute(db);
+
+      await sql`
+        CREATE TABLE IF NOT EXISTS cash_session_audits (
+          id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+          cash_session_id UUID NOT NULL REFERENCES cash_sessions(id) ON DELETE CASCADE,
+          user_id UUID NOT NULL,
+          observed_cash_cents INTEGER NOT NULL,
+          expected_cash_cents INTEGER NOT NULL,
+          diff_cents INTEGER NOT NULL,
+          notes TEXT,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )
+      `.execute(db);
     } finally {
       if (schemaLockAcquired) {
         await sql`SELECT pg_advisory_unlock(hashtext('pos_dian_e2e_schema'))`.execute(db);

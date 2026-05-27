@@ -13,7 +13,8 @@ export function VariantSelectorModal({ isOpen, product, onClose, onSelect }: Var
   if (!product || !isOpen) return null;
 
   return (
-    <Modal isOpen={isOpen} onClose={onClose} title={`Seleccionar Variante - ${product.name}`}>
+    <Modal ariaLabel={`Seleccionar variante de ${product.name}`} onClose={onClose}>
+      <h3>Seleccionar Variante - {product.name}</h3>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem', marginTop: '1rem' }}>
         {product.variants?.map(variant => (
           <button

@@ -112,8 +112,11 @@ export const reportsRoutes: FastifyPluginAsync = async (app) => {
       let query = app.db
         .selectFrom('cash_sessions')
         .leftJoin('users', 'users.id', 'cash_sessions.opened_by_user_id')
-        .where('cash_sessions.tenant_id', '=', request.auth!.tenantId)
-        .where('cash_sessions.branch_id', '=', branch_id);
+        .where('cash_sessions.tenant_id', '=', request.auth!.tenantId);
+
+      if (branch_id) {
+        query = query.where('cash_sessions.branch_id', '=', branch_id);
+      }
 
       if (from) {
         query = query.where('cash_sessions.opened_at', '>=', new Date(from));

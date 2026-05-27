@@ -19,13 +19,15 @@ type TableName =
   | 'branches'
   | 'cash_sessions'
   | 'products'
+  | 'product_variants'
   | 'sales'
   | 'sale_items'
   | 'dian_documents'
   | 'outbox_events'
   | 'audit_logs'
   | 'inventory_transactions'
-  | 'inventory_balances';
+  | 'inventory_balances'
+  | 'promotions';
 
 interface FakeDbState {
   tenants: Array<{ id: string; tax_mode: TenantTaxMode }>;
@@ -39,6 +41,7 @@ interface FakeDbState {
     tax_category: ProductTaxCategory;
     active: boolean;
   }>;
+  product_variants: Array<Record<string, unknown>>;
   sales: Array<Record<string, unknown>>;
   sale_items: Array<Record<string, unknown>>;
   dian_documents: Array<Record<string, unknown>>;
@@ -46,6 +49,7 @@ interface FakeDbState {
   audit_logs: Array<Record<string, unknown>>;
   inventory_transactions: Array<Record<string, unknown>>;
   inventory_balances: Array<Record<string, unknown>>;
+  promotions: Array<Record<string, unknown>>;
   hooks?: {
     beforeInsert?: (
       tableName: TableName,
@@ -79,7 +83,7 @@ function mapSelectedRow(row: Record<string, unknown>, selectedColumns: string[])
     const normalizedDef = columnDef.trim();
     const aliasMatch = normalizedDef.match(/^(.*?)\s+as\s+(.*)$/i);
 
-    if (aliasMatch) {
+    if (aliasMatch && aliasMatch[1] && aliasMatch[2]) {
       const sourceColumn = lastSegment(aliasMatch[1].trim());
       const alias = aliasMatch[2].trim();
       mapped[alias] = row[sourceColumn];
@@ -101,7 +105,7 @@ class FakeSelectBuilder {
   constructor(
     private readonly state: FakeDbState,
     private readonly tableName: TableName
-  ) {}
+  ) { }
 
   select(selection: unknown): this {
     if (typeof selection === 'string') {
@@ -212,7 +216,7 @@ class FakeInsertBuilder {
   constructor(
     private readonly state: FakeDbState,
     private readonly tableName: TableName
-  ) {}
+  ) { }
 
   values(values: Record<string, unknown> | Record<string, unknown>[]): this {
     this.rowsToInsert = Array.isArray(values) ? values : [values];
@@ -284,7 +288,7 @@ class FakeInsertBuilder {
       this.state.hooks?.beforeInsert?.(this.tableName, row, this.state);
     }
 
-    this.state[this.tableName].push(...insertedRows);
+    (this.state[this.tableName] as any[]).push(...insertedRows);
     return insertedRows;
   }
 }
@@ -297,7 +301,7 @@ class FakeUpdateBuilder {
   constructor(
     private readonly state: FakeDbState,
     private readonly tableName: TableName
-  ) {}
+  ) { }
 
   set(values: Record<string, unknown>): this {
     this.patch = values;
@@ -360,7 +364,7 @@ class FakeUpdateBuilder {
 }
 
 class FakeDb {
-  constructor(readonly state: FakeDbState) {}
+  constructor(readonly state: FakeDbState) { }
 
   selectFrom(tableName: TableName): FakeSelectBuilder {
     return new FakeSelectBuilder(this.state, tableName);
@@ -380,7 +384,7 @@ class FakeDb {
     };
   }
 
-  async destroy(): Promise<void> {}
+  async destroy(): Promise<void> { }
 }
 
 function createFixture(
@@ -423,13 +427,15 @@ function createFixture(
         active: true
       }
     ],
+    product_variants: [],
     sales: [],
     sale_items: [],
     dian_documents: [],
     outbox_events: [],
     audit_logs: [],
     inventory_transactions: [],
-    inventory_balances: []
+    inventory_balances: [],
+    promotions: []
   };
 
   return {
@@ -534,6 +540,7 @@ describe('POST /sales fiscal persistence', () => {
     ]);
 
     const persistedSale = fixture.state.sales[0] as {
+      id: string;
       tax_total_cents: number;
       tax_lines_json: Array<Record<string, unknown>>;
       total_cents: number;

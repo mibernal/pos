@@ -7,8 +7,8 @@ export function LoginScreen() {
   const { authMessage, clearAuthMessage, login } = useSession();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [tenantOptions, setTenantOptions] = useState<{id: string; name: string; business_name: string}[] | null>(null);
-  const [pendingCredentials, setPendingCredentials] = useState<{email: string; password: string} | null>(null);
+  const [tenantOptions, setTenantOptions] = useState<{ id: string; name: string; business_name: string }[] | null>(null);
+  const [pendingCredentials, setPendingCredentials] = useState<{ email: string; password: string } | null>(null);
 
   async function handleSubmit(input: { email: string; password: string }, tenantId?: string) {
     setLoading(true);
@@ -20,8 +20,9 @@ export function LoginScreen() {
       setTenantOptions(null);
       setPendingCredentials(null);
     } catch (err: unknown) {
-      if (err && err.requireTenantSelection) {
-        setTenantOptions(err.tenants);
+      const authErr = err as { requireTenantSelection?: boolean; tenants?: { id: string; name: string; business_name: string }[] } | null;
+      if (authErr && authErr.requireTenantSelection && authErr.tenants) {
+        setTenantOptions(authErr.tenants);
         setPendingCredentials(input);
       } else {
         setError(err instanceof Error ? err.message : 'No fue posible iniciar sesión');
@@ -60,7 +61,7 @@ export function LoginScreen() {
                 <Banner tone="error">{error}</Banner>
               </div>
             )}
-            
+
             <LoginForm
               loading={loading && !tenantOptions}
               onChange={() => {
@@ -71,9 +72,9 @@ export function LoginScreen() {
             />
 
             <footer style={{ marginTop: '2rem', textAlign: 'center', paddingTop: '1.5rem', borderTop: '1px solid var(--color-slate-100)' }}>
-               <p style={{ fontSize: '0.75rem', color: 'var(--color-slate-400)' }}>
-                 &copy; {new Date().getFullYear()} POS Cloud. Sistema de Facturación Electrónica.
-               </p>
+              <p style={{ fontSize: '0.75rem', color: 'var(--color-slate-400)' }}>
+                &copy; {new Date().getFullYear()} POS Cloud. Sistema de Facturación Electrónica.
+              </p>
             </footer>
           </div>
         </section>

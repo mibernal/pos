@@ -7,7 +7,8 @@ export async function readScaleWeight(): Promise<number> {
   }
 
   try {
-    const port = await (navigator as any).serial.requestPort();
+    const nav = navigator as Navigator & { serial: { requestPort: () => Promise<unknown> } };
+    const port = await nav.serial.requestPort() as { open: (opts: { baudRate: number }) => Promise<void>; readable: ReadableStream; close: () => Promise<void> };
     await port.open({ baudRate: 9600 }); // Baud rate común para básculas (Mettler, Cas, etc.)
     
     const reader = port.readable.getReader();
@@ -18,14 +19,13 @@ export async function readScaleWeight(): Promise<number> {
     const timeout = new Promise<void>((_, reject) => setTimeout(() => reject(new Error('Timeout de báscula')), 2000));
     
     const readTask = async () => {
-      let active = true;
-    while (active) {
-        const { value, done } = await reader.read();
-        if (done) break;
-        
-        weightString += decoder.decode(value);
+      let done = false;
+      while (!done) {
+        const result = await reader.read();
+        if (result.done) { done = true; break; }
+        weightString += decoder.decode(result.value);
         if (weightString.includes('\r') || weightString.includes('\n')) {
-          break;
+          done = true;
         }
       }
     };

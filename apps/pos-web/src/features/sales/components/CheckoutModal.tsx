@@ -4,6 +4,7 @@ import { formatMoneyFromCents } from '../../../lib/format';
 import type { Customer, CreateSaleRequest } from '../../../lib/api';
 import { formatEditableMoneyFromCents, parseVisibleMoneyToCents } from '../utils';
 import { sendToPaymentTerminal } from '../../../lib/hardware';
+import type { CartItem, PaymentMethod } from '../../../types';
 
 type SimplePaymentMethod = Exclude<PaymentMethod, 'MIXED'>;
 

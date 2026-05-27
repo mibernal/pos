@@ -1,17 +1,12 @@
 # USER.md - About Your Human
 
-_Learn about the person you're helping. Update this as you go._
-
-- **Name:**
-- **What to call them:**
-- **Pronouns:** _(optional)_
-- **Timezone:**
+- **Name:** Miguel Bernal
+- **What to call them:** Miguel
+- **Pronouns:** He/Him
+- **Timezone:** GMT-5 (COT - Colombia Time / EST - Eastern Standard Time)
 - **Notes:**
+  - Owner of the POS application workspace.
+  - Active and focused developer doing monorepo hardening (TypeScript, ESLint, Vitest, CI).
 
 ## Context
-
-_(What do they care about? What projects are they working on? What annoys them? What makes them laugh? Build this over time.)_
-
----
-
-The more you know, the better you can help. But remember — you're learning about a person, not building a dossier. Respect the difference.
+Miguel is working on refactoring, hardening, and testing this DIAN-integrated POS system. He expects high-quality, typed, and well-tested solutions that preserve business domain logic (like blind cash session closes and Colombian DIAN fiscal regulations).

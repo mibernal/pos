@@ -107,7 +107,6 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
         expiresIn: env.JWT_EXPIRES_IN
       });
 
-      // @ts-expect-error fastify-cookie types are not installed yet
       reply.setCookie('access_token', accessToken, {
         path: '/',
         httpOnly: true,
@@ -190,7 +189,6 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
       }
     },
     async (request, reply) => {
-      // @ts-expect-error fastify-cookie types are not installed yet
       reply.clearCookie('access_token', {
         path: '/'
       });

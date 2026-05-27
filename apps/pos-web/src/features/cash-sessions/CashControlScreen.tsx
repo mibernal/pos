@@ -5,7 +5,7 @@ import type { PosApiClient } from '../../types';
 
 export function CashControlScreen({
   api,
-  _branchId,
+  branchId: _branchId,
   cashSessionId
 }: {
   api: PosApiClient;

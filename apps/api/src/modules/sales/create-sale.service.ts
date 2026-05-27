@@ -128,7 +128,7 @@ export async function createSaleService(input: CreateSaleServiceInput) {
         .where('tenant_id', '=', tenantId)
         .where('product_id', 'in', uniqueProductIds)
         .where('active', '=', true)
-        .where('start_date', '<=', sql`NOW()`)
+        .where('start_date', '<=', sql<Date>`NOW()`)
         .where(
           sql<boolean>`(end_date IS NULL OR end_date >= NOW())`
         )

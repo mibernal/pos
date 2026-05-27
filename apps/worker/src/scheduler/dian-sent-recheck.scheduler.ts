@@ -152,7 +152,7 @@ export async function recheckStuckDianDocuments(
         jobName,
         { outboxEventId },
         {
-          jobId: `dian-recheck:${doc.id}`,
+          jobId: `dian-recheck-${doc.id}`,
           removeOnComplete: true,
           removeOnFail: false
         }

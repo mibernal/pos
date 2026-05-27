@@ -3,7 +3,7 @@ import { Kysely, sql } from 'kysely';
 export async function up(db: Kysely<unknown>): Promise<void> {
   await db.schema
     .createTable('promotions')
-    .addColumn('id', 'uuid', (col) => col.primary())
+    .addColumn('id', 'uuid', (col) => col.primaryKey())
     .addColumn('tenant_id', 'uuid', (col) => col.references('tenants.id').onDelete('cascade').notNull())
     .addColumn('product_id', 'uuid', (col) => col.references('products.id').onDelete('cascade').notNull())
     .addColumn('type', 'varchar', (col) => col.notNull()) // 'PERCENTAGE' | 'FIXED_AMOUNT' | 'BUY_X_GET_Y'

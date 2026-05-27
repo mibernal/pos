@@ -3,7 +3,7 @@ import { Banner, PlaceholderImage } from '../../components/ui';
 import { formatMoneyFromCents } from '../../lib/format';
 import { extractTicketPayments, printSaleTicket, printSaleTicketESCPOS } from '../../lib/ticket-printer';
 import type { PendingSaleRecord } from '../../lib/offline-queue';
-import type { TenantTaxMode } from '../../lib/api';
+import type { TenantTaxMode, ProductItem } from '../../lib/api';
 import type { TicketTemplateConfig } from '../../lib/ticket-template';
 import type { PosApiClient } from '../../types';
 import { CheckoutModal, CartPanel, ProductGrid, VariantSelectorModal } from './components';
@@ -316,7 +316,6 @@ export function PosScreen({
                   } else if (event.key === 'Enter' && highlightedProduct) {
                     event.preventDefault();
                     event.stopPropagation();
-                    addProduct(highlightedProduct, { clearSearch: true });
                     addProduct(highlightedProduct);
                     setQuery('');
                   }
@@ -401,7 +400,7 @@ export function PosScreen({
           products={products}
           productsLoading={productsLoading}
           hasSearchQuery={hasSearchQuery}
-          highlightedProductId={highlightedProductId}
+          highlightedProductId={highlightedProduct?.id ?? null}
           setHighlightedProductId={setHighlightedProductId}
           addProduct={(p) => handleProductSelect(p)}
         />
@@ -501,14 +500,13 @@ export function PosScreen({
         onClose={() => setIsCheckoutModalOpen(false)}
         cartItems={cartItems}
         totalCents={totalCents}
-        subtotalCents={subtotalCents}
         discountCents={discountCents}
         customers={customers}
         onConfirm={async (payments, customerId) => {
           await processSale(cartItems, discountCents, payments, customerId);
         }}
-        isLoading={checkoutLoading}
-        api={api}
+        isSubmitting={checkoutLoading}
+        error={saleError}
       />
 
       <VariantSelectorModal

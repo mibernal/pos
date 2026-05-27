@@ -107,7 +107,7 @@ export const inventoryRoutes: FastifyPluginAsync = async (app) => {
           'p.category',
           'p.image_url',
           sql<number>`sum(b.qty)`.as('total_qty'),
-          sql<unknown[]>`json_agg(json_build_object(
+          sql<{ branch_id: string; branch_name: string; qty: number }[]>`json_agg(json_build_object(
             'branch_id', br.id,
             'branch_name', br.name,
             'qty', b.qty

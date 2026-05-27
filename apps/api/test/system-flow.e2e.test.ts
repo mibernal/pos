@@ -348,10 +348,15 @@ describe('system flow e2e', () => {
 
     await createSale(app, cashierToken, fixture, openedSession.cash_session.id);
 
+    const adminToken = await loginE2eUser(app, {
+      email: fixture.adminEmail,
+      password: fixture.adminPassword
+    });
+
     const closeResponse = await app.inject({
       method: 'POST',
       url: `/api/v1/cash-sessions/${openedSession.cash_session.id}/close`,
-      headers: bearerHeaders(cashierToken),
+      headers: bearerHeaders(adminToken),
       payload: {
         closing_cash_real_cents: 21900
       }

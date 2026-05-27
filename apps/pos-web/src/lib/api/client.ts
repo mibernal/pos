@@ -20,7 +20,8 @@ import type {
   UpdateCustomerInput as SharedUpdateCustomerInput,
   InventoryBalance as SharedInventoryBalance,
   CreateInventoryTransactionInput as SharedCreateInventoryTransactionInput,
-  SalesReportResponse as SharedSalesReportResponse
+  SalesReportResponse as SharedSalesReportResponse,
+  ConsolidatedInventoryResponse as SharedConsolidatedInventoryResponse
 } from '@pos-dian/shared';
 
 export type UserRole = SharedAuthUser['role'];
@@ -63,6 +64,7 @@ export type CreateSaleRequest = SharedCreateSaleInput;
 export type Customer = SharedCustomer;
 export type InventoryBalance = SharedInventoryBalance;
 export type SalesReportResponse = SharedSalesReportResponse;
+export type ConsolidatedInventoryResponse = SharedConsolidatedInventoryResponse;
 
 export class ApiClientError extends Error {
   readonly status?: number;
@@ -171,6 +173,7 @@ export function createApiClient({ baseUrl, getSession, setSession }: CreateApiCl
   }
 
   return {
+    baseUrl,
     login,
     logout,
     me: () => requestJson<SharedMeResponse>('/auth/me'),
@@ -198,7 +201,7 @@ export function createApiClient({ baseUrl, getSession, setSession }: CreateApiCl
         body: JSON.stringify({ closing_cash_real_cents: closingCashRealCents })
       }),
     addCashMovement: (sessionId: string, type: 'IN' | 'OUT', amountCents: number, reason: string) =>
-      requestJson<{ movement: any }>(`/cash-sessions/${sessionId}/movements`, {
+      requestJson<{ movement: { id: string; cash_session_id: string; type: 'IN' | 'OUT'; amount_cents: number; reason: string; created_at: string } }>(`/cash-sessions/${sessionId}/movements`, {
         method: 'POST',
         body: JSON.stringify({ type, amount_cents: amountCents, reason })
       }),
@@ -277,7 +280,7 @@ export function createApiClient({ baseUrl, getSession, setSession }: CreateApiCl
         `/inventory/balances?${toQueryString({ branch_id: branchId, product_id: productId })}`
       ),
     listConsolidatedInventory: () =>
-      requestJson<any[]>('/inventory/consolidated'),
+      requestJson<ConsolidatedInventoryResponse>('/inventory/consolidated'),
     createInventoryTransaction: (payload: SharedCreateInventoryTransactionInput) =>
       requestJson<{ success: boolean }>('/inventory/transactions', {
         method: 'POST',
@@ -295,7 +298,20 @@ export function createApiClient({ baseUrl, getSession, setSession }: CreateApiCl
       searchParams.set('branch_id', params.branchId);
       if (params.from) searchParams.set('from', params.from);
       if (params.to) searchParams.set('to', params.to);
-      return requestJson<{ items: any[] }>(`/reports/shifts?${searchParams.toString()}`);
+      return requestJson<{
+        items: {
+          id: string;
+          branch_id: string;
+          opened_at: string;
+          closed_at: string | null;
+          opened_by_user_id: string;
+          user_name: string;
+          opening_amount_cents: number;
+          closing_cash_real_cents: number | null;
+          expected_cash_cents: number | null;
+          diff_cents: number | null;
+        }[];
+      }>(`/reports/shifts?${searchParams.toString()}`);
     }
   };
 }

@@ -24,7 +24,6 @@ describe('outbox events scheduler', () => {
 
     expect(pool.query).toHaveBeenCalledOnce();
     expect(pool.query).toHaveBeenCalledWith(
-      expect.stringContaining("WHERE type IN ('SALE_CREATED', 'SALE_VOIDED')"),
       expect.stringContaining("WHERE type IN ('SALE_CREATED', 'SALE_VOIDED', 'sale_returned')"),
       [25]
     );
@@ -35,7 +34,7 @@ describe('outbox events scheduler', () => {
       'process-sale-created-outbox-event',
       { outboxEventId: 'outbox-1' },
       {
-        jobId: 'outbox:outbox-1',
+        jobId: 'outbox-outbox-1',
         removeOnComplete: true,
         removeOnFail: true
       }
@@ -45,7 +44,7 @@ describe('outbox events scheduler', () => {
       'process-sale-created-outbox-event',
       { outboxEventId: 'outbox-2' },
       {
-        jobId: 'outbox:outbox-2',
+        jobId: 'outbox-outbox-2',
         removeOnComplete: true,
         removeOnFail: true
       }
@@ -70,7 +69,7 @@ describe('outbox events scheduler', () => {
       'process-sale-voided-outbox-event',
       { outboxEventId: 'outbox-voided' },
       {
-        jobId: 'outbox:outbox-voided',
+        jobId: 'outbox-outbox-voided',
         removeOnComplete: true,
         removeOnFail: true
       }

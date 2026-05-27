@@ -39,13 +39,25 @@ const requestIdHeaderSchema = z
  */
 function buildRedisClient(): Redis {
   if (env.NODE_ENV === 'test') {
+    const store = new Map<string, string>();
     return {
-      get: async () => null,
+      get: async (key: string) => store.get(key) ?? null,
+      incr: async (key: string) => {
+        const val = store.get(key);
+        const next = (val ? parseInt(val, 10) : 0) + 1;
+        store.set(key, next.toString());
+        return next;
+      },
+      expire: async () => 1,
+      del: async (key: string) => {
+        const existed = store.has(key);
+        store.delete(key);
+        return existed ? 1 : 0;
+      },
       pipeline: () => ({
         incr: () => ({ expire: () => ({ exec: async () => null }) }),
         exec: async () => null
       }),
-      del: async () => 0,
       ping: async () => 'PONG',
       quit: async () => 'OK'
     } as unknown as Redis;
@@ -95,7 +107,6 @@ export async function buildApp() {
   app.decorate('redis', redisClient);
   app.decorate('db', createDb());
 
-  // @ts-expect-error fastify-cookie not yet installed
   await app.register(import('@fastify/cookie').then((m) => m.default), {
     secret: env.JWT_SECRET // Use same secret for signed cookies if needed later
   });

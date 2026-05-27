@@ -20,14 +20,14 @@ export function DashboardScreen({
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [connected, setConnected] = useState(false);
-  
+
   useEffect(() => {
     // We assume api client has some way to get token, but EventSource doesn't support headers directly easily in browser API.
     // Instead we usually pass token in URL or use a polyfill. If token is in cookie or we pass it via query:
     // For this POC, we'll fetch a ticket using standard fetch to see if it works, or just build an EventSource if auth is in cookie.
     // Assuming auth is via Bearer token, native EventSource cannot send Authorization header.
     // Since we need Auth, we can use fetch stream.
-    
+
     let active = true;
     const controller = new AbortController();
 
@@ -56,9 +56,9 @@ export function DashboardScreen({
           while (active) {
             const { value, done } = await reader.read();
             if (done) break;
-            
+
             buffer += decoder.decode(value, { stream: true });
-            
+
             const lines = buffer.split('\n');
             buffer = lines.pop() || ''; // Keep the last incomplete line
 
@@ -106,10 +106,10 @@ export function DashboardScreen({
           </div>
         </div>
       </header>
-      
+
       <div style={{ padding: '1.5rem', maxWidth: '1000px', margin: '0 auto', width: '100%' }}>
         {error && <Banner tone="error">{error}</Banner>}
-        
+
         {!stats && !error && <Banner tone="info">Conectando al stream en vivo...</Banner>}
 
         {stats && (
@@ -139,36 +139,36 @@ export function DashboardScreen({
                   <AreaChart data={stats.chart_data}>
                     <defs>
                       <linearGradient id="colorAmount" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="var(--color-primary-500)" stopOpacity={0.3}/>
-                        <stop offset="95%" stopColor="var(--color-primary-500)" stopOpacity={0}/>
+                        <stop offset="5%" stopColor="var(--color-primary-500)" stopOpacity={0.3} />
+                        <stop offset="95%" stopColor="var(--color-primary-500)" stopOpacity={0} />
                       </linearGradient>
                     </defs>
                     <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--color-slate-100)" />
-                    <XAxis 
-                      dataKey="hour" 
+                    <XAxis
+                      dataKey="hour"
                       axisLine={false}
                       tickLine={false}
                       tick={{ fill: 'var(--color-slate-400)', fontSize: 12 }}
                       dy={10}
                     />
-                    <YAxis 
-                      tickFormatter={(value) => `$${(value/100).toLocaleString()}`}
+                    <YAxis
+                      tickFormatter={(value) => `$${(value / 100).toLocaleString()}`}
                       axisLine={false}
                       tickLine={false}
                       tick={{ fill: 'var(--color-slate-400)', fontSize: 12 }}
                       dx={-10}
                     />
-                    <Tooltip 
-                      formatter={(value: number) => [formatMoneyFromCents(value), 'Total']}
+                    <Tooltip
+                      formatter={(value: unknown) => [formatMoneyFromCents(Number(value as string | number) || 0), 'Total']}
                       contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: 'var(--shadow-md)' }}
                     />
-                    <Area 
-                      type="monotone" 
-                      dataKey="amount_cents" 
-                      stroke="var(--color-primary-500)" 
+                    <Area
+                      type="monotone"
+                      dataKey="amount_cents"
+                      stroke="var(--color-primary-500)"
                       strokeWidth={3}
-                      fillOpacity={1} 
-                      fill="url(#colorAmount)" 
+                      fillOpacity={1}
+                      fill="url(#colorAmount)"
                     />
                   </AreaChart>
                 </ResponsiveContainer>

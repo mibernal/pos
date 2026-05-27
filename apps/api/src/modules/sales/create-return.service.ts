@@ -3,6 +3,8 @@ import type { Database } from '../../infra/db/schema.js';
 import type { Kysely } from 'kysely';
 import { sql } from 'kysely';
 import type { CreateReturnRequest } from '@pos-dian/shared';
+import { randomUUID } from 'crypto';
+
 
 interface ReturnServiceContext {
   db: Kysely<Database>;
@@ -94,6 +96,7 @@ export async function processPartialReturn(
     const returnRow = await trx
       .insertInto('sale_returns')
       .values({
+        id: randomUUID(),
         tenant_id: ctx.tenantId,
         sale_id: saleId,
         created_by_user_id: ctx.userId,
@@ -105,6 +108,7 @@ export async function processPartialReturn(
 
     // 6. Insert Return Items
     const returnItemsData = itemsToInsert.map((item) => ({
+      id: randomUUID(),
       tenant_id: ctx.tenantId,
       return_id: returnRow.id,
       ...item
@@ -118,6 +122,7 @@ export async function processPartialReturn(
       await trx
         .insertInto('inventory_transactions')
         .values({
+          id: randomUUID(),
           tenant_id: ctx.tenantId,
           branch_id: sale.branch_id,
           product_id: item.product_id,
@@ -159,10 +164,11 @@ export async function processPartialReturn(
     await trx
       .insertInto('outbox_events')
       .values({
+        id: randomUUID(),
         tenant_id: ctx.tenantId,
         type: 'sale_returned',
         aggregate_id: returnRow.id,
-        payload_json: JSON.stringify(outboxPayload),
+        payload_json: outboxPayload,
         status: 'PENDING'
       })
       .execute();

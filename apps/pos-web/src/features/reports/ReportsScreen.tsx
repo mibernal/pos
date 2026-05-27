@@ -24,12 +24,12 @@ export function ReportsScreen({
   const [filter, setFilter] = useState<DateFilter>('TODAY');
   const [customFrom, setCustomFrom] = useState('');
   const [customTo, setCustomTo] = useState('');
-  
+
   const [reportData, setReportData] = useState<SalesReportResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const [shiftsData, setShiftsData] = useState<{ items: Record<string, unknown>[] } | null>(null);
+  const [shiftsData, setShiftsData] = useState<Awaited<ReturnType<PosApiClient['getShiftsReport']>> | null>(null);
   const [activeTab, setActiveTab] = useState<'METRICS' | 'SHIFTS'>('METRICS');
 
   const fetchReport = useCallback(async () => {
@@ -40,7 +40,7 @@ export function ReportsScreen({
       let to: string | undefined;
 
       const now = new Date();
-      
+
       if (filter === 'TODAY') {
         const start = new Date(now.getFullYear(), now.getMonth(), now.getDate());
         from = start.toISOString();
@@ -84,7 +84,7 @@ export function ReportsScreen({
           <p>Consulta métricas clave de la sucursal actual</p>
         </div>
       </header>
-      
+
       <div style={{ padding: '1.5rem', maxWidth: '1000px', margin: '0 auto', width: '100%' }}>
         <div style={{ display: 'flex', gap: '1rem', marginBottom: '1.5rem' }}>
           <button
@@ -114,7 +114,7 @@ export function ReportsScreen({
                 <option value="CUSTOM">Personalizado</option>
               </select>
             </label>
-            
+
             {filter === 'CUSTOM' && (
               <>
                 <label className="field">
@@ -186,7 +186,7 @@ export function ReportsScreen({
           <div className="form-card">
             <h3>Historial de Turnos de Caja</h3>
             {shiftsData.items.length === 0 ? (
-               <p style={{ color: 'var(--color-slate-400)', marginTop: '1rem' }}>No hay turnos registrados en este periodo.</p>
+              <p style={{ color: 'var(--color-slate-400)', marginTop: '1rem' }}>No hay turnos registrados en este periodo.</p>
             ) : (
               <div style={{ marginTop: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
                 {shiftsData.items.map((shift) => (
@@ -210,12 +210,12 @@ export function ReportsScreen({
                         <>
                           <div>
                             <span style={{ color: 'var(--color-slate-500)', display: 'block', fontSize: '0.75rem' }}>Ventas Finales</span>
-                            {formatMoneyFromCents(shift.expected_cash_cents)}
+                            {formatMoneyFromCents(shift.expected_cash_cents ?? 0)}
                           </div>
                           <div>
                             <span style={{ color: 'var(--color-slate-500)', display: 'block', fontSize: '0.75rem' }}>Diferencia (Sobrante/Faltante)</span>
-                            <strong style={{ color: shift.diff_cents < 0 ? 'var(--color-error-600)' : shift.diff_cents > 0 ? 'var(--color-success-600)' : 'inherit' }}>
-                              {formatMoneyFromCents(shift.diff_cents)}
+                            <strong style={{ color: (shift.diff_cents ?? 0) < 0 ? 'var(--color-error-600)' : (shift.diff_cents ?? 0) > 0 ? 'var(--color-success-600)' : 'inherit' }}>
+                              {formatMoneyFromCents(shift.diff_cents ?? 0)}
                             </strong>
                           </div>
                         </>

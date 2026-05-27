@@ -27,7 +27,10 @@ export function ProductGrid({
   useEffect(() => {
     if (!parentRef.current) return;
     const observer = new ResizeObserver((entries) => {
-      setContainerWidth(entries[0].contentRect.width);
+      const entry = entries[0];
+      if (entry) {
+        setContainerWidth(entry.contentRect.width);
+      }
     });
     observer.observe(parentRef.current);
     return () => observer.disconnect();

@@ -23,6 +23,7 @@ export function CloseCashSessionModal({
   const [summary, setSummary] = useState<{
     expected_cash_cents: number;
     diff_cents: number;
+    completed_sales_count: number;
   } | null>(null);
   const { role } = useSession();
 
@@ -97,11 +98,11 @@ export function CloseCashSessionModal({
                 type="button"
                 className="button button-outline"
                 onClick={() => {
-                  let ticketInfo = 'Imprimiendo Ticket Z...\n' + 
+                  let ticketInfo = 'Imprimiendo Ticket Z...\n' +
                     'Ventas: ' + summary.completed_sales_count + '\n';
                   if (role !== 'CASHIER') {
                     ticketInfo += 'Esperado: ' + formatMoneyFromCents(summary.expected_cash_cents) + '\n' +
-                                  'Diferencia: ' + formatMoneyFromCents(summary.diff_cents);
+                      'Diferencia: ' + formatMoneyFromCents(summary.diff_cents);
                   } else {
                     ticketInfo += 'Arqueo: Ciego\n';
                   }

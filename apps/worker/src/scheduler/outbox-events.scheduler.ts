@@ -46,7 +46,7 @@ export async function enqueueDueOutboxEvents(
         jobName,
         { outboxEventId: row.id },
         {
-          jobId: `outbox:${row.id}`,
+          jobId: `outbox-${row.id}`,
           removeOnComplete: true,
           removeOnFail: true
         }

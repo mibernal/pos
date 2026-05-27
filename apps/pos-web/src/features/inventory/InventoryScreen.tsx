@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState, type ChangeEvent, type FormEvent } fr
 import type { ProductItem } from '../../lib/api';
 import { Banner, Modal, ShellMessage, PlaceholderImage } from '../../components/ui';
 import { RoleGuard, useSession } from '../auth';
+import type { ConsolidatedInventoryResponse } from '@pos-dian/shared';
 
 interface InventoryScreenProps {
   api: ReturnType<typeof import('../../lib/api').createApiClient>;
@@ -11,11 +12,10 @@ interface InventoryScreenProps {
 export function InventoryScreen({ api, branchId }: InventoryScreenProps) {
   const { role } = useSession();
   const isAdmin = role === 'ADMIN';
-  const roleRef = role; // hack for dependencies
 
   const [products, setProducts] = useState<ProductItem[]>([]);
   const [balances, setBalances] = useState<Record<string, number>>({});
-  const [consolidatedData, setConsolidatedData] = useState<Array<Record<string, unknown>>>([]);
+  const [consolidatedData, setConsolidatedData] = useState<ConsolidatedInventoryResponse>([]);
   const [viewMode, setViewMode] = useState<'LOCAL' | 'CONSOLIDATED'>('LOCAL');
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -211,7 +211,7 @@ export function InventoryScreen({ api, branchId }: InventoryScreenProps) {
                     <td style={{ padding: '0.5rem 1rem' }}>
                       <div style={{ width: '32px', height: '32px', borderRadius: '4px', overflow: 'hidden' }}>
                         {p.image_url ? (
-                          <img src={p.image_url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                          <img src={p.image_url ?? undefined} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                         ) : (
                           <PlaceholderImage name={p.product_name} category={p.category} size="sm" />
                         )}
