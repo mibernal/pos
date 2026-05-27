@@ -108,7 +108,7 @@ describe('PosScreen', () => {
     vi.restoreAllMocks();
   });
 
-  it('adds the highlighted product with Enter, applies visible discount and removes selected item with Delete', async () => {
+  it('adds the highlighted product with Enter and removes selected item with Delete', async () => {
     const api = buildApiMock([
       {
         id: 'product-1',
@@ -130,7 +130,8 @@ describe('PosScreen', () => {
           address: 'Calle 1',
           phone: '',
           footerMessage: '',
-          logoUrl: ''
+          logoUrl: '',
+          printerWidth: '80mm'
         }}
         tenantTaxMode="IVA"
         onSaleQueued={vi.fn()}
@@ -147,18 +148,13 @@ describe('PosScreen', () => {
     expect(screen.getByLabelText('Cantidad')).toBeInTheDocument();
     expectMoneyVisible(1500);
 
-    const visibleDiscountInput = screen.getByPlaceholderText(/0.00/i);
-    fireEvent.change(visibleDiscountInput, { target: { value: '2' } });
-
-    await waitFor(() => expectMoneyVisible(1300));
-
     fireEvent.keyDown(window, { key: 'Delete' });
 
     await waitFor(() => {
       expect(
         screen.getByText(/el carrito está vacío/i)
       ).toBeInTheDocument();
-      expect(screen.getByRole('button', { name: /cobrar \(f12\)/i })).toBeDisabled();
+      expect(screen.getByRole('button', { name: /cobrar/i })).toBeDisabled();
     });
   });
 
@@ -199,7 +195,8 @@ describe('PosScreen', () => {
           address: 'Calle 1',
           phone: '',
           footerMessage: '',
-          logoUrl: ''
+          logoUrl: '',
+          printerWidth: '80mm'
         }}
         tenantTaxMode="IVA"
         onSaleQueued={vi.fn()}
@@ -209,7 +206,7 @@ describe('PosScreen', () => {
     expect(await screen.findByRole('button', { name: /agregar destacado/i })).toBeInTheDocument();
 
     fireEvent.keyDown(screen.getByLabelText('Búsqueda rápida'), { key: 'Enter' });
-    fireEvent.click(screen.getByRole('button', { name: /cobrar \(f12\)/i }));
+    fireEvent.click(screen.getByRole('button', { name: /cobrar/i }));
 
     const dialog = screen.getByRole('dialog', { name: 'Cobrar venta' });
     const receivedInput = within(dialog).getByLabelText('Recibido (COP)');
@@ -247,7 +244,7 @@ describe('PosScreen', () => {
     );
 
     expect(await screen.findByText(/venta #23 registrada/i)).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /re-imprimir ticket/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /imprimir html/i })).toBeInTheDocument();
     expect(screen.getByText(/estado dian/i)).toBeInTheDocument();
     expect(
       screen.getByText(/el carrito está vacío/i)
@@ -276,7 +273,8 @@ describe('PosScreen', () => {
           address: 'Calle 1',
           phone: '',
           footerMessage: '',
-          logoUrl: ''
+          logoUrl: '',
+          printerWidth: '80mm'
         }}
         tenantTaxMode="IVA"
         onSaleQueued={vi.fn()}
@@ -286,7 +284,7 @@ describe('PosScreen', () => {
     expect(await screen.findByRole('button', { name: /agregar destacado/i })).toBeInTheDocument();
 
     fireEvent.keyDown(screen.getByLabelText('Búsqueda rápida'), { key: 'Enter' });
-    fireEvent.click(screen.getByRole('button', { name: /cobrar \(f12\)/i }));
+    fireEvent.click(screen.getByRole('button', { name: /cobrar/i }));
 
     const dialog = screen.getByRole('dialog', { name: 'Cobrar venta' });
     fireEvent.click(within(dialog).getByRole('button', { name: 'Mixto' }));

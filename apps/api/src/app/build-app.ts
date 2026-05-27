@@ -4,6 +4,7 @@ import cors from '@fastify/cors';
 import { z } from 'zod';
 import {
   validatorCompiler,
+  serializerCompiler,
   type ZodTypeProvider
 } from 'fastify-type-provider-zod';
 import { Redis } from 'ioredis';
@@ -101,6 +102,7 @@ export async function buildApp() {
   }).withTypeProvider<ZodTypeProvider>();
 
   app.setValidatorCompiler(validatorCompiler);
+  app.setSerializerCompiler(serializerCompiler);
 
   // C7: Eliminado app.decorate('dianQueue', ...) — el API no publica en BullMQ,
   // el outbox en DB es el mecanismo de comunicación con el worker.

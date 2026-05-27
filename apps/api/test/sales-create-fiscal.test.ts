@@ -4,6 +4,7 @@ import type { Kysely } from 'kysely';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import {
   validatorCompiler,
+  serializerCompiler,
   type ZodTypeProvider
 } from 'fastify-type-provider-zod';
 import { authPlugin } from '../src/plugins/auth.js';
@@ -137,6 +138,11 @@ class FakeSelectBuilder {
       }
     }
 
+    return this;
+  }
+
+  selectAll(): this {
+    this.selectedColumns = null;
     return this;
   }
 
@@ -452,6 +458,7 @@ function createFixture(
 async function buildSalesApp(state: FakeDbState) {
   const app = Fastify().withTypeProvider<ZodTypeProvider>();
   app.setValidatorCompiler(validatorCompiler);
+  app.setSerializerCompiler(serializerCompiler);
 
   app.decorate('db', new FakeDb(state) as unknown as Kysely<Database>);
   app.decorate('dianQueue', {
@@ -509,7 +516,9 @@ describe('POST /sales fiscal persistence', () => {
         payments: [{ method: 'CASH', amount_cents: fixture.linePriceCents }]
       }
     });
-
+    if (response.statusCode === 500) {
+      console.log('TEST 500 ERROR:', response.json());
+    }
     expect(response.statusCode).toBe(201);
 
     const body = response.json() as {

@@ -3,7 +3,11 @@
   "compilerOptions": {
     "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.app.tsbuildinfo",
     "target": "ES2022",
-    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "lib": [
+      "ES2022",
+      "DOM",
+      "DOM.Iterable"
+    ],
     "module": "ESNext",
     "moduleResolution": "Bundler",
     "allowImportingTsExtensions": true,
@@ -12,7 +16,14 @@
     "moduleDetection": "force",
     "jsx": "react-jsx",
     "noEmit": true,
-    "types": ["vite/client", "vitest/globals"]
+    "types": [
+      "vite/client",
+      "vitest/globals"
+    ]
   },
-  "include": ["src", "vite.config.ts"]
+  "include": [
+    "src",
+    "vite.config.ts",
+    "test"
+  ]
 }

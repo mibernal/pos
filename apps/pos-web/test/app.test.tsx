@@ -429,7 +429,7 @@ describe('App', () => {
 
     await screen.findByRole('button', { name: /agregar destacado/i });
     fireEvent.keyDown(await screen.findByLabelText('Búsqueda rápida'), { key: 'Enter' });
-    fireEvent.click(screen.getByRole('button', { name: /cobrar \(f12\)/i }));
+    fireEvent.click(screen.getByRole('button', { name: /cobrar/i }));
 
     const checkoutDialog = screen.getByRole('dialog', { name: 'Cobrar venta' });
     fireEvent.change(screen.getByLabelText('Recibido (COP)'), {
@@ -444,7 +444,7 @@ describe('App', () => {
       expectPendingCount(1);
     });
 
-    fireEvent.click(screen.getAllByRole('button', { name: 'Sincronizar' })[0]!);
+    fireEvent.click(screen.getAllByRole('button', { name: /sincronizar ahora/i })[0]!);
 
     expect(
       await screen.findByText(/1 venta\(s\) pendiente\(s\) sincronizada\(s\) correctamente/i)
@@ -482,14 +482,14 @@ describe('App', () => {
       expectPendingCount(1);
     });
 
-    fireEvent.click(screen.getAllByRole('button', { name: 'Sincronizar' })[0]!);
+    fireEvent.click(screen.getAllByRole('button', { name: /sincronizar ahora/i })[0]!);
 
     expect(
       await screen.findByText(/la caja está cerrada\. abre una nueva sesión antes de registrar más ventas/i)
     ).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Sincronizar' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /sincronizar ahora/i })).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Sincronizar' }));
+    fireEvent.click(screen.getByRole('button', { name: /sincronizar ahora/i }));
 
     expect(
       await screen.findByText(/1 venta\(s\) pendiente\(s\) sincronizada\(s\) correctamente/i)
