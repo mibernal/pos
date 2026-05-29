@@ -1,7 +1,7 @@
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import type { FastifyInstance } from 'fastify';
 import { buildApp } from '../src/app/build-app.js';
-import { resetLoginRateLimitStore } from '../src/infra/security/login-rate-limit.js';
+import { resetLoginRateLimitStore } from '../src/shared/infra/security/login-rate-limit.js';
 import {
   cleanupE2eFixture,
   ensureE2eSchema,

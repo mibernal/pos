@@ -16,7 +16,9 @@ export const authUserSchema = z.object({
   role: userRoleSchema,
   email: z.string().email(),
   name: z.string().min(1),
-  active: z.boolean()
+  active: z.boolean(),
+  branchIds: z.array(z.string().uuid()).optional(),
+  permissions: z.array(z.string()).optional()
 });
 
 export const loginResponseSchema = z.object({
@@ -43,6 +45,8 @@ export const jwtClaimsSchema = z.object({
   role: userRoleSchema,
   email: z.string().email(),
   name: z.string().min(1),
+  branchIds: z.array(z.string().uuid()).optional(),
+  permissions: z.array(z.string()).optional(),
   iat: z.number().int().optional(),
   exp: z.number().int().optional()
 });

@@ -7,6 +7,7 @@ export const ReturnItemSchema = z.object({
 });
 
 export const CreateReturnRequestSchema = z.object({
+  client_uuid: uuidSchema,
   items: z.array(ReturnItemSchema).min(1),
   reason: z.string().min(1).max(255).optional()
 });

@@ -73,8 +73,8 @@ export async function recheckStuckDianDocuments(
           WHERE o.tenant_id = d.tenant_id
             AND o.aggregate_id = d.sale_id
             AND o.type = CASE d.document_type
-                           WHEN 'INVOICE' THEN 'SALE_CREATED'
-                           WHEN 'CREDIT_NOTE' THEN 'SALE_VOIDED'
+                           WHEN 'INVOICE' THEN 'sale.created'
+                           WHEN 'CREDIT_NOTE' THEN 'sale.voided'
                          END
             AND o.status IN ('PENDING', 'FAILED')
             AND (o.next_retry_at IS NULL OR o.next_retry_at <= NOW())
@@ -102,9 +102,9 @@ export async function recheckStuckDianDocuments(
 
   for (const doc of stuckDocs) {
     try {
-      const outboxType = doc.document_type === 'INVOICE' ? 'SALE_CREATED' : 'SALE_VOIDED';
+      const outboxType = doc.document_type === 'INVOICE' ? 'sale.created' : 'sale.voided';
       const jobName =
-        outboxType === 'SALE_CREATED'
+        outboxType === 'sale.created'
           ? 'process-sale-created-outbox-event'
           : 'process-sale-voided-outbox-event';
 

@@ -4,9 +4,9 @@ import {
   canAccessProductInBranchScope,
   resolveBranchIdForCreate,
   resolveBranchIdForPatch
-} from '../src/modules/products/scope.js';
-import { AppError } from '../src/infra/errors/app-error.js';
-import { productsQuerySchema } from '../src/modules/products/schemas.js';
+} from '../src/contexts/inventory/services/products/scope.js';
+import { AppError } from '../src/shared/infra/errors/app-error.js';
+import { productsQuerySchema } from '../src/contexts/inventory/services/products/schemas.js';
 
 describe('products scope helpers', () => {
   it('uses payload branch on create when header is not set', () => {

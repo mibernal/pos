@@ -28,6 +28,8 @@ export function useCheckout({
   const processSale = useCallback(async (
     cartItems: CartItem[], 
     discountCents: number,
+    subtotalCents: number,
+    totalCents: number,
     payments: CreateSaleRequest['payments'],
     customerId: string | null
   ) => {
@@ -53,7 +55,13 @@ export function useCheckout({
         qty: item.qty,
         price_cents: item.priceCents
       })),
-      payments
+      payments,
+      snapshot: {
+        subtotal_cents: subtotalCents,
+        discount_cents: discountCents,
+        tax_total_cents: 0, // Frontend does not calculate taxes yet
+        total_cents: totalCents
+      }
     };
 
     try {

@@ -5,6 +5,7 @@ import type { ProductItem } from '../../../lib/api';
 export function useCart() {
   const [cartItems, setCartItems] = useState<CartItem[]>([]);
   const [selectedCartIndex, setSelectedCartIndex] = useState(-1);
+  const [parkedCarts, setParkedCarts] = useState<CartItem[][]>([]);
 
   const subtotalCents = useMemo(
     () => cartItems.reduce((sum, item) => sum + item.qty * item.priceCents, 0),
@@ -108,10 +109,29 @@ export function useCart() {
     setSelectedCartIndex(-1);
   }, []);
 
+  const parkCart = useCallback(() => {
+    if (cartItems.length === 0) return;
+    setParkedCarts((current) => [...current, cartItems]);
+    resetCartState();
+  }, [cartItems, resetCartState]);
+
+  const restoreCart = useCallback((index: number) => {
+    setParkedCarts((current) => {
+      const cartToRestore = current[index];
+      if (!cartToRestore) return current;
+      
+      setCartItems(cartToRestore);
+      setSelectedCartIndex(-1);
+      
+      return current.filter((_, i) => i !== index);
+    });
+  }, []);
+
   return {
     cartItems,
     selectedCartIndex,
     setSelectedCartIndex,
+    parkedCarts,
     discountCents,
     subtotalCents,
     cartQuantity,
@@ -119,6 +139,8 @@ export function useCart() {
     addProduct,
     removeSelectedItem,
     updateCartQty,
-    resetCartState
+    resetCartState,
+    parkCart,
+    restoreCart
   };
 }

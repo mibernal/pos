@@ -29,7 +29,6 @@ export async function claimOutboxEvent(
       UPDATE outbox_events
       SET next_retry_at = NOW() + ($2 * INTERVAL '1 millisecond')
       WHERE id = $1
-        AND type = 'SALE_CREATED'
         AND status IN ('PENDING', 'FAILED')
         AND (next_retry_at IS NULL OR next_retry_at <= NOW())
       RETURNING id, tenant_id, aggregate_id, status, attempts, payload_json

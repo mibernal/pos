@@ -9,8 +9,8 @@ describe('outbox events scheduler', () => {
     const pool = {
       query: vi.fn(async () => ({
         rows: [
-          { id: 'outbox-1', type: 'SALE_CREATED' },
-          { id: 'outbox-2', type: 'SALE_CREATED' }
+          { id: 'outbox-1', type: 'sale.created' },
+          { id: 'outbox-2', type: 'sale.created' }
         ]
       }))
     } as unknown as Pool;
@@ -24,8 +24,8 @@ describe('outbox events scheduler', () => {
 
     expect(pool.query).toHaveBeenCalledOnce();
     expect(pool.query).toHaveBeenCalledWith(
-      expect.stringContaining("WHERE type IN ('SALE_CREATED', 'SALE_VOIDED', 'sale_returned')"),
-      [25]
+      expect.stringContaining("WHERE type = ANY($1)"),
+      [expect.any(Array), 25]
     );
     expect(enqueued).toBe(2);
     expect(queue.add).toHaveBeenCalledTimes(2);
@@ -51,10 +51,10 @@ describe('outbox events scheduler', () => {
     );
   });
 
-  it('enqueues due SALE_VOIDED outbox events as credit-note jobs', async () => {
+  it('enqueues due sale.voided outbox events as credit-note jobs', async () => {
     const pool = {
       query: vi.fn(async () => ({
-        rows: [{ id: 'outbox-voided', type: 'SALE_VOIDED' }]
+        rows: [{ id: 'outbox-voided', type: 'sale.voided' }]
       }))
     } as unknown as Pool;
 

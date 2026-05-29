@@ -294,6 +294,7 @@ describe('PosScreen', () => {
 
     fireEvent.change(within(dialog).getByLabelText('Monto línea 1'), { target: { value: '10' } });
     fireEvent.change(within(dialog).getByLabelText('Monto línea 2'), { target: { value: '5' } });
+    fireEvent.change(within(dialog).getByLabelText('Voucher línea 2'), { target: { value: '12345' } });
 
     await waitFor(() => {
       expect(confirmButton).toBeEnabled();

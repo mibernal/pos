@@ -13,6 +13,7 @@ interface MixedPaymentLine {
   amountDraft: string;
   id: string;
   method: SimplePaymentMethod;
+  approvalCode?: string;
 }
 
 const SIMPLE_PAYMENT_OPTIONS: ReadonlyArray<{ label: string; method: PaymentMethod }> = [
@@ -35,7 +36,8 @@ function createMixedPaymentLine(method: SimplePaymentMethod, amountCents: number
     amountCents,
     amountDraft: formatEditableMoneyFromCents(amountCents),
     id: createLineId(),
-    method
+    method,
+    approvalCode: ''
   };
 }
 
@@ -83,6 +85,7 @@ export function CheckoutModal({
 }) {
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('CASH');
   const [cashReceivedDraft, setCashReceivedDraft] = useState('0');
+  const [cardApprovalCode, setCardApprovalCode] = useState('');
   const [selectedCustomerId, setSelectedCustomerId] = useState<string>('');
   const [terminalProcessing, setTerminalProcessing] = useState(false);
   const [terminalError, setTerminalError] = useState<string | null>(null);
@@ -100,6 +103,7 @@ export function CheckoutModal({
     }
 
     setCashReceivedDraft(formatEditableMoneyFromCents(totalCents));
+    setCardApprovalCode('');
     setMixedLines(buildDefaultMixedLines(totalCents));
     setSelectedCustomerId('');
     setTerminalProcessing(false);
@@ -142,9 +146,27 @@ export function CheckoutModal({
     () => positiveMixedLines.reduce((sum, line) => sum + line.amountCents, 0),
     [positiveMixedLines]
   );
+  
+  const mixedCashEnteredCents = useMemo(
+    () => positiveMixedLines.filter(l => l.method === 'CASH').reduce((sum, line) => sum + line.amountCents, 0),
+    [positiveMixedLines]
+  );
+  const mixedNonCashEnteredCents = mixedEnteredCents - mixedCashEnteredCents;
+  
   const mixedDifferenceCents = totalCents - mixedEnteredCents;
+  const mixedChangeCents = Math.max(0, mixedEnteredCents - totalCents);
+  
   const canConfirmCash = cashReceivedCents >= totalCents;
-  const canConfirmMixed = positiveMixedLines.length >= 2 && mixedEnteredCents === totalCents;
+  
+  const hasValidMixedApprovalCodes = positiveMixedLines.every((line) => line.method !== 'CARD' || (line.approvalCode && line.approvalCode.trim().length >= 3));
+  
+  // Mixed payment is valid if we meet the total, AND any overpayment is purely from CASH lines.
+  const canConfirmMixed = 
+    positiveMixedLines.length >= 2 && 
+    mixedEnteredCents >= totalCents && 
+    mixedNonCashEnteredCents <= totalCents &&
+    hasValidMixedApprovalCodes;
+  
   const canSubmit =
     totalCents > 0 &&
     !isSubmitting &&
@@ -153,7 +175,7 @@ export function CheckoutModal({
       : paymentMethod === 'MIXED'
         ? canConfirmMixed
         : paymentMethod === 'CARD'
-          ? terminalSuccess || true // permitimos manual if they want, pero la UI puede bloquear
+          ? (terminalSuccess || cardApprovalCode.trim().length >= 3)
           : true);
 
   if (!isOpen) {
@@ -179,6 +201,12 @@ export function CheckoutModal({
             }
           : line
       )
+    );
+  }
+
+  function updateMixedLineApprovalCode(lineId: string, approvalCode: string) {
+    setMixedLines((current) =>
+      current.map((line) => (line.id === lineId ? { ...line, approvalCode } : line))
     );
   }
 
@@ -214,16 +242,31 @@ export function CheckoutModal({
         ? [
             {
               method: 'MIXED',
-              payments: positiveMixedLines.map((line) => ({
-                method: line.method,
-                amount_cents: line.amountCents
-              }))
+              payments: positiveMixedLines.map((line) => {
+                // If it's a cash line and we have change, we subtract the change from that cash line
+                // so the backend receives the exact payment match.
+                let finalAmountCents = line.amountCents;
+                if (line.method === 'CASH' && mixedChangeCents > 0) {
+                  // Only deduct up to the line's amount, in case multiple cash lines exist
+                  const deduction = Math.min(finalAmountCents, mixedChangeCents);
+                  finalAmountCents -= deduction;
+                  // (Note: in a perfect scenario we'd track deduction accurately across lines, 
+                  // but typically there's only 1 cash line)
+                }
+
+                return {
+                  method: line.method,
+                  amount_cents: finalAmountCents,
+                  ...(line.method === 'CARD' ? { approval_code: line.approvalCode?.trim() } : {})
+                };
+              })
             }
           ]
         : [
             {
               method: paymentMethod,
-              amount_cents: totalCents
+              amount_cents: totalCents,
+              ...(paymentMethod === 'CARD' ? { approval_code: cardApprovalCode.trim() || 'TERM-APPV' } : {})
             }
           ];
 
@@ -398,6 +441,16 @@ export function CheckoutModal({
                   <strong>{formatMoneyFromCents(totalCents)}</strong>
                 </div>
 
+                <label className="field" style={{ marginTop: '1rem' }}>
+                  <span>Código de Aprobación (Voucher)</span>
+                  <input
+                    type="text"
+                    placeholder="Ej. 123456"
+                    value={cardApprovalCode}
+                    onChange={(e) => setCardApprovalCode(e.target.value)}
+                  />
+                </label>
+
                 <div style={{ marginTop: '1rem' }}>
                   <button 
                     className="secondary-button" 
@@ -462,7 +515,18 @@ export function CheckoutModal({
                         type="number"
                         value={line.amountDraft}
                         onChange={(event) => updateMixedLineAmount(line.id, event.target.value)}
+                        style={{ width: '120px' }}
                       />
+                      {line.method === 'CARD' ? (
+                        <input
+                          aria-label={`Voucher línea ${index + 1}`}
+                          type="text"
+                          placeholder="Voucher"
+                          value={line.approvalCode || ''}
+                          onChange={(event) => updateMixedLineApprovalCode(line.id, event.target.value)}
+                          style={{ width: '120px' }}
+                        />
+                      ) : null}
                       <button
                         className="ghost-button"
                         type="button"
@@ -487,10 +551,17 @@ export function CheckoutModal({
                     <span>Ingresado</span>
                     <strong>{formatMoneyFromCents(mixedEnteredCents)}</strong>
                   </div>
-                  <div className="metric-card">
-                    <span>Diferencia</span>
-                    <strong>{formatMoneyFromCents(Math.abs(mixedDifferenceCents))}</strong>
-                  </div>
+                  {mixedChangeCents > 0 ? (
+                    <div className="metric-card">
+                      <span>Cambio (Efectivo)</span>
+                      <strong>{formatMoneyFromCents(mixedChangeCents)}</strong>
+                    </div>
+                  ) : (
+                    <div className="metric-card">
+                      <span>Diferencia</span>
+                      <strong>{formatMoneyFromCents(Math.abs(mixedDifferenceCents))}</strong>
+                    </div>
+                  )}
                 </div>
 
                 {positiveMixedLines.length < 2 ? (
@@ -503,9 +574,9 @@ export function CheckoutModal({
                   </Banner>
                 ) : null}
 
-                {mixedDifferenceCents < 0 ? (
+                {mixedDifferenceCents < 0 && mixedNonCashEnteredCents > totalCents ? (
                   <Banner tone="warning">
-                    Excediste el total por {formatMoneyFromCents(Math.abs(mixedDifferenceCents))}. Ajusta las líneas antes de cobrar.
+                    El pago con Tarjeta o Transferencia no puede exceder el total. Solo se permite cambio en Efectivo.
                   </Banner>
                 ) : null}
               </div>

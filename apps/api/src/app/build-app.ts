@@ -8,22 +8,23 @@ import {
   type ZodTypeProvider
 } from 'fastify-type-provider-zod';
 import { Redis } from 'ioredis';
-import { authPlugin } from '../plugins/auth.js';
-import { errorHandlerPlugin } from '../plugins/error-handler.js';
-import { registerSwagger } from '../plugins/swagger.js';
-import { authRoutes } from '../routes/auth.js';
-import { branchesRoutes } from '../routes/branches.js';
-import { healthRoutes } from '../routes/health.js';
-import { salesRoutes } from '../routes/sales.js';
-import { adminTenantsRoutes } from '../routes/admin-tenants.js';
-import { adminUsersRoutes } from '../routes/admin-users.js';
-import { productsRoutes } from '../routes/products.js';
-import { cashSessionsRoutes } from '../routes/cash-sessions.js';
-import { customersRoutes } from '../routes/customers.js';
-import { inventoryRoutes } from '../routes/inventory.js';
-import { reportsRoutes } from '../routes/reports.js';
-import { dashboardRoutes } from '../routes/dashboard.js';
-import { createDb } from '../infra/db/connection.js';
+import { authPlugin } from '../shared/plugins/auth.js';
+import { errorHandlerPlugin } from '../shared/plugins/error-handler.js';
+import { registerSwagger } from '../shared/plugins/swagger.js';
+import { authRoutes } from '../contexts/identity/http/auth.routes.js';
+import { branchesRoutes } from '../contexts/identity/http/branches.routes.js';
+import { healthRoutes } from '../shared/http/health.routes.js';
+import { salesRoutes } from '../contexts/sales/http/sales.routes.js';
+import { adminTenantsRoutes } from '../contexts/identity/http/admin-tenants.routes.js';
+import { adminUsersRoutes } from '../contexts/identity/http/admin-users.routes.js';
+import { productsRoutes } from '../contexts/inventory/http/products.routes.js';
+import { cashSessionsRoutes } from '../contexts/sales/http/cash-sessions.routes.js';
+import { customersRoutes } from '../contexts/sales/http/customers.routes.js';
+import { inventoryRoutes } from '../contexts/inventory/http/inventory.routes.js';
+import { reportsRoutes } from '../contexts/reporting/http/reports.routes.js';
+import { dashboardRoutes } from '../contexts/reporting/http/dashboard.routes.js';
+import { terminalsRoutes } from '../contexts/sales/http/terminals.routes.js';
+import { createDb } from '../shared/infra/db/connection.js';
 import { env } from './env.js';
 import { resolveCorsAllowedOrigins } from './cors.js';
 
@@ -152,6 +153,7 @@ export async function buildApp() {
   await app.register(inventoryRoutes, { prefix: '/api/v1' });
   await app.register(reportsRoutes, { prefix: '/api/v1' });
   await app.register(dashboardRoutes, { prefix: '/api/v1' });
+  await app.register(terminalsRoutes, { prefix: '/api/v1' });
 
   app.addHook('onClose', async (instance) => {
     // C7: sin dianQueue, solo cerramos DB y Redis

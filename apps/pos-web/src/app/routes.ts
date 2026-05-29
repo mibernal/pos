@@ -32,6 +32,11 @@ export const APP_ROUTE_DEFINITIONS: readonly AppRouteDefinition[] = [
     allowedRoles: ['ADMIN', 'MANAGER', 'CASHIER', 'AUDITOR']
   },
   {
+    id: 'inventory-adjustments',
+    label: 'Ajustes',
+    allowedRoles: ['ADMIN', 'MANAGER']
+  },
+  {
     id: 'reports',
     label: 'Reportes',
     allowedRoles: ['ADMIN', 'MANAGER', 'AUDITOR']

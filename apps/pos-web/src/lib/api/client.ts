@@ -44,6 +44,14 @@ export interface BranchItem {
   current_cash_session: CashSession | null;
 }
 
+export interface TerminalItem {
+  id: string;
+  tenant_id: string;
+  branch_id: string;
+  name: string;
+  is_active: boolean;
+}
+
 export interface CashSession {
   id: string;
   tenant_id: string;
@@ -103,6 +111,32 @@ function toQueryString(params: Record<string, string | number | undefined>): str
 }
 
 export function createApiClient({ baseUrl, getSession, setSession }: CreateApiClientOptions) {
+  let refreshPromise: Promise<AuthSession | null> | null = null;
+
+  async function refreshToken(): Promise<AuthSession | null> {
+    if (refreshPromise) {
+      return refreshPromise;
+    }
+    refreshPromise = (async () => {
+      try {
+        const response = await fetch(`${baseUrl}/auth/refresh`, {
+          method: 'POST',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json' }
+        });
+        if (!response.ok) {
+          return null;
+        }
+        return (await response.json()) as AuthSession;
+      } catch {
+        return null;
+      } finally {
+        refreshPromise = null;
+      }
+    })();
+    return refreshPromise;
+  }
+
   async function requestJson<T>(path: string, options: RequestOptions = {}): Promise<T> {
     const session = getSession();
     const headers = new Headers(options.headers);
@@ -130,8 +164,27 @@ export function createApiClient({ baseUrl, getSession, setSession }: CreateApiCl
       throw new ApiClientError(message, { isNetworkError: true });
     }
 
-    if (response.status === 401 && session?.accessToken) {
-      setSession(null);
+    if (response.status === 401 && session?.accessToken && path !== '/auth/refresh' && path !== '/auth/login' && path !== '/auth/logout') {
+      const newSession = await refreshToken();
+      if (newSession) {
+        setSession(newSession);
+        headers.set('Authorization', `Bearer ${newSession.accessToken}`);
+        try {
+          response = await fetch(`${baseUrl}${path}`, {
+            credentials: 'include',
+            ...options,
+            headers
+          });
+        } catch (networkError) {
+          const message = networkError instanceof Error ? networkError.message : 'No fue posible conectar con el API';
+          throw new ApiClientError(message, { isNetworkError: true });
+        }
+        if (response.status === 401) {
+          setSession(null);
+        }
+      } else {
+        setSession(null);
+      }
     }
 
     if (!response.ok) {
@@ -177,16 +230,20 @@ export function createApiClient({ baseUrl, getSession, setSession }: CreateApiCl
     login,
     logout,
     me: () => requestJson<SharedMeResponse>('/auth/me'),
+    refresh: () => requestJson<AuthSession>('/auth/refresh', { method: 'POST' }),
     listBranches: () => requestJson<{ items: BranchItem[] }>('/branches'),
-    getCurrentCashSession: (branchId: string) =>
+    listTerminals: (branchId: string) => 
+      requestJson<{ items: TerminalItem[] }>(`/terminals?${toQueryString({ branch_id: branchId })}`),
+    getCurrentCashSession: (terminalId: string) =>
       requestJson<{ cash_session: CashSession | null }>(
-        `/cash-sessions/current?${toQueryString({ branch_id: branchId })}`
+        `/cash-sessions/current?${toQueryString({ terminal_id: terminalId })}`
       ),
-    openCashSession: (branchId: string, openingAmountCents: number) =>
+    openCashSession: (branchId: string, terminalId: string, openingAmountCents: number) =>
       requestJson<{ cash_session: CashSession }>('/cash-sessions/open', {
         method: 'POST',
         body: JSON.stringify({
           branch_id: branchId,
+          terminal_id: terminalId,
           opening_amount_cents: openingAmountCents
         })
       }),
@@ -204,6 +261,11 @@ export function createApiClient({ baseUrl, getSession, setSession }: CreateApiCl
       requestJson<{ movement: { id: string; cash_session_id: string; type: 'IN' | 'OUT'; amount_cents: number; reason: string; created_at: string } }>(`/cash-sessions/${sessionId}/movements`, {
         method: 'POST',
         body: JSON.stringify({ type, amount_cents: amountCents, reason })
+      }),
+    reconcileCashSession: (sessionId: string, discrepancyReason?: string) =>
+      requestJson<{ cash_session: CashSession; reconciliation: { id: string; cash_session_id: string; final_cash_cents: number; system_expected_cents: number; discrepancy_cents: number; resolution_notes: string | null; created_at: string } }>(`/cash-sessions/${sessionId}/reconcile`, {
+        method: 'POST',
+        body: JSON.stringify({ discrepancy_reason: discrepancyReason })
       }),
     getCurrentTenantProfile: () => requestJson<AdminTenantProfile>('/admin/tenants/current'),
     updateTenantBusinessProfile: (payload: UpdateTenantBusinessProfileBody) =>
@@ -258,9 +320,25 @@ export function createApiClient({ baseUrl, getSession, setSession }: CreateApiCl
           limit: params.limit ?? 50
         })}`
       ),
+    createInventoryAdjustment: (payload: {
+      branch_id: string;
+      product_id: string;
+      qty_change: number;
+      reason: string;
+      notes?: string;
+    }) =>
+      requestJson<{ adjustment: any; transaction: any }>('/inventory/adjustments', {
+        method: 'POST',
+        body: JSON.stringify(payload)
+      }),
     getSale: (saleId: string) => requestJson<SaleDetailResponse>(`/sales/${saleId}`),
     voidSale: (saleId: string, payload: SharedVoidSaleBody) =>
       requestJson<SharedVoidSaleResponse>(`/sales/${saleId}/void`, {
+        method: 'POST',
+        body: JSON.stringify(payload)
+      }),
+    createReturn: (saleId: string, payload: import('@pos-dian/shared').CreateReturnRequest) =>
+      requestJson<import('@pos-dian/shared').ReturnResponse>(`/sales/${saleId}/returns`, {
         method: 'POST',
         body: JSON.stringify(payload)
       }),

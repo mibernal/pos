@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { normalizeSalePayments } from '../src/modules/sales/payments.js';
-import { computeTaxes } from '../src/domain/tax/index.js';
+import { normalizeSalePayments } from '../src/contexts/sales/services/payments.js';
+import { computeTaxes } from '../src/shared/domain/tax/index.js';
 
 describe('sales payments normalization', () => {
   it('normalizes single CASH payment', () => {
@@ -16,7 +16,7 @@ describe('sales payments normalization', () => {
   it('normalizes multiple top-level payments as MIXED', () => {
     const result = normalizeSalePayments([
       { method: 'CASH', amount_cents: 4000 },
-      { method: 'CARD', amount_cents: 6000 }
+      { method: 'CARD', amount_cents: 6000, approval_code: '1234' }
     ]);
 
     expect(result.mode).toBe('MIXED');
@@ -46,7 +46,7 @@ describe('sales payments normalization', () => {
   it('rejects MIXED envelope combined with other top-level methods', () => {
     expect(() =>
       normalizeSalePayments([
-        { method: 'MIXED', payments: [{ method: 'CASH', amount_cents: 2000 }, { method: 'CARD', amount_cents: 3000 }] },
+        { method: 'MIXED', payments: [{ method: 'CASH', amount_cents: 2000 }, { method: 'CARD', amount_cents: 3000, approval_code: '1234' }] },
         { method: 'CASH', amount_cents: 1000 }
       ])
     ).toThrowError('Si envías método MIXED, debe ser el único elemento en payments');
@@ -64,7 +64,7 @@ describe('sales payments normalization', () => {
 
     const normalizedPayments = normalizeSalePayments([
       { method: 'CASH', amount_cents: 10000 },
-      { method: 'CARD', amount_cents: 10000 }
+      { method: 'CARD', amount_cents: 10000, approval_code: '1234' }
     ]);
 
     expect(taxResult.subtotal_cents).toBe(21900);

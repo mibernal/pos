@@ -6,10 +6,10 @@ import {
   validatorCompiler,
   type ZodTypeProvider
 } from 'fastify-type-provider-zod';
-import { authPlugin } from '../src/plugins/auth.js';
-import { errorHandlerPlugin } from '../src/plugins/error-handler.js';
-import { adminTenantsRoutes } from '../src/routes/admin-tenants.js';
-import type { Database } from '../src/infra/db/schema.js';
+import { authPlugin } from '../src/shared/plugins/auth.js';
+import { errorHandlerPlugin } from '../src/shared/plugins/error-handler.js';
+import { adminTenantsRoutes } from '../src/contexts/identity/http/admin-tenants.routes.js';
+import type { Database } from '../src/shared/infra/db/schema.js';
 
 type TenantTaxMode = 'IVA' | 'INC_RESTAURANT';
 type TableName = 'tenants' | 'audit_logs';
@@ -265,7 +265,7 @@ describe('tenant tax mode audit logs', () => {
       role: 'ADMIN',
       email: 'admin@test.local',
       name: 'Admin Test'
-    });
+    , branchIds: ['00000000-0000-0000-0000-000000000000'], permissions: ['sales:create', 'sales:void', 'returns:create', 'inventory:adjust', 'inventory:transfer', 'inventory:receive', 'reports:view', 'cash:reconcile', 'cash:audit', 'settings:manage']});
 
     const response = await app.inject({
       method: 'PATCH',
@@ -327,7 +327,7 @@ describe('tenant tax mode audit logs', () => {
       role: 'ADMIN',
       email: 'admin@test.local',
       name: 'Admin Test'
-    });
+    , branchIds: ['00000000-0000-0000-0000-000000000000'], permissions: ['sales:create', 'sales:void', 'returns:create', 'inventory:adjust', 'inventory:transfer', 'inventory:receive', 'reports:view', 'cash:reconcile', 'cash:audit', 'settings:manage']});
 
     const response = await app.inject({
       method: 'PATCH',

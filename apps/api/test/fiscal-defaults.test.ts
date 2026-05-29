@@ -2,7 +2,7 @@ import { readFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { createProductBodySchema } from '../src/modules/products/schemas.js';
+import { createProductBodySchema } from '../src/contexts/inventory/services/products/schemas.js';
 
 const currentDir = dirname(fileURLToPath(import.meta.url));
 const fiscalMigrationPath = resolve(

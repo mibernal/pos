@@ -70,6 +70,7 @@ export function PosScreen({
     cartItems,
     selectedCartIndex,
     setSelectedCartIndex,
+    parkedCarts,
     discountCents,
     subtotalCents,
     cartQuantity,
@@ -77,7 +78,9 @@ export function PosScreen({
     addProduct,
     removeSelectedItem,
     updateCartQty,
-    resetCartState
+    resetCartState,
+    parkCart,
+    restoreCart
   } = useCart();
 
   const canOpenCheckout = cartItems.length > 0 && totalCents > 0;
@@ -160,7 +163,8 @@ export function PosScreen({
       dianStatus: lastPrintedSaleSnapshot.sale.dian_status ?? 'PENDING',
       voidReason: lastPrintedSaleSnapshot.sale.void_reason,
       voidedAt: lastPrintedSaleSnapshot.sale.voided_at,
-      cude: null
+      cude: null,
+      isReprint: true
     });
   }
 
@@ -184,7 +188,8 @@ export function PosScreen({
         dianStatus: lastPrintedSaleSnapshot.sale.dian_status ?? 'PENDING',
         voidReason: lastPrintedSaleSnapshot.sale.void_reason,
         voidedAt: lastPrintedSaleSnapshot.sale.voided_at,
-        cude: null
+        cude: null,
+        isReprint: true
       });
     } catch (err) {
       setSaleError(err instanceof Error ? err.message : 'Error al imprimir ESC/POS');
@@ -221,11 +226,38 @@ export function PosScreen({
         return;
       }
 
-      if (event.key === 'F12') {
+      if (event.key === 'F4' || (event.key === ' ' && !isTypingTarget && !isSearchInput)) {
         event.preventDefault();
         if (canOpenCheckout && !checkoutLoading) {
           setSaleError(null);
           setIsCheckoutModalOpen(true);
+        }
+        return;
+      }
+
+      if (event.key === 'F9') {
+        event.preventDefault();
+        if (cartItems.length > 0) {
+          parkCart();
+          setSaleMessage('Venta pausada. Se ha puesto en espera.');
+        }
+        return;
+      }
+
+      if (event.key === 'F10') {
+        event.preventDefault();
+        if (parkedCarts.length > 0) {
+          restoreCart(0);
+          setSaleMessage('Venta recuperada de la espera.');
+        }
+        return;
+      }
+
+      if (event.key === 'F12') {
+        event.preventDefault();
+        if (lastPrintedSaleSnapshot) {
+          handlePrintLastSale();
+          setSaleMessage('Reimprimiendo última venta...');
         }
         return;
       }
@@ -503,7 +535,7 @@ export function PosScreen({
         discountCents={discountCents}
         customers={customers}
         onConfirm={async (payments, customerId) => {
-          await processSale(cartItems, discountCents, payments, customerId);
+          await processSale(cartItems, discountCents, subtotalCents, totalCents, payments, customerId);
         }}
         isSubmitting={checkoutLoading}
         error={saleError}

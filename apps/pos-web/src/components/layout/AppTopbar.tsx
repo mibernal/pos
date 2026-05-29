@@ -91,9 +91,11 @@ export function AppTopbar({
               </button>
             </>
           )}
-          <button className="ghost-button" onClick={onOpenCashMovements} title="Ingreso/Egreso de Caja">
-            💸
-          </button>
+          {(session.user.role === 'ADMIN' || session.user.permissions?.includes('cash:reconcile') || session.user.permissions?.includes('cash:audit')) && (
+            <button className="ghost-button" onClick={onOpenCashMovements} title="Ingreso/Egreso de Caja">
+              💸
+            </button>
+          )}
           <button className="ghost-button" onClick={onChangeRegister} title="Cambiar caja">
             🔁
           </button>

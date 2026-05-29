@@ -21,6 +21,8 @@ export interface AuthUser {
   email: string;
   name: string;
   active: boolean;
+  branchIds?: string[];
+  permissions?: string[];
 }
 
 export interface Product {

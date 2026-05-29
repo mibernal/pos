@@ -20,13 +20,6 @@ export function InventoryScreen({ api, branchId }: InventoryScreenProps) {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const [isModalOpen, setIsModalOpen] = useState(false);
-  const [selectedProductId, setSelectedProductId] = useState<string>('');
-  const [operation, setOperation] = useState<'MANUAL_ENTRY' | 'MANUAL_EXIT'>('MANUAL_ENTRY');
-  const [qtyChange, setQtyChange] = useState<number>(1);
-  const [notes, setNotes] = useState('');
-  const [isSaving, setIsSaving] = useState(false);
-
   const loadData = useCallback(async () => {
     setIsLoading(true);
     setError(null);
@@ -62,40 +55,6 @@ export function InventoryScreen({ api, branchId }: InventoryScreenProps) {
     void loadData();
   }, [loadData]);
 
-  const openAdjustModal = (productId?: string) => {
-    if (productId) setSelectedProductId(productId);
-    else if (products.length > 0) setSelectedProductId(products[0]!.id);
-    
-    setOperation('MANUAL_ENTRY');
-    setQtyChange(1);
-    setNotes('');
-    setIsModalOpen(true);
-  };
-
-  const handleSaveAdjustment = async (e: FormEvent) => {
-    e.preventDefault();
-    if (!selectedProductId || qtyChange <= 0) return;
-
-    setIsSaving(true);
-    setError(null);
-    try {
-      await api.createInventoryTransaction({
-        branch_id: branchId,
-        product_id: selectedProductId,
-        operation: operation,
-        qty_change: operation === 'MANUAL_EXIT' ? -qtyChange : qtyChange,
-        notes: notes.trim() || undefined
-      });
-      
-      setIsModalOpen(false);
-      await loadData(); // Recargar saldos
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Error al registrar transacción');
-    } finally {
-      setIsSaving(false);
-    }
-  };
-
   if (isLoading) {
     return <ShellMessage title="Cargando Kárdex..." subtitle="Obteniendo saldos de inventario de la bodega" />;
   }
@@ -127,16 +86,11 @@ export function InventoryScreen({ api, branchId }: InventoryScreenProps) {
                 Consolidado
               </button>
             </div>
-            <RoleGuard allowedRoles={['ADMIN']}>
-              <button onClick={() => openAdjustModal()} className="button" style={{ background: 'var(--color-primary-600)', color: '#fff' }}>
-                + Ajuste Manual
-              </button>
-            </RoleGuard>
           </div>
         </RoleGuard>
       </div>
 
-      {error && !isModalOpen && <Banner tone="error">{error}</Banner>}
+      {error && <Banner tone="error">{error}</Banner>}
 
       {products.length === 0 ? (
         <div className="empty-state" style={{ textAlign: 'center', padding: '3rem 1rem' }}>
@@ -158,9 +112,6 @@ export function InventoryScreen({ api, branchId }: InventoryScreenProps) {
                 </th>
                 {viewMode === 'CONSOLIDATED' && (
                   <th style={{ padding: '0.75rem 1rem' }}>Desglose por Sucursal</th>
-                )}
-                {isAdmin && viewMode === 'LOCAL' && (
-                  <th style={{ padding: '0.75rem 1rem', textAlign: 'center', width: '100px' }}>Acciones</th>
                 )}
               </tr>
             </thead>
@@ -191,13 +142,6 @@ export function InventoryScreen({ api, branchId }: InventoryScreenProps) {
                         {qty} unds
                       </span>
                     </td>
-                    {isAdmin && (
-                      <td style={{ padding: '0.75rem 1rem', textAlign: 'center' }}>
-                        <button className="ghost-button button-sm" onClick={() => openAdjustModal(p.id)}>
-                          ± Ajustar
-                        </button>
-                      </td>
-                    )}
                   </tr>
                 );
               })}
@@ -242,85 +186,6 @@ export function InventoryScreen({ api, branchId }: InventoryScreenProps) {
             </tbody>
           </table>
         </div>
-      )}
-
-      {isModalOpen && (
-        <Modal
-          ariaLabel="Ajuste de Inventario"
-          onClose={() => setIsModalOpen(false)}
-        >
-          <div style={{ padding: '1.5rem' }}>
-            <h3 style={{ fontSize: '1.25rem', fontWeight: 600, marginBottom: '1.5rem' }}>
-              Registrar Movimiento (Ajuste Manual)
-            </h3>
-            <form onSubmit={handleSaveAdjustment} className="stack-md">
-              {error && <Banner tone="error">{error}</Banner>}
-              
-              <label className="field">
-                <span>Producto</span>
-                <select
-                  value={selectedProductId}
-                  onChange={(e: ChangeEvent<HTMLSelectElement>) => setSelectedProductId(e.target.value)}
-                  required
-                >
-                  <option value="" disabled>Seleccione un producto</option>
-                  {products.map((p) => (
-                    <option key={p.id} value={p.id}>{p.name}</option>
-                  ))}
-                </select>
-              </label>
-
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
-                <label className="field">
-                  <span>Operación</span>
-                  <select
-                    value={operation}
-                    onChange={(e: ChangeEvent<HTMLSelectElement>) => setOperation(e.target.value as 'MANUAL_ENTRY' | 'MANUAL_EXIT')}
-                    required
-                  >
-                    <option value="MANUAL_ENTRY">Entrada (+)</option>
-                    <option value="MANUAL_EXIT">Salida / Merma (-)</option>
-                  </select>
-                </label>
-
-                <label className="field">
-                  <span>Cantidad</span>
-                  <input
-                    type="number"
-                    min="1"
-                    step="1"
-                    value={qtyChange}
-                    onChange={(e: ChangeEvent<HTMLInputElement>) => setQtyChange(Number(e.target.value))}
-                    required
-                  />
-                </label>
-              </div>
-
-              <label className="field">
-                <span>Notas (Opcional)</span>
-                <input
-                  value={notes}
-                  onChange={(e: ChangeEvent<HTMLInputElement>) => setNotes(e.target.value)}
-                  placeholder="Ej: Ajuste por merma, ingreso de proveedor..."
-                />
-              </label>
-
-              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem', marginTop: '1rem' }}>
-                <button
-                  type="button"
-                  className="ghost-button"
-                  onClick={() => setIsModalOpen(false)}
-                  disabled={isSaving}
-                >
-                  Cancelar
-                </button>
-                <button type="submit" className="button" style={{ background: 'var(--color-primary-600)', color: '#fff' }} disabled={isSaving}>
-                  {isSaving ? 'Guardando...' : 'Aplicar Movimiento'}
-                </button>
-              </div>
-            </form>
-          </div>
-        </Modal>
       )}
     </div>
   );

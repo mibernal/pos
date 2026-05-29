@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildRequestLogContext } from '../src/infra/logging/request-log-context.js';
+import { buildRequestLogContext } from '../src/shared/infra/logging/request-log-context.js';
 
 describe('request log context', () => {
   it('extracts tenant, branch and sale ids from the request', () => {

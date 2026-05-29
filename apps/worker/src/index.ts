@@ -7,9 +7,11 @@ import { buildDianProvider } from './providers/index.js';
 import { buildOutboxSaleCreatedProcessor } from './jobs/outbox-sale-created.processor.js';
 import { buildOutboxSaleVoidedProcessor } from './jobs/outbox-sale-voided.processor.js';
 import { buildOutboxSaleReturnedProcessor } from './jobs/outbox-sale-returned.processor.js';
-import type { AnyOutboxJobData, OutboxSaleCreatedJobData, OutboxSaleVoidedJobData } from './jobs/types.js';
+import { buildOutboxLowStockAlertProcessor } from './jobs/outbox-low-stock-alert.processor.js';
+import type { AnyOutboxJobData, OutboxSaleCreatedJobData, OutboxSaleVoidedJobData, OutboxLowStockAlertJobData } from './jobs/types.js';
 import { enqueueDueOutboxEvents } from './scheduler/outbox-events.scheduler.js';
 import { recheckStuckDianDocuments } from './scheduler/dian-sent-recheck.scheduler.js';
+import { ensureAuditLogPartitions } from './scheduler/audit-partitions.scheduler.js';
 import { logWorkerError, logWorkerInfo } from './infra/logging/worker-log.js';
 
 const provider = buildDianProvider();
@@ -24,6 +26,7 @@ const queue = new Queue<AnyOutboxJobData>(DIAN_QUEUE_NAME, {
 const outboxSaleCreatedProcessor = buildOutboxSaleCreatedProcessor({ pool: dbPool, provider });
 const outboxSaleVoidedProcessor = buildOutboxSaleVoidedProcessor({ pool: dbPool, provider });
 const outboxSaleReturnedProcessor = buildOutboxSaleReturnedProcessor({ pool: dbPool, provider });
+const outboxLowStockAlertProcessor = buildOutboxLowStockAlertProcessor({ pool: dbPool });
 
 const worker = new Worker<AnyOutboxJobData>(
   DIAN_QUEUE_NAME,
@@ -34,6 +37,8 @@ const worker = new Worker<AnyOutboxJobData>(
       return outboxSaleVoidedProcessor(job as Job<OutboxSaleVoidedJobData>);
     } else if (job.name === 'process-sale-returned-outbox-event') {
       return outboxSaleReturnedProcessor(job as Job);
+    } else if (job.name === 'process-low-stock-alert-outbox-event') {
+      return outboxLowStockAlertProcessor(job as Job<OutboxLowStockAlertJobData>);
     }
     throw new Error(`Unknown job name: ${job.name}`);
   },
@@ -130,6 +135,26 @@ const dianRecheckTimer: NodeJS.Timeout = setInterval(() => {
     });
 }, dianRecheckIntervalMs);
 
+// C5: Scheduler de particiones (una vez al día)
+const partitionCheckIntervalMs = 24 * 60 * 60 * 1000;
+const partitionTimer: NodeJS.Timeout = setInterval(() => {
+  void ensureAuditLogPartitions(dbPool).catch(err => {
+    logWorkerError({
+      event: 'audit_partition_scheduler_failed',
+      message: 'Failed to run audit partition scheduler',
+      error: err
+    });
+  });
+}, partitionCheckIntervalMs);
+
+void ensureAuditLogPartitions(dbPool).catch(err => {
+  logWorkerError({
+    event: 'audit_partition_startup_failed',
+    message: 'Failed to run audit partition scheduler on startup',
+    error: err
+  });
+});
+
 void enqueueDueOutboxEvents(dbPool, queue, env.OUTBOX_BATCH_SIZE)
   .then((enqueued) => {
     if (enqueued > 0) {
@@ -172,6 +197,7 @@ const shutdown = async () => {
   healthServer.close();
   clearInterval(schedulerTimer);
   clearInterval(dianRecheckTimer);  // C4: cancelar el recheck timer
+  clearInterval(partitionTimer); // C5: cancelar el partition timer
   await Promise.all([worker.close(), queue.close(), queueEvents.close(), dbPool.end()]);
   process.exit(0);
 };

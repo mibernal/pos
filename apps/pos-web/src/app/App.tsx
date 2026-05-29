@@ -6,7 +6,7 @@ import { CloseCashSessionModal, CashControlScreen, CashMovementModal } from '../
 import { CustomersScreen } from '../features/customers';
 import { BranchSetupScreen } from '../features/branches';
 import { HistoryScreen } from '../features/history';
-import { InventoryScreen } from '../features/inventory';
+import { InventoryScreen, InventoryAdjustmentsScreen } from '../features/inventory';
 import { ProductsScreen } from '../features/products';
 import { ReportsScreen } from '../features/reports';
 
@@ -74,6 +74,7 @@ function AppShell() {
       {!posContext || !session ? (
         <BranchSetupScreen
           api={api}
+          session={session}
           onReady={(context) => {
             commitPosContext(context);
             resetNavigation();
@@ -139,6 +140,10 @@ function AppShell() {
 
           if (activeRoute === 'inventory') {
             currentScreen = <InventoryScreen api={api} branchId={posContext.branchId} />;
+          }
+
+          if (activeRoute === 'inventory-adjustments') {
+            currentScreen = <InventoryAdjustmentsScreen api={api} branchId={posContext.branchId} />;
           }
 
           if (activeRoute === 'reports') {

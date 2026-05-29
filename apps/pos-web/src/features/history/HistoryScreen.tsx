@@ -7,6 +7,7 @@ import type { TicketTemplateConfig } from '../../lib/ticket-template';
 import type { PosApiClient } from '../../types';
 import { RoleGuard, useSession } from '../auth';
 import { inferTaxModeFromSale } from '../sales';
+import { ReturnSaleModal } from './components/ReturnSaleModal';
 
 function paymentMethodLabel(method: 'CASH' | 'CARD' | 'TRANSFER'): string {
   if (method === 'CASH') {
@@ -55,7 +56,7 @@ export function HistoryScreen({
   ticketTemplate: TicketTemplateConfig;
   tenantTaxMode?: TenantTaxMode | null;
 }) {
-  const { role } = useSession();
+  const { role, user } = useSession();
   const [fromDate, setFromDate] = useState(() => {
     const from = new Date();
     from.setDate(from.getDate() - 7);
@@ -73,6 +74,7 @@ export function HistoryScreen({
   const [isVoidModalOpen, setIsVoidModalOpen] = useState(false);
   const [voidReason, setVoidReason] = useState('');
   const [voidLoading, setVoidLoading] = useState(false);
+  const [isReturnModalOpen, setIsReturnModalOpen] = useState(false);
 
   const listedTotalCents = useMemo(
     () => sales.reduce((sum, sale) => sum + sale.total_cents, 0),
@@ -145,7 +147,7 @@ export function HistoryScreen({
   }, [loadSales]);
 
   function openVoidModal() {
-    if (!selectedSale || role !== 'ADMIN' || selectedSale.status === 'VOID') {
+    if (!selectedSale || selectedSale.status === 'VOID' || (role !== 'ADMIN' && !user?.permissions?.includes('sales:void'))) {
       return;
     }
 
@@ -164,7 +166,7 @@ export function HistoryScreen({
   }
 
   async function handleVoidSale() {
-    if (!selectedSale || role !== 'ADMIN' || selectedSale.status === 'VOID') {
+    if (!selectedSale || selectedSale.status === 'VOID' || (role !== 'ADMIN' && !user?.permissions?.includes('sales:void'))) {
       return;
     }
 
@@ -355,15 +357,26 @@ export function HistoryScreen({
               🖨️ Ticket
             </button>
             <RoleGuard allowedRoles={['ADMIN']}>
-              <button
-                className="button button-sm"
-                type="button"
-                onClick={openVoidModal}
-                disabled={!selectedSale || selectedSale.status === 'VOID'}
-                style={{ flex: 1, background: 'var(--color-slate-200)', color: 'var(--color-error-600)', border: 'none' }}
-              >
-                Anular
-              </button>
+              <div style={{ display: 'flex', gap: '0.5rem', flex: 2 }}>
+                <button
+                  className="button button-sm"
+                  type="button"
+                  onClick={openVoidModal}
+                  disabled={!selectedSale || selectedSale.status === 'VOID' || (role !== 'ADMIN' && !user?.permissions?.includes('sales:void'))}
+                  style={{ flex: 1, background: 'var(--color-slate-200)', color: 'var(--color-error-600)', border: 'none' }}
+                >
+                  Anular
+                </button>
+                <button
+                  className="button button-sm"
+                  type="button"
+                  onClick={() => setIsReturnModalOpen(true)}
+                  disabled={!selectedSale || selectedSale.status === 'VOID' || (role !== 'ADMIN' && !user?.permissions?.includes('returns:create'))}
+                  style={{ flex: 1, background: 'var(--color-primary-100)', color: 'var(--color-primary-700)', border: 'none' }}
+                >
+                  Devolver
+                </button>
+              </div>
             </RoleGuard>
           </div>
         </header>
@@ -552,6 +565,17 @@ export function HistoryScreen({
           </div>
         </Modal>
       ) : null}
+
+      <ReturnSaleModal
+        api={api}
+        saleDetail={selectedSaleDetail}
+        isOpen={isReturnModalOpen}
+        onClose={() => setIsReturnModalOpen(false)}
+        onSuccess={() => {
+          setIsReturnModalOpen(false);
+          void loadSales();
+        }}
+      />
     </div>
   );
 }

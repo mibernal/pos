@@ -1,9 +1,9 @@
 import { randomUUID } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
 import { sql } from 'kysely';
-import { hashPassword } from '../../src/auth/password.js';
-import { createDb } from '../../src/infra/db/connection.js';
-import type { ProductTaxCategory, TenantTaxMode } from '../../src/infra/db/schema.js';
+import { hashPassword } from '../../src/contexts/identity/auth/password.js';
+import { createDb } from '../../src/shared/infra/db/connection.js';
+import type { ProductTaxCategory, TenantTaxMode } from '../../src/shared/infra/db/schema.js';
 
 const adminPassword = 'Admin123*';
 const cashierPassword = 'Cashier123*';
@@ -24,6 +24,7 @@ function getCashierPasswordHash(): Promise<string> {
 export interface E2eFixture {
   tenantId: string;
   branchId: string;
+  terminalId: string;
   adminUserId: string;
   cashierUserId: string;
   productId: string;
@@ -239,7 +240,6 @@ export function ensureE2eSchema(): Promise<void> {
           created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
         )
       `.execute(db);
-
       await sql`
         CREATE TABLE IF NOT EXISTS return_items (
           id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -278,6 +278,18 @@ export function ensureE2eSchema(): Promise<void> {
           created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
         )
       `.execute(db);
+
+      await sql`
+        CREATE TABLE IF NOT EXISTS terminals (
+          id UUID PRIMARY KEY,
+          tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+          branch_id UUID NOT NULL REFERENCES branches(id) ON DELETE CASCADE,
+          name VARCHAR NOT NULL,
+          is_active BOOLEAN NOT NULL DEFAULT TRUE,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )
+      `.execute(db);
     } finally {
       if (schemaLockAcquired) {
         await sql`SELECT pg_advisory_unlock(hashtext('pos_dian_e2e_schema'))`.execute(db);
@@ -300,6 +312,7 @@ export async function seedE2eFixture(
   const suffix = randomUUID();
   const tenantId = randomUUID();
   const branchId = randomUUID();
+  const terminalId = randomUUID();
   const adminUserId = randomUUID();
   const cashierUserId = randomUUID();
   const productId = randomUUID();
@@ -331,6 +344,16 @@ export async function seedE2eFixture(
         tenant_id: tenantId,
         name: 'Sucursal E2E',
         address: 'Calle 10 # 20-30'
+      })
+      .execute();
+
+    await trx
+      .insertInto('terminals')
+      .values({
+        id: terminalId,
+        tenant_id: tenantId,
+        branch_id: branchId,
+        name: 'Caja E2E'
       })
       .execute();
 
@@ -369,6 +392,7 @@ export async function seedE2eFixture(
         tax_category: productTaxCategory,
         barcode: `770${suffix.slice(0, 8).replaceAll('-', '')}`,
         price_cents: productPriceCents,
+        cost_cents: 0,
         active: true
       })
       .execute();
@@ -377,6 +401,7 @@ export async function seedE2eFixture(
   return {
     tenantId,
     branchId,
+    terminalId,
     adminUserId,
     cashierUserId,
     productId,
@@ -403,6 +428,7 @@ export async function cleanupE2eFixture(
     await trx.deleteFrom('inventory_balances').where('tenant_id', '=', fixture.tenantId).execute();
     await trx.deleteFrom('products').where('tenant_id', '=', fixture.tenantId).execute();
     await trx.deleteFrom('users').where('tenant_id', '=', fixture.tenantId).execute();
+    await trx.deleteFrom('terminals').where('tenant_id', '=', fixture.tenantId).execute();
     await trx.deleteFrom('branches').where('tenant_id', '=', fixture.tenantId).execute();
     await trx.deleteFrom('tenants').where('id', '=', fixture.tenantId).execute();
   });

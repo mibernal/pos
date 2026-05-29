@@ -13,7 +13,8 @@ const saleQtySchema = z.coerce.number().positive().max(10_000);
 
 export const simpleSalePaymentSchema = z.object({
   method: salePaymentMethodSchema,
-  amount_cents: positiveCentsSchema
+  amount_cents: positiveCentsSchema,
+  approval_code: z.string().trim().min(3).max(50).optional()
 }).strict();
 
 export const mixedSalePaymentSchema = z.object({
@@ -38,7 +39,13 @@ export const createSaleSchema = z.object({
   cash_session_id: z.string().uuid(),
   items: z.array(saleItemInputSchema).min(1).max(200),
   discount_cents: centsSchema.default(0),
-  payments: z.array(salePaymentSchema).min(1).max(4)
+  payments: z.array(salePaymentSchema).min(1).max(4),
+  snapshot: z.object({
+    subtotal_cents: centsSchema,
+    discount_cents: centsSchema,
+    tax_total_cents: centsSchema,
+    total_cents: centsSchema
+  }).optional()
 }).strict();
 
 export const createSaleBodySchema = createSaleSchema;

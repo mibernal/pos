@@ -1,8 +1,8 @@
 import type { Kysely } from 'kysely';
 import type { Redis } from 'ioredis';
 import type { FastifyReply } from 'fastify';
-import type { AuthContext, JwtClaims, UserRole } from './auth/types.js';
-import type { Database } from './infra/db/schema.js';
+import type { AuthContext, JwtClaims, UserRole, UserPermission } from './auth/types.js';
+import type { Database } from './shared/infra/db/schema.js';
 
 declare module 'fastify' {
   interface FastifyInstance {
@@ -11,8 +11,9 @@ declare module 'fastify' {
     redis: Redis;
     db: Kysely<Database>;
     authenticate: (request: FastifyRequest, reply?: FastifyReply) => Promise<void>;
-    requireRoles: (
-      roles: UserRole[]
+
+    requirePermissions: (
+      permissions: UserPermission[]
     ) => (request: FastifyRequest, reply?: FastifyReply) => Promise<void>;
   }
 

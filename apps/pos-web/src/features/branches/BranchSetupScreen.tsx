@@ -2,15 +2,17 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Banner, ShellMessage } from '../../components/ui';
 import { useBranchCashSession } from '../cash-sessions';
 import { formatMoneyFromCents } from '../../lib/format';
-import type { BranchItem } from '../../lib/api';
+import type { BranchItem, TerminalItem, AuthSession } from '../../lib/api';
 import type { PosContext } from '../../lib/session';
 import type { PosApiClient } from '../../types';
 
 export function BranchSetupScreen({
   api,
+  session,
   onReady
 }: {
   api: PosApiClient;
+  session: AuthSession | null;
   onReady: (context: PosContext) => void;
 }) {
   const [loading, setLoading] = useState(true);
@@ -18,6 +20,10 @@ export function BranchSetupScreen({
   const [error, setError] = useState<string | null>(null);
   const [branches, setBranches] = useState<BranchItem[]>([]);
   const [selectedBranchId, setSelectedBranchId] = useState('');
+  
+  const [terminals, setTerminals] = useState<TerminalItem[]>([]);
+  const [selectedTerminalId, setSelectedTerminalId] = useState(() => localStorage.getItem('pos_terminal_id') || '');
+
   const [openingAmountPesos, setOpeningAmountPesos] = useState(10000);
   const [opening, setOpening] = useState(false);
 
@@ -26,10 +32,14 @@ export function BranchSetupScreen({
     [branches, selectedBranchId]
   );
 
+  const selectedTerminal = useMemo(
+    () => terminals.find((t) => t.id === selectedTerminalId) ?? null,
+    [terminals, selectedTerminalId]
+  );
+
   const { checkingSession, currentSession, sessionError, setCurrentSession } = useBranchCashSession({
     api,
-    branches,
-    selectedBranchId
+    selectedTerminalId
   });
 
   const loadBranches = useCallback(async (showFullLoader = true) => {
@@ -42,8 +52,14 @@ export function BranchSetupScreen({
 
     try {
       const response = await api.listBranches();
-      setBranches(response.items);
-      setSelectedBranchId((current) => current || response.items[0]?.id || '');
+      
+      let availableBranches = response.items;
+      if (session?.user?.role !== 'ADMIN' && session?.user?.branchIds?.length) {
+        availableBranches = response.items.filter(b => session.user.branchIds!.includes(b.id));
+      }
+      
+      setBranches(availableBranches);
+      setSelectedBranchId((current) => current || availableBranches[0]?.id || '');
     } catch (loadError) {
       setError(
         loadError instanceof Error
@@ -54,11 +70,36 @@ export function BranchSetupScreen({
       setLoading(false);
       setIsRefreshing(false);
     }
-  }, [api]);
+  }, [api, session]);
 
   useEffect(() => {
     void loadBranches(true);
   }, [loadBranches]);
+
+  useEffect(() => {
+    async function loadTerminals() {
+      if (!selectedBranchId) {
+        setTerminals([]);
+        return;
+      }
+      try {
+        const response = await api.listTerminals(selectedBranchId);
+        setTerminals(response.items);
+        
+        // If the selected terminal from localStorage belongs to this branch, keep it
+        // Otherwise, pick the first one
+        const exists = response.items.find(t => t.id === selectedTerminalId);
+        if (!exists && response.items.length > 0) {
+          setSelectedTerminalId(response.items[0]!.id);
+        } else if (!exists) {
+          setSelectedTerminalId('');
+        }
+      } catch (err) {
+        console.error('Error loading terminals', err);
+      }
+    }
+    void loadTerminals();
+  }, [api, selectedBranchId, selectedTerminalId]);
 
   useEffect(() => {
     if (sessionError) {
@@ -71,15 +112,20 @@ export function BranchSetupScreen({
       setError('Selecciona una sucursal');
       return;
     }
+    if (!selectedTerminalId) {
+      setError('Selecciona una terminal');
+      return;
+    }
 
     setOpening(true);
     setError(null);
 
     try {
-      const opened = await api.openCashSession(selectedBranchId, openingAmountPesos * 100);
+      localStorage.setItem('pos_terminal_id', selectedTerminalId);
+      const opened = await api.openCashSession(selectedBranchId, selectedTerminalId, openingAmountPesos * 100);
       setCurrentSession(opened.cash_session);
 
-      if (!selectedBranch) {
+      if (!selectedBranch || !selectedTerminal) {
         return;
       }
 
@@ -87,6 +133,8 @@ export function BranchSetupScreen({
         branchId: selectedBranch.id,
         branchName: selectedBranch.name,
         branchAddress: selectedBranch.address,
+        terminalId: selectedTerminal.id,
+        terminalName: selectedTerminal.name,
         cashSessionId: opened.cash_session.id
       });
     } catch (openError) {
@@ -99,15 +147,19 @@ export function BranchSetupScreen({
   }
 
   function handleContinue() {
-    if (!selectedBranch || !currentSession) {
+    if (!selectedBranch || !selectedTerminal || !currentSession) {
       setError('No hay una sesión de caja abierta para continuar');
       return;
     }
+
+    localStorage.setItem('pos_terminal_id', selectedTerminalId);
 
     onReady({
       branchId: selectedBranch.id,
       branchName: selectedBranch.name,
       branchAddress: selectedBranch.address,
+      terminalId: selectedTerminal.id,
+      terminalName: selectedTerminal.name,
       cashSessionId: currentSession.id
     });
   }
@@ -154,6 +206,27 @@ export function BranchSetupScreen({
                   </p>
                 )}
               </label>
+
+              {terminals.length > 0 && (
+                <label className="field" style={{ display: 'grid', gap: '0.5rem', marginTop: '1rem' }}>
+                  <span style={{ fontSize: '0.8125rem', fontWeight: 600, color: 'var(--color-slate-700)' }}>Terminal / Caja</span>
+                  <select
+                    value={selectedTerminalId}
+                    onChange={(event) => {
+                      setError(null);
+                      setSelectedTerminalId(event.target.value);
+                      localStorage.setItem('pos_terminal_id', event.target.value);
+                    }}
+                    style={{ padding: '0.75rem 1rem', borderRadius: 'var(--radius-lg)', border: '1px solid var(--color-slate-200)', fontSize: '0.875rem', background: '#ffffff' }}
+                  >
+                    {terminals.map((terminal) => (
+                      <option key={terminal.id} value={terminal.id}>
+                        {terminal.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              )}
 
               {checkingSession && (
                 <div style={{ marginTop: '1rem' }}>

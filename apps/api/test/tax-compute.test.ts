@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { computeTaxes } from '../src/domain/tax/index.js';
+import { computeTaxes } from '../src/shared/domain/tax/index.js';
 
 describe('tax compute service', () => {
   it('computes IVA 19 included in final price', () => {

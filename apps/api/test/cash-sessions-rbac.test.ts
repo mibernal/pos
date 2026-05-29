@@ -42,7 +42,7 @@ describe('cash sessions routes access', () => {
   it('rejects current without token', async () => {
     const response = await app.inject({
       method: 'GET',
-      url: '/api/v1/cash-sessions/current?branch_id=22222222-2222-4222-8222-222222222222'
+      url: '/api/v1/cash-sessions/current?terminal_id=22222222-2222-4222-8222-222222222222'
     });
 
     expect(response.statusCode).toBe(401);

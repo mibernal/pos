@@ -4,7 +4,7 @@ const DB_NAME = 'pos-dian-offline';
 const STORE_NAME = 'pending-sales';
 const DB_VERSION = 2;
 
-export type PendingSaleSyncState = 'PENDING' | 'FAILED';
+export type PendingSaleSyncState = 'PENDING' | 'FAILED' | 'ABORTED';
 
 export interface PendingSaleRecord {
   id: string;
@@ -75,7 +75,7 @@ function normalizePendingSaleRecord(rawRecord: unknown): PendingSaleRecord {
         ? record.queued_at
         : new Date().toISOString(),
     payload,
-    sync_state: record?.sync_state === 'FAILED' ? 'FAILED' : 'PENDING',
+    sync_state: record?.sync_state === 'FAILED' ? 'FAILED' : record?.sync_state === 'ABORTED' ? 'ABORTED' : 'PENDING',
     sync_attempts:
       typeof record?.sync_attempts === 'number' && Number.isFinite(record.sync_attempts)
         ? Math.max(0, Math.trunc(record.sync_attempts))
@@ -235,44 +235,72 @@ export async function flushPendingSales(
     shouldStopOnError?: (error: unknown) => boolean;
   }
 ): Promise<FlushPendingSalesResult> {
+  const MAX_SYNC_ATTEMPTS = 5;
   const allPendingSales = await listPendingSales();
   const pendingSales = options?.recordId
     ? allPendingSales.filter((pendingSale) => pendingSale.id === options.recordId)
-    : allPendingSales;
+    : allPendingSales.filter((pendingSale) => pendingSale.sync_state !== 'ABORTED');
 
   let syncedCount = 0;
   let failedCount = 0;
   const outcomes: FlushPendingSalesResult['outcomes'] = [];
 
-  for (const pendingSale of pendingSales) {
-    try {
-      await handler(pendingSale.payload);
-      await deletePendingSale(pendingSale.id);
-      syncedCount += 1;
-      outcomes.push({
-        recordId: pendingSale.id,
-        status: 'SYNCED',
-        errorMessage: null
-      });
-    } catch (error) {
-      const failedRecord: PendingSaleRecord = {
-        ...pendingSale,
-        sync_state: 'FAILED',
-        sync_attempts: pendingSale.sync_attempts + 1,
-        last_error: getSyncErrorMessage(error),
-        last_attempt_at: new Date().toISOString()
-      };
-      await putPendingSale(failedRecord);
-      failedCount += 1;
-      outcomes.push({
-        recordId: pendingSale.id,
-        status: 'FAILED',
-        errorMessage: failedRecord.last_error
-      });
+  const BATCH_SIZE = 5;
+  for (let i = 0; i < pendingSales.length; i += BATCH_SIZE) {
+    const batch = pendingSales.slice(i, i + BATCH_SIZE);
+    let shouldStop = false;
 
-      if (options?.shouldStopOnError?.(error)) {
-        break;
+    const results = await Promise.allSettled(
+      batch.map(async (pendingSale) => {
+        try {
+          await handler(pendingSale.payload);
+          await deletePendingSale(pendingSale.id);
+          return { status: 'SYNCED' as const, record: pendingSale };
+        } catch (error) {
+          const syncAttempts = pendingSale.sync_attempts + 1;
+          const syncState = syncAttempts >= MAX_SYNC_ATTEMPTS ? 'ABORTED' : 'FAILED';
+          const failedRecord: PendingSaleRecord = {
+            ...pendingSale,
+            sync_state: syncState,
+            sync_attempts: syncAttempts,
+            last_error: getSyncErrorMessage(error),
+            last_attempt_at: new Date().toISOString()
+          };
+          await putPendingSale(failedRecord);
+          return { status: 'FAILED' as const, record: pendingSale, failedRecord, error };
+        }
+      })
+    );
+
+    for (const result of results) {
+      if (result.status === 'fulfilled') {
+        const value = result.value;
+        if (value.status === 'SYNCED') {
+          syncedCount += 1;
+          outcomes.push({
+            recordId: value.record.id,
+            status: 'SYNCED',
+            errorMessage: null
+          });
+        } else {
+          failedCount += 1;
+          outcomes.push({
+            recordId: value.record.id,
+            status: 'FAILED',
+            errorMessage: value.failedRecord.last_error
+          });
+          if (options?.shouldStopOnError?.(value.error)) {
+            shouldStop = true;
+          }
+        }
+      } else {
+        // Fallback for uncaught promise rejections
+        shouldStop = true;
       }
+    }
+
+    if (shouldStop) {
+      break;
     }
   }
 

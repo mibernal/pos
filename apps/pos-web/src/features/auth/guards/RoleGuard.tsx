@@ -4,16 +4,21 @@ import { useSession } from '../context/SessionProvider';
 
 export function RoleGuard({
   allowedRoles,
+  allowedPermissions,
   children,
   fallback = null
 }: {
-  allowedRoles: readonly UserRole[];
+  allowedRoles?: readonly UserRole[];
+  allowedPermissions?: readonly string[];
   children: ReactNode;
   fallback?: ReactNode;
 }) {
-  const { role } = useSession();
+  const { role, user } = useSession();
 
-  if (!role || !allowedRoles.includes(role)) {
+  const hasRole = role && allowedRoles?.includes(role);
+  const hasPermission = user?.permissions && allowedPermissions?.some(p => user.permissions?.includes(p));
+
+  if (!hasRole && !hasPermission && role !== 'ADMIN') {
     return <>{fallback}</>;
   }
 

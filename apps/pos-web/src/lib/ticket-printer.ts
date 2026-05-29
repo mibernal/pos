@@ -30,6 +30,7 @@ export interface TicketPrintInput {
   cude?: string | null;
   voidReason?: string | null;
   voidedAt?: string | null;
+  isReprint?: boolean;
 }
 
 function formatDateTimeParts(value: string): { date: string; time: string } {
@@ -173,6 +174,9 @@ export function buildTicketHtml(input: TicketPrintInput): string {
       : '';
 
   const createdAt = formatDateTimeParts(input.createdAt);
+  const reprintHtml = input.isReprint 
+    ? `<div class="void-alert" style="color: #475569; background: #e2e8f0; border-color: #cbd5e1;">*** COPIA ***</div>`
+    : '';
 
   return `<!doctype html>
 <html lang="es">
@@ -388,6 +392,7 @@ export function buildTicketHtml(input: TicketPrintInput): string {
       <header class="ticket-header">
         <div class="ticket-kicker">Ticket de venta</div>
         <h1>${escapeHtml(input.template.businessName)}</h1>
+        ${reprintHtml}
         <div class="meta"><strong>NIT:</strong> ${escapeHtml(input.template.nit)}</div>
         <div class="meta"><strong>Sucursal:</strong> ${escapeHtml(input.branchName)}</div>
         ${
@@ -524,6 +529,9 @@ export async function printSaleTicketESCPOS(input: TicketPrintInput): Promise<vo
   pushCmd(boldOn);
   pushLine(input.template.businessName);
   pushCmd(boldOff);
+  if (input.isReprint) {
+    pushLine('*** COPIA ***');
+  }
   pushLine(`NIT: ${input.template.nit}`);
   pushLine(`Sucursal: ${input.branchName}`);
   if (input.branchAddress) pushLine(input.branchAddress);

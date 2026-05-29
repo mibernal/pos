@@ -57,7 +57,7 @@ describe('sales routes access', () => {
       role: 'CASHIER',
       email: 'cashier@demo.posdian.local',
       name: 'Cajero Demo'
-    });
+    , branchIds: ['00000000-0000-0000-0000-000000000000'], permissions: ['sales:create', 'sales:void', 'returns:create', 'inventory:adjust', 'inventory:transfer', 'inventory:receive', 'reports:view', 'cash:reconcile', 'cash:audit', 'settings:manage']});
 
     const response = await app.inject({
       method: 'POST',

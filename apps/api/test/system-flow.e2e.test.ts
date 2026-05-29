@@ -15,6 +15,7 @@ async function openCashSession(
   app: FastifyInstance,
   token: string,
   branchId: string,
+  terminalId: string,
   openingAmountCents = 10000
 ) {
   const response = await app.inject({
@@ -23,6 +24,7 @@ async function openCashSession(
     headers: bearerHeaders(token),
     payload: {
       branch_id: branchId,
+      terminal_id: terminalId,
       opening_amount_cents: openingAmountCents
     }
   });
@@ -133,7 +135,7 @@ describe('system flow e2e', () => {
     const initialBalanceJson = initialBalanceResponse.json() as any[];
     const initialQty = initialBalanceJson[0]?.qty ?? 0;
 
-    const openedSession = await openCashSession(app, cashierToken, fixture.branchId, 5000);
+    const openedSession = await openCashSession(app, cashierToken, fixture.branchId, fixture.terminalId, 5000);
     const createdSale = await createSale(app, cashierToken, fixture, openedSession.cash_session.id);
 
     expect(createdSale.sale.sale_number).toBe(1);
@@ -156,7 +158,7 @@ describe('system flow e2e', () => {
       .executeTakeFirst();
 
     expect(outboxEvent).toMatchObject({
-      type: 'SALE_CREATED',
+      type: 'sale_created',
       aggregate_id: createdSale.sale.id,
       status: 'PENDING',
       payload_json: expect.objectContaining({
@@ -193,7 +195,7 @@ describe('system flow e2e', () => {
       email: fixture.adminEmail,
       password: fixture.adminPassword
     });
-    const openedSession = await openCashSession(app, adminToken, fixture.branchId, 0);
+    const openedSession = await openCashSession(app, adminToken, fixture.branchId, fixture.terminalId, 0);
     const createdSale = await createSale(app, adminToken, fixture, openedSession.cash_session.id);
 
     expect(createdSale.sale.tax_total_cents).toBe(1900);
@@ -237,7 +239,7 @@ describe('system flow e2e', () => {
       email: fixture.adminEmail,
       password: fixture.adminPassword
     });
-    const openedSession = await openCashSession(app, adminToken, fixture.branchId, 0);
+    const openedSession = await openCashSession(app, adminToken, fixture.branchId, fixture.terminalId, 0);
     const createdSale = await createSale(app, adminToken, fixture, openedSession.cash_session.id);
 
     const response = await app.inject({
@@ -292,7 +294,7 @@ describe('system flow e2e', () => {
       email: fixture.cashierEmail,
       password: fixture.cashierPassword
     });
-    const openedSession = await openCashSession(app, adminToken, fixture.branchId, 0);
+    const openedSession = await openCashSession(app, adminToken, fixture.branchId, fixture.terminalId, 0);
     const createdSale = await createSale(app, adminToken, fixture, openedSession.cash_session.id);
 
     const response = await app.inject({
@@ -328,11 +330,11 @@ describe('system flow e2e', () => {
       email: fixture.cashierEmail,
       password: fixture.cashierPassword
     });
-    const openedSession = await openCashSession(app, cashierToken, fixture.branchId, 10000);
+    const openedSession = await openCashSession(app, cashierToken, fixture.branchId, fixture.terminalId, 10000);
 
     const currentResponse = await app.inject({
       method: 'GET',
-      url: `/api/v1/cash-sessions/current?branch_id=${fixture.branchId}`,
+      url: `/api/v1/cash-sessions/current?terminal_id=${fixture.terminalId}`,
       headers: bearerHeaders(cashierToken)
     });
 
@@ -379,13 +381,68 @@ describe('system flow e2e', () => {
 
     const currentAfterCloseResponse = await app.inject({
       method: 'GET',
-      url: `/api/v1/cash-sessions/current?branch_id=${fixture.branchId}`,
+      url: `/api/v1/cash-sessions/current?terminal_id=${fixture.terminalId}`,
       headers: bearerHeaders(cashierToken)
     });
 
     expect(currentAfterCloseResponse.statusCode).toBe(200);
     expect(currentAfterCloseResponse.json()).toEqual({
       cash_session: null
+    });
+  });
+
+  it('allows ADMIN to reconcile a closed session', async () => {
+    const fixture = await seedE2eFixture(app);
+    fixturesToCleanup.push(fixture);
+
+    const cashierToken = await loginE2eUser(app, {
+      email: fixture.cashierEmail,
+      password: fixture.cashierPassword
+    });
+    
+    const openedSession = await openCashSession(app, cashierToken, fixture.branchId, fixture.terminalId, 10000);
+    await createSale(app, cashierToken, fixture, openedSession.cash_session.id);
+
+    const adminToken = await loginE2eUser(app, {
+      email: fixture.adminEmail,
+      password: fixture.adminPassword
+    });
+
+    await app.inject({
+      method: 'POST',
+      url: `/api/v1/cash-sessions/${openedSession.cash_session.id}/close`,
+      headers: bearerHeaders(adminToken),
+      payload: { closing_cash_real_cents: 20000 } // 1900 cents difference (expected 21900)
+    });
+
+    const reconcileResponse = await app.inject({
+      method: 'POST',
+      url: `/api/v1/cash-sessions/${openedSession.cash_session.id}/reconcile`,
+      headers: bearerHeaders(adminToken),
+      payload: {
+        notes: 'Faltante cobrado al cajero'
+      }
+    });
+
+    expect(reconcileResponse.statusCode).toBe(200);
+
+    const checkSession = await app.db
+      .selectFrom('cash_sessions')
+      .select(['status'])
+      .where('id', '=', openedSession.cash_session.id)
+      .executeTakeFirst();
+
+    expect(checkSession?.status).toBe('RECONCILED');
+
+    const checkReconciliation = await app.db
+      .selectFrom('cash_reconciliations')
+      .select(['reconciled_by_user_id', 'resolution_notes'])
+      .where('cash_session_id', '=', openedSession.cash_session.id)
+      .executeTakeFirst();
+
+    expect(checkReconciliation).toMatchObject({
+      reconciled_by_user_id: fixture.adminUserId,
+      resolution_notes: 'Faltante cobrado al cajero'
     });
   });
 });

@@ -1,10 +1,10 @@
 import type { Kysely } from 'kysely';
 import { describe, expect, it } from 'vitest';
-import type { Database } from '../src/infra/db/schema.js';
+import type { Database } from '../src/shared/infra/db/schema.js';
 import {
   getNextSaleNumberForBranchInTransaction,
   getNextSaleNumberFromCollection
-} from '../src/domain/sale-numbering-service.js';
+} from '../src/contexts/sales/domain/sale-numbering-service.js';
 
 type TableName = 'branches' | 'sales';
 
@@ -83,7 +83,7 @@ class FakeSelectBuilder {
   }
 
   private run(): Record<string, unknown>[] {
-    const rows = this.state[this.tableName] as Record<string, unknown>[];
+    const rows = (this.state[this.tableName] as unknown) as Record<string, unknown>[];
     const filteredRows = rows.filter((row) =>
       this.whereConditions.every((condition) => row[condition.column] === condition.value)
     );

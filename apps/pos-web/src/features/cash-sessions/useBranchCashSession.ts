@@ -4,32 +4,18 @@ import type { PosApiClient } from '../../types';
 
 export function useBranchCashSession({
   api,
-  branches,
-  selectedBranchId
+  selectedTerminalId
 }: {
   api: PosApiClient;
-  branches: BranchItem[];
-  selectedBranchId: string;
+  selectedTerminalId: string;
 }) {
   const [currentSession, setCurrentSession] = useState<CashSession | null>(null);
   const [checkingSession, setCheckingSession] = useState(false);
   const [sessionError, setSessionError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!selectedBranchId || branches.length === 0) {
+    if (!selectedTerminalId) {
       setCurrentSession(null);
-      setSessionError(null);
-      return;
-    }
-
-    const branch = branches.find((item) => item.id === selectedBranchId) ?? null;
-    if (!branch) {
-      setCurrentSession(null);
-      return;
-    }
-
-    if (branch.current_cash_session) {
-      setCurrentSession(branch.current_cash_session);
       setSessionError(null);
       return;
     }
@@ -40,7 +26,7 @@ export function useBranchCashSession({
     setSessionError(null);
 
     void api
-      .getCurrentCashSession(selectedBranchId)
+      .getCurrentCashSession(selectedTerminalId)
       .then((response) => {
         if (!cancelled) {
           setCurrentSession(response.cash_session);
@@ -64,7 +50,7 @@ export function useBranchCashSession({
     return () => {
       cancelled = true;
     };
-  }, [api, branches, selectedBranchId]);
+  }, [api, selectedTerminalId]);
 
   return {
     checkingSession,

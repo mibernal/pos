@@ -7,10 +7,10 @@ import {
   serializerCompiler,
   type ZodTypeProvider
 } from 'fastify-type-provider-zod';
-import { authPlugin } from '../src/plugins/auth.js';
-import { errorHandlerPlugin } from '../src/plugins/error-handler.js';
-import { salesRoutes } from '../src/routes/sales.js';
-import type { Database } from '../src/infra/db/schema.js';
+import { authPlugin } from '../src/shared/plugins/auth.js';
+import { errorHandlerPlugin } from '../src/shared/plugins/error-handler.js';
+import { salesRoutes } from '../src/contexts/sales/http/sales.routes.js';
+import type { Database } from '../src/shared/infra/db/schema.js';
 
 type TenantTaxMode = 'IVA' | 'INC_RESTAURANT';
 type ProductTaxCategory = 'IVA_0' | 'IVA_5' | 'IVA_19' | 'EXEMPT' | 'EXCLUDED' | 'INC_8';
@@ -31,7 +31,7 @@ type TableName =
   | 'promotions';
 
 interface FakeDbState {
-  tenants: Array<{ id: string; tax_mode: TenantTaxMode }>;
+  tenants: Array<{ id: string; tax_mode: TenantTaxMode; allow_negative_stock?: boolean }>;
   branches: Array<{ id: string; tenant_id: string }>;
   cash_sessions: Array<{ id: string; tenant_id: string; branch_id: string; closed_at: Date | null }>;
   products: Array<{
@@ -413,7 +413,7 @@ function createFixture(
   const productId = randomUUID();
 
   const state: FakeDbState = {
-    tenants: [{ id: tenantId, tax_mode: taxMode }],
+    tenants: [{ id: tenantId, tax_mode: taxMode, allow_negative_stock: true }],
     branches: [{ id: branchId, tenant_id: tenantId }],
     cash_sessions: [
       {
@@ -499,7 +499,7 @@ describe('POST /sales fiscal persistence', () => {
       role: 'ADMIN',
       email: 'admin@test.local',
       name: 'Admin Test'
-    });
+    , branchIds: ['00000000-0000-0000-0000-000000000000'], permissions: ['sales:create', 'sales:void', 'returns:create', 'inventory:adjust', 'inventory:transfer', 'inventory:receive', 'reports:view', 'cash:reconcile', 'cash:audit', 'settings:manage']});
 
     const response = await app.inject({
       method: 'POST',
@@ -588,7 +588,7 @@ describe('POST /sales fiscal persistence', () => {
       role: 'ADMIN',
       email: 'admin@test.local',
       name: 'Admin Test'
-    });
+    , branchIds: ['00000000-0000-0000-0000-000000000000'], permissions: ['sales:create', 'sales:void', 'returns:create', 'inventory:adjust', 'inventory:transfer', 'inventory:receive', 'reports:view', 'cash:reconcile', 'cash:audit', 'settings:manage']});
 
     const response = await app.inject({
       method: 'POST',
@@ -660,7 +660,7 @@ describe('POST /sales fiscal persistence', () => {
       role: 'ADMIN',
       email: 'admin@test.local',
       name: 'Admin Test'
-    });
+    , branchIds: ['00000000-0000-0000-0000-000000000000'], permissions: ['sales:create', 'sales:void', 'returns:create', 'inventory:adjust', 'inventory:transfer', 'inventory:receive', 'reports:view', 'cash:reconcile', 'cash:audit', 'settings:manage']});
 
     const response = await app.inject({
       method: 'POST',
@@ -762,7 +762,7 @@ describe('POST /sales fiscal persistence', () => {
       role: 'ADMIN',
       email: 'admin@test.local',
       name: 'Admin Test'
-    });
+    , branchIds: ['00000000-0000-0000-0000-000000000000'], permissions: ['sales:create', 'sales:void', 'returns:create', 'inventory:adjust', 'inventory:transfer', 'inventory:receive', 'reports:view', 'cash:reconcile', 'cash:audit', 'settings:manage']});
 
     const response = await app.inject({
       method: 'POST',
@@ -814,7 +814,7 @@ describe('POST /sales fiscal persistence', () => {
       role: 'ADMIN',
       email: 'admin@test.local',
       name: 'Admin Test'
-    });
+    , branchIds: ['00000000-0000-0000-0000-000000000000'], permissions: ['sales:create', 'sales:void', 'returns:create', 'inventory:adjust', 'inventory:transfer', 'inventory:receive', 'reports:view', 'cash:reconcile', 'cash:audit', 'settings:manage']});
     const clientUuid = randomUUID();
     const payload = {
       client_uuid: clientUuid,
@@ -891,7 +891,7 @@ describe('POST /sales fiscal persistence', () => {
       role: 'ADMIN',
       email: 'admin@test.local',
       name: 'Admin Test'
-    });
+    , branchIds: ['00000000-0000-0000-0000-000000000000'], permissions: ['sales:create', 'sales:void', 'returns:create', 'inventory:adjust', 'inventory:transfer', 'inventory:receive', 'reports:view', 'cash:reconcile', 'cash:audit', 'settings:manage']});
 
     const createResponse = await app.inject({
       method: 'POST',

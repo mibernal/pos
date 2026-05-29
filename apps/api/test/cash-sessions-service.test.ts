@@ -3,7 +3,7 @@ import {
   calculateDiffCents,
   calculateExpectedCashCents,
   extractCashPaidCents
-} from '../src/domain/cash-sessions-service.js';
+} from '../src/contexts/sales/domain/cash-sessions-service.js';
 
 describe('cash sessions service', () => {
   it('uses sale total for cash payment method when no explicit amount exists', () => {
