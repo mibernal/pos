@@ -6,7 +6,7 @@ import { AppError } from '../../../shared/infra/errors/app-error.js';
 import { writeAuditLog } from '../../../shared/domain/audit/write-audit-log.js';
 import { env } from '../../../app/env.js';
 import { mapSaleRow, saleColumnList } from './sale-mapper.js';
-import { ensureUserCanAccessBranch } from '../../identity/auth/permissions.js';
+import { ensureUserCanAccessBranch } from '../../../shared/infra/security/permissions.js';
 
 interface VoidSaleServiceInput {
   db: Kysely<Database>;

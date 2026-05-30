@@ -9,7 +9,7 @@ import {
   inventoryBalancesQuerySchema,
   consolidatedInventoryResponseSchema
 } from '@pos-dian/shared';
-import { ensureUserCanAccessBranch } from '../../identity/auth/permissions.js';
+import { ensureUserCanAccessBranch } from '../../../shared/infra/security/permissions.js';
 
 export const inventoryRoutes: FastifyPluginAsync = async (app) => {
   const typedApp = app.withTypeProvider<ZodTypeProvider>();

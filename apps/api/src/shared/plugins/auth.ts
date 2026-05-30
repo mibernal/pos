@@ -1,7 +1,7 @@
 import jwt from '@fastify/jwt';
 import type { FastifyPluginAsync } from 'fastify';
 import fp from 'fastify-plugin';
-import type { AuthContext, JwtClaims, UserRole, UserPermission } from '../../contexts/identity/auth/types.js';
+import type { AuthContext, JwtClaims, UserRole, UserPermission } from '../infra/security/types.js';
 import { env } from '../../app/env.js';
 import { AppError } from '../infra/errors/app-error.js';
 

@@ -1,7 +1,7 @@
 import type { Kysely } from 'kysely';
 import type { Redis } from 'ioredis';
 import type { FastifyReply } from 'fastify';
-import type { AuthContext, JwtClaims, UserRole, UserPermission } from './auth/types.js';
+import type { AuthContext, JwtClaims, UserRole, UserPermission } from './shared/infra/security/types.js';
 import type { Database } from './shared/infra/db/schema.js';
 
 declare module 'fastify' {

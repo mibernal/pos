@@ -13,7 +13,7 @@ import { createSaleService } from '../services/create-sale.service.js';
 import { voidSaleService } from '../services/void-sale.service.js';
 import { processPartialReturn } from '../services/create-return.service.js';
 import { CreateReturnRequestSchema } from '@pos-dian/shared';
-import { ensureUserCanAccessBranch } from '../../identity/auth/permissions.js';
+import { ensureUserCanAccessBranch } from '../../../shared/infra/security/permissions.js';
 
 export const salesRoutes: FastifyPluginAsync = async (app) => {
   const typedApp = app.withTypeProvider<ZodTypeProvider>();

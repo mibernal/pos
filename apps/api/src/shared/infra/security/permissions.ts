@@ -73,7 +73,8 @@ export function getPermissionsForRole(role: UserRole): UserPermission[] {
   return ROLE_PERMISSIONS[role] || [];
 }
 
-export function ensureUserCanAccessBranch(auth: AuthContext, branchId: string) {
+export function ensureUserCanAccessBranch(auth: AuthContext | null, branchId: string) {
+  if (!auth) throw new AppError(401, 'UNAUTHORIZED', 'No has iniciado sesión');
   if (auth.role === 'ADMIN') return; // Admins can access everything
   if (!Array.isArray(auth.branchIds) || !auth.branchIds.includes(branchId)) {
     throw new AppError(403, 'AUTH_FORBIDDEN', 'No tienes acceso a esta sucursal');

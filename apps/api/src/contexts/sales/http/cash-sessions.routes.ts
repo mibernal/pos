@@ -9,7 +9,7 @@ import {
 } from '../domain/cash-sessions-service.js';
 import { writeAuditLog } from '../../../shared/domain/audit/write-audit-log.js';
 import { buildRequestLogContext } from '../../../shared/infra/logging/request-log-context.js';
-import { ensureUserCanAccessBranch } from '../../identity/auth/permissions.js';
+import { ensureUserCanAccessBranch } from '../../../shared/infra/security/permissions.js';
 
 const openCashSessionBodySchema = z.object({
   branch_id: z.string().uuid(),

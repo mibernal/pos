@@ -11,7 +11,7 @@ import {
   clearLoginRateLimit,
   recordLoginRateLimitFailure
 } from '../../../shared/infra/security/login-rate-limit.js';
-import { getPermissionsForRole } from '../auth/permissions.js';
+import { getPermissionsForRole } from '../../../shared/infra/security/permissions.js';
 
 export const authRoutes: FastifyPluginAsync = async (app) => {
   const typedApp = app.withTypeProvider<ZodTypeProvider>();

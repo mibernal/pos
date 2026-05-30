@@ -3,6 +3,7 @@ import { Banner } from '../../components/ui';
 import { formatMoneyFromCents } from '../../lib/format';
 import type { PosApiClient } from '../../types';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+import { useSession } from '../auth';
 
 interface DashboardStats {
   total_revenue_cents: number;
@@ -17,26 +18,20 @@ export function DashboardScreen({
   api: PosApiClient;
   branchId: string;
 }) {
+  const { session } = useSession();
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [connected, setConnected] = useState(false);
 
   useEffect(() => {
-    // We assume api client has some way to get token, but EventSource doesn't support headers directly easily in browser API.
-    // Instead we usually pass token in URL or use a polyfill. If token is in cookie or we pass it via query:
-    // For this POC, we'll fetch a ticket using standard fetch to see if it works, or just build an EventSource if auth is in cookie.
-    // Assuming auth is via Bearer token, native EventSource cannot send Authorization header.
-    // Since we need Auth, we can use fetch stream.
-
     let active = true;
     const controller = new AbortController();
 
     async function connectSSE() {
       try {
-        const token = localStorage.getItem('pos_token'); // from our auth setup
         const response = await fetch(`${api.baseUrl}/dashboard/stream?branch_id=${branchId}`, {
           headers: {
-            'Authorization': `Bearer ${token}`
+            'Authorization': `Bearer ${session?.accessToken}`
           },
           signal: controller.signal
         });
