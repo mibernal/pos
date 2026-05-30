@@ -1,6 +1,6 @@
 import * as http from 'node:http';
 import { Job, Queue, QueueEvents, Worker } from 'bullmq';
-import { DIAN_QUEUE_NAME } from '@pos-dian/shared';
+import { OUTBOX_QUEUE_NAME } from '@pos-dian/shared';
 import { env } from './config/env.js';
 import { createDbPool } from './infra/db/pool.js';
 import { buildDianProvider } from './providers/index.js';
@@ -17,7 +17,7 @@ import { logWorkerError, logWorkerInfo } from './infra/logging/worker-log.js';
 const provider = buildDianProvider();
 const dbPool = createDbPool();
 
-const queue = new Queue<AnyOutboxJobData>(DIAN_QUEUE_NAME, {
+const queue = new Queue<AnyOutboxJobData>(OUTBOX_QUEUE_NAME, {
   connection: {
     url: env.REDIS_URL
   }
@@ -29,7 +29,7 @@ const outboxSaleReturnedProcessor = buildOutboxSaleReturnedProcessor({ pool: dbP
 const outboxLowStockAlertProcessor = buildOutboxLowStockAlertProcessor({ pool: dbPool });
 
 const worker = new Worker<AnyOutboxJobData>(
-  DIAN_QUEUE_NAME,
+  OUTBOX_QUEUE_NAME,
   async (job) => {
     if (job.name === 'process-sale-created-outbox-event') {
       return outboxSaleCreatedProcessor(job as Job<OutboxSaleCreatedJobData>);
@@ -50,7 +50,7 @@ const worker = new Worker<AnyOutboxJobData>(
   }
 );
 
-const queueEvents = new QueueEvents(DIAN_QUEUE_NAME, {
+const queueEvents = new QueueEvents(OUTBOX_QUEUE_NAME, {
   connection: {
     url: env.REDIS_URL
   }

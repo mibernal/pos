@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState, type ChangeEvent, type FormEvent } from 'react';
 import type { ProductItem } from '../../lib/api';
 import { Banner, Modal, ShellMessage, PlaceholderImage } from '../../components/ui';
-import { RoleGuard, useSession } from '../auth';
+import { PermissionGuard, useSession } from '../auth';
 import type { ConsolidatedInventoryResponse } from '@pos-dian/shared';
 
 interface InventoryScreenProps {
@@ -68,7 +68,7 @@ export function InventoryScreen({ api, branchId }: InventoryScreenProps) {
             Control de entrada y salida de mercancía
           </p>
         </div>
-        <RoleGuard allowedRoles={['ADMIN', 'MANAGER', 'AUDITOR']}>
+        <PermissionGuard allowedPermissions={['inventory:manage']}>
           <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
             <div style={{ display: 'flex', background: 'var(--color-slate-800)', borderRadius: '6px', padding: '0.25rem' }}>
               <button
@@ -87,7 +87,7 @@ export function InventoryScreen({ api, branchId }: InventoryScreenProps) {
               </button>
             </div>
           </div>
-        </RoleGuard>
+        </PermissionGuard>
       </div>
 
       {error && <Banner tone="error">{error}</Banner>}

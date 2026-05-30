@@ -4,7 +4,7 @@ import { buildApp } from '../src/app/build-app.js';
 
 let app: FastifyInstance;
 
-describe('products routes rbac', () => {
+describe('products routes pbac', () => {
   beforeAll(async () => {
     app = await buildApp();
     await app.ready();
@@ -23,7 +23,7 @@ describe('products routes rbac', () => {
     expect(response.statusCode).toBe(401);
   });
 
-  it('rejects POST /products for CASHIER role', async () => {
+  it('rejects POST /products without products:manage permission', async () => {
     const cashierToken = app.jwt.sign({
       sub: 'cashier-user-id',
       userId: 'cashier-user-id',
@@ -31,7 +31,7 @@ describe('products routes rbac', () => {
       role: 'CASHIER',
       email: 'cashier@demo.posdian.local',
       name: 'Cajero Demo'
-    , branchIds: ['00000000-0000-0000-0000-000000000000'], permissions: ['sales:create', 'sales:void', 'returns:create', 'inventory:adjust', 'inventory:transfer', 'inventory:receive', 'reports:view', 'cash:reconcile', 'cash:audit', 'settings:manage']});
+    , branchIds: ['00000000-0000-0000-0000-000000000000'], permissions: ['sales:create']});
 
     const response = await app.inject({
       method: 'POST',

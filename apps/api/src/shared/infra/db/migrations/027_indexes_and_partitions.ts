@@ -42,16 +42,16 @@ export async function up(db: Kysely<unknown>): Promise<void> {
   // Crear partición default para albergar datos existentes y datos futuros que no tengan partición específica
   await sql`CREATE TABLE audit_logs_default PARTITION OF audit_logs DEFAULT;`.execute(db);
 
-  // Re-crear índices
-  await sql`CREATE INDEX idx_audit_logs_tenant_created ON audit_logs (tenant_id, created_at DESC)`.execute(db);
-  await sql`CREATE INDEX idx_audit_logs_tenant_entity ON audit_logs (tenant_id, entity_type, entity_id)`.execute(db);
-  await sql`CREATE INDEX idx_audit_logs_tenant_branch ON audit_logs (tenant_id, branch_id, created_at DESC)`.execute(db);
-
   // Mover datos
   await sql`INSERT INTO audit_logs SELECT * FROM audit_logs_old;`.execute(db);
 
-  // Eliminar tabla vieja y sus restricciones
+  // Eliminar tabla vieja y sus restricciones (y sus índices con nombres colisionantes)
   await sql`DROP TABLE audit_logs_old CASCADE;`.execute(db);
+
+  // Re-crear índices
+  await sql`CREATE INDEX IF NOT EXISTS idx_audit_logs_tenant_created ON audit_logs (tenant_id, created_at DESC)`.execute(db);
+  await sql`CREATE INDEX IF NOT EXISTS idx_audit_logs_tenant_entity ON audit_logs (tenant_id, entity_type, entity_id)`.execute(db);
+  await sql`CREATE INDEX IF NOT EXISTS idx_audit_logs_tenant_branch ON audit_logs (tenant_id, branch_id, created_at DESC)`.execute(db);
 }
 
 export async function down(db: Kysely<unknown>): Promise<void> {

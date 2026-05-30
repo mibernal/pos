@@ -41,27 +41,56 @@ export async function ensureAuditLogPartitions(pool: Pool): Promise<void> {
     const nextMonthStr = nextM.toString().padStart(2, '0');
     const endDate = `${nextYear}-${nextMonthStr}-01`;
 
+    const client = await pool.connect();
     try {
-      await pool.query(`
-        CREATE TABLE IF NOT EXISTS ${partitionName} 
-        PARTITION OF audit_logs 
-        FOR VALUES FROM ('${startDate}') TO ('${endDate}')
-      `);
+      await client.query('BEGIN');
       
+      // 1. Check if partition exists
+      const { rowCount } = await client.query(`
+        SELECT 1 
+        FROM pg_class c 
+        JOIN pg_namespace n ON n.oid = c.relnamespace 
+        WHERE c.relname = $1 AND n.nspname = 'public'
+      `, [partitionName]);
+
+      if (!rowCount) {
+        // 2. Create standalone table
+        await client.query(`CREATE TABLE ${partitionName} (LIKE audit_logs INCLUDING ALL)`);
+        
+        // 3. Move existing conflicting rows from default partition
+        await client.query(`
+          WITH moved_rows AS (
+            DELETE FROM audit_logs_default 
+            WHERE created_at >= $1::timestamp AND created_at < $2::timestamp
+            RETURNING *
+          )
+          INSERT INTO ${partitionName} SELECT * FROM moved_rows
+        `, [startDate, endDate]);
+        
+        // 4. Attach partition
+        await client.query(`
+          ALTER TABLE audit_logs 
+          ATTACH PARTITION ${partitionName} 
+          FOR VALUES FROM ($1) TO ($2)
+        `, [startDate, endDate]);
+      }
+
+      await client.query('COMMIT');
+
       logWorkerInfo({
         event: 'audit_partition_ensured',
         message: `Ensured partition ${partitionName} exists`,
         details: { partitionName, startDate, endDate }
       });
     } catch (error: any) {
-      // Ignore error if partition already exists (Postgres might throw instead of IF NOT EXISTS working perfectly for partitions in some older versions, though modern PG supports it)
-      if (error.code !== '42P07') { // 42P07 = duplicate_table
-        logWorkerError({
-          event: 'audit_partition_creation_failed',
-          message: `Failed to create partition ${partitionName}`,
-          error
-        });
-      }
+      await client.query('ROLLBACK');
+      logWorkerError({
+        event: 'audit_partition_creation_failed',
+        message: `Failed to create partition ${partitionName}`,
+        error
+      });
+    } finally {
+      client.release();
     }
   }
 }

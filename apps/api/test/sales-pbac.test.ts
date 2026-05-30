@@ -49,7 +49,7 @@ describe('sales routes access', () => {
     expect(response.statusCode).toBe(401);
   });
 
-  it('rejects void sale for CASHIER role', async () => {
+  it('rejects void sale without sales:void permission', async () => {
     const cashierToken = app.jwt.sign({
       sub: 'cashier-user-id',
       userId: 'cashier-user-id',
@@ -57,7 +57,7 @@ describe('sales routes access', () => {
       role: 'CASHIER',
       email: 'cashier@demo.posdian.local',
       name: 'Cajero Demo'
-    , branchIds: ['00000000-0000-0000-0000-000000000000'], permissions: ['sales:create', 'sales:void', 'returns:create', 'inventory:adjust', 'inventory:transfer', 'inventory:receive', 'reports:view', 'cash:reconcile', 'cash:audit', 'settings:manage']});
+    , branchIds: ['00000000-0000-0000-0000-000000000000'], permissions: ['sales:create']});
 
     const response = await app.inject({
       method: 'POST',

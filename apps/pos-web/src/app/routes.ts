@@ -40,5 +40,10 @@ export const APP_ROUTE_DEFINITIONS: readonly AppRouteDefinition[] = [
     id: 'reports',
     label: 'Reportes',
     allowedRoles: ['ADMIN', 'MANAGER', 'AUDITOR']
+  },
+  {
+    id: 'dashboard',
+    label: 'Dashboard Live',
+    allowedRoles: ['ADMIN', 'MANAGER', 'AUDITOR']
   }
 ] as const;

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import type { ProductItem } from '../../lib/api';
 import { Banner, ShellMessage } from '../../components/ui';
-import { RoleGuard } from '../auth';
+import { PermissionGuard } from '../auth';
 
 interface InventoryAdjustmentsScreenProps {
   api: ReturnType<typeof import('../../lib/api').createApiClient>;
@@ -91,7 +91,7 @@ export function InventoryAdjustmentsScreen({ api, branchId }: InventoryAdjustmen
         </div>
       </div>
 
-      <RoleGuard allowedRoles={['ADMIN', 'MANAGER']}>
+      <PermissionGuard allowedPermissions={['inventory:manage']}>
         <form onSubmit={handleSaveAdjustment} className="setup-card" style={{ background: 'var(--color-bg)', padding: '2rem', borderRadius: '12px', border: '1px solid var(--color-slate-800)' }}>
           {error && <Banner tone="error">{error}</Banner>}
           {successMsg && <Banner tone="success">{successMsg}</Banner>}
@@ -188,7 +188,7 @@ export function InventoryAdjustmentsScreen({ api, branchId }: InventoryAdjustmen
             </div>
           </div>
         </form>
-      </RoleGuard>
+      </PermissionGuard>
     </div>
   );
 }

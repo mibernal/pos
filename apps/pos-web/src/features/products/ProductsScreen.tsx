@@ -3,7 +3,7 @@ import { Banner, PlaceholderImage } from '../../components/ui';
 import { formatMoneyFromCents, pesosToCents, centsToPesos } from '../../lib/format';
 import type { ProductItem } from '../../lib/api';
 import type { PosApiClient } from '../../types';
-import { RoleGuard, useSession } from '../auth';
+import { PermissionGuard, useSession } from '../auth';
 import {
   getProductTaxCategoryLabel,
   PRODUCT_TAX_CATEGORY_OPTIONS,
@@ -231,7 +231,7 @@ export function ProductsScreen({
                     </span>
                     <span style={{ fontSize: '0.65rem', color: 'var(--color-slate-400)', textTransform: 'uppercase', letterSpacing: '0.025em' }}>Precio Base</span>
                   </div>
-                  <RoleGuard allowedRoles={['ADMIN']}>
+                  <PermissionGuard allowedPermissions={['products:manage']}>
                     <div style={{ display: 'flex', gap: '0.5rem' }}>
                       <button className="button button-sm ghost-button" style={{ padding: '0.4rem 0.8rem' }} onClick={() => startEdit(product)}>
                         Editar
@@ -244,7 +244,7 @@ export function ProductsScreen({
                         {product.active ? 'Desactivar' : 'Activar'}
                       </button>
                     </div>
-                  </RoleGuard>
+                  </PermissionGuard>
                 </div>
               </div>
             ))
@@ -270,14 +270,11 @@ export function ProductsScreen({
           </button>
         </header>
 
-        <RoleGuard
-          allowedRoles={['ADMIN']}
+        <PermissionGuard
+          allowedPermissions={['products:manage']}
           fallback={
-            <div style={{ padding: '0 1rem' }}>
-              <Banner tone="info">
-                <strong>Modo Lectura</strong>
-                <p style={{ fontSize: '0.8125rem', marginTop: '0.25rem' }}>Como Cajero, puedes ver el catálogo pero no realizar modificaciones.</p>
-              </Banner>
+            <div className="product-grid" style={{ gridTemplateColumns: '1fr' }}>
+              <div className="empty-state">No tienes permisos para gestionar productos.</div>
             </div>
           }
         >
@@ -396,7 +393,7 @@ export function ProductsScreen({
               )}
             </div>
           </form>
-        </RoleGuard>
+        </PermissionGuard>
       </aside>
     </div>
   );

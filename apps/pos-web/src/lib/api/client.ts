@@ -122,7 +122,8 @@ export function createApiClient({ baseUrl, getSession, setSession }: CreateApiCl
         const response = await fetch(`${baseUrl}/auth/refresh`, {
           method: 'POST',
           credentials: 'include',
-          headers: { 'Content-Type': 'application/json' }
+          headers: { 'Content-Type': 'application/json' },
+          body: '{}'
         });
         if (!response.ok) {
           return null;
@@ -230,10 +231,10 @@ export function createApiClient({ baseUrl, getSession, setSession }: CreateApiCl
     login,
     logout,
     me: () => requestJson<SharedMeResponse>('/auth/me'),
-    refresh: () => requestJson<AuthSession>('/auth/refresh', { method: 'POST' }),
+    refresh: () => requestJson<AuthSession>('/auth/refresh', { method: 'POST', body: '{}' }),
     listBranches: () => requestJson<{ items: BranchItem[] }>('/branches'),
     listTerminals: (branchId: string) => 
-      requestJson<{ items: TerminalItem[] }>(`/terminals?${toQueryString({ branch_id: branchId })}`),
+      requestJson<{ terminals: TerminalItem[] }>(`/terminals?${toQueryString({ branch_id: branchId })}`),
     getCurrentCashSession: (terminalId: string) =>
       requestJson<{ cash_session: CashSession | null }>(
         `/cash-sessions/current?${toQueryString({ terminal_id: terminalId })}`

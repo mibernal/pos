@@ -8,7 +8,7 @@ import { BranchSetupScreen } from '../features/branches';
 import { HistoryScreen } from '../features/history';
 import { InventoryScreen, InventoryAdjustmentsScreen } from '../features/inventory';
 import { ProductsScreen } from '../features/products';
-import { ReportsScreen } from '../features/reports';
+import { ReportsScreen, DashboardScreen } from '../features/reports';
 
 
 import { PosScreen } from '../features/sales';
@@ -148,6 +148,10 @@ function AppShell() {
 
           if (activeRoute === 'reports') {
             currentScreen = <ReportsScreen api={api} branchId={posContext.branchId} />;
+          }
+
+          if (activeRoute === 'dashboard') {
+            currentScreen = <DashboardScreen api={api} branchId={posContext.branchId} />;
           }
 
           return (

@@ -84,13 +84,13 @@ export function BranchSetupScreen({
       }
       try {
         const response = await api.listTerminals(selectedBranchId);
-        setTerminals(response.items);
+        setTerminals(response.terminals);
         
         // If the selected terminal from localStorage belongs to this branch, keep it
         // Otherwise, pick the first one
-        const exists = response.items.find(t => t.id === selectedTerminalId);
-        if (!exists && response.items.length > 0) {
-          setSelectedTerminalId(response.items[0]!.id);
+        const exists = response.terminals.find(t => t.id === selectedTerminalId);
+        if (!exists && response.terminals.length > 0) {
+          setSelectedTerminalId(response.terminals[0]!.id);
         } else if (!exists) {
           setSelectedTerminalId('');
         }

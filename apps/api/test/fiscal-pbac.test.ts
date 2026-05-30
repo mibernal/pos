@@ -4,7 +4,7 @@ import { buildApp } from '../src/app/build-app.js';
 
 let app: FastifyInstance;
 
-describe('fiscal routes rbac', () => {
+describe('fiscal routes pbac', () => {
   beforeAll(async () => {
     app = await buildApp();
     await app.ready();
@@ -14,7 +14,7 @@ describe('fiscal routes rbac', () => {
     await app.close();
   });
 
-  it('rejects tax profile and tax category updates for CASHIER role', async () => {
+  it('rejects tax profile and tax category updates without settings:manage and products:manage permissions', async () => {
     const cashierToken = app.jwt.sign({
       sub: 'cashier-user-id',
       userId: 'cashier-user-id',
@@ -22,7 +22,7 @@ describe('fiscal routes rbac', () => {
       role: 'CASHIER',
       email: 'cashier@demo.posdian.local',
       name: 'Cajero Demo'
-    , branchIds: ['00000000-0000-0000-0000-000000000000'], permissions: ['sales:create', 'sales:void', 'returns:create', 'inventory:adjust', 'inventory:transfer', 'inventory:receive', 'reports:view', 'cash:reconcile', 'cash:audit', 'settings:manage']});
+    , branchIds: ['00000000-0000-0000-0000-000000000000'], permissions: ['sales:create']});
 
     const taxProfileResponse = await app.inject({
       method: 'PATCH',

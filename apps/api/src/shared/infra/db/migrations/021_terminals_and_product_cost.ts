@@ -13,6 +13,7 @@ export async function up(db: Kysely<unknown>): Promise<void> {
     .addColumn('created_at', 'timestamptz', (col) => col.defaultTo(sql`now()`).notNull())
     .addColumn('updated_at', 'timestamptz', (col) => col.defaultTo(sql`now()`).notNull())
     .addUniqueConstraint('uq_terminals_tenant_branch_name', ['tenant_id', 'branch_id', 'name'])
+    .addUniqueConstraint('uq_terminals_tenant_id', ['tenant_id', 'id'])
     .execute();
 
   await sql`

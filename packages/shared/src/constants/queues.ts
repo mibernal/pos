@@ -1,1 +1,1 @@
-export const DIAN_QUEUE_NAME = 'dian-emission';
+export const OUTBOX_QUEUE_NAME = 'pos-outbox';

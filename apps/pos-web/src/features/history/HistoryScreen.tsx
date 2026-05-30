@@ -5,7 +5,7 @@ import { extractTicketPayments, printSaleTicket } from '../../lib/ticket-printer
 import type { SaleDetailResponse, SalesListItem, TenantTaxMode } from '../../lib/api';
 import type { TicketTemplateConfig } from '../../lib/ticket-template';
 import type { PosApiClient } from '../../types';
-import { RoleGuard, useSession } from '../auth';
+import { PermissionGuard, useSession } from '../auth';
 import { inferTaxModeFromSale } from '../sales';
 import { ReturnSaleModal } from './components/ReturnSaleModal';
 
@@ -356,7 +356,7 @@ export function HistoryScreen({
             >
               🖨️ Ticket
             </button>
-            <RoleGuard allowedRoles={['ADMIN']}>
+            <PermissionGuard allowedPermissions={['sales:void', 'returns:create']}>
               <div style={{ display: 'flex', gap: '0.5rem', flex: 2 }}>
                 <button
                   className="button button-sm"
@@ -377,7 +377,7 @@ export function HistoryScreen({
                   Devolver
                 </button>
               </div>
-            </RoleGuard>
+            </PermissionGuard>
           </div>
         </header>
 

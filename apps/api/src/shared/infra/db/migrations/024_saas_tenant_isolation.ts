@@ -105,7 +105,19 @@ export async function up(db: Kysely<unknown>): Promise<void> {
   `.execute(db);
 
   
-  // 3. Modificar a NOT NULL y crear Foreign Keys
+  // 3. UNIQUE constraints faltantes en padres para permitir FKs compuestas (si no existen)
+  // purchase_orders necesita UNIQUE (tenant_id, id)
+  await sql`ALTER TABLE purchase_orders ADD CONSTRAINT uq_po_tenant_id UNIQUE (tenant_id, id)`.execute(db);
+  // inventory_receipts necesita UNIQUE (tenant_id, id)
+  await sql`ALTER TABLE inventory_receipts ADD CONSTRAINT uq_ir_tenant_id UNIQUE (tenant_id, id)`.execute(db);
+  // inventory_transfers necesita UNIQUE (tenant_id, id)
+  await sql`ALTER TABLE inventory_transfers ADD CONSTRAINT uq_it_tenant_id UNIQUE (tenant_id, id)`.execute(db);
+  // inventory_adjustments necesita UNIQUE (tenant_id, id)
+  await sql`ALTER TABLE inventory_adjustments ADD CONSTRAINT uq_ia_tenant_id UNIQUE (tenant_id, id)`.execute(db);
+  // sale_returns necesita UNIQUE (tenant_id, id)
+  await sql`ALTER TABLE sale_returns ADD CONSTRAINT uq_sr_tenant_id UNIQUE (tenant_id, id)`.execute(db);
+
+  // 4. Modificar a NOT NULL y crear Foreign Keys
 
   // purchase_order_items
   await sql`ALTER TABLE purchase_order_items ALTER COLUMN tenant_id SET NOT NULL`.execute(db);
@@ -136,17 +148,7 @@ export async function up(db: Kysely<unknown>): Promise<void> {
   await sql`ALTER TABLE return_items ALTER COLUMN branch_id SET NOT NULL`.execute(db);
   await sql`ALTER TABLE return_items ADD CONSTRAINT fk_ri_tenant_branch FOREIGN KEY (tenant_id, branch_id) REFERENCES branches(tenant_id, id) ON DELETE RESTRICT`.execute(db);
   
-  // UNIQUE constraints faltantes en padres para permitir FKs compuestas (si no existen)
-  // purchase_orders necesita UNIQUE (tenant_id, id)
-  await sql`ALTER TABLE purchase_orders ADD CONSTRAINT uq_po_tenant_id UNIQUE (tenant_id, id)`.execute(db);
-  // inventory_receipts necesita UNIQUE (tenant_id, id)
-  await sql`ALTER TABLE inventory_receipts ADD CONSTRAINT uq_ir_tenant_id UNIQUE (tenant_id, id)`.execute(db);
-  // inventory_transfers necesita UNIQUE (tenant_id, id)
-  await sql`ALTER TABLE inventory_transfers ADD CONSTRAINT uq_it_tenant_id UNIQUE (tenant_id, id)`.execute(db);
-  // inventory_adjustments necesita UNIQUE (tenant_id, id)
-  await sql`ALTER TABLE inventory_adjustments ADD CONSTRAINT uq_ia_tenant_id UNIQUE (tenant_id, id)`.execute(db);
-  // sale_returns necesita UNIQUE (tenant_id, id)
-  await sql`ALTER TABLE sale_returns ADD CONSTRAINT uq_sr_tenant_id UNIQUE (tenant_id, id)`.execute(db);
+
 }
 
 export async function down(db: Kysely<unknown>): Promise<void> {

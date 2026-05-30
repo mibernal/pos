@@ -10,8 +10,8 @@
   "types": "dist/index.d.ts",
   "scripts": {
     "dev": "tsx watch src/index.ts",
-    "db:migrate": "tsx src/infra/db/migrate.ts",
-    "db:seed": "tsx src/infra/db/seed.ts",
+    "db:migrate": "tsx src/shared/infra/db/migrate.ts",
+    "db:seed": "tsx src/shared/infra/db/seed.ts",
     "build": "tsc -p tsconfig.build.json",
     "lint": "eslint src --ext .ts",
     "test": "NODE_ENV=test vitest run"
