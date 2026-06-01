@@ -1,8 +1,7 @@
-import { useCallback, useEffect, useState, type ChangeEvent, type FormEvent } from 'react';
-import type { ProductItem } from '../../lib/api';
-import { Banner, Modal, ShellMessage, PlaceholderImage } from '../../components/ui';
+import { useState, useMemo } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { Banner, ShellMessage, PlaceholderImage } from '../../components/ui';
 import { PermissionGuard, useSession } from '../auth';
-import type { ConsolidatedInventoryResponse } from '@pos-dian/shared';
 
 interface InventoryScreenProps {
   api: ReturnType<typeof import('../../lib/api').createApiClient>;
@@ -12,48 +11,53 @@ interface InventoryScreenProps {
 export function InventoryScreen({ api, branchId }: InventoryScreenProps) {
   const { role } = useSession();
   const isAdmin = role === 'ADMIN';
+  const canSeeConsolidated = isAdmin || role === 'MANAGER' || role === 'AUDITOR';
 
-  const [products, setProducts] = useState<ProductItem[]>([]);
-  const [balances, setBalances] = useState<Record<string, number>>({});
-  const [consolidatedData, setConsolidatedData] = useState<ConsolidatedInventoryResponse>([]);
   const [viewMode, setViewMode] = useState<'LOCAL' | 'CONSOLIDATED'>('LOCAL');
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
 
-  const loadData = useCallback(async () => {
-    setIsLoading(true);
-    setError(null);
-    try {
-      // Cargamos catálogo y saldos en paralelo
-      const [productsRes, balancesRes] = await Promise.all([
-        api.listProducts({ limit: 200, branchId }),
-        api.listInventoryBalances(branchId)
-      ]);
+  const {
+    data: productsRes,
+    isLoading: isLoadingProducts,
+    error: productsError
+  } = useQuery({
+    queryKey: ['products', branchId],
+    queryFn: () => api.listProducts({ limit: 200, branchId })
+  });
 
-      setProducts(productsRes.items);
+  const {
+    data: balancesRes,
+    isLoading: isLoadingBalances,
+    error: balancesError
+  } = useQuery({
+    queryKey: ['balances', branchId],
+    queryFn: () => api.listInventoryBalances(branchId)
+  });
 
-      // Convertir arreglo de balances a diccionario para acceso O(1)
-      const balancesMap: Record<string, number> = {};
+  const {
+    data: consolidatedData,
+    isLoading: isLoadingConsolidated,
+    error: consolidatedError
+  } = useQuery({
+    queryKey: ['consolidatedInventory'],
+    queryFn: () => api.listConsolidatedInventory(),
+    enabled: canSeeConsolidated
+  });
+
+  const products = productsRes?.items || [];
+  
+  const balances = useMemo(() => {
+    const map: Record<string, number> = {};
+    if (balancesRes) {
       balancesRes.forEach((b) => {
-        balancesMap[b.product_id] = Number(b.qty);
+        map[b.product_id] = Number(b.on_hand_qty);
       });
-      setBalances(balancesMap);
-
-      if (isAdmin || role === 'MANAGER' || role === 'AUDITOR') {
-        const consolidatedRes = await api.listConsolidatedInventory();
-        setConsolidatedData(consolidatedRes);
-      }
-
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Error al cargar inventario');
-    } finally {
-      setIsLoading(false);
     }
-  }, [api, branchId, isAdmin, role]);
+    return map;
+  }, [balancesRes]);
 
-  useEffect(() => {
-    void loadData();
-  }, [loadData]);
+  const isLoading = isLoadingProducts || isLoadingBalances || (canSeeConsolidated && isLoadingConsolidated);
+  const errorObj = productsError || balancesError || consolidatedError;
+  const errorMessage = errorObj instanceof Error ? errorObj.message : (errorObj as string | null);
 
   if (isLoading) {
     return <ShellMessage title="Cargando Kárdex..." subtitle="Obteniendo saldos de inventario de la bodega" />;
@@ -90,7 +94,7 @@ export function InventoryScreen({ api, branchId }: InventoryScreenProps) {
         </PermissionGuard>
       </div>
 
-      {error && <Banner tone="error">{error}</Banner>}
+      {errorMessage && <Banner tone="error">{errorMessage}</Banner>}
 
       {products.length === 0 ? (
         <div className="empty-state" style={{ textAlign: 'center', padding: '3rem 1rem' }}>
@@ -146,9 +150,9 @@ export function InventoryScreen({ api, branchId }: InventoryScreenProps) {
                 );
               })}
               
-              {viewMode === 'CONSOLIDATED' && consolidatedData.map((p) => {
-                const isLowStock = p.total_qty <= 10;
-                const isOutOfStock = p.total_qty <= 0;
+              {viewMode === 'CONSOLIDATED' && (consolidatedData || []).map((p) => {
+                const isLowStock = p.total_on_hand_qty <= 10;
+                const isOutOfStock = p.total_on_hand_qty <= 0;
 
                 return (
                   <tr key={p.product_id} style={{ borderBottom: '1px solid var(--color-slate-800)' }}>
@@ -167,15 +171,15 @@ export function InventoryScreen({ api, branchId }: InventoryScreenProps) {
                     <td style={{ padding: '0.75rem 1rem', color: 'var(--color-slate-400)' }}>{p.category}</td>
                     <td style={{ padding: '0.75rem 1rem', textAlign: 'right' }}>
                       <span className={`tag ${isOutOfStock ? 'tag-error' : isLowStock ? 'tag-warning' : 'tag-success'}`} style={{ fontSize: '0.875rem', fontWeight: 600 }}>
-                        {p.total_qty} unds
+                        {p.total_on_hand_qty} unds
                       </span>
                     </td>
                     <td style={{ padding: '0.75rem 1rem', color: 'var(--color-slate-400)', fontSize: '0.8rem' }}>
                       <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
-                        {(p.branches_breakdown as Array<{ branch_id: string; branch_name: string; qty: number }>).map((b) => (
+                        {(p.branches_breakdown as Array<{ branch_id: string; branch_name: string; on_hand_qty: number }>).map((b) => (
                           <div key={b.branch_id} style={{ display: 'flex', justifyContent: 'space-between', gap: '1rem' }}>
                             <span>{b.branch_name}:</span>
-                            <strong>{b.qty}</strong>
+                            <strong>{b.on_hand_qty}</strong>
                           </div>
                         ))}
                       </div>

@@ -93,18 +93,26 @@
 6. Si backend responde con la venta ya existente para ese `client_uuid`, la web la trata como sincronizada y elimina la pendiente.
 
 ## Roles y permisos
-- `ADMIN`:
-  - configurar negocio
-  - cambiar `tax_mode`
-  - editar productos y `tax_category`
-  - anular ventas
-  - abrir/cerrar caja
-  - vender y reimprimir
-- `CASHIER`:
-  - abrir/cerrar caja
-  - vender
-  - ver historial y reimprimir
-  - no ve acciones administrativas ni de anulación
+- `ADMIN` (Acceso global al Tenant):
+  - configurar negocio y sucursales (`settings:manage`, `branches:manage`)
+  - cambiar configuración de todos los usuarios (`users:manage`)
+  - editar productos y catálogos (`products:manage`)
+  - anular ventas (`sales:void`)
+  - ver todas las ventas y dashboard global (`sales:view`, `dashboard:global:view`)
+  - control de caja total (`cash:open`, `cash:close`, `cash:audit`)
+- `MANAGER` (Acceso restringido a sus sucursales):
+  - administrar únicamente cajeros (`users:manage` restringido)
+  - reportes de sucursal (`reports:view`, `dashboard:view`)
+  - movimientos de inventario (`inventory:adjust`, `inventory:receive`, `inventory:transfer`)
+  - **No ve** dashboard global ni puede anular ventas.
+- `CASHIER` (Acceso restringido a sus sucursales):
+  - abrir/cerrar su propia caja (`cash:open`, `cash:close` validado por sesión)
+  - vender (`sales:create`)
+  - ver historial de ventas (`sales:view`)
+  - ver saldos de inventario (`inventory:view`)
+  - **No ve** acciones administrativas ni reportes.
+- `AUDITOR` (Solo lectura global):
+  - ver trazabilidad y sistema (`audit:view`, `alerts:view`)
 
 ## Observabilidad y seguridad operativa
 - API agrega `request_id` y logs estructurados con `tenant_id`, `branch_id`, `user_id` y `sale_id` cuando aplica.

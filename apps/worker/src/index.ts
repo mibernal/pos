@@ -12,6 +12,10 @@ import type { AnyOutboxJobData, OutboxSaleCreatedJobData, OutboxSaleVoidedJobDat
 import { enqueueDueOutboxEvents } from './scheduler/outbox-events.scheduler.js';
 import { recheckStuckDianDocuments } from './scheduler/dian-sent-recheck.scheduler.js';
 import { ensureAuditLogPartitions } from './scheduler/audit-partitions.scheduler.js';
+import { checkAbnormalRefunds } from './scheduler/alerts-abnormal-refunds.scheduler.js';
+import { checkStalledOutboxEvents } from './scheduler/alerts-stalled-outbox.scheduler.js';
+import { rollupDailySales } from './scheduler/rollup-daily-sales.scheduler.js';
+import { rollupInventoryValuation } from './scheduler/rollup-inventory-valuation.scheduler.js';
 import { logWorkerError, logWorkerInfo } from './infra/logging/worker-log.js';
 
 const provider = buildDianProvider();
@@ -147,6 +151,65 @@ const partitionTimer: NodeJS.Timeout = setInterval(() => {
   });
 }, partitionCheckIntervalMs);
 
+// C6: Schedulers de Alertas Operativas Asíncronas
+const alertsIntervalMs = 10 * 60 * 1000; // Check every 10 mins
+const alertsTimer: NodeJS.Timeout = setInterval(() => {
+  void checkAbnormalRefunds(dbPool).then(count => {
+    if (count > 0) {
+      logWorkerInfo({
+        event: 'alert_abnormal_refunds_emitted',
+        message: 'Emitted ABNORMAL_REFUNDS alerts',
+        details: { count }
+      });
+    }
+  }).catch(err => {
+    logWorkerError({
+      event: 'alert_abnormal_refunds_scheduler_failed',
+      message: 'Failed to run abnormal refunds alert scheduler',
+      error: err
+    });
+  });
+
+  void checkStalledOutboxEvents(dbPool).then(count => {
+    if (count > 0) {
+      logWorkerInfo({
+        event: 'alert_stalled_outbox_emitted',
+        message: 'Emitted SYSTEM_OUTBOX_STALLED alerts',
+        details: { count }
+      });
+    }
+  }).catch(err => {
+    logWorkerError({
+      event: 'alert_stalled_outbox_scheduler_failed',
+      message: 'Failed to run stalled outbox alert scheduler',
+      error: err
+    });
+  });
+}, alertsIntervalMs);
+
+// C7: Schedulers de Agregación (Rollups)
+const salesRollupIntervalMs = 5 * 60 * 1000; // 5 minutos
+const salesRollupTimer = setInterval(() => {
+  void rollupDailySales(dbPool).catch(err => {
+    logWorkerError({
+      event: 'rollup_daily_sales_failed',
+      message: 'Failed to run daily sales rollup scheduler',
+      error: err
+    });
+  });
+}, salesRollupIntervalMs);
+
+const inventoryRollupIntervalMs = 60 * 60 * 1000; // 1 hora
+const inventoryRollupTimer = setInterval(() => {
+  void rollupInventoryValuation(dbPool).catch(err => {
+    logWorkerError({
+      event: 'rollup_inventory_valuation_failed',
+      message: 'Failed to run inventory valuation rollup scheduler',
+      error: err
+    });
+  });
+}, inventoryRollupIntervalMs);
+
 void ensureAuditLogPartitions(dbPool).catch(err => {
   logWorkerError({
     event: 'audit_partition_startup_failed',
@@ -198,6 +261,9 @@ const shutdown = async () => {
   clearInterval(schedulerTimer);
   clearInterval(dianRecheckTimer);  // C4: cancelar el recheck timer
   clearInterval(partitionTimer); // C5: cancelar el partition timer
+  clearInterval(alertsTimer); // C6: cancelar el alerts timer
+  clearInterval(salesRollupTimer); // C7: cancelar rollups
+  clearInterval(inventoryRollupTimer);
   await Promise.all([worker.close(), queue.close(), queueEvents.close(), dbPool.end()]);
   process.exit(0);
 };

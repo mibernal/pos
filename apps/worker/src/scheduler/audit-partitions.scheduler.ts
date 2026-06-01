@@ -7,11 +7,11 @@ import { logWorkerError, logWorkerInfo } from '../infra/logging/worker-log.js';
  */
 export async function ensureAuditLogPartitions(pool: Pool): Promise<void> {
   const now = new Date();
-  
+
   // Current month
   const currentYear = now.getUTCFullYear();
   const currentMonth = now.getUTCMonth() + 1;
-  
+
   // Next month
   let nextMonth = currentMonth + 1;
   let nextYear = currentYear;
@@ -36,7 +36,7 @@ export async function ensureAuditLogPartitions(pool: Pool): Promise<void> {
   for (const { year, month, nextYear, nextMonth: nextM } of partitionsToCreate) {
     const monthStr = month.toString().padStart(2, '0');
     const partitionName = `audit_logs_y${year}m${monthStr}`;
-    
+
     const startDate = `${year}-${monthStr}-01`;
     const nextMonthStr = nextM.toString().padStart(2, '0');
     const endDate = `${nextYear}-${nextMonthStr}-01`;
@@ -44,7 +44,7 @@ export async function ensureAuditLogPartitions(pool: Pool): Promise<void> {
     const client = await pool.connect();
     try {
       await client.query('BEGIN');
-      
+
       // 1. Check if partition exists
       const { rowCount } = await client.query(`
         SELECT 1 
@@ -56,7 +56,7 @@ export async function ensureAuditLogPartitions(pool: Pool): Promise<void> {
       if (!rowCount) {
         // 2. Create standalone table
         await client.query(`CREATE TABLE ${partitionName} (LIKE audit_logs INCLUDING ALL)`);
-        
+
         // 3. Move existing conflicting rows from default partition
         await client.query(`
           WITH moved_rows AS (
@@ -66,13 +66,13 @@ export async function ensureAuditLogPartitions(pool: Pool): Promise<void> {
           )
           INSERT INTO ${partitionName} SELECT * FROM moved_rows
         `, [startDate, endDate]);
-        
+
         // 4. Attach partition
         await client.query(`
           ALTER TABLE audit_logs 
           ATTACH PARTITION ${partitionName} 
-          FOR VALUES FROM ($1) TO ($2)
-        `, [startDate, endDate]);
+          FOR VALUES FROM ('${startDate}') TO ('${endDate}')
+        `);
       }
 
       await client.query('COMMIT');

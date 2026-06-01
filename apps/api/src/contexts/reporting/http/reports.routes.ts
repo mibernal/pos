@@ -1,7 +1,10 @@
 import type { FastifyPluginAsync } from 'fastify';
 import { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { sql } from 'kysely';
-import { salesReportQuerySchema } from '@pos-dian/shared';
+import { salesReportQuerySchema, kardexQuerySchema } from '@pos-dian/shared';
+
+import { AppError } from '../../../shared/infra/errors/app-error.js';
+import { ensureUserCanAccessBranch } from '../../../shared/infra/security/permissions.js';
 
 export const reportsRoutes: FastifyPluginAsync = async (app) => {
   const typedApp = app.withTypeProvider<ZodTypeProvider>();
@@ -17,13 +20,21 @@ export const reportsRoutes: FastifyPluginAsync = async (app) => {
       }
     },
     async (request) => {
+      if (!request.auth) throw new AppError(401, 'UNAUTHORIZED', 'No autorizado');
       const { branch_id, from, to } = request.query;
+
+      if (branch_id) ensureUserCanAccessBranch(request.auth, branch_id);
 
       let query = app.db
         .selectFrom('sales')
         .where('tenant_id', '=', request.auth!.tenantId)
-        .where('branch_id', '=', branch_id)
         .where('status', '=', 'COMPLETED'); // Only count completed sales
+
+      if (branch_id) {
+        query = query.where('branch_id', '=', branch_id as string);
+      } else if (request.auth.role !== 'ADMIN') {
+        query = query.where('branch_id', 'in', request.auth.branchIds);
+      }
 
       if (from) {
         query = query.where('created_at', '>=', new Date(from));
@@ -45,14 +56,17 @@ export const reportsRoutes: FastifyPluginAsync = async (app) => {
       // Easiest is to select all matching sales payment_json and group in JS,
       // as payment_json is unstructured jsonb in a simple view. 
       // Kysely json functions can be complex across dialects, so querying JSON values:
-      const salesQuery = app.db
+      let salesFiltered = app.db
         .selectFrom('sales')
         .select(['payment_json'])
         .where('tenant_id', '=', request.auth!.tenantId)
-        .where('branch_id', '=', branch_id)
         .where('status', '=', 'COMPLETED');
-        
-      let salesFiltered = salesQuery;
+
+      if (branch_id) {
+        salesFiltered = salesFiltered.where('branch_id', '=', branch_id as string);
+      } else if (request.auth.role !== 'ADMIN') {
+        salesFiltered = salesFiltered.where('branch_id', 'in', request.auth.branchIds);
+      }
       if (from) salesFiltered = salesFiltered.where('created_at', '>=', new Date(from));
       if (to) salesFiltered = salesFiltered.where('created_at', '<=', new Date(to));
       
@@ -106,8 +120,11 @@ export const reportsRoutes: FastifyPluginAsync = async (app) => {
       }
     },
     async (request) => {
+      if (!request.auth) throw new AppError(401, 'UNAUTHORIZED', 'No autorizado');
       // Re-use salesReportQuerySchema structure manually or just extract from query
       const { branch_id, from, to } = request.query as Record<string, string | undefined>;
+
+      if (branch_id) ensureUserCanAccessBranch(request.auth, branch_id);
 
       let query = app.db
         .selectFrom('cash_sessions')
@@ -115,7 +132,9 @@ export const reportsRoutes: FastifyPluginAsync = async (app) => {
         .where('cash_sessions.tenant_id', '=', request.auth!.tenantId);
 
       if (branch_id) {
-        query = query.where('cash_sessions.branch_id', '=', branch_id);
+        query = query.where('cash_sessions.branch_id', '=', branch_id as string);
+      } else if (request.auth.role !== 'ADMIN') {
+        query = query.where('cash_sessions.branch_id', 'in', request.auth.branchIds);
       }
 
       if (from) {
@@ -154,6 +173,67 @@ export const reportsRoutes: FastifyPluginAsync = async (app) => {
           closing_cash_real_cents: row.closing_cash_real_cents,
           expected_cash_cents: row.expected_cash_cents,
           diff_cents: row.diff_cents
+        }))
+      };
+    }
+  );
+
+  typedApp.get(
+    '/reports/kardex',
+    {
+      preHandler: [app.requirePermissions(['reports:view'])], // Or inventory:view
+      schema: {
+        tags: ['reports'],
+        security: [{ bearerAuth: [] }],
+        querystring: kardexQuerySchema
+      }
+    },
+    async (request) => {
+      if (!request.auth) throw new AppError(401, 'UNAUTHORIZED', 'No autorizado');
+      const { branch_id, product_id, variant_id, from, to } = request.query;
+
+      ensureUserCanAccessBranch(request.auth, branch_id);
+
+      let query = app.db
+        .selectFrom('inventory_transactions')
+        .leftJoin('users', 'users.id', 'inventory_transactions.created_by_user_id')
+        .where('inventory_transactions.tenant_id', '=', request.auth!.tenantId)
+        .where('inventory_transactions.branch_id', '=', branch_id)
+        .where('inventory_transactions.product_id', '=', product_id);
+
+      if (variant_id) {
+        query = query.where('inventory_transactions.variant_id', '=', variant_id);
+      } else {
+        query = query.where('inventory_transactions.variant_id', 'is', null);
+      }
+
+      if (from) {
+        query = query.where('inventory_transactions.created_at', '>=', new Date(from));
+      }
+      if (to) {
+        query = query.where('inventory_transactions.created_at', '<=', new Date(to));
+      }
+
+      const rows = await query
+        .select([
+          'inventory_transactions.id',
+          'inventory_transactions.operation',
+          'inventory_transactions.reference_id',
+          'inventory_transactions.qty_change',
+          'inventory_transactions.balance_after',
+          'inventory_transactions.notes',
+          'inventory_transactions.created_at',
+          'users.name as user_name'
+        ])
+        .orderBy('inventory_transactions.created_at', 'desc')
+        .execute();
+
+      return {
+        items: rows.map(r => ({
+          ...r,
+          qty_change: Number(r.qty_change),
+          balance_after: r.balance_after ? Number(r.balance_after) : null,
+          created_at: r.created_at.toISOString()
         }))
       };
     }

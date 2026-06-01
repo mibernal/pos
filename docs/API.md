@@ -1,0 +1,255 @@
+# POS DIAN API - Documentación Técnica Final
+
+Esta documentación refleja el **estado actual real** de las APIs del Backend del sistema POS multi-tenant. Está orientada al equipo de ingeniería para integraciones, desarrollo frontend y mantenimiento.
+
+## Índice General
+
+1. [Arquitectura de Seguridad](#1-arquitectura-de-seguridad)
+2. [Módulo: Autenticación y Sesión](#2-módulo-autenticación-y-sesión)
+3. [Módulo: Identity & Users](#3-módulo-identity--users)
+4. [Módulo: Identity & Branches (Sucursales)](#4-módulo-identity--branches)
+5. [Módulo: Ventas (Sales)](#5-módulo-ventas)
+6. [Módulo: Cajas (Cash Sessions)](#6-módulo-cajas)
+7. [Módulo: Inventario y Productos](#7-módulo-inventario-y-productos)
+8. [Módulo: Dashboard y Reportes](#8-módulo-dashboard-y-reportes)
+9. [Módulo: Auditoría y Alertas](#9-módulo-auditoría-y-alertas)
+
+---
+
+## 1. Arquitectura de Seguridad
+
+### Autenticación y Tokens
+El sistema utiliza **Autenticación Bearer (JWT)**.
+* **Token de Acceso (Access Token):** Expira en corto tiempo (ej: 15 min). Se envía en la cabecera `Authorization: Bearer <token>`.
+* **Token de Refresco (Refresh Token):** Almacenado como una cookie HTTP-Only (`refresh_token`). Permite obtener un nuevo Access Token.
+
+### Aislamiento Multi-Tenant
+La separación lógica de datos ocurre a través de `tenant_id`.
+* El `tenant_id` **no se envía en el body ni en la URL**. Se extrae automáticamente de forma segura desde el JWT validado en cada request (`request.auth.tenantId`).
+* Es imposible hacer "Tenant Hopping" (saltar entre bases de datos de clientes) si el JWT está intacto.
+
+### Jerarquía y Rol-Base Access Control (RBAC)
+Cada endpoint (ruta) es validado por el plugin `requirePermissions`. Los roles están rígidamente atados a un subconjunto de permisos.
+
+| Rol | Alcance sobre Sucursales (Scope) | Permisos Destacados |
+| :--- | :--- | :--- |
+| **ADMIN** | **Global** (Todas las sucursales del Tenant) | `settings:manage`, `users:manage`, `dashboard:global:view`, Todos los demás permisos. |
+| **MANAGER** | **Restringido** (Solo sucursales asignadas en `user_branches`) | `users:manage` (solo cajeros), `inventory:adjust`, `reports:view`. |
+| **CASHIER** | **Restringido** (Solo sucursales asignadas) | `sales:create`, `cash:open`, `cash:close`, `inventory:view`. |
+| **AUDITOR** | **Global** (Visualización de todas las sucursales) | `audit:view`, `alerts:view`, `reports:view`. No puede mutar datos. |
+
+---
+
+## 2. Módulo: Autenticación y Sesión
+
+### `POST /api/v1/auth/login`
+Inicia sesión en el sistema.
+* **Permisos Requeridos:** `Ninguno` (Público)
+* **Request Schema:**
+  ```json
+  {
+    "email": "admin@example.com",
+    "password": "password123"
+  }
+  ```
+* **Response:**
+  Devuelve el objeto del usuario, el JWT en JSON y establece una cookie `refresh_token`.
+* **Errores:** `401 Unauthorized` (Credenciales inválidas).
+
+### `POST /api/v1/auth/refresh`
+Renueva el Access Token usando la cookie HTTP-Only.
+* **Permisos Requeridos:** `Ninguno` (La cookie es validada).
+* **Response:** Nuevo JWT (`{ "accessToken": "..." }`).
+* **Errores:** `401 Unauthorized` (Token expirado o inválido).
+
+### `POST /api/v1/auth/logout`
+Destruye la sesión eliminando el Refresh Token.
+* **Permisos Requeridos:** Requiere JWT válido.
+
+### `GET /api/v1/auth/me`
+Devuelve el perfil del usuario actual, su tenant, rol y sucursales asignadas.
+* **Permisos Requeridos:** Requiere JWT válido.
+
+---
+
+## 3. Módulo: Identity & Users
+
+### `GET /api/v1/admin/users`
+Lista los usuarios del Tenant.
+* **Permisos Requeridos:** `users:manage`
+* **Scope:** Un MANAGER solo ve a los CASHIERS asignados a las sucursales del MANAGER.
+* **Response:** Lista de usuarios (id, tenantId, email, name, role, active, createdAt).
+
+### `POST /api/v1/admin/users`
+Crea un nuevo usuario en el Tenant.
+* **Permisos Requeridos:** `users:manage`
+* **Restricción Crítica:** Un MANAGER solo puede crear perfiles con rol `CASHIER` y solo puede asignar sucursales a las que él mismo tiene acceso.
+* **Request Schema:**
+  ```json
+  {
+    "email": "cajero@example.com",
+    "password": "strongPassword",
+    "name": "Juan Perez",
+    "role": "CASHIER",
+    "active": true,
+    "branch_ids": ["uuid-sucursal-1"]
+  }
+  ```
+
+### `PATCH /api/v1/admin/users/:id/branches`
+Modifica las sucursales asignadas a un usuario.
+* **Permisos Requeridos:** `users:manage`
+* **Restricción Crítica:** Un MANAGER solo puede modificar las sucursales de un `CASHIER`.
+
+---
+
+## 4. Módulo: Identity & Branches
+
+### `GET /api/v1/branches`
+Lista las sucursales.
+* **Permisos Requeridos:** `branches:view`
+* **Scope:** Si el rol no es ADMIN, la respuesta solo devuelve las sucursales asignadas al usuario.
+
+### `POST /api/v1/branches`
+Crea una nueva sucursal (locación física o lógica).
+* **Permisos Requeridos:** `branches:manage`
+* **Request Schema:** `{ "name": "Norte", "code": "NRTE-01", "address": "...", "phone": "...", "active": true }`
+
+---
+
+## 5. Módulo: Ventas
+
+### `POST /api/v1/sales`
+Registra una nueva venta / orden.
+* **Permisos Requeridos:** `sales:create`
+* **Scope:** Valida que el `branch_id` enviado pertenezca al usuario en sesión. Valida que exista una Sesión de Caja abierta y activa vinculada al `branch_id` y al `cash_session_id`.
+* **Request Schema (Contrato Crítico):**
+  ```json
+  {
+    "branch_id": "uuid",
+    "terminal_id": "uuid",
+    "cash_session_id": "uuid",
+    "customer_id": "uuid",
+    "items": [
+      {
+        "product_id": "uuid",
+        "quantity": 2,
+        "unit_price_cents": 15000,
+        "tax_rate": 0.19,
+        "subtotal_cents": 30000,
+        "tax_cents": 5700,
+        "total_cents": 35700
+      }
+    ],
+    "payments": [
+      {
+        "method": "CASH",
+        "amount_cents": 35700,
+        "reference": null
+      }
+    ],
+    "subtotal_cents": 30000,
+    "tax_cents": 5700,
+    "discount_cents": 0,
+    "total_cents": 35700
+  }
+  ```
+* **Notas de Negocio:** Este endpoint inyecta automáticamente el evento `SaleCompleted` a la tabla `outbox` para la integración asíncrona con el Facturador Electrónico DIAN.
+
+### `GET /api/v1/sales`
+Lista el historial de ventas.
+* **Permisos Requeridos:** `sales:view`
+* **Scope:** Filtra ventas por el `branch_id` permitido del usuario.
+
+### `POST /api/v1/sales/void`
+Anula (void) una venta existente.
+* **Permisos Requeridos:** `sales:void`
+* **Notas de Negocio:** Inserta evento de anulación en `outbox` si ya había sido facturado. Devuelve los items al inventario si aplica.
+
+---
+
+## 6. Módulo: Cajas
+
+### `POST /api/v1/cash-sessions`
+Apertura una caja.
+* **Permisos Requeridos:** `cash:open`
+* **Scope:** Se debe tener acceso al `branch_id`. Falla si la terminal ya tiene una caja abierta.
+* **Request:** `{ "branch_id": "uuid", "terminal_id": "uuid", "opening_amount_cents": 50000 }`
+
+### `POST /api/v1/cash-sessions/:id/close`
+Cierra la sesión de caja actualizando la conciliación (arqueo).
+* **Permisos Requeridos:** `cash:close`
+* **Seguridad:** Si el rol es `CASHIER`, el backend valida explícitamente que la sesión fue abierta por el *mismo* usuario que intenta cerrarla.
+* **Request:** `{ "closing_cash_real_cents": 150000, "notes": "Cierre del día" }`
+* **Response:** Calcula `expected_cash_cents` (Ventas + Base de apertura - Retiros) y `diff_cents` (Sobrante/Faltante).
+
+---
+
+## 7. Módulo: Inventario y Productos
+
+### `GET /api/v1/products`
+Catálogo de productos.
+* **Permisos Requeridos:** `products:view`
+
+### `GET /api/v1/inventory/balances`
+Obtiene el saldo disponible de productos por sucursal.
+* **Permisos Requeridos:** `inventory:view`
+* **Scope:** Solo devuelve inventario de las sucursales asignadas al usuario.
+
+### `POST /api/v1/inventory/adjust`
+Ajuste de inventario (Suma o Resta por merma/daño).
+* **Permisos Requeridos:** `inventory:adjust`
+* **Request:** `{ "branch_id": "uuid", "product_id": "uuid", "quantity": -2, "reason": "DAMAGE", "notes": "Caja rota" }`
+
+### `POST /api/v1/inventory/transfer`
+Movimiento de inventario entre dos sucursales.
+* **Permisos Requeridos:** `inventory:transfer`
+* **Seguridad:** El usuario que ejecuta debe tener acceso a **ambas** sucursales (`from_branch_id` y `to_branch_id`). (Solo Managers/Admins suelen cumplir esto).
+
+### `POST /api/v1/scanner/resolve`
+Endpoint optimizado para POS (Caja registradora) para buscar productos mediante lector de código de barras.
+* **Permisos Requeridos:** `sales:create`
+* **Request:** `{ "barcode": "770123456789", "branch_id": "uuid" }`
+* **Response:** Incluye el precio, nombre, ID y el saldo del inventario (`inventoryCount`) para validar stock en tiempo real al registrar.
+
+---
+
+## 8. Módulo: Dashboard y Reportes
+
+### `GET /api/v1/dashboard/global`
+Dashboard financiero para dueños/socios.
+* **Permisos Requeridos:** `dashboard:global:view` (Exclusivo para ADMIN).
+* **Scope:** No filtra por sucursal. Agrega ingresos, márgenes y métricas de todo el tenant de forma cruzada.
+
+### `GET /api/v1/dashboard/stream` (Server-Sent Events)
+Stream en tiempo real (SSE) de métricas de la sucursal activa.
+* **Permisos Requeridos:** `dashboard:view` (Requiere `branch_id` en Query).
+* **Notas de Negocio:** Permite que las pantallas en el restaurante o tienda se actualicen en tiempo real usando subscripción a PostgreSQL listen/notify o polling. Requiere envío de cabeceras CORS de forma manual debido a limitaciones técnicas del SSE en Fastify.
+
+---
+
+## 9. Módulo: Auditoría y Alertas
+
+### `GET /api/v1/audit`
+Registro de acciones inmutables del sistema.
+* **Permisos Requeridos:** `audit:view`
+* **Notas de Negocio:** Registra cada `INSERT`, `UPDATE`, `DELETE` en tablas críticas (usualmente capturado por Triggers SQL en PostgreSQL), o vía `auditContextStorage`.
+
+### `GET /api/v1/alerts`
+Bandeja de alertas del sistema (Bajo Stock, Cierre con Descuadre, Error DIAN).
+* **Permisos Requeridos:** `alerts:view`
+* **Scope:** Restringe las alertas a las sucursales donde el usuario tiene acceso.
+
+---
+
+## Eventos Asíncronos (Outbox Pattern)
+La integración con facturación DIAN y otros servicios se realiza mediante inserciones a la tabla `outbox`.
+
+**Lista de Eventos Críticos:**
+1. `SaleCompleted`: Creado cuando `/api/v1/sales` responde `201`. Payload: Toda la orden con su subtotal, impuestos y pagos.
+2. `SaleVoided`: Creado cuando `/api/v1/sales/void` responde `200`. Payload: Referencia a la Venta y nota de crédito.
+3. `CashSessionClosed`: Creado en `POST /cash-sessions/:id/close`. Payload: Arqueo, diferencias y auditor que cerró.
+
+## Recomendaciones para Mantener Documentación
+* Dado que el proyecto utiliza `@fastify/swagger` y `zod`, se recomienda **generar OpenAPI Specification V3** en formato JSON habilitando `/docs/json` e importando el archivo en herramientas como Postman, Stoplight o Swagger UI local.
+* Cuando se agreguen nuevos permisos en `permissions.ts`, actualizar de inmediato esta documentación en las secciones respectivas.

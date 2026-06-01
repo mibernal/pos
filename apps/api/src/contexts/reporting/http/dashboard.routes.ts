@@ -1,5 +1,7 @@
 import type { FastifyPluginAsync } from 'fastify';
 import { sql } from 'kysely';
+import { ensureUserCanAccessBranch } from '../../../shared/infra/security/permissions.js';
+
 export const dashboardRoutes: FastifyPluginAsync = async (app) => {
 
 
@@ -21,6 +23,18 @@ export const dashboardRoutes: FastifyPluginAsync = async (app) => {
         return reply.code(400).send({ message: 'branch_id es requerido' });
       }
 
+      try {
+        ensureUserCanAccessBranch(request.auth, branch_id);
+      } catch (err: any) {
+        return reply.code(err.statusCode || 403).send({ message: err.message || 'No tienes acceso a esta sucursal' });
+      }
+
+      const origin = request.headers.origin;
+      if (origin) {
+        reply.raw.setHeader('Access-Control-Allow-Origin', origin);
+        reply.raw.setHeader('Access-Control-Allow-Credentials', 'true');
+      }
+      
       reply.raw.setHeader('Content-Type', 'text/event-stream');
       reply.raw.setHeader('Cache-Control', 'no-cache');
       reply.raw.setHeader('Connection', 'keep-alive');
@@ -52,6 +66,16 @@ export const dashboardRoutes: FastifyPluginAsync = async (app) => {
             ])
             .executeTakeFirst();
 
+          const inventoryRows = await app.db
+            .selectFrom('inventory_balances')
+            .innerJoin('products', 'products.id', 'inventory_balances.product_id')
+            .where('inventory_balances.tenant_id', '=', tenantId)
+            .where('inventory_balances.branch_id', '=', branch_id)
+            .select([
+              sql<number>`COALESCE(SUM(inventory_balances.on_hand_qty * products.cost_cents), 0)`.as('total_inventory_value_cents')
+            ])
+            .executeTakeFirst();
+
           // Recent sales for a timeline
           const recentSales = await app.db
             .selectFrom('sales')
@@ -78,6 +102,7 @@ export const dashboardRoutes: FastifyPluginAsync = async (app) => {
           const payload = {
             total_revenue_cents: Number(rows?.total_revenue_cents || 0),
             total_sales_count: Number(rows?.total_sales_count || 0),
+            total_inventory_value_cents: Number(inventoryRows?.total_inventory_value_cents || 0),
             chart_data: chartData
           };
 

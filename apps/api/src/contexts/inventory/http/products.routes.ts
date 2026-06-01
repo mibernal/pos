@@ -18,6 +18,7 @@ import {
   resolveBranchIdForPatch
 } from '../services/products/scope.js';
 import { writeAuditLog } from '../../../shared/domain/audit/write-audit-log.js';
+import { ensureUserCanAccessBranch } from '../../../shared/infra/security/permissions.js';
 
 async function ensureBranchBelongsToTenant(
   db: FastifyInstance['db'],
@@ -196,6 +197,7 @@ export const productsRoutes: FastifyPluginAsync = async (app) => {
 
       if (resolvedBranchId) {
         await ensureBranchBelongsToTenant(app.db, request.auth.tenantId, resolvedBranchId);
+        ensureUserCanAccessBranch(request.auth, resolvedBranchId);
       }
 
       const createdProduct = await app.db
@@ -312,6 +314,7 @@ export const productsRoutes: FastifyPluginAsync = async (app) => {
 
         if (resolvedBranchId) {
           await ensureBranchBelongsToTenant(trx, request.auth!.tenantId, resolvedBranchId);
+          ensureUserCanAccessBranch(request.auth, resolvedBranchId);
         }
 
         const nextProduct = await trx
@@ -442,6 +445,10 @@ export const productsRoutes: FastifyPluginAsync = async (app) => {
 
       if (!currentProduct || !canAccessProductInBranchScope(currentProduct.branch_id, branchIdFromHeader)) {
         throw new AppError(404, 'PRODUCT_NOT_FOUND', 'Producto no encontrado');
+      }
+
+      if (currentProduct.branch_id) {
+        ensureUserCanAccessBranch(request.auth, currentProduct.branch_id);
       }
 
       const updatedProduct = await app.db

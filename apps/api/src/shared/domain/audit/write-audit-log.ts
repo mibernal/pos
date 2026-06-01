@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { Kysely } from 'kysely';
 import type { Database } from '../../infra/db/schema.js';
+import { getAuditContext } from '../../infra/audit/audit-context.js';
 
 type AuditLogDb = Pick<Kysely<Database>, 'insertInto'>;
 
@@ -15,6 +16,8 @@ export interface AuditLogInput {
 }
 
 export async function writeAuditLog(db: AuditLogDb, input: AuditLogInput): Promise<void> {
+  const context = getAuditContext();
+
   await db
     .insertInto('audit_logs')
     .values({
@@ -25,7 +28,10 @@ export async function writeAuditLog(db: AuditLogDb, input: AuditLogInput): Promi
       entity_type: input.entityType,
       entity_id: input.entityId,
       action: input.action,
-      payload_json: input.payloadJson
+      legacy_payload: input.payloadJson,
+      ip_address: context?.ipAddress || null,
+      user_agent: context?.userAgent || null,
+      correlation_id: context?.correlationId || null
     })
     .execute();
 }

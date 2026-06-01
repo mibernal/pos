@@ -65,9 +65,10 @@ export function usePendingSalesSync({
   const [syncError, setSyncError] = useState<string | null>(null);
 
   const refreshPendingSales = useCallback(async () => {
+    const branchId = posContext?.branchId;
     const [pendingCount, queuedSales] = await Promise.all([
-      getPendingSalesCount(),
-      listPendingSales()
+      getPendingSalesCount(branchId),
+      listPendingSales(branchId)
     ]);
     setPendingSalesCount(pendingCount);
     setPendingSales(queuedSales);
@@ -120,7 +121,8 @@ export function usePendingSalesSync({
       try {
         const result = await flushPendingSales(createSaleForSync, {
           recordId,
-          shouldStopOnError: shouldStopSyncOnError
+          shouldStopOnError: shouldStopSyncOnError,
+          branchId: posContext?.branchId
         });
         await refreshPendingSales();
 

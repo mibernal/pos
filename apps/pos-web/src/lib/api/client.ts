@@ -220,7 +220,7 @@ export function createApiClient({ baseUrl, getSession, setSession }: CreateApiCl
 
   async function logout(): Promise<void> {
     try {
-      await requestJson('/auth/logout', { method: 'POST' });
+      await requestJson('/auth/logout', { method: 'POST', body: '{}' });
     } catch {
       // Ignore errors on logout
     }
@@ -233,8 +233,35 @@ export function createApiClient({ baseUrl, getSession, setSession }: CreateApiCl
     me: () => requestJson<SharedMeResponse>('/auth/me'),
     refresh: () => requestJson<AuthSession>('/auth/refresh', { method: 'POST', body: '{}' }),
     listBranches: () => requestJson<{ items: BranchItem[] }>('/branches'),
+    createBranch: (payload: { name: string; address: string }) => 
+      requestJson<BranchItem>('/branches', {
+        method: 'POST',
+        body: JSON.stringify(payload)
+      }),
+    updateBranch: (id: string, payload: { name?: string; address?: string }) => 
+      requestJson<BranchItem>(`/branches/${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify(payload)
+      }),
+    listUsers: () => 
+      requestJson<{ id: string; tenantId: string; email: string; name: string; role: UserRole; active: boolean; createdAt: string }[]>('/admin/users'),
+    createUser: (payload: { email: string; name: string; role: string; password: string; active: boolean; branch_ids?: string[] }) => 
+      requestJson<{ id: string; tenantId: string; email: string; name: string; role: UserRole; active: boolean; createdAt: string }>('/admin/users', {
+        method: 'POST',
+        body: JSON.stringify(payload)
+      }),
+    updateUserBranches: (id: string, branchIds: string[]) => 
+      requestJson<{ success: boolean }>(`/admin/users/${id}/branches`, {
+        method: 'PATCH',
+        body: JSON.stringify({ branch_ids: branchIds })
+      }),
     listTerminals: (branchId: string) => 
       requestJson<{ terminals: TerminalItem[] }>(`/terminals?${toQueryString({ branch_id: branchId })}`),
+    createTerminal: (payload: { branch_id: string; name: string }) =>
+      requestJson<TerminalItem>('/terminals', {
+        method: 'POST',
+        body: JSON.stringify(payload)
+      }),
     getCurrentCashSession: (terminalId: string) =>
       requestJson<{ cash_session: CashSession | null }>(
         `/cash-sessions/current?${toQueryString({ terminal_id: terminalId })}`

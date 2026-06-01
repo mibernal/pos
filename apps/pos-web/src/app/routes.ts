@@ -4,46 +4,56 @@ export const APP_ROUTE_DEFINITIONS: readonly AppRouteDefinition[] = [
   {
     id: 'pos',
     label: 'POS',
-    allowedRoles: ['ADMIN', 'MANAGER', 'CASHIER']
+    requiredPermissions: ['sales:create']
   },
   {
     id: 'history',
     label: 'Historial',
-    allowedRoles: ['ADMIN', 'MANAGER', 'CASHIER', 'AUDITOR']
+    requiredPermissions: ['sales:create', 'reports:view']
   },
   {
     id: 'cash-control',
     label: 'Control de Caja',
-    allowedRoles: ['ADMIN', 'MANAGER', 'CASHIER']
+    requiredPermissions: ['cash:open', 'cash:close']
   },
   {
     id: 'products',
     label: 'Productos',
-    allowedRoles: ['ADMIN', 'MANAGER', 'CASHIER', 'AUDITOR']
+    requiredPermissions: ['products:view']
   },
   {
     id: 'customers',
     label: 'Clientes',
-    allowedRoles: ['ADMIN', 'MANAGER', 'CASHIER', 'AUDITOR']
+    requiredPermissions: ['customers:view']
   },
   {
     id: 'inventory',
     label: 'Inventario',
-    allowedRoles: ['ADMIN', 'MANAGER', 'CASHIER', 'AUDITOR']
+    requiredPermissions: ['products:view', 'inventory:adjust', 'inventory:transfer', 'inventory:receive']
   },
   {
     id: 'inventory-adjustments',
     label: 'Ajustes',
-    allowedRoles: ['ADMIN', 'MANAGER']
+    requiredPermissions: ['inventory:adjust']
   },
   {
     id: 'reports',
     label: 'Reportes',
-    allowedRoles: ['ADMIN', 'MANAGER', 'AUDITOR']
+    requiredPermissions: ['reports:view']
   },
   {
     id: 'dashboard',
     label: 'Dashboard Live',
-    allowedRoles: ['ADMIN', 'MANAGER', 'AUDITOR']
+    requiredPermissions: ['dashboard:view']
+  },
+  {
+    id: 'users',
+    label: 'Usuarios',
+    requiredPermissions: ['users:manage']
+  },
+  {
+    id: 'branches',
+    label: 'Sucursales',
+    requiredPermissions: ['branches:manage']
   }
 ] as const;

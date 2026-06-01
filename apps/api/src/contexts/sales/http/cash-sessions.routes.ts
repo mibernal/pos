@@ -217,7 +217,7 @@ export const cashSessionsRoutes: FastifyPluginAsync = async (app) => {
   typedApp.post(
     '/cash-sessions/:id/audit',
     {
-      preHandler: [app.requirePermissions(['cash:reconcile'])],
+      preHandler: [app.requirePermissions(['cash:audit'])],
       schema: {
         tags: ['cash-sessions'],
         security: [{ bearerAuth: [] }],
@@ -338,7 +338,7 @@ export const cashSessionsRoutes: FastifyPluginAsync = async (app) => {
   typedApp.post(
     '/cash-sessions/:id/close',
     {
-      preHandler: [app.requirePermissions(['cash:reconcile'])],
+      preHandler: [app.requirePermissions(['cash:close'])],
       schema: {
         tags: ['cash-sessions'],
         security: [{ bearerAuth: [] }],
@@ -441,6 +441,29 @@ export const cashSessionsRoutes: FastifyPluginAsync = async (app) => {
           ])
           .executeTakeFirstOrThrow();
 
+        // Emit alert if there is a significant mismatch (e.g., more than $5 / 500 cents)
+        if (Math.abs(diffCents) >= 500) {
+          await trx
+            .insertInto('tenant_alerts')
+            .values({
+              tenant_id: request.auth!.tenantId,
+              branch_id: updatedSession.branch_id,
+              type: 'CASH_SESSION_MISMATCH',
+              severity: 'CRITICAL',
+              title: 'Descuadre de Caja Detectado',
+              message: `La sesión de caja se cerró con un descuadre de ${diffCents / 100} en la terminal ${updatedSession.terminal_id}.`,
+              metadata: JSON.stringify({
+                cash_session_id: updatedSession.id,
+                terminal_id: updatedSession.terminal_id,
+                expected_cents: expectedCashCents,
+                real_cents: payload.closing_cash_real_cents,
+                diff_cents: diffCents
+              }),
+              status: 'UNREAD'
+            })
+            .execute();
+        }
+
         await writeAuditLog(trx, {
           tenantId: request.auth!.tenantId,
           branchId: updatedSession.branch_id,
@@ -497,7 +520,7 @@ export const cashSessionsRoutes: FastifyPluginAsync = async (app) => {
   typedApp.get(
     '/cash-sessions/current',
     {
-      preHandler: [app.requirePermissions(['cash:audit'])],
+      preHandler: [app.requirePermissions(['cash:open'])],
       schema: {
         tags: ['cash-sessions'],
         security: [{ bearerAuth: [] }],
@@ -543,7 +566,7 @@ export const cashSessionsRoutes: FastifyPluginAsync = async (app) => {
   typedApp.post(
     '/cash-sessions/:id/movements',
     {
-      preHandler: [app.requirePermissions(['cash:reconcile'])],
+      preHandler: [app.requirePermissions(['cash:move'])],
       schema: {
         tags: ['cash-sessions'],
         security: [{ bearerAuth: [] }],

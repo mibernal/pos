@@ -14,13 +14,15 @@
   },
   "dependencies": {
     "@pos-dian/shared": "workspace:*",
+    "@tanstack/react-query": "^5.28.0",
     "@tanstack/react-virtual": "^3.11.2",
     "dexie": "^4.0.8",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-router-dom": "^6.22.3",
     "recharts": "^3.8.1",
-    "workbox-window": "^7.4.0"
+    "workbox-window": "^7.4.0",
+    "zustand": "^4.5.2"
   },
   "devDependencies": {
     "@testing-library/jest-dom": "^6.6.3",

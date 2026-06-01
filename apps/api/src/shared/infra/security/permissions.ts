@@ -21,9 +21,18 @@ export const ROLE_PERMISSIONS: Record<UserRole, UserPermission[]> = {
     'cash:audit',
     'reports:view',
     'dashboard:view',
+    'dashboard:global:view',
+    'sales:view',
+    'inventory:view',
     'terminals:view',
     'terminals:manage',
-    'settings:manage'
+    'settings:manage',
+    'users:manage',
+    'branches:manage',
+    'branches:view',
+    'alerts:view',
+    'alerts:manage',
+    'audit:view'
   ],
   MANAGER: [
     'sales:create',
@@ -44,12 +53,20 @@ export const ROLE_PERMISSIONS: Record<UserRole, UserPermission[]> = {
     'cash:audit',
     'reports:view',
     'dashboard:view',
+    'sales:view',
+    'inventory:view',
     'terminals:view',
-    'terminals:manage'
+    'users:manage',
+    'branches:view',
+    'alerts:view',
+    'alerts:manage',
+    'audit:view'
   ],
   CASHIER: [
     'sales:create',
+    'sales:view',
     'returns:create',
+    'inventory:view',
     'products:view',
     'customers:view',
     'customers:create',
@@ -57,7 +74,8 @@ export const ROLE_PERMISSIONS: Record<UserRole, UserPermission[]> = {
     'cash:open',
     'cash:close',
     'cash:move',
-    'terminals:view'
+    'terminals:view',
+    'branches:view'
   ],
   AUDITOR: [
     'reports:view',
@@ -65,7 +83,12 @@ export const ROLE_PERMISSIONS: Record<UserRole, UserPermission[]> = {
     'cash:audit',
     'terminals:view',
     'customers:view',
-    'products:view'
+    'sales:view',
+    'inventory:view',
+    'products:view',
+    'branches:view',
+    'alerts:view',
+    'audit:view'
   ]
 };
 

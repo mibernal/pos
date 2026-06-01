@@ -4,6 +4,8 @@ import type { FastifyPluginAsync } from 'fastify';
 import { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { AppError } from '../../../shared/infra/errors/app-error.js';
 
+import { ensureUserCanAccessBranch } from '../../../shared/infra/security/permissions.js';
+
 const terminalSchema = z.object({
   id: z.string().uuid(),
   tenant_id: z.string().uuid(),
@@ -41,6 +43,8 @@ export const terminalsRoutes: FastifyPluginAsync = async (app) => {
       if (!request.auth) throw new AppError(401, 'AUTH_UNAUTHORIZED', 'No autorizado');
 
       const payload = createTerminalBodySchema.parse(request.body);
+      
+      ensureUserCanAccessBranch(request.auth, payload.branch_id);
 
       // Verify branch
       const branch = await app.db
@@ -91,6 +95,10 @@ export const terminalsRoutes: FastifyPluginAsync = async (app) => {
       if (!request.auth) throw new AppError(401, 'AUTH_UNAUTHORIZED', 'No autorizado');
       
       const query = getTerminalsQuerySchema.parse(request.query);
+
+      if (query.branch_id) {
+        ensureUserCanAccessBranch(request.auth, query.branch_id);
+      }
 
       let dbQuery = app.db
         .selectFrom('terminals')

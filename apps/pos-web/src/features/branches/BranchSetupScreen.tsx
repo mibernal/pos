@@ -20,9 +20,14 @@ export function BranchSetupScreen({
   const [error, setError] = useState<string | null>(null);
   const [branches, setBranches] = useState<BranchItem[]>([]);
   const [selectedBranchId, setSelectedBranchId] = useState('');
-  
+
   const [terminals, setTerminals] = useState<TerminalItem[]>([]);
-  const [selectedTerminalId, setSelectedTerminalId] = useState(() => localStorage.getItem('pos_terminal_id') || '');
+  const [selectedTerminalId, setSelectedTerminalId] = useState(() => {
+    const val = localStorage.getItem('pos_terminal_id');
+    return val && val !== 'undefined' ? val : '';
+  });
+  const [isCreatingTerminal, setIsCreatingTerminal] = useState(false);
+  const [newTerminalName, setNewTerminalName] = useState('');
 
   const [openingAmountPesos, setOpeningAmountPesos] = useState(10000);
   const [opening, setOpening] = useState(false);
@@ -52,12 +57,12 @@ export function BranchSetupScreen({
 
     try {
       const response = await api.listBranches();
-      
+
       let availableBranches = response.items;
       if (session?.user?.role !== 'ADMIN' && session?.user?.branchIds?.length) {
         availableBranches = response.items.filter(b => session.user.branchIds!.includes(b.id));
       }
-      
+
       setBranches(availableBranches);
       setSelectedBranchId((current) => current || availableBranches[0]?.id || '');
     } catch (loadError) {
@@ -85,7 +90,7 @@ export function BranchSetupScreen({
       try {
         const response = await api.listTerminals(selectedBranchId);
         setTerminals(response.terminals);
-        
+
         // If the selected terminal from localStorage belongs to this branch, keep it
         // Otherwise, pick the first one
         const exists = response.terminals.find(t => t.id === selectedTerminalId);
@@ -106,6 +111,24 @@ export function BranchSetupScreen({
       setError(sessionError);
     }
   }, [sessionError]);
+
+  const handleCreateTerminal = async () => {
+    if (!newTerminalName.trim() || !selectedBranchId) return;
+    setError(null);
+    try {
+      const created = await api.createTerminal({
+        branch_id: selectedBranchId,
+        name: newTerminalName.trim()
+      });
+      setTerminals(prev => [...prev, created]);
+      setSelectedTerminalId(created.id);
+      localStorage.setItem('pos_terminal_id', created.id);
+      setIsCreatingTerminal(false);
+      setNewTerminalName('');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Error al crear terminal');
+    }
+  };
 
   async function handleOpenCashSession() {
     if (!selectedBranchId) {
@@ -207,9 +230,14 @@ export function BranchSetupScreen({
                 )}
               </label>
 
-              {terminals.length > 0 && (
+              {terminals.length > 0 && !isCreatingTerminal && (
                 <label className="field" style={{ display: 'grid', gap: '0.5rem', marginTop: '1rem' }}>
-                  <span style={{ fontSize: '0.8125rem', fontWeight: 600, color: 'var(--color-slate-700)' }}>Terminal / Caja</span>
+                  <span style={{ fontSize: '0.8125rem', fontWeight: 600, color: 'var(--color-slate-700)', display: 'flex', justifyContent: 'space-between' }}>
+                    Terminal / Caja
+                    {(session?.user?.role === 'ADMIN' || session?.user?.permissions?.includes('terminals:manage')) && (
+                      <button type="button" className="ghost-button" style={{ padding: 0, color: 'var(--color-primary-600)' }} onClick={() => setIsCreatingTerminal(true)}>+ Nueva</button>
+                    )}
+                  </span>
                   <select
                     value={selectedTerminalId}
                     onChange={(event) => {
@@ -228,6 +256,34 @@ export function BranchSetupScreen({
                 </label>
               )}
 
+              {(terminals.length === 0 || isCreatingTerminal) && (session?.user?.role === 'ADMIN' || session?.user?.permissions?.includes('terminals:manage')) && (
+                 <label className="field" style={{ display: 'grid', gap: '0.5rem', marginTop: '1rem' }}>
+                 <span style={{ fontSize: '0.8125rem', fontWeight: 600, color: 'var(--color-slate-700)', display: 'flex', justifyContent: 'space-between' }}>
+                   Crear Nueva Terminal
+                   {terminals.length > 0 && (
+                     <button type="button" className="ghost-button" style={{ padding: 0 }} onClick={() => setIsCreatingTerminal(false)}>Cancelar</button>
+                   )}
+                 </span>
+                 <div style={{ display: 'flex', gap: '0.5rem' }}>
+                   <input
+                     type="text"
+                     value={newTerminalName}
+                     onChange={(e) => setNewTerminalName(e.target.value)}
+                     placeholder="Ej: Caja Principal"
+                     style={{ flex: 1, padding: '0.75rem 1rem', borderRadius: 'var(--radius-lg)', border: '1px solid var(--color-slate-200)', fontSize: '0.875rem' }}
+                   />
+                   <button
+                     className="button"
+                     onClick={() => void handleCreateTerminal()}
+                     disabled={!newTerminalName.trim()}
+                     style={{ padding: '0 1rem', background: 'var(--color-primary-600)', color: '#fff', borderRadius: 'var(--radius-lg)', fontWeight: 600 }}
+                   >
+                     Crear
+                   </button>
+                 </div>
+               </label>
+              )}
+
               {checkingSession && (
                 <div style={{ marginTop: '1rem' }}>
                   <Banner tone="info">Sincronizando estado de caja...</Banner>
@@ -242,15 +298,15 @@ export function BranchSetupScreen({
                       <span style={{ fontSize: '0.75rem' }}>Inició: {new Date(currentSession.opened_at).toLocaleString('es-CO')}</span>
                     </div>
                   </Banner>
-                  <button 
+                  <button
                     className="button"
                     onClick={handleContinue}
-                    style={{ 
-                      width: '100%', 
-                      padding: '0.875rem', 
-                      background: 'var(--color-primary-600)', 
-                      color: '#ffffff', 
-                      fontWeight: 700, 
+                    style={{
+                      width: '100%',
+                      padding: '0.875rem',
+                      background: 'var(--color-primary-600)',
+                      color: '#ffffff',
+                      fontWeight: 700,
                       borderRadius: 'var(--radius-lg)',
                       marginTop: '1rem'
                     }}
@@ -276,16 +332,16 @@ export function BranchSetupScreen({
                       Monto sugerido para vueltas: <strong>{formatMoneyFromCents(openingAmountPesos * 100)}</strong>
                     </p>
                   </label>
-                  <button 
+                  <button
                     className="button"
-                    disabled={opening} 
+                    disabled={opening}
                     onClick={() => void handleOpenCashSession()}
-                    style={{ 
-                      width: '100%', 
-                      padding: '0.875rem', 
-                      background: 'var(--color-primary-600)', 
-                      color: '#ffffff', 
-                      fontWeight: 700, 
+                    style={{
+                      width: '100%',
+                      padding: '0.875rem',
+                      background: 'var(--color-primary-600)',
+                      color: '#ffffff',
+                      fontWeight: 700,
                       borderRadius: 'var(--radius-lg)',
                       marginTop: '1rem',
                       boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)'
@@ -303,15 +359,27 @@ export function BranchSetupScreen({
               <Banner tone="error">{error}</Banner>
             </div>
           )}
-          
-          <div style={{ marginTop: '2rem', textAlign: 'center' }}>
-            <button 
-              className="ghost-button" 
+
+          <div style={{ marginTop: '2rem', display: 'flex', flexDirection: 'column', gap: '0.75rem', alignItems: 'center' }}>
+            <button
+              className="ghost-button"
               disabled={isRefreshing}
               onClick={() => void loadBranches(false)}
               style={{ fontSize: '0.75rem', color: 'var(--color-slate-500)' }}
             >
               {isRefreshing ? '🔄 Actualizando...' : '🔄 Actualizar Datos de Sucursales'}
+            </button>
+
+            <button
+              className="ghost-button"
+              onClick={() => {
+                void api.logout().finally(() => {
+                  window.location.href = '/';
+                });
+              }}
+              style={{ fontSize: '0.75rem', color: 'var(--color-red-600)' }}
+            >
+              Cerrar Sesión (Cambiar Usuario)
             </button>
           </div>
         </div>

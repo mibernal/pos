@@ -78,7 +78,7 @@ export const salesRoutes: FastifyPluginAsync = async (app) => {
   typedApp.get(
     '/sales',
     {
-      preHandler: [app.requirePermissions(['reports:view'])],
+      preHandler: [app.requirePermissions(['sales:view'])],
       schema: {
         tags: ['sales'],
         security: [{ bearerAuth: [] }],
@@ -92,6 +92,8 @@ export const salesRoutes: FastifyPluginAsync = async (app) => {
 
       const query = salesListQuerySchema.parse(request.query);
       const { branch_id: branchId, from, to, limit } = query;
+
+      ensureUserCanAccessBranch(request.auth, branchId);
 
       let queryBuilder = app.db
         .selectFrom('sales')
@@ -138,7 +140,7 @@ export const salesRoutes: FastifyPluginAsync = async (app) => {
   typedApp.get(
     '/sales/:id',
     {
-      preHandler: [app.requirePermissions(['reports:view'])],
+      preHandler: [app.requirePermissions(['sales:view'])],
       schema: {
         tags: ['sales'],
         security: [{ bearerAuth: [] }],
@@ -162,6 +164,8 @@ export const salesRoutes: FastifyPluginAsync = async (app) => {
       if (!sale) {
         throw new AppError(404, 'SALE_NOT_FOUND', 'Venta no encontrada');
       }
+
+      ensureUserCanAccessBranch(request.auth, sale.branch_id);
 
       const saleItems = await app.db
         .selectFrom('sale_items')

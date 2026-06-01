@@ -173,9 +173,10 @@ export async function addPendingSale(payload: CreateSaleRequest): Promise<Pendin
   return record;
 }
 
-export async function listPendingSales(): Promise<PendingSaleRecord[]> {
+export async function listPendingSales(branchId?: string): Promise<PendingSaleRecord[]> {
   if (!isIndexedDbAvailable()) {
-    return sortByQueuedAt([...memoryFallbackStore.values()]);
+    const all = sortByQueuedAt([...memoryFallbackStore.values()]);
+    return branchId ? all.filter(r => r.payload.branch_id === branchId) : all;
   }
 
   const db = await openDb();
@@ -183,8 +184,13 @@ export async function listPendingSales(): Promise<PendingSaleRecord[]> {
   const records = await new Promise<PendingSaleRecord[]>((resolve, reject) => {
     const tx = db.transaction(STORE_NAME, 'readonly');
     const request = tx.objectStore(STORE_NAME).getAll();
-    request.onsuccess = () =>
-      resolve((request.result as unknown[]).map((record) => normalizePendingSaleRecord(record)));
+    request.onsuccess = () => {
+      let records = (request.result as unknown[]).map((record) => normalizePendingSaleRecord(record));
+      if (branchId) {
+        records = records.filter(r => r.payload.branch_id === branchId);
+      }
+      resolve(records);
+    };
     request.onerror = () => reject(request.error);
   });
 
@@ -192,9 +198,16 @@ export async function listPendingSales(): Promise<PendingSaleRecord[]> {
   return sortByQueuedAt(records);
 }
 
-export async function getPendingSalesCount(): Promise<number> {
+export async function getPendingSalesCount(branchId?: string): Promise<number> {
   if (!isIndexedDbAvailable()) {
-    return memoryFallbackStore.size;
+    return branchId 
+      ? [...memoryFallbackStore.values()].filter(r => r.payload.branch_id === branchId).length 
+      : memoryFallbackStore.size;
+  }
+
+  if (branchId) {
+    const records = await listPendingSales(branchId);
+    return records.length;
   }
 
   const db = await openDb();
@@ -233,10 +246,11 @@ export async function flushPendingSales(
   options?: {
     recordId?: string;
     shouldStopOnError?: (error: unknown) => boolean;
+    branchId?: string;
   }
 ): Promise<FlushPendingSalesResult> {
   const MAX_SYNC_ATTEMPTS = 5;
-  const allPendingSales = await listPendingSales();
+  const allPendingSales = await listPendingSales(options?.branchId);
   const pendingSales = options?.recordId
     ? allPendingSales.filter((pendingSale) => pendingSale.id === options.recordId)
     : allPendingSales.filter((pendingSale) => pendingSale.sync_state !== 'ABORTED');
@@ -307,7 +321,7 @@ export async function flushPendingSales(
   return {
     syncedCount,
     failedCount,
-    remainingCount: await getPendingSalesCount(),
+    remainingCount: await getPendingSalesCount(options?.branchId),
     outcomes
   };
 }

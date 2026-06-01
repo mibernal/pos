@@ -6,6 +6,14 @@ export const salesReportQuerySchema = z.object({
   to: z.string().datetime().optional()
 });
 
+export const kardexQuerySchema = z.object({
+  branch_id: z.string().uuid(),
+  product_id: z.string().uuid(),
+  variant_id: z.string().uuid().optional(),
+  from: z.string().datetime().optional(),
+  to: z.string().datetime().optional()
+});
+
 export const salesReportResponseSchema = z.object({
   total_revenue_cents: z.number(),
   total_sales_count: z.number(),

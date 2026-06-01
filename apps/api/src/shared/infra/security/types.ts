@@ -3,9 +3,11 @@ export type UserRole = 'ADMIN' | 'MANAGER' | 'CASHIER' | 'AUDITOR';
 export type UserPermission =
   // Sales
   | 'sales:create'
+  | 'sales:view'
   | 'sales:void'
   | 'returns:create'
   // Inventory
+  | 'inventory:view'
   | 'inventory:adjust'
   | 'inventory:transfer'
   | 'inventory:receive'
@@ -25,11 +27,20 @@ export type UserPermission =
   // Reporting
   | 'reports:view'
   | 'dashboard:view'
+  | 'dashboard:global:view'
   // Terminals
   | 'terminals:view'
   | 'terminals:manage'
+  // Alerts
+  | 'alerts:view'
+  | 'alerts:manage'
+  // Audit
+  | 'audit:view'
   // Settings (admin only)
-  | 'settings:manage';
+  | 'settings:manage'
+  | 'users:manage'
+  | 'branches:manage'
+  | 'branches:view';
 
 
 export interface JwtClaims {

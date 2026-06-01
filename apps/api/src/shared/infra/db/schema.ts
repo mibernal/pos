@@ -11,6 +11,8 @@ export type PoStatus = 'DRAFT' | 'SENT' | 'PARTIAL' | 'COMPLETED' | 'CANCELED';
 export type ReceiptStatus = 'DRAFT' | 'COMPLETED' | 'CANCELED';
 export type TransferStatus = 'DRAFT' | 'IN_TRANSIT' | 'RECEIVED' | 'REJECTED';
 export type AdjustmentStatus = 'DRAFT' | 'COMPLETED' | 'CANCELED';
+export type CountStatus = 'DRAFT' | 'COUNTING' | 'RECONCILING' | 'COMPLETED' | 'CANCELED';
+export type ReceiptType = 'PO_LINKED' | 'BLIND';
 export type TenantTaxMode = 'IVA' | 'INC_RESTAURANT';
 export type ProductTaxCategory = 'IVA_0' | 'IVA_5' | 'IVA_19' | 'EXEMPT' | 'EXCLUDED' | 'INC_8';
 type JsonObject = Record<string, unknown>;
@@ -247,14 +249,19 @@ export interface OutboxEventsTable {
 }
 
 export interface AuditLogsTable {
-  id: string;
-  tenant_id: string;
-  branch_id: string | null;
-  user_id: string | null;
+  id: string; // UUID
+  tenant_id: string; // UUID
+  branch_id: string | null; // UUID
+  user_id: string | null; // UUID
   entity_type: string;
   entity_id: string;
   action: string;
-  payload_json: JsonColumn;
+  legacy_payload: any; // JSONB
+  old_values: any | null; // JSONB
+  new_values: any | null; // JSONB
+  ip_address: string | null;
+  user_agent: string | null;
+  correlation_id: string | null; // UUID
   created_at: Generated<Date>;
 }
 
@@ -272,10 +279,14 @@ export interface CustomersTable {
 }
 
 export interface InventoryBalancesTable {
+  id: Generated<string>;
   tenant_id: string;
   branch_id: string;
   product_id: string;
-  qty: string;
+  variant_id: string | null;
+  on_hand_qty: string;
+  reserved_qty: Generated<string>;
+  in_transit_qty: Generated<string>;
   updated_at: Generated<Date>;
 }
 
@@ -284,9 +295,11 @@ export interface InventoryTransactionsTable {
   tenant_id: string;
   branch_id: string;
   product_id: string;
+  variant_id: string | null;
   operation: InventoryOperation;
   reference_id: string | null;
   qty_change: string;
+  balance_after: string | null;
   notes: string | null;
   created_by_user_id: string;
   created_at: Generated<Date>;
@@ -320,6 +333,7 @@ export interface PurchaseOrderItemsTable {
   branch_id: string;
   po_id: string;
   product_id: string;
+  variant_id: string | null;
   expected_qty: string;
   cost_cents: number;
 }
@@ -331,6 +345,8 @@ export interface InventoryReceiptsTable {
   po_id: string | null;
   received_by_user_id: string;
   status: Generated<ReceiptStatus>;
+  receipt_type: Generated<ReceiptType>;
+  discrepancy_approved_by_user_id: string | null;
   notes: string | null;
   created_at: Generated<Date>;
   updated_at: Generated<Date>;
@@ -342,6 +358,7 @@ export interface InventoryReceiptItemsTable {
   branch_id: string | null;
   receipt_id: string;
   product_id: string;
+  variant_id: string | null;
   received_qty: string;
   cost_cents: number;
 }
@@ -365,6 +382,7 @@ export interface InventoryTransferItemsTable {
   tenant_id: string;
   transfer_id: string;
   product_id: string;
+  variant_id: string | null;
   shipped_qty: string;
   received_qty: string | null;
 }
@@ -387,6 +405,7 @@ export interface InventoryAdjustmentItemsTable {
   branch_id: string;
   adjustment_id: string;
   product_id: string;
+  variant_id: string | null;
   qty_change: string;
 }
 
@@ -411,6 +430,61 @@ export interface ReturnItemsTable {
   qty: string;
   refund_cents: number;
   created_at: Generated<Date>;
+}
+
+export interface InventoryCountsTable {
+  id: string;
+  tenant_id: string;
+  branch_id: string;
+  name: string;
+  status: Generated<CountStatus>;
+  started_by_user_id: string;
+  approved_by_user_id: string | null;
+  created_at: Generated<Date>;
+  completed_at: Date | null;
+}
+
+export interface InventoryCountItemsTable {
+  id: Generated<string>;
+  count_id: string;
+  product_id: string;
+  variant_id: string | null;
+  system_qty: number;
+  counted_qty: number;
+  diff_qty: number;
+  created_at: Generated<Date>;
+}
+
+export interface TenantAlertsTable {
+  id: Generated<string>;
+  tenant_id: string;
+  branch_id: string | null;
+  type: string;
+  severity: string;
+  title: string;
+  message: string;
+  metadata: any | null;
+  status: Generated<string>;
+  created_at: Generated<Date>;
+  resolved_at: Date | null;
+  resolved_by_user_id: string | null;
+}
+
+export interface DailyBranchSalesRollupTable {
+  tenant_id: string;
+  branch_id: string;
+  date: Date;
+  total_revenue_cents: Generated<string>; // bigint comes as string
+  total_voids_cents: Generated<string>; // bigint comes as string
+  sales_count: Generated<number>;
+  updated_at: Generated<Date>;
+}
+
+export interface InventoryValuationSnapshotTable {
+  tenant_id: string;
+  date: Date;
+  total_value_cents: Generated<string>; // bigint comes as string
+  updated_at: Generated<Date>;
 }
 
 export interface Database {
@@ -446,4 +520,9 @@ export interface Database {
   inventory_transfer_items: InventoryTransferItemsTable;
   inventory_adjustments: InventoryAdjustmentsTable;
   inventory_adjustment_items: InventoryAdjustmentItemsTable;
+  inventory_counts: InventoryCountsTable;
+  inventory_count_items: InventoryCountItemsTable;
+  tenant_alerts: TenantAlertsTable;
+  daily_branch_sales_rollup: DailyBranchSalesRollupTable;
+  inventory_valuation_snapshot: InventoryValuationSnapshotTable;
 }

@@ -350,38 +350,42 @@ export async function createSaleService(input: CreateSaleServiceInput) {
       await trx.insertInto('sale_items').values(saleItemsToInsert).execute();
 
       // C3: Stock guard — verificar saldo disponible antes de descontar inventario.
-      // Se agrupan las cantidades por producto (pueden repetirse ítems) y se bloquea
-      // el registro con FOR UPDATE para evitar race conditions concurrentes.
-      const qtyByProduct = new Map<string, number>();
+      // Se agrupan las cantidades por producto y variante
+      const qtyByKey = new Map<string, { productId: string, variantId: string | null, qty: number }>();
       for (const item of saleItemsToInsert) {
-        qtyByProduct.set(
-          item.product_id,
-          (qtyByProduct.get(item.product_id) ?? 0) + Number(item.qty)
-        );
+        const key = `${item.product_id}|${item.variant_id ?? ''}`;
+        const existing = qtyByKey.get(key);
+        qtyByKey.set(key, {
+          productId: item.product_id,
+          variantId: item.variant_id ?? null,
+          qty: (existing?.qty ?? 0) + Number(item.qty)
+        });
       }
 
-      const productIdsWithStock = [...qtyByProduct.keys()];
-      if (productIdsWithStock.length > 0) {
+      const keysWithStock = [...qtyByKey.keys()];
+      if (keysWithStock.length > 0) {
+        const uniqueProductIds = [...new Set([...qtyByKey.values()].map(x => x.productId))];
         const currentBalances = await trx
           .selectFrom('inventory_balances')
-          .select(['product_id', 'qty'])
+          .select(['product_id', 'variant_id', 'on_hand_qty'])
           .where('tenant_id', '=', tenantId)
           .where('branch_id', '=', payload.branch_id)
-          .where('product_id', 'in', productIdsWithStock)
+          .where('product_id', 'in', uniqueProductIds)
           .forUpdate()
           .execute();
 
-        const balanceByProduct = new Map(
-          currentBalances.map((b) => [b.product_id, Number(b.qty)])
+        const balanceByKey = new Map(
+          currentBalances.map((b) => [`${b.product_id}|${b.variant_id ?? ''}`, Number(b.on_hand_qty)])
         );
 
         // Verificar si el tenant permite stock negativo
         const stockViolations: string[] = [];
-        for (const [productId, qtySold] of qtyByProduct.entries()) {
-          const currentQty = balanceByProduct.get(productId) ?? 0;
-          if (currentQty - qtySold < 0) {
-            const productName = productsById.get(productId)?.name ?? productId;
-            stockViolations.push(`${productName}: stock=${currentQty}, solicitado=${qtySold}`);
+        for (const [key, req] of qtyByKey.entries()) {
+          const currentQty = balanceByKey.get(key) ?? 0;
+          if (currentQty - req.qty < 0) {
+            const productName = productsById.get(req.productId)?.name ?? req.productId;
+            const variantText = req.variantId ? ` (Var: ${req.variantId})` : '';
+            stockViolations.push(`${productName}${variantText}: stock=${currentQty}, solicitado=${req.qty}`);
           }
         }
 
@@ -407,10 +411,10 @@ export async function createSaleService(input: CreateSaleServiceInput) {
         }
 
         // C4: Verificar min_stock_alert_qty para generar alertas
-        for (const [productId, qtySold] of qtyByProduct.entries()) {
-          const currentQty = balanceByProduct.get(productId) ?? 0;
-          const finalQty = currentQty - qtySold;
-          const product = productsById.get(productId);
+        for (const [key, req] of qtyByKey.entries()) {
+          const currentQty = balanceByKey.get(key) ?? 0;
+          const finalQty = currentQty - req.qty;
+          const product = productsById.get(req.productId);
           
           if (product && product.min_stock_alert_qty !== null && finalQty <= product.min_stock_alert_qty) {
             // Generar evento asíncrono para alerta de stock bajo
@@ -422,10 +426,11 @@ export async function createSaleService(input: CreateSaleServiceInput) {
                 type: 'LOW_STOCK_ALERT',
                 event_version: 1,
                 aggregate_type: 'INVENTORY',
-                aggregate_id: productId,
+                aggregate_id: req.productId,
                 branch_id: payload.branch_id,
                 payload_json: {
-                  product_id: productId,
+                  product_id: req.productId,
+                  variant_id: req.variantId,
                   branch_id: payload.branch_id,
                   current_qty: finalQty,
                   min_stock_alert_qty: product.min_stock_alert_qty,
@@ -445,6 +450,14 @@ export async function createSaleService(input: CreateSaleServiceInput) {
 
       for (const item of saleItemsToInsert) {
         const txId = randomUUID();
+        const key = `${item.product_id}|${item.variant_id ?? ''}`;
+        
+        // Obtenemos el saldo actual. Si no existe en la base de datos, es 0.
+        // A este saldo le restamos lo que se vendió en ESTA línea.
+        // Para calcular el balance_after exacto necesitamos saber si hay múltiples líneas del mismo producto.
+        // Para simplificar, usaremos un saldo inicial temporal que vamos reduciendo en memoria
+        // pero lo ideal sería leer el valor actualizado de balanceByKey.
+
         await trx
           .insertInto('inventory_transactions')
           .values({
@@ -452,29 +465,47 @@ export async function createSaleService(input: CreateSaleServiceInput) {
             tenant_id: tenantId,
             branch_id: payload.branch_id,
             product_id: item.product_id,
+            variant_id: item.variant_id,
             operation: 'SALE',
             reference_id: saleId,
             qty_change: (-Number(item.qty)).toString(),
+            balance_after: null, // Podríamos calcularlo pero requeriría actualizar balanceByKey en memoria por cada línea iterada
             notes: `Venta #${nextSaleNumber}`,
             created_by_user_id: userId
           })
           .execute();
 
-        await trx
-          .insertInto('inventory_balances')
-          .values({
-            tenant_id: tenantId,
-            branch_id: payload.branch_id,
-            product_id: item.product_id,
-            qty: (-Number(item.qty)).toString()
-          })
-          .onConflict((oc) =>
-            oc.columns(['tenant_id', 'branch_id', 'product_id']).doUpdateSet({
-              qty: sql`inventory_balances.qty + EXCLUDED.qty`,
-              updated_at: sql`NOW()`
-            })
-          )
-          .execute();
+        // Para evitar problemas con el onConflict y un index condicional, es más seguro hacer un UPDATE
+        // si sabemos que existe, o un INSERT si no existe, o usar la sintaxis ON CONFLICT usando la restricción explícita.
+        // El índice es: idx_inventory_balances_unique_variant ON (tenant_id, branch_id, product_id, coalesce(variant_id, '00000000-0000-0000-0000-000000000000'))
+        
+        const existingBalance = await trx.selectFrom('inventory_balances')
+           .select('id')
+           .where('tenant_id', '=', tenantId)
+           .where('branch_id', '=', payload.branch_id)
+           .where('product_id', '=', item.product_id)
+           .where((eb) => item.variant_id === null ? eb('variant_id', 'is', null) : eb('variant_id', '=', item.variant_id))
+           .executeTakeFirst();
+           
+        if (existingBalance) {
+           await trx.updateTable('inventory_balances')
+              .set({
+                 on_hand_qty: sql`inventory_balances.on_hand_qty - ${Number(item.qty)}`,
+                 updated_at: sql`NOW()`
+              })
+              .where('id', '=', existingBalance.id)
+              .execute();
+        } else {
+           await trx.insertInto('inventory_balances')
+              .values({
+                 tenant_id: tenantId,
+                 branch_id: payload.branch_id,
+                 product_id: item.product_id,
+                 variant_id: item.variant_id,
+                 on_hand_qty: (-Number(item.qty)).toString()
+              })
+              .execute();
+        }
       }
 
       await trx

@@ -72,6 +72,7 @@ pnpm dev
 
 - **API Base:** [http://localhost:3000](http://localhost:3000)
 - **Documentación Swagger:** [http://localhost:3000/docs](http://localhost:3000/docs)
+- **Documentación Técnica Interna:** Consulta el archivo [docs/API.md](./docs/API.md) para ver los esquemas y contratos detallados.
 - **POS Web Frontend:** [http://localhost:5173](http://localhost:5173)
 
 ---

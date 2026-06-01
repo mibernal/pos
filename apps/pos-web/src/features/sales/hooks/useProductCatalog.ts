@@ -48,7 +48,7 @@ export function useProductCatalog({ api, branchId }: UseProductCatalogOptions) {
 
       try {
         if (!forceRefresh) {
-          const lastSync = await getLastSyncTime('products');
+          const lastSync = await getLastSyncTime('products', branchId);
           const isFresh = lastSync && Date.now() - lastSync < 12 * 60 * 60 * 1000;
           if (isFresh) {
             const cachedP = await getCachedProducts();
@@ -69,7 +69,7 @@ export function useProductCatalog({ api, branchId }: UseProductCatalogOptions) {
           });
           const activeProducts = response.items.filter((item) => item.active);
           setCachedProducts(activeProducts);
-          await setCachedProductsDb(activeProducts);
+          await setCachedProductsDb(activeProducts, branchId);
 
           const custs = await api.listCustomers();
           setCustomers(custs);

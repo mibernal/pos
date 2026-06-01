@@ -1,30 +1,34 @@
-import { useEffect, useState, type ReactNode } from 'react';
+import { lazy, Suspense, useEffect, useState, type ReactNode } from 'react';
 import { AppShellLayout, AppTopbar } from '../components/layout';
 import { Banner, ShellMessage } from '../components/ui';
-import { LoginScreen, RequireSession, SessionProvider, useSession } from '../features/auth';
+import { LoginScreen, RequireSession, SessionProvider, useSession, PermissionGuard } from '../features/auth';
 import { CloseCashSessionModal, CashControlScreen, CashMovementModal } from '../features/cash-sessions';
-import { CustomersScreen } from '../features/customers';
 import { BranchSetupScreen } from '../features/branches';
-import { HistoryScreen } from '../features/history';
-import { InventoryScreen, InventoryAdjustmentsScreen } from '../features/inventory';
-import { ProductsScreen } from '../features/products';
-import { ReportsScreen, DashboardScreen } from '../features/reports';
-
-
 import { PosScreen } from '../features/sales';
 import { DianConfigModal, TicketTemplateModal } from '../features/settings';
+
+// Lazy Loaded Screens
+const CustomersScreen = lazy(() => import('../features/customers').then(m => ({ default: m.CustomersScreen })));
+const HistoryScreen = lazy(() => import('../features/history').then(m => ({ default: m.HistoryScreen })));
+const InventoryScreen = lazy(() => import('../features/inventory').then(m => ({ default: m.InventoryScreen })));
+const InventoryAdjustmentsScreen = lazy(() => import('../features/inventory').then(m => ({ default: m.InventoryAdjustmentsScreen })));
+const ProductsScreen = lazy(() => import('../features/products').then(m => ({ default: m.ProductsScreen })));
+const ReportsScreen = lazy(() => import('../features/reports').then(m => ({ default: m.ReportsScreen })));
+const DashboardScreen = lazy(() => import('../features/reports').then(m => ({ default: m.DashboardScreen })));
+const BranchesScreen = lazy(() => import('../features/settings').then(m => ({ default: m.BranchesScreen })));
+const UsersScreen = lazy(() => import('../features/settings').then(m => ({ default: m.UsersScreen })));
 import {
   usePendingSalesSync,
-  usePosContextState,
   usePosNavigation,
   useTenantTaxMode,
-  useTicketTemplate
+  useTicketTemplate,
+  usePosStore
 } from '../hooks';
 
 function AppShell() {
   const { api, logout, session } = useSession();
-  const { commitPosContext, posContext } = usePosContextState();
-  const { activeRoute, navigate, resetNavigation, routeDefinitions } = usePosNavigation(session?.user.role ?? null);
+  const { commitPosContext, posContext } = usePosStore();
+  const { activeRoute, navigate, resetNavigation, routeDefinitions } = usePosNavigation(session?.user.permissions ?? null);
   const {
     isOnline,
     pendingSales,
@@ -154,6 +158,20 @@ function AppShell() {
             currentScreen = <DashboardScreen api={api} branchId={posContext.branchId} />;
           }
 
+          if (activeRoute === 'branches') {
+            currentScreen = (
+              <PermissionGuard allowedPermissions={['branches:manage']}>
+                <BranchesScreen api={api} />
+              </PermissionGuard>
+            );
+          } else if (activeRoute === 'users') {
+            currentScreen = (
+              <PermissionGuard allowedPermissions={['users:manage']}>
+                <UsersScreen api={api} />
+              </PermissionGuard>
+            );
+          }
+
           return (
             <AppShellLayout
               header={
@@ -179,7 +197,9 @@ function AppShell() {
             >
               {syncMessage ? <Banner tone="info">{syncMessage}</Banner> : null}
               {syncError ? <Banner tone="error">{syncError}</Banner> : null}
-              {currentScreen}
+              <Suspense fallback={<ShellMessage title="Cargando módulo..." subtitle="Preparando vista" />}>
+                {currentScreen}
+              </Suspense>
 
               <TicketTemplateModal
                 api={api}

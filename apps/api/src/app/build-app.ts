@@ -21,9 +21,14 @@ import { productsRoutes } from '../contexts/inventory/http/products.routes.js';
 import { cashSessionsRoutes } from '../contexts/sales/http/cash-sessions.routes.js';
 import { customersRoutes } from '../contexts/sales/http/customers.routes.js';
 import { inventoryRoutes } from '../contexts/inventory/http/inventory.routes.js';
+import { scannerRoutes } from '../contexts/inventory/http/scanner.routes.js';
+import { alertsRoutes } from '../contexts/alerts/http/alerts.routes.js';
 import { reportsRoutes } from '../contexts/reporting/http/reports.routes.js';
 import { dashboardRoutes } from '../contexts/reporting/http/dashboard.routes.js';
+import { globalDashboardRoutes } from '../contexts/reporting/http/global-dashboard.routes.js';
+import { auditRoutes } from '../contexts/admin/http/audit.routes.js';
 import { terminalsRoutes } from '../contexts/sales/http/terminals.routes.js';
+import { auditContextStorage } from '../shared/infra/audit/audit-context.js';
 import { createDb } from '../shared/infra/db/connection.js';
 import { env } from './env.js';
 import { resolveCorsAllowedOrigins } from './cors.js';
@@ -84,8 +89,8 @@ export async function buildApp() {
       transport:
         env.NODE_ENV === 'development'
           ? {
-              target: 'pino-pretty'
-            }
+            target: 'pino-pretty'
+          }
           : undefined
     },
     requestIdHeader: false,
@@ -105,10 +110,27 @@ export async function buildApp() {
   app.setValidatorCompiler(validatorCompiler);
   app.setSerializerCompiler(serializerCompiler);
 
+  app.addHook('onRequest', (request, reply, done) => {
+    const correlationId = (request.headers['x-correlation-id'] as string) || randomUUID();
+
+    // Si queremos inyectarlo en el logger de fastify
+    request.log = request.log.child({ correlationId });
+
+    const context = {
+      correlationId,
+      ipAddress: request.ip,
+      userAgent: request.headers['user-agent']
+    };
+
+    auditContextStorage.run(context, done);
+  });
+
+  // Verify auth before running route handlers
+  app.decorate('db', createDb());
+
   // C7: Eliminado app.decorate('dianQueue', ...) — el API no publica en BullMQ,
   // el outbox en DB es el mecanismo de comunicación con el worker.
   app.decorate('redis', redisClient);
-  app.decorate('db', createDb());
 
   await app.register(import('@fastify/cookie').then((m) => m.default), {
     secret: env.JWT_SECRET // Use same secret for signed cookies if needed later
@@ -151,8 +173,12 @@ export async function buildApp() {
   await app.register(salesRoutes, { prefix: '/api/v1' });
   await app.register(customersRoutes, { prefix: '/api/v1' });
   await app.register(inventoryRoutes, { prefix: '/api/v1' });
+  await app.register(scannerRoutes, { prefix: '/api/v1' });
+  await app.register(alertsRoutes, { prefix: '/api/v1' });
   await app.register(reportsRoutes, { prefix: '/api/v1' });
   await app.register(dashboardRoutes, { prefix: '/api/v1' });
+  await app.register(globalDashboardRoutes, { prefix: '/api/v1' });
+  await app.register(auditRoutes, { prefix: '/api/v1' });
   await app.register(terminalsRoutes, { prefix: '/api/v1' });
 
   app.addHook('onClose', async (instance) => {

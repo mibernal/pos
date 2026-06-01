@@ -8,6 +8,7 @@ import { useSession } from '../auth';
 interface DashboardStats {
   total_revenue_cents: number;
   total_sales_count: number;
+  total_inventory_value_cents: number;
   chart_data: Array<{ hour: string; amount_cents: number }>;
 }
 
@@ -124,6 +125,14 @@ export function DashboardScreen({
                   {stats.total_sales_count}
                 </strong>
                 <p style={{ marginTop: '0.5rem', fontSize: '0.75rem', color: 'var(--color-slate-400)' }}>Operaciones exitosas</p>
+              </div>
+
+              <div className="metric-card" style={{ background: '#ffffff', border: '1px solid var(--color-slate-200)', borderRadius: '12px', padding: '1.5rem', boxShadow: 'var(--shadow-sm)' }}>
+                <span style={{ fontSize: '0.875rem', color: 'var(--color-slate-500)', fontWeight: 600 }}>Valor del Inventario</span>
+                <strong style={{ display: 'block', fontSize: '2.5rem', color: 'var(--color-slate-900)', marginTop: '0.5rem' }}>
+                  {formatMoneyFromCents(stats.total_inventory_value_cents)}
+                </strong>
+                <p style={{ marginTop: '0.5rem', fontSize: '0.75rem', color: 'var(--color-slate-400)' }}>Capital en bodega</p>
               </div>
             </div>
 
