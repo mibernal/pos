@@ -65,12 +65,14 @@ async function createSale(
       payments: [
         {
           method: 'CASH',
-          amount_cents: fixture.productPriceCents
+          amount_cents: Math.round(fixture.productPriceCents * 1.19)
         }
       ]
     }
   });
-
+  if (response.statusCode !== 201) {
+    console.error('CREATE SALE FAILED:', response.json());
+  }
   expect(response.statusCode).toBe(201);
 
   return response.json() as {
@@ -131,9 +133,12 @@ describe('system flow e2e', () => {
       url: `/api/v1/inventory/balances?branch_id=${fixture.branchId}&product_id=${fixture.productId}`,
       headers: bearerHeaders(cashierToken)
     });
+    if (initialBalanceResponse.statusCode !== 200) {
+      console.error('INVENTORY BALANCES FAILED:', initialBalanceResponse.json());
+    }
     expect(initialBalanceResponse.statusCode).toBe(200);
     const initialBalanceJson = initialBalanceResponse.json() as any[];
-    const initialQty = initialBalanceJson[0]?.qty ?? 0;
+    const initialQty = initialBalanceJson[0]?.on_hand_qty ?? 0;
 
     const openedSession = await openCashSession(app, cashierToken, fixture.branchId, fixture.terminalId, 5000);
     const createdSale = await createSale(app, cashierToken, fixture, openedSession.cash_session.id);
@@ -152,14 +157,16 @@ describe('system flow e2e', () => {
 
     const outboxEvent = await app.db
       .selectFrom('outbox_events')
-      .select(['type', 'aggregate_id', 'status', 'payload_json'])
+      .select(['type', 'aggregate_type', 'aggregate_id', 'branch_id', 'status', 'payload_json'])
       .where('tenant_id', '=', fixture.tenantId)
       .where('aggregate_id', '=', createdSale.sale.id)
       .executeTakeFirst();
 
     expect(outboxEvent).toMatchObject({
-      type: 'sale_created',
+      type: 'sale.created',
+      aggregate_type: 'SALE',
       aggregate_id: createdSale.sale.id,
+      branch_id: fixture.branchId,
       status: 'PENDING',
       payload_json: expect.objectContaining({
         sale_id: createdSale.sale.id,
@@ -177,7 +184,7 @@ describe('system flow e2e', () => {
     });
     expect(finalBalanceResponse.statusCode).toBe(200);
     const finalBalanceJson = finalBalanceResponse.json() as any[];
-    const finalQty = finalBalanceJson[0]?.qty ?? 0;
+    const finalQty = finalBalanceJson[0]?.on_hand_qty ?? 0;
     
     // In test DB without seed inventory balance, qty might be negative or undefined initially, but it must be decreased by 1
     expect(finalQty).toBe(initialQty - 1);
@@ -420,11 +427,11 @@ describe('system flow e2e', () => {
       url: `/api/v1/cash-sessions/${openedSession.cash_session.id}/reconcile`,
       headers: bearerHeaders(adminToken),
       payload: {
-        notes: 'Faltante cobrado al cajero'
+        resolution_notes: 'Faltante cobrado al cajero'
       }
     });
 
-    expect(reconcileResponse.statusCode).toBe(200);
+    expect(reconcileResponse.statusCode).toBe(201);
 
     const checkSession = await app.db
       .selectFrom('cash_sessions')

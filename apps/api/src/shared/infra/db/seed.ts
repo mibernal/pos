@@ -82,6 +82,46 @@ async function runSeed(): Promise<void> {
           role = EXCLUDED.role,
           active = EXCLUDED.active
       `.execute(trx);
+      await sql`
+        INSERT INTO user_branches (tenant_id, user_id, branch_id)
+        VALUES
+          (${demoIds.tenantId}, ${demoIds.adminUserId}, ${demoIds.branchId}),
+          (${demoIds.tenantId}, ${demoIds.cashierUserId}, ${demoIds.branchId})
+        ON CONFLICT DO NOTHING
+      `.execute(trx);
+
+      const terminalId = '55555555-5555-4555-8555-555555555555';
+      await sql`
+        INSERT INTO terminals (id, tenant_id, branch_id, name, is_active)
+        VALUES (${terminalId}, ${demoIds.tenantId}, ${demoIds.branchId}, 'Caja Principal', TRUE)
+        ON CONFLICT (tenant_id, branch_id, name) DO UPDATE SET is_active = EXCLUDED.is_active
+      `.execute(trx);
+
+      const products = [
+        { id: '66666666-1111-4666-8666-666666666666', name: 'Café Americano', cat: 'Bebidas', tax: 'IVA_19', price: 2500, cost: 800 },
+        { id: '66666666-2222-4666-8666-666666666666', name: 'Arepa de Queso', cat: 'Alimentos', tax: 'IVA_0', price: 3000, cost: 1200 },
+        { id: '66666666-3333-4666-8666-666666666666', name: 'Empanada de Carne', cat: 'Alimentos', tax: 'IVA_5', price: 1500, cost: 600 },
+        { id: '66666666-4444-4666-8666-666666666666', name: 'Gaseosa 500ml', cat: 'Bebidas', tax: 'IVA_19', price: 2000, cost: 1000 },
+        { id: '66666666-5555-4666-8666-666666666666', name: 'Menú Ejecutivo', cat: 'Restaurante', tax: 'INC_8', price: 15000, cost: 6000 }
+      ];
+
+      for (const p of products) {
+        await sql`
+          INSERT INTO products (id, tenant_id, branch_id, name, category, tax_category, price_cents, cost_cents, active)
+          VALUES (${p.id}, ${demoIds.tenantId}, ${demoIds.branchId}, ${p.name}, ${p.cat}, ${p.tax}, ${p.price}, ${p.cost}, TRUE)
+          ON CONFLICT (id) DO UPDATE
+          SET name = EXCLUDED.name, price_cents = EXCLUDED.price_cents, cost_cents = EXCLUDED.cost_cents, tax_category = EXCLUDED.tax_category
+        `.execute(trx);
+
+        await sql`
+          INSERT INTO inventory_balances (tenant_id, branch_id, product_id, variant_id, on_hand_qty)
+          SELECT ${demoIds.tenantId}, ${demoIds.branchId}, ${p.id}, NULL, '100'
+          WHERE NOT EXISTS (
+            SELECT 1 FROM inventory_balances 
+            WHERE tenant_id = ${demoIds.tenantId} AND branch_id = ${demoIds.branchId} AND product_id = ${p.id} AND variant_id IS NULL
+          )
+        `.execute(trx);
+      }
     });
 
     console.info('[seed] Demo tenant, branch y usuarios creados/actualizados');

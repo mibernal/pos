@@ -18,6 +18,7 @@ import { salesRoutes } from '../contexts/sales/http/sales.routes.js';
 import { adminTenantsRoutes } from '../contexts/identity/http/admin-tenants.routes.js';
 import { adminUsersRoutes } from '../contexts/identity/http/admin-users.routes.js';
 import { productsRoutes } from '../contexts/inventory/http/products.routes.js';
+import { promotionsRoutes } from '../contexts/inventory/http/promotions.routes.js';
 import { cashSessionsRoutes } from '../contexts/sales/http/cash-sessions.routes.js';
 import { customersRoutes } from '../contexts/sales/http/customers.routes.js';
 import { inventoryRoutes } from '../contexts/inventory/http/inventory.routes.js';
@@ -61,10 +62,23 @@ function buildRedisClient(): Redis {
         store.delete(key);
         return existed ? 1 : 0;
       },
-      pipeline: () => ({
-        incr: () => ({ expire: () => ({ exec: async () => null }) }),
-        exec: async () => null
-      }),
+      eval: async (script: string, numKeys: number, key: string, arg1: string) => {
+        const val = store.get(key);
+        const next = (val ? parseInt(val, 10) : 0) + 1;
+        store.set(key, next.toString());
+        return next;
+      },
+      pipeline: () => {
+        const pipe: any = {
+          incr: () => pipe,
+          expire: () => pipe,
+          del: () => pipe,
+          get: () => pipe,
+          set: () => pipe,
+          exec: async () => []
+        };
+        return pipe;
+      },
       ping: async () => 'PONG',
       quit: async () => 'OK'
     } as unknown as Redis;
@@ -169,6 +183,7 @@ export async function buildApp() {
   await app.register(adminTenantsRoutes, { prefix: '/api/v1' });
   await app.register(adminUsersRoutes, { prefix: '/api/v1' });
   await app.register(productsRoutes, { prefix: '/api/v1' });
+  await app.register(promotionsRoutes, { prefix: '/api/v1' });
   await app.register(cashSessionsRoutes, { prefix: '/api/v1' });
   await app.register(salesRoutes, { prefix: '/api/v1' });
   await app.register(customersRoutes, { prefix: '/api/v1' });

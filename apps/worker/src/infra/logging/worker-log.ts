@@ -8,6 +8,7 @@ interface WorkerLogRecord {
   tenant_id?: string | undefined;
   attempt?: number | undefined;
   dian_document_id?: string | undefined;
+  parent_document_id?: string | null | undefined;
   dian_transition?: string | undefined;
   provider_result?: string | undefined;
   next_retry_at?: string | undefined;

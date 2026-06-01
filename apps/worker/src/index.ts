@@ -16,6 +16,7 @@ import { checkAbnormalRefunds } from './scheduler/alerts-abnormal-refunds.schedu
 import { checkStalledOutboxEvents } from './scheduler/alerts-stalled-outbox.scheduler.js';
 import { rollupDailySales } from './scheduler/rollup-daily-sales.scheduler.js';
 import { rollupInventoryValuation } from './scheduler/rollup-inventory-valuation.scheduler.js';
+import { runHousekeepingJobs } from './scheduler/cleanup-housekeeping.scheduler.js';
 import { logWorkerError, logWorkerInfo } from './infra/logging/worker-log.js';
 
 const provider = buildDianProvider();
@@ -210,6 +211,18 @@ const inventoryRollupTimer = setInterval(() => {
   });
 }, inventoryRollupIntervalMs);
 
+// C8: Schedulers de Limpieza (Housekeeping)
+const housekeepingIntervalMs = 24 * 60 * 60 * 1000; // 24 horas
+const housekeepingTimer = setInterval(() => {
+  void runHousekeepingJobs(dbPool).catch(err => {
+    logWorkerError({
+      event: 'housekeeping_scheduler_failed',
+      message: 'Failed to run housekeeping scheduler',
+      error: err
+    });
+  });
+}, housekeepingIntervalMs);
+
 void ensureAuditLogPartitions(dbPool).catch(err => {
   logWorkerError({
     event: 'audit_partition_startup_failed',
@@ -264,6 +277,7 @@ const shutdown = async () => {
   clearInterval(alertsTimer); // C6: cancelar el alerts timer
   clearInterval(salesRollupTimer); // C7: cancelar rollups
   clearInterval(inventoryRollupTimer);
+  clearInterval(housekeepingTimer); // C8: cancelar housekeeping
   await Promise.all([worker.close(), queue.close(), queueEvents.close(), dbPool.end()]);
   process.exit(0);
 };

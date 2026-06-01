@@ -18,6 +18,16 @@ const envSchema = z
     OUTBOX_RETRY_MAX_MS: z.coerce.number().int().positive().default(3600000)
   })
   .superRefine((value, ctx) => {
+    // C11: Bloquear DIAN_PROVIDER=mock en producción — riesgo fiscal crítico.
+    // Simétrico con la validación existente en apps/api/src/app/env.ts.
+    if (value.NODE_ENV === 'production' && value.DIAN_PROVIDER === 'mock') {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['DIAN_PROVIDER'],
+        message: 'DIAN_PROVIDER=mock no está permitido en producción. Usar: http'
+      });
+    }
+
     if (value.DIAN_PROVIDER === 'http' && !value.DIAN_HTTP_URL) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
@@ -25,6 +35,18 @@ const envSchema = z
         path: ['DIAN_HTTP_URL']
       });
     }
+
+    // DIAN_HTTP_API_KEY es obligatorio cuando se usa el proveedor http.
+    // Declararlo opcional en el schema base permite que el objeto se construya,
+    // pero aquí forzamos su presencia para evitar requests no autenticadas a la DIAN.
+    if (value.DIAN_PROVIDER === 'http' && (!value.DIAN_HTTP_API_KEY || value.DIAN_HTTP_API_KEY.trim().length < 8)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'DIAN_HTTP_API_KEY es requerido (mín. 8 caracteres) cuando DIAN_PROVIDER=http',
+        path: ['DIAN_HTTP_API_KEY']
+      });
+    }
   });
 
 export const env = envSchema.parse(process.env);
+

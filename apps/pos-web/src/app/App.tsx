@@ -13,6 +13,7 @@ const HistoryScreen = lazy(() => import('../features/history').then(m => ({ defa
 const InventoryScreen = lazy(() => import('../features/inventory').then(m => ({ default: m.InventoryScreen })));
 const InventoryAdjustmentsScreen = lazy(() => import('../features/inventory').then(m => ({ default: m.InventoryAdjustmentsScreen })));
 const ProductsScreen = lazy(() => import('../features/products').then(m => ({ default: m.ProductsScreen })));
+const PromotionsScreen = lazy(() => import('../features/promotions/PromotionsScreen').then(m => ({ default: m.PromotionsScreen })));
 const ReportsScreen = lazy(() => import('../features/reports').then(m => ({ default: m.ReportsScreen })));
 const DashboardScreen = lazy(() => import('../features/reports').then(m => ({ default: m.DashboardScreen })));
 const BranchesScreen = lazy(() => import('../features/settings').then(m => ({ default: m.BranchesScreen })));
@@ -138,6 +139,10 @@ function AppShell() {
             currentScreen = <ProductsScreen api={api} branchId={posContext.branchId} />;
           }
 
+          if (activeRoute === 'promotions') {
+            currentScreen = <PromotionsScreen api={api} />;
+          }
+
           if (activeRoute === 'customers') {
             currentScreen = <CustomersScreen api={api} />;
           }
@@ -221,6 +226,8 @@ function AppShell() {
                   api={api}
                   isOpen={isCloseSessionModalOpen}
                   sessionId={posContext.cashSessionId}
+                  ticketTemplate={ticketTemplate}
+                  branchName={posContext.branchName ?? posContext.branchId}
                   onClose={() => setIsCloseSessionModalOpen(false)}
                   onSuccess={() => {
                     setIsCloseSessionModalOpen(false);

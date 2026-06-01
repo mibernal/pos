@@ -290,6 +290,55 @@ export function ensureE2eSchema(): Promise<void> {
           updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
         )
       `.execute(db);
+
+      await sql`
+        CREATE TABLE IF NOT EXISTS user_branches (
+          tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+          user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          branch_id UUID NOT NULL REFERENCES branches(id) ON DELETE CASCADE,
+          PRIMARY KEY (tenant_id, user_id, branch_id)
+        )
+      `.execute(db);
+
+      await sql`
+        CREATE TABLE IF NOT EXISTS inventory_balances (
+          id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+          branch_id UUID NOT NULL REFERENCES branches(id) ON DELETE CASCADE,
+          product_id UUID NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+          variant_id UUID NULL,
+          on_hand_qty NUMERIC(10,3) NOT NULL DEFAULT 0,
+          reserved_qty NUMERIC(10,3) NOT NULL DEFAULT 0,
+          in_transit_qty NUMERIC(10,3) NOT NULL DEFAULT 0,
+          updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )
+      `.execute(db);
+
+      await sql`
+        DO $$ BEGIN
+          BEGIN
+            ALTER TABLE inventory_balances
+            ADD COLUMN IF NOT EXISTS on_hand_qty NUMERIC(10,3) NOT NULL DEFAULT 0,
+            ADD COLUMN IF NOT EXISTS reserved_qty NUMERIC(10,3) NOT NULL DEFAULT 0,
+            ADD COLUMN IF NOT EXISTS in_transit_qty NUMERIC(10,3) NOT NULL DEFAULT 0;
+          EXCEPTION WHEN undefined_table THEN
+          END;
+        END $$;
+      `.execute(db);
+
+      await sql`
+        DO $$ BEGIN
+          BEGIN
+            ALTER TABLE outbox_events
+            ADD COLUMN IF NOT EXISTS event_version INTEGER NOT NULL DEFAULT 1,
+            ADD COLUMN IF NOT EXISTS aggregate_type VARCHAR NOT NULL DEFAULT 'SALE',
+            ADD COLUMN IF NOT EXISTS branch_id UUID NULL,
+            ADD COLUMN IF NOT EXISTS metadata_json JSONB NULL;
+          EXCEPTION WHEN undefined_table THEN
+          END;
+        END $$;
+      `.execute(db);
+
     } finally {
       if (schemaLockAcquired) {
         await sql`SELECT pg_advisory_unlock(hashtext('pos_dian_e2e_schema'))`.execute(db);
@@ -378,6 +427,14 @@ export async function seedE2eFixture(
           role: 'CASHIER',
           active: true
         }
+      ])
+      .execute();
+
+    await trx
+      .insertInto('user_branches')
+      .values([
+        { tenant_id: tenantId, user_id: adminUserId, branch_id: branchId },
+        { tenant_id: tenantId, user_id: cashierUserId, branch_id: branchId }
       ])
       .execute();
 

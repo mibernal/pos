@@ -1,4 +1,4 @@
-import type { Pool } from 'pg';
+import type { Pool, PoolClient } from 'pg';
 import type { DianStatus } from '@pos-dian/shared';
 import type { DianProviderEmitSaleInput } from '@pos-dian/shared/types/dian-provider.js';
 import { randomUUID } from 'node:crypto';
@@ -20,7 +20,7 @@ export interface DianDocumentRow {
 }
 
 export async function claimOutboxEvent(
-  pool: Pool,
+  pool: Pool | PoolClient,
   outboxEventId: string,
   claimWindowMs: number
 ): Promise<OutboxEventRow | null> {
@@ -40,10 +40,11 @@ export async function claimOutboxEvent(
 }
 
 export async function getOrCreateDianDocument(
-  pool: Pool,
+  pool: Pool | PoolClient,
   tenantId: string,
   saleId: string,
-  documentType: 'INVOICE' | 'CREDIT_NOTE' | 'DEBIT_NOTE' = 'INVOICE'
+  documentType: 'INVOICE' | 'CREDIT_NOTE' | 'DEBIT_NOTE' = 'INVOICE',
+  parentDocumentId?: string | null
 ): Promise<DianDocumentRow> {
   const found = await pool.query<DianDocumentRow>(
     `
@@ -77,16 +78,16 @@ export async function getOrCreateDianDocument(
         provider_payload_json,
         provider_response_json
       )
-      VALUES ($1, $2, $3, $4, NULL, $5, 'PENDING', NULL, '{}'::jsonb, NULL)
+      VALUES ($1, $2, $3, $4, $5, $6, 'PENDING', NULL, '{}'::jsonb, NULL)
       RETURNING id, status, cude
     `,
-    [randomUUID(), tenantId, saleId, documentType, env.DIAN_PROVIDER]
+    [randomUUID(), tenantId, saleId, documentType, parentDocumentId ?? null, env.DIAN_PROVIDER]
   );
 
   return inserted.rows[0]!;
 }
 
-export async function markOutboxSent(pool: Pool, outboxEventId: string, attempts: number): Promise<void> {
+export async function markOutboxSent(pool: Pool | PoolClient, outboxEventId: string, attempts: number): Promise<void> {
   await pool.query(
     `
       UPDATE outbox_events
@@ -101,7 +102,7 @@ export async function markOutboxSent(pool: Pool, outboxEventId: string, attempts
 }
 
 export async function markOutboxFailed(
-  pool: Pool,
+  pool: Pool | PoolClient,
   outboxEventId: string,
   attempts: number,
   nextRetryAt: Date
@@ -120,7 +121,7 @@ export async function markOutboxFailed(
 }
 
 export async function updateDianDocumentMetadata(
-  pool: Pool,
+  pool: Pool | PoolClient,
   dianDocumentId: string,
   providerPayload: DianProviderEmitSaleInput,
   providerResponse: Record<string, unknown> | null,

@@ -79,7 +79,7 @@ export async function processPartialReturn(
     }
 
     let totalRefundCents = 0;
-    const itemsToInsert: Array<{ product_id: string; qty: string; refund_cents: number }> = [];
+    const itemsToInsert: Array<{ product_id: string; variant_id: string | null; qty: string; refund_cents: number }> = [];
 
     // 4. Validate requested return items
     for (const returnReq of request.items) {
@@ -109,6 +109,7 @@ export async function processPartialReturn(
 
       itemsToInsert.push({
         product_id: returnReq.product_id,
+        variant_id: soldItem.variant_id ?? null,
         qty: returnReq.qty.toString(),
         refund_cents: refundCents
       });
@@ -159,22 +160,38 @@ export async function processPartialReturn(
         })
         .execute();
 
-      // Update balance
-      await trx
-        .insertInto('inventory_balances')
-        .values({
-          tenant_id: ctx.tenantId,
-          branch_id: sale.branch_id,
-          product_id: item.product_id,
-          qty: item.qty
-        })
-        .onConflict((oc) =>
-          oc.columns(['tenant_id', 'branch_id', 'product_id']).doUpdateSet({
-            qty: sql`inventory_balances.qty + EXCLUDED.qty`,
+      // Usar SELECT → UPDATE/INSERT en lugar de onConflict para evitar incompatibilidad
+      // con el índice parcial uq_inv_balances_tenant_branch_prod_var (expresión COALESCE).
+      const existingBalance = await trx
+        .selectFrom('inventory_balances')
+        .select('id')
+        .where('tenant_id', '=', ctx.tenantId)
+        .where('branch_id', '=', sale.branch_id)
+        .where('product_id', '=', item.product_id)
+        .where('variant_id', 'is', item.variant_id ?? null)
+        .executeTakeFirst();
+
+      if (existingBalance) {
+        await trx
+          .updateTable('inventory_balances')
+          .set({
+            on_hand_qty: sql`inventory_balances.on_hand_qty + ${Number(item.qty)}`,
             updated_at: new Date()
           })
-        )
-        .execute();
+          .where('id', '=', existingBalance.id)
+          .execute();
+      } else {
+        await trx
+          .insertInto('inventory_balances')
+          .values({
+            tenant_id: ctx.tenantId,
+            branch_id: sale.branch_id,
+            product_id: item.product_id,
+            variant_id: item.variant_id ?? null,
+            on_hand_qty: Number(item.qty).toString()
+          })
+          .execute();
+      }
     }
 
     // 8. Create Outbox Event for DIAN Credit Note
@@ -193,8 +210,8 @@ export async function processPartialReturn(
         tenant_id: ctx.tenantId,
         type: 'sale.returned',
         event_version: 1,
-        aggregate_type: 'RETURN',
-        aggregate_id: returnRow.id,
+        aggregate_type: 'SALE',
+        aggregate_id: saleId,
         branch_id: sale.branch_id,
         payload_json: outboxPayload,
         metadata_json: {

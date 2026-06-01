@@ -28,7 +28,9 @@ type TableName =
   | 'audit_logs'
   | 'inventory_transactions'
   | 'inventory_balances'
-  | 'promotions';
+  | 'promotions'
+  | 'user_branches'
+  | 'terminals';
 
 interface FakeDbState {
   tenants: Array<{ id: string; tax_mode: TenantTaxMode; allow_negative_stock?: boolean }>;
@@ -51,6 +53,8 @@ interface FakeDbState {
   inventory_transactions: Array<Record<string, unknown>>;
   inventory_balances: Array<Record<string, unknown>>;
   promotions: Array<Record<string, unknown>>;
+  user_branches: Array<Record<string, unknown>>;
+  terminals: Array<Record<string, unknown>>;
   hooks?: {
     beforeInsert?: (
       tableName: TableName,
@@ -441,7 +445,9 @@ function createFixture(
     audit_logs: [],
     inventory_transactions: [],
     inventory_balances: [],
-    promotions: []
+    promotions: [],
+    user_branches: [{ tenant_id: tenantId, user_id: userId, branch_id: branchId }],
+    terminals: [{ id: randomUUID(), tenant_id: tenantId, branch_id: branchId, name: 'Caja 1', is_active: true }]
   };
 
   return {
@@ -568,9 +574,9 @@ describe('POST /sales fiscal persistence', () => {
       entity_type: 'SALE',
       entity_id: persistedSale.id,
       action: 'SALE_CREATED',
-      payload_json: expect.objectContaining({
+      legacy_payload: expect.objectContaining({
         sale_number: 1,
-        total_cents: body.sale.total_cents,
+        total_cents: 11900,
         tax_total_cents: 1900
       })
     });
@@ -796,7 +802,7 @@ describe('POST /sales fiscal persistence', () => {
         .sort((left, right) => left - right)
     ).toEqual([1, 2]);
     expect(fixture.state.audit_logs[0]).toMatchObject({
-      payload_json: expect.objectContaining({
+      legacy_payload: expect.objectContaining({
         sale_number: 2
       })
     });
@@ -937,6 +943,9 @@ describe('POST /sales fiscal persistence', () => {
       }
     });
 
+    if (voidResponse.statusCode !== 200) {
+      console.error('VOID ERROR', voidResponse.json());
+    }
     expect(voidResponse.statusCode).toBe(200);
 
     const voidedSale = voidResponse.json() as {

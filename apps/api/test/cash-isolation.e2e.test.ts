@@ -59,6 +59,12 @@ describe('cash isolation e2e', () => {
       password_hash: hash
     }).execute();
 
+    await app.db.insertInto('user_branches').values({
+      user_id: cashierBId,
+      branch_id: fixture.branchId,
+      tenant_id: fixture.tenantId
+    }).execute();
+
     const tokenB = await loginE2eUser(app, { email: cashierBEmail, password: cashierBPassword });
 
     // Cajero A abre su caja
@@ -83,7 +89,7 @@ describe('cash isolation e2e', () => {
       cash_session_id: sessionAId, // The isolated session
       items: [{ product_id: fixture.productId, qty: 1, price_cents: fixture.productPriceCents }],
       discount_cents: 0,
-      payments: [{ method: 'CASH', amount_cents: fixture.productPriceCents }]
+      payments: [{ method: 'CASH', amount_cents: Math.round(fixture.productPriceCents * 1.19) }]
     };
 
     const response = await app.inject({

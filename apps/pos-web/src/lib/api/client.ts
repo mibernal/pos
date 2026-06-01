@@ -21,7 +21,11 @@ import type {
   InventoryBalance as SharedInventoryBalance,
   CreateInventoryTransactionInput as SharedCreateInventoryTransactionInput,
   SalesReportResponse as SharedSalesReportResponse,
-  ConsolidatedInventoryResponse as SharedConsolidatedInventoryResponse
+  ConsolidatedInventoryResponse as SharedConsolidatedInventoryResponse,
+  Promotion as SharedPromotion,
+  CreatePromotion as SharedCreatePromotion,
+  UpdatePromotion as SharedUpdatePromotion,
+  ListPromotionsQuery as SharedListPromotionsQuery
 } from '@pos-dian/shared';
 
 export type UserRole = SharedAuthUser['role'];
@@ -73,6 +77,11 @@ export type Customer = SharedCustomer;
 export type InventoryBalance = SharedInventoryBalance;
 export type SalesReportResponse = SharedSalesReportResponse;
 export type ConsolidatedInventoryResponse = SharedConsolidatedInventoryResponse;
+
+export type Promotion = SharedPromotion;
+export type CreatePromotion = SharedCreatePromotion;
+export type UpdatePromotion = SharedUpdatePromotion;
+export type ListPromotionsQuery = SharedListPromotionsQuery;
 
 export class ApiClientError extends Error {
   readonly status?: number;
@@ -418,6 +427,22 @@ export function createApiClient({ baseUrl, getSession, setSession }: CreateApiCl
           diff_cents: number | null;
         }[];
       }>(`/reports/shifts?${searchParams.toString()}`);
-    }
+    },
+    listPromotions: (params: ListPromotionsQuery) =>
+      requestJson<{ items: Promotion[] }>(`/promotions?${toQueryString(params as any)}`),
+    createPromotion: (payload: CreatePromotion) =>
+      requestJson<Promotion>('/promotions', {
+        method: 'POST',
+        body: JSON.stringify(payload)
+      }),
+    updatePromotion: (id: string, payload: UpdatePromotion) =>
+      requestJson<Promotion>(`/promotions/${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify(payload)
+      }),
+    deletePromotion: (id: string) =>
+      requestJson<{ success: boolean }>(`/promotions/${id}`, {
+        method: 'DELETE'
+      })
   };
 }

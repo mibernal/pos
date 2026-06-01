@@ -9,6 +9,7 @@ import {
   seedE2eFixture,
   type E2eFixture
 } from './helpers/e2e-fixture.js';
+import { randomUUID } from 'node:crypto';
 
 describe('Cross-Tenant Isolation E2E', () => {
   let app: FastifyInstance;
@@ -57,12 +58,12 @@ describe('Cross-Tenant Isolation E2E', () => {
       url: '/api/v1/sales',
       headers: bearerHeaders(adminTokenA),
       payload: {
-        client_uuid: null,
+        client_uuid: '77777777-7777-4777-8777-777777777777',
         branch_id: fixtureA.branchId,
         cash_session_id: sessionAId,
         items: [{ product_id: fixtureA.productId, qty: 1, price_cents: fixtureA.productPriceCents }],
         discount_cents: 0,
-        payments: [{ method: 'CASH', amount_cents: fixtureA.productPriceCents }]
+        payments: [{ method: 'CASH', amount_cents: Math.round(fixtureA.productPriceCents * 1.19) }]
       }
     });
     expect(saleRes.statusCode).toBe(201);
@@ -106,8 +107,8 @@ describe('Cross-Tenant Isolation E2E', () => {
 
     expect(productsRes.statusCode).toBe(200);
     const productsBody = productsRes.json() as any;
-    const productsList = productsBody.products;
-    
+    const productsList = productsBody.items;
+
     // Ensure Tenant A's product is NOT in the list
     const foundProductA = productsList.find((p: any) => p.id === fixtureA.productId);
     expect(foundProductA).toBeUndefined();
@@ -122,7 +123,7 @@ describe('Cross-Tenant Isolation E2E', () => {
     fixturesToCleanup.push(fixture);
 
     // Create a secondary branch manually in the same tenant
-    const secondaryBranchId = '22222222-2222-2222-2222-222222222222';
+    const secondaryBranchId = randomUUID();
     await app.db.insertInto('branches').values({
       id: secondaryBranchId,
       tenant_id: fixture.tenantId,
@@ -130,7 +131,7 @@ describe('Cross-Tenant Isolation E2E', () => {
       address: 'Another address'
     }).execute();
 
-    const secondaryTerminalId = '33333333-3333-3333-3333-333333333333';
+    const secondaryTerminalId = randomUUID();
     await app.db.insertInto('terminals').values({
       id: secondaryTerminalId,
       tenant_id: fixture.tenantId,
@@ -152,7 +153,7 @@ describe('Cross-Tenant Isolation E2E', () => {
       user_id: fixture.cashierUserId,
       branch_id: fixture.branchId,
       tenant_id: fixture.tenantId
-    }).execute();
+    }).onConflict((oc) => oc.doNothing()).execute();
 
     const openRes = await app.inject({
       method: 'POST',

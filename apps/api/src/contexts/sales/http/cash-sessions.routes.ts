@@ -480,11 +480,41 @@ export const cashSessionsRoutes: FastifyPluginAsync = async (app) => {
           }
         });
 
+        const methodRevenues: Record<string, number> = {
+          CASH: 0,
+          CARD: 0,
+          TRANSFER: 0
+        };
+
+        let completedSalesTotalCents = 0;
+
+        salePayments.forEach(sale => {
+          completedSalesTotalCents += Number(sale.total_cents) || 0;
+          const payment = sale.payment_json as Record<string, unknown> | null;
+          if (!payment) return;
+
+          if (payment.mode === 'MIXED' && Array.isArray(payment.payments)) {
+            payment.payments.forEach((p: Record<string, unknown>) => {
+              const method = p.method as string;
+              if (methodRevenues[method] !== undefined) {
+                methodRevenues[method] += Number(p.amount_cents) || 0;
+              }
+            });
+          } else {
+            const method = payment.mode as string;
+            if (methodRevenues[method] !== undefined) {
+              methodRevenues[method] += Number(payment.total_cents) || 0;
+            }
+          }
+        });
+
         return {
           updatedSession,
           completedSalesCount: salePayments.length,
+          completedSalesTotalCents,
           expectedCashCents,
-          diffCents
+          diffCents,
+          methodRevenues
         };
       });
 
@@ -505,13 +535,15 @@ export const cashSessionsRoutes: FastifyPluginAsync = async (app) => {
       );
 
       const isCashier = request.auth!.role === 'CASHIER';
-      
+
       return {
         cash_session: mapCashSession(result.updatedSession),
         summary: {
           completed_sales_count: result.completedSalesCount,
+          completed_sales_total_cents: result.completedSalesTotalCents,
           expected_cash_cents: isCashier ? 0 : result.expectedCashCents,
-          diff_cents: isCashier ? 0 : result.diffCents
+          diff_cents: isCashier ? 0 : result.diffCents,
+          payment_breakdown: result.methodRevenues
         }
       };
     }

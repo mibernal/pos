@@ -241,14 +241,21 @@ export async function createSaleService(input: CreateSaleServiceInput) {
       });
 
 
+      let discountOverrideReason: string | undefined;
+
       if (payload.discount_cents !== calculatedDiscountCents) {
-        // En un entorno real podríamos sobreescribir `payload.discount_cents` en lugar de lanzar error, 
-        // pero para evitar cobros sorpresa (el frontend calculó un precio distinto al real), es mejor validar:
-        throw new AppError(
-          400,
-          'SALE_DISCOUNT_MISMATCH',
-          `El descuento solicitado (${payload.discount_cents}) no coincide con el calculado por las promociones (${calculatedDiscountCents})`
+        logger.warn(
+          {
+            ...requestLogContext,
+            branchId: payload.branch_id,
+            event: 'sale_discount_override',
+            requested_discount: payload.discount_cents,
+            calculated_discount: calculatedDiscountCents
+          },
+          'El descuento solicitado no coincide con el calculado por las promociones. Se usará el valor del servidor.'
         );
+        payload.discount_cents = calculatedDiscountCents;
+        discountOverrideReason = 'Ajuste de descuento por promociones activas (Sincronización servidor)';
       }
 
       if (payload.discount_cents > subtotalCents) {
@@ -303,11 +310,23 @@ export async function createSaleService(input: CreateSaleServiceInput) {
       }
 
       if (normalizedPayments.total_amount_cents !== finalTotalCents) {
-        throw new AppError(
-          400,
-          'PAYMENTS_TOTAL_MISMATCH',
-          'La suma de payments debe ser igual al total de la venta'
-        );
+        if (!discountOverrideReason) {
+          throw new AppError(
+            400,
+            'PAYMENTS_TOTAL_MISMATCH',
+            'La suma de payments debe ser igual al total de la venta'
+          );
+        } else {
+          logger.warn(
+            {
+              ...requestLogContext,
+              event: 'payment_total_mismatch_allowed',
+              payments_total: normalizedPayments.total_amount_cents,
+              sale_total: finalTotalCents
+            },
+            'Se permite discrepancia en pagos debido a un ajuste automático del descuento'
+          );
+        }
       }
 
       const nextSaleNumber = await getNextSaleNumberForBranchInTransaction(trx, {
@@ -583,7 +602,8 @@ export async function createSaleService(input: CreateSaleServiceInput) {
           qty: Number(item.qty),
           price_cents: item.price_cents,
           line_total_cents: item.line_total_cents
-        }))
+        })),
+        discount_override_reason: discountOverrideReason
       };
     });
 

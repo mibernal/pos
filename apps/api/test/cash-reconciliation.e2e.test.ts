@@ -65,35 +65,38 @@ describe('Cash Reconciliation Flow E2E', () => {
       url: '/api/v1/sales',
       headers: bearerHeaders(cashierToken),
       payload: {
-        client_uuid: null,
+        client_uuid: '77777777-7777-4777-8777-777777777777',
         branch_id: fixture.branchId,
         cash_session_id: sessionId,
         items: [
           {
             product_id: fixture.productId,
             qty: 1,
-            price_cents: 10000
+            price_cents: 11900
           }
         ],
         discount_cents: 0,
         payments: [
           {
             method: 'CASH',
-            amount_cents: 10000
+            amount_cents: 14161
           }
         ]
       }
     });
+    if (saleRes.statusCode !== 201) {
+      console.error('SALE RES ERROR', saleRes.json());
+    }
     expect(saleRes.statusCode).toBe(201);
 
-    // Expected cash is now 60.000. 
-    // 3. Cashier declares 59.000 (missing 1.000)
+    // Expected cash is now 64.161. 
+    // 3. Cashier declares 63.161 (missing 1.000)
     const declareRes = await app.inject({
       method: 'POST',
       url: `/api/v1/cash-sessions/${sessionId}/declare`,
       headers: bearerHeaders(cashierToken),
       payload: {
-        declared_amount_cents: 59000
+        declared_amount_cents: 63161
       }
     });
     expect(declareRes.statusCode).toBe(200);

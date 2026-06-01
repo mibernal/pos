@@ -1,6 +1,8 @@
 import { useState } from 'react';
 import { Banner, Modal } from '../../../components/ui';
 import { formatMoneyFromCents } from '../../../lib/format';
+import { printZReportTicket } from '../../../lib/ticket-printer';
+import type { TicketTemplateConfig } from '../../../lib/ticket-template';
 import type { PosApiClient } from '../../../types';
 import { useSession } from '../../auth';
 
@@ -8,12 +10,16 @@ export function CloseCashSessionModal({
   api,
   isOpen,
   sessionId,
+  ticketTemplate,
+  branchName,
   onClose,
   onSuccess
 }: {
   api: PosApiClient;
   isOpen: boolean;
   sessionId: string;
+  ticketTemplate: TicketTemplateConfig;
+  branchName: string;
   onClose: () => void;
   onSuccess: () => void;
 }) {
@@ -21,9 +27,16 @@ export function CloseCashSessionModal({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [summary, setSummary] = useState<{
+    completed_sales_count: number;
+    completed_sales_total_cents: number;
     expected_cash_cents: number;
     diff_cents: number;
-    completed_sales_count: number;
+    payment_breakdown: Record<string, number>;
+  } | null>(null);
+  const [cashSession, setCashSession] = useState<{
+    opened_at: string;
+    closed_at: string | null;
+    status: string;
   } | null>(null);
   const { role } = useSession();
 
@@ -43,7 +56,8 @@ export function CloseCashSessionModal({
 
     try {
       const result = await api.closeCashSession(sessionId, rawVal * 100);
-      setSummary(result.summary);
+      setSummary(result.summary as any);
+      setCashSession(result.cash_session as any);
       setLoading(false);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'No fue posible cerrar la caja');
@@ -98,15 +112,21 @@ export function CloseCashSessionModal({
                 type="button"
                 className="button button-outline"
                 onClick={() => {
-                  let ticketInfo = 'Imprimiendo Ticket Z...\n' +
-                    'Ventas: ' + summary.completed_sales_count + '\n';
-                  if (role !== 'CASHIER') {
-                    ticketInfo += 'Esperado: ' + formatMoneyFromCents(summary.expected_cash_cents) + '\n' +
-                      'Diferencia: ' + formatMoneyFromCents(summary.diff_cents);
-                  } else {
-                    ticketInfo += 'Arqueo: Ciego\n';
+                  if (summary && cashSession) {
+                    printZReportTicket({
+                      template: ticketTemplate,
+                      branchName,
+                      openedAt: cashSession.opened_at,
+                      closedAt: cashSession.closed_at,
+                      saleCount: summary.completed_sales_count,
+                      totalSalesCents: summary.completed_sales_total_cents,
+                      paymentBreakdown: summary.payment_breakdown,
+                      expectedCashCents: summary.expected_cash_cents,
+                      realCashCents: summary.expected_cash_cents + summary.diff_cents,
+                      diffCents: summary.diff_cents,
+                      status: cashSession.status
+                    });
                   }
-                  alert(ticketInfo);
                 }}
               >
                 🖨️ Imprimir Ticket Z

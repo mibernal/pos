@@ -90,26 +90,37 @@ export async function recordInventoryTransaction(
     }
   }
 
-  await trx
-    .insertInto('inventory_balances')
-    .values({
-      tenant_id: tenantId,
-      branch_id: branchId,
-      product_id: productId,
-      variant_id: variantId,
-      on_hand_qty: qtyChange.toString(),
-      in_transit_qty: inTransitChange.toString(),
-      reserved_qty: reservedChange.toString()
-    })
-    .onConflict((oc: any) =>
-      oc.constraint('uq_inv_balances_tenant_branch_prod_var').doUpdateSet({
-        on_hand_qty: sql`inventory_balances.on_hand_qty + EXCLUDED.on_hand_qty`,
-        in_transit_qty: sql`inventory_balances.in_transit_qty + EXCLUDED.in_transit_qty`,
-        reserved_qty: sql`inventory_balances.reserved_qty + EXCLUDED.reserved_qty`,
+  // Usar SELECT → UPDATE/INSERT en lugar de onConflict(constraint(...)) para evitar la
+  // incompatibilidad entre ON CONFLICT ON CONSTRAINT y un índice creado con CREATE UNIQUE INDEX
+  // (no con ADD CONSTRAINT). El balance ya fue leído con FOR UPDATE arriba.
+  if (balance) {
+    await trx
+      .updateTable('inventory_balances')
+      .set({
+        on_hand_qty: sql`inventory_balances.on_hand_qty + ${qtyChange}`,
+        in_transit_qty: sql`inventory_balances.in_transit_qty + ${inTransitChange}`,
+        reserved_qty: sql`inventory_balances.reserved_qty + ${reservedChange}`,
         updated_at: sql`NOW()`
       })
-    )
-    .execute();
+      .where('tenant_id', '=', tenantId)
+      .where('branch_id', '=', branchId)
+      .where('product_id', '=', productId)
+      .where(sql`variant_id IS NOT DISTINCT FROM ${variantId}`)
+      .execute();
+  } else {
+    await trx
+      .insertInto('inventory_balances')
+      .values({
+        tenant_id: tenantId,
+        branch_id: branchId,
+        product_id: productId,
+        variant_id: variantId,
+        on_hand_qty: qtyChange.toString(),
+        in_transit_qty: inTransitChange.toString(),
+        reserved_qty: reservedChange.toString()
+      })
+      .execute();
+  }
 
   if (qtyChange !== 0) {
     await trx

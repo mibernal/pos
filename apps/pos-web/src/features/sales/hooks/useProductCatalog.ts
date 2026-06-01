@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import type { Customer, ProductItem } from '../../../lib/api';
+import { ApiClientError, type Customer, type ProductItem } from '../../../lib/api';
 import type { PosApiClient } from '../../../types';
 import {
   getCachedProducts,
@@ -76,20 +76,29 @@ export function useProductCatalog({ api, branchId }: UseProductCatalogOptions) {
           await setCachedCustomersDb(custs);
         } catch (apiError) {
           // Fallback a caché si la red falla (Offline First)
-          const cachedP = await getCachedProducts();
-          const cachedC = await getCachedCustomers();
-          if (cachedP && cachedC) {
-            setCachedProducts(cachedP);
-            setCustomers(cachedC);
-            console.warn('Cargando catálogo desde caché (Modo Offline)');
-          } else {
-            throw apiError; // Re-throw si no hay caché
+          try {
+            const cachedP = await getCachedProducts();
+            const cachedC = await getCachedCustomers();
+            if (cachedP && cachedC) {
+              setCachedProducts(cachedP);
+              setCustomers(cachedC);
+              console.warn('Cargando catálogo desde caché (Modo Offline)');
+            } else {
+              throw apiError; // Re-throw si no hay caché
+            }
+          } catch (cacheError) {
+            console.error('Error al intentar leer caché local:', cacheError);
+            throw apiError;
           }
         }
       } catch (loadError) {
-        setProductsError(
-          loadError instanceof Error ? loadError.message : 'No fue posible cargar productos o clientes'
-        );
+        if (loadError instanceof ApiClientError && loadError.isNetworkError) {
+          setProductsError('No hay conexión a internet y no hay catálogo guardado localmente.');
+        } else {
+          setProductsError(
+            loadError instanceof Error ? loadError.message : 'No fue posible cargar productos o clientes'
+          );
+        }
       } finally {
         setProductsLoading(false);
       }

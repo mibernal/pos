@@ -7,11 +7,12 @@ import { writeAuditLog } from '../../../shared/domain/audit/write-audit-log.js';
 import { env } from '../../../app/env.js';
 import { mapSaleRow, saleColumnList } from './sale-mapper.js';
 import { ensureUserCanAccessBranch } from '../../../shared/infra/security/permissions.js';
+import type { AuthContext } from '../../../shared/infra/security/types.js';
 
 interface VoidSaleServiceInput {
   db: Kysely<Database>;
   tenantId: string;
-  auth: any;
+  auth: AuthContext;
   saleId: string;
   payload: {
     void_reason: string;
@@ -86,7 +87,7 @@ export async function voidSaleService(input: VoidSaleServiceInput) {
 
     const saleItems = await trx
       .selectFrom('sale_items')
-      .select(['product_id', 'qty'])
+      .select(['product_id', 'variant_id', 'qty'])
       .where('tenant_id', '=', tenantId)
       .where('sale_id', '=', saleId)
       .execute();
@@ -100,6 +101,7 @@ export async function voidSaleService(input: VoidSaleServiceInput) {
           tenant_id: tenantId,
           branch_id: updatedSale.branch_id,
           product_id: item.product_id,
+          variant_id: item.variant_id ?? null,
           operation: 'SALE_VOID',
           reference_id: updatedSale.id,
           qty_change: Number(item.qty).toString(),
@@ -108,21 +110,38 @@ export async function voidSaleService(input: VoidSaleServiceInput) {
         })
         .execute();
 
-      await trx
-        .insertInto('inventory_balances')
-        .values({
-          tenant_id: tenantId,
-          branch_id: updatedSale.branch_id,
-          product_id: item.product_id,
-          qty: Number(item.qty).toString()
-        })
-        .onConflict((oc) =>
-          oc.columns(['tenant_id', 'branch_id', 'product_id']).doUpdateSet({
-            qty: sql`inventory_balances.qty + EXCLUDED.qty`,
+      // Usar SELECT → UPDATE/INSERT en lugar de onConflict para evitar incompatibilidad
+      // con el índice parcial uq_inv_balances_tenant_branch_prod_var (expresión COALESCE).
+      const existingBalance = await trx
+        .selectFrom('inventory_balances')
+        .select('id')
+        .where('tenant_id', '=', tenantId)
+        .where('branch_id', '=', updatedSale.branch_id)
+        .where('product_id', '=', item.product_id)
+        .where('variant_id', 'is', item.variant_id ?? null)
+        .executeTakeFirst();
+
+      if (existingBalance) {
+        await trx
+          .updateTable('inventory_balances')
+          .set({
+            on_hand_qty: sql`inventory_balances.on_hand_qty + ${Number(item.qty)}`,
             updated_at: sql`NOW()`
           })
-        )
-        .execute();
+          .where('id', '=', existingBalance.id)
+          .execute();
+      } else {
+        await trx
+          .insertInto('inventory_balances')
+          .values({
+            tenant_id: tenantId,
+            branch_id: updatedSale.branch_id,
+            product_id: item.product_id,
+            variant_id: item.variant_id ?? null,
+            on_hand_qty: Number(item.qty).toString()
+          })
+          .execute();
+      }
     }
 
     await writeAuditLog(trx, {

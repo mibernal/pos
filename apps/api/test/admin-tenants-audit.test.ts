@@ -289,7 +289,7 @@ describe('tenant tax mode audit logs', () => {
       entity_type: 'TENANT',
       entity_id: tenantId,
       action: 'TENANT_TAX_MODE_UPDATED',
-      payload_json: {
+      legacy_payload: {
         previous_tax_mode: 'IVA',
         new_tax_mode: 'INC_RESTAURANT'
       }
@@ -370,7 +370,7 @@ describe('tenant tax mode audit logs', () => {
       entity_type: 'TENANT',
       entity_id: tenantId,
       action: 'TENANT_BUSINESS_PROFILE_UPDATED',
-      payload_json: {
+      legacy_payload: {
         previous: {
           business_name: 'Comercio Demo SAS',
           address: 'Calle 10 # 20-30',

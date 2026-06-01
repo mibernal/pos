@@ -1,3 +1,4 @@
+import { z } from 'zod';
 import type { Job } from 'bullmq';
 import type { Pool } from 'pg';
 import { env } from '../config/env.js';
@@ -17,6 +18,22 @@ import {
   markOutboxSent,
   updateDianDocumentMetadata
 } from './shared/outbox-store.js';
+import type { AnyOutboxJobData } from './types.js';
+
+const saleReturnedPayloadSchema = z.object({
+  sale_id: z.string().uuid(),
+  return_id: z.string().uuid(),
+  total_refund_cents: z.number().int().min(0),
+  reason: z.string().optional(),
+  items: z.array(
+    z.object({
+      product_id: z.string().uuid(),
+      qty: z.union([z.number(), z.string()]),
+      refund_cents: z.number().int().min(0)
+    })
+  )
+});
+
 
 export function buildOutboxSaleReturnedProcessor({
   pool,
@@ -25,7 +42,7 @@ export function buildOutboxSaleReturnedProcessor({
   pool: Pool;
   provider: DianProvider;
 }) {
-  return async (job: Job): Promise<void> => {
+  return async (job: Job<AnyOutboxJobData>): Promise<void> => {
     const claimWindowMs = Math.max(env.OUTBOX_POLL_INTERVAL_MS * 4, 30000);
     const claimedEvent = await claimOutboxEvent(pool, job.data.outboxEventId, claimWindowMs);
     if (!claimedEvent) {
@@ -33,9 +50,11 @@ export function buildOutboxSaleReturnedProcessor({
       return;
     }
 
-    const payloadObj = typeof claimedEvent.payload_json === 'string'
+    const rawPayload = typeof claimedEvent.payload_json === 'string'
       ? JSON.parse(claimedEvent.payload_json)
       : claimedEvent.payload_json;
+      
+    const payloadObj = saleReturnedPayloadSchema.parse(rawPayload);
 
     const saleId = payloadObj.sale_id;
     const returnId = payloadObj.return_id;
@@ -43,8 +62,19 @@ export function buildOutboxSaleReturnedProcessor({
     const nextAttemptNumber = claimedEvent.attempts + 1;
     const idempotencyKey = buildIdempotencyKey(payloadObj, tenantId, returnId);
 
-    // Creates or gets a Credit Note document specifically for this return
-    const dianDocument = await getOrCreateDianDocument(pool, tenantId, returnId, 'CREDIT_NOTE');
+    // Buscar el documento INVOICE padre de la venta original para enlazarlo como
+    // parent_document_id en la nota crédito (requerido por la DIAN para ajustes).
+    const invoiceResult = await pool.query<{ id: string }>(
+      `SELECT id FROM dian_documents
+       WHERE tenant_id = $1 AND sale_id = $2 AND document_type = 'INVOICE'
+       ORDER BY created_at DESC LIMIT 1`,
+      [tenantId, saleId]
+    );
+    const parentDocumentId = invoiceResult.rows[0]?.id ?? null;
+
+    // Crear o recuperar la CREDIT_NOTE usando sale_id (no returnId) para satisfacer
+    // la FK dian_documents.sale_id → sales.id. El return_id viaja en payload_json.
+    const dianDocument = await getOrCreateDianDocument(pool, tenantId, saleId, 'CREDIT_NOTE', parentDocumentId);
 
     logWorkerInfo({
       event: 'dian_outbox_job_started',
@@ -55,7 +85,8 @@ export function buildOutboxSaleReturnedProcessor({
       return_id: returnId,
       tenant_id: tenantId,
       attempt: nextAttemptNumber,
-      dian_document_id: dianDocument.id
+      dian_document_id: dianDocument.id,
+      parent_document_id: parentDocumentId
     });
 
     const emissionBlockReason = getDianEmissionBlockReason(dianDocument.status, dianDocument.cude);
@@ -78,7 +109,7 @@ export function buildOutboxSaleReturnedProcessor({
     basePayload.sale.tax_lines = [];
 
     // We filter the items to only include the returned ones and update their qty and line_total
-    const returnedItemsList = (payloadObj.items as Array<{ product_id: string; qty: number | string; refund_cents: number }>) || [];
+    const returnedItemsList = payloadObj.items;
     const returnedItemMap = new Map(returnedItemsList.map((i) => [i.product_id, i]));
 
     basePayload.sale.items = basePayload.sale.items

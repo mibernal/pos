@@ -26,7 +26,7 @@ export function useCheckout({
   const [lastPrintedSaleSnapshot, setLastPrintedSaleSnapshot] = useState<LastPrintedSaleSnapshot | null>(null);
 
   const processSale = useCallback(async (
-    cartItems: CartItem[], 
+    cartItems: CartItem[],
     discountCents: number,
     subtotalCents: number,
     totalCents: number,
@@ -73,8 +73,7 @@ export function useCheckout({
         items: ticketItemsSnapshot
       });
       setSaleMessage(
-        `Venta #${result.sale.sale_number} registrada. Estado DIAN: ${
-          result.sale.dian_status ?? 'PENDING'
+        `Venta #${result.sale.sale_number} registrada. Estado DIAN: ${result.sale.dian_status ?? 'PENDING'
         }`
       );
       onSaleSuccess();
@@ -91,7 +90,8 @@ export function useCheckout({
           onSaleSuccess();
           return;
         } catch (queueError) {
-          setSaleError(getCheckoutErrorMessage(queueError));
+          setSaleError('Error al guardar la venta como pendiente localmente. Por favor, revisa el almacenamiento.');
+          setCheckoutLoading(false);
           return;
         }
       }

@@ -10,7 +10,7 @@ import { CheckoutModal, CartPanel, ProductGrid, VariantSelectorModal } from './c
 import { inferTaxModeFromSale } from './utils';
 import { useState } from 'react';
 
-import { useBarcodeScanner } from './hooks/useBarcodeScanner';
+import { useBarcodeScanner } from '../../hooks/useBarcodeScanner';
 import { useProductCatalog } from './hooks/useProductCatalog';
 import { useCart } from './hooks/useCart';
 import { useCheckout } from './hooks/useCheckout';
@@ -112,19 +112,21 @@ export function PosScreen({
   });
 
   // HW Scanner Support
-  useBarcodeScanner((barcode) => {
-    const product = cachedProducts.find((p) => p.barcode === barcode);
-    if (product) {
-      if (product.variants && product.variants.length > 0) {
-        setVariantSelectionProduct(product);
+  useBarcodeScanner({
+    onScan: (barcode: string) => {
+      const product = cachedProducts.find((p) => p.barcode === barcode);
+      if (product) {
+        if (product.variants && product.variants.length > 0) {
+          setVariantSelectionProduct(product);
+        } else {
+          addProduct(product);
+          setSaleError(null);
+          setQuery('');
+          searchInputRef.current?.focus();
+        }
       } else {
-        addProduct(product);
-        setSaleError(null);
-        setQuery('');
-        searchInputRef.current?.focus();
+        setSaleError(`Producto no encontrado para el código de barras: ${barcode}`);
       }
-    } else {
-      setSaleError(`Producto no encontrado (${barcode})`);
     }
   });
 

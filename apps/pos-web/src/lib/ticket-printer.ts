@@ -33,6 +33,20 @@ export interface TicketPrintInput {
   isReprint?: boolean;
 }
 
+export interface ZReportTicketInput {
+  template: TicketTemplateConfig;
+  branchName: string;
+  openedAt: string;
+  closedAt: string | null;
+  saleCount: number;
+  totalSalesCents: number;
+  paymentBreakdown: Record<string, number>;
+  expectedCashCents: number;
+  realCashCents: number;
+  diffCents: number;
+  status: string;
+}
+
 function formatDateTimeParts(value: string): { date: string; time: string } {
   const date = new Date(value);
 
@@ -128,12 +142,12 @@ export function buildTicketHtml(input: TicketPrintInput): string {
   const paymentsHtml =
     input.payments.length > 0
       ? input.payments
-          .map((payment) => {
-            return `<div class="row"><span>${paymentMethodLabel(payment.method)}</span><strong>${formatMoneyFromCents(
-              payment.amountCents
-            )}</strong></div>`;
-          })
-          .join('')
+        .map((payment) => {
+          return `<div class="row"><span>${paymentMethodLabel(payment.method)}</span><strong>${formatMoneyFromCents(
+            payment.amountCents
+          )}</strong></div>`;
+        })
+        .join('')
       : '<div class="row"><span>Pago</span><strong>No disponible</strong></div>';
 
   const logoHtml = input.template.logoUrl
@@ -155,26 +169,24 @@ export function buildTicketHtml(input: TicketPrintInput): string {
   const voidNoticeHtml =
     input.saleStatus === 'VOID'
       ? `<div class="void-alert">VENTA ANULADA</div>
-         ${
-           input.voidedAt
-             ? `<div class="summary-row">
+         ${input.voidedAt
+        ? `<div class="summary-row">
                   <span>Anulada en</span>
                   <strong>${escapeHtml(new Date(input.voidedAt).toLocaleString('es-CO'))}</strong>
                 </div>`
-             : ''
-         }
-         ${
-           input.voidReason
-             ? `<div class="summary-row">
+        : ''
+      }
+         ${input.voidReason
+        ? `<div class="summary-row">
                   <span>Motivo</span>
                   <strong>${escapeHtml(input.voidReason)}</strong>
                 </div>`
-             : ''
-         }`
+        : ''
+      }`
       : '';
 
   const createdAt = formatDateTimeParts(input.createdAt);
-  const reprintHtml = input.isReprint 
+  const reprintHtml = input.isReprint
     ? `<div class="void-alert" style="color: #475569; background: #e2e8f0; border-color: #cbd5e1;">*** COPIA ***</div>`
     : '';
 
@@ -395,19 +407,17 @@ export function buildTicketHtml(input: TicketPrintInput): string {
         ${reprintHtml}
         <div class="meta"><strong>NIT:</strong> ${escapeHtml(input.template.nit)}</div>
         <div class="meta"><strong>Sucursal:</strong> ${escapeHtml(input.branchName)}</div>
-        ${
-          input.branchAddress
-            ? `<div class="meta business-address">${escapeHtml(input.branchAddress)}</div>`
-            : ''
-        }
+        ${input.branchAddress
+      ? `<div class="meta business-address">${escapeHtml(input.branchAddress)}</div>`
+      : ''
+    }
         <div class="meta business-address">${escapeHtml(input.template.address)}</div>
-        ${
-          input.template.phone
-            ? `<div class="meta business-address"><strong>Tel:</strong> ${escapeHtml(
-                input.template.phone
-              )}</div>`
-            : ''
-        }
+        ${input.template.phone
+      ? `<div class="meta business-address"><strong>Tel:</strong> ${escapeHtml(
+        input.template.phone
+      )}</div>`
+      : ''
+    }
       </header>
       <hr class="divider" />
       <section class="sale-summary">
@@ -475,6 +485,208 @@ export function buildTicketHtml(input: TicketPrintInput): string {
 </html>`;
 }
 
+export function buildZReportTicketHtml(input: ZReportTicketInput): string {
+  const logoHtml = input.template.logoUrl
+    ? `<div class="logo-wrap"><img src="${escapeHtml(input.template.logoUrl)}" alt="Logo negocio" /></div>`
+    : '';
+
+  const openedAt = formatDateTimeParts(input.openedAt);
+  const closedAt = input.closedAt ? formatDateTimeParts(input.closedAt) : null;
+
+  const paymentBreakdownHtml = Object.entries(input.paymentBreakdown)
+    .filter(([, amount]) => amount > 0)
+    .map(([method, amount]) => {
+      const methodLabel = method === 'CASH' ? 'Efectivo' : method === 'CARD' ? 'Tarjeta' : method === 'TRANSFER' ? 'Transferencia' : method;
+      return `<div class="row"><span>${methodLabel}</span><strong>${formatMoneyFromCents(amount)}</strong></div>`;
+    })
+    .join('');
+
+  return `<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <title>Reporte Z</title>
+    <style>
+      :root {
+        color: #0f172a;
+        font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        background: #eef2f7;
+        display: grid;
+        place-items: start center;
+        padding: 16px;
+      }
+      .ticket {
+        width: min(100%, ${input.template.printerWidth === '58mm' ? '280px' : '360px'});
+        border: 1px solid #d6dbe4;
+        border-radius: 14px;
+        padding: 14px;
+        background: #ffffff;
+        box-shadow: 0 18px 36px rgba(15, 23, 42, 0.12);
+      }
+      .logo-wrap {
+        text-align: center;
+        margin-bottom: 10px;
+      }
+      .logo-wrap img {
+        max-height: 48px;
+        max-width: 100%;
+        object-fit: contain;
+      }
+      .ticket-header {
+        text-align: center;
+      }
+      .ticket-kicker {
+        font-size: 10px;
+        font-weight: 700;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        color: #475569;
+      }
+      h1 {
+        margin: 0;
+        font-size: ${input.template.printerWidth === '58mm' ? '18px' : '20px'};
+      }
+      .meta {
+        margin-top: 3px;
+        font-size: 12px;
+        color: #334155;
+      }
+      .divider {
+        margin: 12px 0;
+        border: 0;
+        border-top: 1px dashed #94a3b8;
+      }
+      .summary-section {
+        display: grid;
+        gap: 7px;
+      }
+      .summary-row {
+        display: flex;
+        justify-content: space-between;
+        align-items: baseline;
+        gap: 8px;
+        font-size: 12px;
+      }
+      .summary-row span {
+        color: #475569;
+      }
+      .summary-row strong {
+        text-align: right;
+      }
+      .row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        font-size: 13px;
+        margin-bottom: 6px;
+      }
+      .section-title {
+        text-align: center;
+        font-size: 11px;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: #475569;
+        margin-bottom: 8px;
+      }
+      .diff-row {
+        margin-top: 6px;
+        padding-top: 6px;
+        border-top: 1px solid #cbd5e1;
+      }
+      .ticket-footer {
+        margin-top: 12px;
+        text-align: center;
+        font-size: 11px;
+        color: #64748b;
+      }
+      .print-actions {
+        margin-top: 12px;
+        display: flex;
+        justify-content: center;
+      }
+      .print-actions button {
+        border: 1px solid #1e293b;
+        border-radius: 8px;
+        padding: 8px 12px;
+        background: #0f172a;
+        color: #f8fafc;
+        font-weight: 700;
+        cursor: pointer;
+      }
+      @page {
+        size: ${input.template.printerWidth === '58mm' ? '58mm' : '80mm'} auto;
+        margin: 6mm;
+      }
+      @media print {
+        body { background: #fff; padding: 0; margin: 0; }
+        .ticket { border: none; border-radius: 0; box-shadow: none; width: 100%; padding: 0; }
+        .print-actions { display: none; }
+      }
+    </style>
+  </head>
+  <body>
+    <article class="ticket">
+      ${logoHtml}
+      <header class="ticket-header">
+        <div class="ticket-kicker">Reporte Z</div>
+        <h1>${escapeHtml(input.template.businessName)}</h1>
+        <div class="meta"><strong>NIT:</strong> ${escapeHtml(input.template.nit)}</div>
+        <div class="meta"><strong>Sucursal:</strong> ${escapeHtml(input.branchName)}</div>
+      </header>
+      <hr class="divider" />
+      <section class="summary-section">
+        <div class="summary-row">
+          <span>Apertura</span>
+          <strong>${escapeHtml(openedAt.date)} ${escapeHtml(openedAt.time)}</strong>
+        </div>
+        <div class="summary-row">
+          <span>Cierre</span>
+          <strong>${closedAt ? `${escapeHtml(closedAt.date)} ${escapeHtml(closedAt.time)}` : 'Pendiente'}</strong>
+        </div>
+        <div class="summary-row">
+          <span>Estado Sesión</span>
+          <strong>${input.status === 'CLOSED' ? 'CERRADA (Falta arqueo)' : input.status === 'RECONCILED' ? 'ARQUEADA' : input.status}</strong>
+        </div>
+      </section>
+      <hr class="divider" />
+      <section>
+        <div class="section-title">Resumen de Ventas</div>
+        <div class="row"><span>Ventas completadas</span><strong>${input.saleCount}</strong></div>
+        <div class="row"><span>Total Ingresos</span><strong>${formatMoneyFromCents(input.totalSalesCents)}</strong></div>
+      </section>
+      <hr class="divider" />
+      <section>
+        <div class="section-title">Desglose de Medios</div>
+        ${paymentBreakdownHtml || '<div class="row"><span>Sin ventas</span><strong>$0.00</strong></div>'}
+      </section>
+      <hr class="divider" />
+      <section>
+        <div class="section-title">Control de Efectivo</div>
+        <div class="row"><span>Efectivo esperado</span><strong>${formatMoneyFromCents(input.expectedCashCents)}</strong></div>
+        <div class="row"><span>Efectivo real</span><strong>${formatMoneyFromCents(input.realCashCents)}</strong></div>
+        <div class="row diff-row"><span>Diferencia</span><strong>${input.diffCents > 0 ? '+' : ''}${formatMoneyFromCents(input.diffCents)}</strong></div>
+      </section>
+      <div class="ticket-footer">
+        Corte de caja Z generado por el sistema
+      </div>
+      <div class="print-actions">
+        <button type="button" onclick="window.print()">Imprimir</button>
+      </div>
+    </article>
+    <script>
+      window.addEventListener('load', () => {
+        setTimeout(() => window.print(), 120);
+      });
+    </script>
+  </body>
+</html>`;
+}
+
 export function printSaleTicket(input: TicketPrintInput): void {
   const printWindow = window.open('', '_blank', 'width=440,height=900');
   if (!printWindow) {
@@ -482,6 +694,17 @@ export function printSaleTicket(input: TicketPrintInput): void {
   }
 
   const html = buildTicketHtml(input);
+  printWindow.document.write(html);
+  printWindow.document.close();
+}
+
+export function printZReportTicket(input: ZReportTicketInput): void {
+  const printWindow = window.open('', '_blank', 'width=440,height=900');
+  if (!printWindow) {
+    return;
+  }
+
+  const html = buildZReportTicketHtml(input);
   printWindow.document.write(html);
   printWindow.document.close();
 }
@@ -499,7 +722,7 @@ export async function printSaleTicketESCPOS(input: TicketPrintInput): Promise<vo
   const ESC = 0x1b;
   const GS = 0x1d;
   const LF = 0x0a;
-  
+
   const initPrinter = [ESC, 0x40];
   const alignCenter = [ESC, 0x61, 1];
   const alignLeft = [ESC, 0x61, 0];
@@ -524,7 +747,7 @@ export async function printSaleTicketESCPOS(input: TicketPrintInput): Promise<vo
   // 1. Init
   pushCmd(initPrinter);
   pushCmd(alignCenter);
-  
+
   // 2. Header
   pushCmd(boldOn);
   pushLine(input.template.businessName);
@@ -537,9 +760,9 @@ export async function printSaleTicketESCPOS(input: TicketPrintInput): Promise<vo
   if (input.branchAddress) pushLine(input.branchAddress);
   pushLine(input.template.address);
   if (input.template.phone) pushLine(`Tel: ${input.template.phone}`);
-  
+
   pushLine('--------------------------------');
-  
+
   // 3. Info de Venta
   pushCmd(alignLeft);
   pushLine(`Venta #${input.saleNumber}`);
@@ -547,9 +770,9 @@ export async function printSaleTicketESCPOS(input: TicketPrintInput): Promise<vo
   pushLine(`Fecha: ${date} ${time}`);
   if (input.dianStatus !== 'PENDING') pushLine(`DIAN: ${formatStatusLabel(input.dianStatus)}`);
   if (input.cude) pushLine(`CUDE: ${input.cude.substring(0, 32)}...`);
-  
+
   pushLine('--------------------------------');
-  
+
   // 4. Items
   input.items.forEach(item => {
     // Nombre del item en una linea
@@ -560,9 +783,9 @@ export async function printSaleTicketESCPOS(input: TicketPrintInput): Promise<vo
     const totalStr = formatMoneyFromCents(item.lineTotalCents);
     pushLine(`  ${formatMoneyFromCents(item.priceCents)} c/u -> ${totalStr}`);
   });
-  
+
   pushLine('--------------------------------');
-  
+
   // 5. Totales
   pushCmd(alignLeft);
   pushLine(`Subtotal:  ${formatMoneyFromCents(input.subtotalCents)}`);
@@ -572,21 +795,21 @@ export async function printSaleTicketESCPOS(input: TicketPrintInput): Promise<vo
   pushCmd(boldOn);
   pushLine(`TOTAL:     ${formatMoneyFromCents(input.totalCents)}`);
   pushCmd(boldOff);
-  
+
   pushLine('--------------------------------');
-  
+
   // 6. Pagos
   pushLine('PAGOS:');
   input.payments.forEach(p => {
     pushLine(`${paymentMethodLabel(p.method)}: ${formatMoneyFromCents(p.amountCents)}`);
   });
-  
+
   pushLine('--------------------------------');
-  
+
   // 7. Footer
   pushCmd(alignCenter);
   pushLine(input.template.footerMessage || 'Gracias por tu compra');
-  
+
   pushLine();
   pushLine();
   pushLine();
@@ -597,12 +820,12 @@ export async function printSaleTicketESCPOS(input: TicketPrintInput): Promise<vo
     const nav = navigator as Navigator & { serial: { requestPort: () => Promise<{ open: (opts: { baudRate: number }) => Promise<void>; writable: WritableStream; close: () => Promise<void> }> } };
     const port = await nav.serial.requestPort();
     await port.open({ baudRate: 9600 });
-    
+
     const writer = port.writable.getWriter();
     const uint8Array = new Uint8Array(data);
     await writer.write(uint8Array);
     await writer.releaseLock();
-    
+
     await port.close();
   } catch (err) {
     throw new Error(`Fallo al imprimir por serial: ${err instanceof Error ? err.message : String(err)}`);

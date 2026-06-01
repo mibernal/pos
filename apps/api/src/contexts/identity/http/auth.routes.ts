@@ -281,9 +281,28 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
         throw new AppError(401, 'AUTH_UNAUTHORIZED', 'Invalid refresh token');
       }
 
-      if (tokenRecord.revoked_at || tokenRecord.expires_at < new Date()) {
+      // SEC: Reuse Detection — RFC 6749 / Auth0 Token Family Strategy.
+      // Si el token ya fue revocado, alguien lo está reutilizando (posible robo).
+      // Revocamos TODA la familia activa del usuario y forzamos re-login.
+      if (tokenRecord.revoked_at !== null) {
+        await app.db
+          .updateTable('refresh_tokens')
+          .set({ revoked_at: new Date() })
+          .where('user_id', '=', tokenRecord.user_id)
+          .where('revoked_at', 'is', null)
+          .execute();
+
         reply.clearCookie('pos_refresh_token', { path: '/' });
-        throw new AppError(401, 'AUTH_UNAUTHORIZED', 'Refresh token expired or revoked');
+        throw new AppError(
+          401,
+          'AUTH_TOKEN_REUSE_DETECTED',
+          'Sesión invalidada por uso sospechoso del token. Vuelve a iniciar sesión.'
+        );
+      }
+
+      if (tokenRecord.expires_at < new Date()) {
+        reply.clearCookie('pos_refresh_token', { path: '/' });
+        throw new AppError(401, 'AUTH_UNAUTHORIZED', 'Refresh token expired');
       }
 
       const user = await app.db
@@ -307,16 +326,10 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
         throw new AppError(401, 'AUTH_UNAUTHORIZED', 'User not found or inactive');
       }
 
-      // Revoke the old token (rotation)
-      await app.db.updateTable('refresh_tokens')
-        .set({ revoked_at: new Date() })
-        .where('id', '=', tokenRecord.id)
-        .execute();
-
-      // Issue a new token
+      // Preparar el nuevo token antes de la transacción
       const refreshTokenRaw = randomBytes(32).toString('hex');
       const refreshTokenHash = createHash('sha256').update(refreshTokenRaw).digest('hex');
-      
+
       const match = env.REFRESH_TOKEN_EXPIRES_IN.match(/^(\d+)([dhms])$/);
       let expMs = 7 * 24 * 60 * 60 * 1000;
       if (match) {
@@ -327,14 +340,24 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
       }
       const expiresAt = new Date(Date.now() + expMs);
 
-      await app.db.insertInto('refresh_tokens').values({
-        id: randomUUID(),
-        user_id: user.id,
-        token_hash: refreshTokenHash,
-        expires_at: expiresAt,
-        created_at: new Date(),
-        revoked_at: null
-      }).execute();
+      // Revoke old + Insert new en una transacción atómica
+      // Evita el estado parcial donde el token viejo ya fue revocado pero el nuevo no existe aún
+      await app.db.transaction().execute(async (trx) => {
+        await trx
+          .updateTable('refresh_tokens')
+          .set({ revoked_at: new Date() })
+          .where('id', '=', tokenRecord.id)
+          .execute();
+
+        await trx.insertInto('refresh_tokens').values({
+          id: randomUUID(),
+          user_id: user.id,
+          token_hash: refreshTokenHash,
+          expires_at: expiresAt,
+          created_at: new Date(),
+          revoked_at: null
+        }).execute();
+      });
 
       reply.setCookie('pos_refresh_token', refreshTokenRaw, {
         path: '/',

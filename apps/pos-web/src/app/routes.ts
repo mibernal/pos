@@ -22,6 +22,11 @@ export const APP_ROUTE_DEFINITIONS: readonly AppRouteDefinition[] = [
     requiredPermissions: ['products:view']
   },
   {
+    id: 'promotions',
+    label: 'Promociones',
+    requiredPermissions: ['products:manage']
+  },
+  {
     id: 'customers',
     label: 'Clientes',
     requiredPermissions: ['customers:view']

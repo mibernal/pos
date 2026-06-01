@@ -1,4 +1,4 @@
-import type { Pool } from 'pg';
+import type { Pool, PoolClient } from 'pg';
 
 import type {
   DianProviderEmitSaleInput,
@@ -8,6 +8,7 @@ import type {
   DianProviderTaxLinePayload,
   DianProviderTaxMode
 } from '@pos-dian/shared/types/dian-provider.js';
+import type { DianDocumentType } from '@pos-dian/shared';
 
 export interface SaleHeaderRow {
   sale_id: string;
@@ -257,12 +258,12 @@ export function buildIdempotencyKey(payloadJson: unknown, tenantId: string, sale
 }
 
 export async function loadProviderPayload(
-  pool: Pool,
+  pool: Pool | PoolClient,
   tenantId: string,
   saleId: string,
   idempotencyKey: string,
   options?: {
-    document_type?: 'INVOICE' | 'CREDIT_NOTE';
+    document_type?: DianDocumentType;
   }
 ): Promise<DianProviderEmitSaleInput> {
   const headerResult = await pool.query<SaleHeaderRow & { void_reason?: string }>(

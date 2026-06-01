@@ -143,8 +143,11 @@ export function SessionProvider({ children }: { children: ReactNode }) {
           // We are offline. We can't refresh. We must stay unauthenticated
           // or allow limited offline capabilities using the stored user.
           // For now, if we have a user, we stay logged out but keep the user profile?
-          // Actually, if we are offline and don't have an access token, we can't do anything new anyway.
-          setAuthMessage(null);
+          if (user) {
+            clearSession('Error de conexión. Revisa tu internet e intenta de nuevo.');
+          } else {
+            clearSession();
+          }
           return;
         }
 
