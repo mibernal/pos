@@ -29,11 +29,6 @@ export const dashboardRoutes: FastifyPluginAsync = async (app) => {
         return reply.code(err.statusCode || 403).send({ message: err.message || 'No tienes acceso a esta sucursal' });
       }
 
-      const origin = request.headers.origin;
-      if (origin) {
-        reply.raw.setHeader('Access-Control-Allow-Origin', origin);
-        reply.raw.setHeader('Access-Control-Allow-Credentials', 'true');
-      }
       
       reply.raw.setHeader('Content-Type', 'text/event-stream');
       reply.raw.setHeader('Cache-Control', 'no-cache');

@@ -11,7 +11,6 @@ import { DianConfigModal, TicketTemplateModal } from '../features/settings';
 const CustomersScreen = lazy(() => import('../features/customers').then(m => ({ default: m.CustomersScreen })));
 const HistoryScreen = lazy(() => import('../features/history').then(m => ({ default: m.HistoryScreen })));
 const InventoryScreen = lazy(() => import('../features/inventory').then(m => ({ default: m.InventoryScreen })));
-const InventoryAdjustmentsScreen = lazy(() => import('../features/inventory').then(m => ({ default: m.InventoryAdjustmentsScreen })));
 const ProductsScreen = lazy(() => import('../features/products').then(m => ({ default: m.ProductsScreen })));
 const PromotionsScreen = lazy(() => import('../features/promotions/PromotionsScreen').then(m => ({ default: m.PromotionsScreen })));
 const ReportsScreen = lazy(() => import('../features/reports').then(m => ({ default: m.ReportsScreen })));
@@ -151,9 +150,7 @@ function AppShell() {
             currentScreen = <InventoryScreen api={api} branchId={posContext.branchId} />;
           }
 
-          if (activeRoute === 'inventory-adjustments') {
-            currentScreen = <InventoryAdjustmentsScreen api={api} branchId={posContext.branchId} />;
-          }
+
 
           if (activeRoute === 'reports') {
             currentScreen = <ReportsScreen api={api} branchId={posContext.branchId} />;

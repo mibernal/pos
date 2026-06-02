@@ -6,14 +6,18 @@ import { logWorkerError, logWorkerInfo } from '../infra/logging/worker-log.js';
 import { markOutboxFailed, markOutboxSent } from './shared/outbox-store.js';
 import { env } from '../config/env.js';
 
-interface LowStockAlertPayload {
-  product_id: string;
-  product_name: string;
-  tenant_id: string;
-  branch_id: string;
-  current_qty: number;
-  min_stock_alert_qty: number;
-}
+import { z } from 'zod';
+
+const lowStockAlertPayloadSchema = z.object({
+  product_id: z.string().uuid(),
+  product_name: z.string(),
+  tenant_id: z.string().uuid(),
+  branch_id: z.string().uuid(),
+  current_qty: z.number(),
+  min_stock_alert_qty: z.number(),
+});
+
+type LowStockAlertPayload = z.infer<typeof lowStockAlertPayloadSchema>;
 
 interface BuildLowStockAlertProcessorInput {
   pool: Pool;
@@ -56,7 +60,11 @@ export function buildOutboxLowStockAlertProcessor({ pool }: BuildLowStockAlertPr
       return;
     }
 
-    const payload = event.payload_json as LowStockAlertPayload;
+    const rawPayload = typeof event.payload_json === 'string'
+      ? JSON.parse(event.payload_json)
+      : event.payload_json;
+      
+    const payload = lowStockAlertPayloadSchema.parse(rawPayload);
     const attempts = event.attempts + 1;
 
     try {

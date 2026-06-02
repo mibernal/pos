@@ -82,7 +82,7 @@ export async function ensureAuditLogPartitions(pool: Pool): Promise<void> {
         message: `Ensured partition ${partitionName} exists`,
         details: { partitionName, startDate, endDate }
       });
-    } catch (error: any) {
+    } catch (error) {
       await client.query('ROLLBACK');
       logWorkerError({
         event: 'audit_partition_creation_failed',

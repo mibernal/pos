@@ -208,6 +208,13 @@ export function createApiClient({ baseUrl, getSession, setSession }: CreateApiCl
       } catch {
         message = `${message}: ${await response.text()}`;
       }
+
+      if (response.status === 403) {
+        message = `Acceso denegado (403): ${message}. Verifica tus permisos.`;
+      } else if (response.status === 422) {
+        message = `Datos inválidos (422): ${message}. Revisa la información ingresada.`;
+      }
+
       throw new ApiClientError(message, { status: response.status });
     }
 
@@ -359,10 +366,9 @@ export function createApiClient({ baseUrl, getSession, setSession }: CreateApiCl
       ),
     createInventoryAdjustment: (payload: {
       branch_id: string;
-      product_id: string;
-      qty_change: number;
       reason: string;
       notes?: string;
+      items: { product_id: string; variant_id?: string | null; qty_change: number }[];
     }) =>
       requestJson<{ adjustment: any; transaction: any }>('/inventory/adjustments', {
         method: 'POST',

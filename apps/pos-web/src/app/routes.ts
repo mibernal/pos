@@ -36,11 +36,7 @@ export const APP_ROUTE_DEFINITIONS: readonly AppRouteDefinition[] = [
     label: 'Inventario',
     requiredPermissions: ['products:view', 'inventory:adjust', 'inventory:transfer', 'inventory:receive']
   },
-  {
-    id: 'inventory-adjustments',
-    label: 'Ajustes',
-    requiredPermissions: ['inventory:adjust']
-  },
+
   {
     id: 'reports',
     label: 'Reportes',

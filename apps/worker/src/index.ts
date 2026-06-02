@@ -41,7 +41,7 @@ const worker = new Worker<AnyOutboxJobData>(
     } else if (job.name === 'process-sale-voided-outbox-event') {
       return outboxSaleVoidedProcessor(job as Job<OutboxSaleVoidedJobData>);
     } else if (job.name === 'process-sale-returned-outbox-event') {
-      return outboxSaleReturnedProcessor(job as Job);
+      return outboxSaleReturnedProcessor(job as Job<AnyOutboxJobData>);
     } else if (job.name === 'process-low-stock-alert-outbox-event') {
       return outboxLowStockAlertProcessor(job as Job<OutboxLowStockAlertJobData>);
     }

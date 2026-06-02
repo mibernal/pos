@@ -74,7 +74,9 @@ describe('auth refresh flow e2e', () => {
     expect(newRefreshCookie).toBeDefined();
     expect(newRefreshCookie?.value).not.toBe(refreshCookie!.value);
 
-    // 3. Old refresh token should be revoked (or at least server should reject reused token based on our flow)
+    // 3. SEC: Token Reuse Detection
+    // Intentar usar el token viejo (que ya fue revocado en el paso 2).
+    // Esto debe disparar la revocación de TODA la familia de tokens (incluyendo el nuevo).
     const badRefreshResponse = await app.inject({
       method: 'POST',
       url: '/api/v1/auth/refresh',
@@ -83,8 +85,29 @@ describe('auth refresh flow e2e', () => {
       }
     });
 
-    // Depends on if revocation is fully implemented. If it just rejects invalid signature it'll be 401. 
-    // If it's a valid token but reused, we might not have a denylist, but standard behavior expects 401.
     expect(badRefreshResponse.statusCode).toBe(401);
+    const badData = badRefreshResponse.json() as any;
+    expect(badData.code).toBe('AUTH_TOKEN_REUSE_DETECTED');
+
+    // 4. Verificar que no queden tokens activos para el usuario
+    const userTokens = await app.db
+      .selectFrom('refresh_tokens')
+      .selectAll()
+      .where('user_id', '=', loginData.user.id)
+      .where('revoked_at', 'is', null)
+      .execute();
+
+    expect(userTokens.length).toBe(0);
+
+    // 5. El nuevo token también debería fallar si intentamos usarlo (porque fue revocado por la medida de seguridad)
+    const newRefreshFailsResponse = await app.inject({
+      method: 'POST',
+      url: '/api/v1/auth/refresh',
+      cookies: {
+        pos_refresh_token: newRefreshCookie!.value
+      }
+    });
+    
+    expect(newRefreshFailsResponse.statusCode).toBe(401);
   });
 });

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useState, useRef } from 'react';
 import { ApiClientError, type AuthSession, type CreateSaleRequest } from '../lib/api';
 import {
   flushPendingSales,
@@ -63,6 +63,7 @@ export function usePendingSalesSync({
   const [syncingPendingSaleIds, setSyncingPendingSaleIds] = useState<string[]>([]);
   const [syncMessage, setSyncMessage] = useState<string | null>(null);
   const [syncError, setSyncError] = useState<string | null>(null);
+  const syncInProgressRef = useRef(false);
 
   const refreshPendingSales = useCallback(async () => {
     const branchId = posContext?.branchId;
@@ -95,10 +96,11 @@ export function usePendingSalesSync({
 
   const syncPendingSales = useCallback(
     async (recordId?: string) => {
-      if (!session) {
+      if (!session || syncInProgressRef.current) {
         return;
       }
 
+      syncInProgressRef.current = true;
       setSyncingPendingSales(true);
       setSyncError(null);
       setSyncMessage(null);
@@ -110,6 +112,7 @@ export function usePendingSalesSync({
 
       if (pendingCount === 0 || targetIds.length === 0) {
         setSyncingPendingSales(false);
+        syncInProgressRef.current = false;
         if (!recordId) {
           setSyncMessage('No hay ventas pendientes por sincronizar.');
         }
@@ -147,6 +150,7 @@ export function usePendingSalesSync({
       } finally {
         setSyncingPendingSaleIds([]);
         setSyncingPendingSales(false);
+        syncInProgressRef.current = false;
       }
     },
     [createSaleForSync, refreshPendingSales, session]

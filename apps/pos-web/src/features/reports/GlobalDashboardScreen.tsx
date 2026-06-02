@@ -10,26 +10,60 @@ import { useAlerts } from '../../hooks/useAlerts';
 export function GlobalDashboardScreen({ api }: { api: PosApiClient }) {
   const [globalData, setGlobalData] = useState<any>(null);
   const [techHealth, setTechHealth] = useState<any>(null);
+  const [sseStatus, setSseStatus] = useState<'CONNECTING' | 'CONNECTED' | 'RECONNECTING' | 'ERROR'>('CONNECTING');
   const { alerts } = useAlerts(api); // Hook uses SSE
 
+  // Setup EventSource for Global Data Stream
   useEffect(() => {
-    async function loadData() {
+    let eventSource: EventSource | null = null;
+    let reconnectTimeout: ReturnType<typeof setTimeout>;
+
+    function connectSSE() {
+      const token = localStorage.getItem('access_token');
+      eventSource = new EventSource(`${api.baseUrl}/dashboard/global/stream?token=${token}`);
+      
+      eventSource.onopen = () => {
+        setSseStatus('CONNECTED');
+      };
+
+      eventSource.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          setGlobalData(data);
+        } catch (e) {
+          console.error('Error parsing SSE data', e);
+        }
+      };
+
+      eventSource.onerror = () => {
+        setSseStatus('RECONNECTING');
+        eventSource?.close();
+        reconnectTimeout = setTimeout(connectSSE, 5000);
+      };
+    }
+
+    connectSSE();
+
+    return () => {
+      clearTimeout(reconnectTimeout);
+      eventSource?.close();
+    };
+  }, [api.baseUrl]);
+
+  // Load tech health independently (for now polling is fine for this specific endpoint)
+  useEffect(() => {
+    async function loadTechHealth() {
       try {
         const token = localStorage.getItem('access_token');
-        const [globalRes, techRes] = await Promise.all([
-          fetch(`${api.baseUrl}/dashboard/global`, { headers: { Authorization: `Bearer ${token}` } }),
-          fetch(`${api.baseUrl}/dashboard/tech-health`, { headers: { Authorization: `Bearer ${token}` } })
-        ]);
-        
-        if (globalRes.ok) setGlobalData(await globalRes.json());
+        const techRes = await fetch(`${api.baseUrl}/dashboard/tech-health`, { headers: { Authorization: `Bearer ${token}` } });
         if (techRes.ok) setTechHealth(await techRes.json());
       } catch (e) {
-        console.error('Error loading global dashboard', e);
+        console.error('Error loading tech health', e);
       }
     }
     
-    loadData();
-    const interval = setInterval(loadData, 60000); // Reload every 1 min
+    loadTechHealth();
+    const interval = setInterval(loadTechHealth, 60000); // Reload every 1 min
     return () => clearInterval(interval);
   }, [api.baseUrl]);
 
@@ -37,13 +71,23 @@ export function GlobalDashboardScreen({ api }: { api: PosApiClient }) {
 
   const { kpis, branch_health, top_branches } = globalData;
   const criticalAlerts = alerts.filter(a => a.severity === 'CRITICAL' && a.status === 'UNREAD').slice(0, 5);
+  
+  const statusColors = {
+    CONNECTING: 'bg-yellow-400',
+    CONNECTED: 'bg-green-500',
+    RECONNECTING: 'bg-orange-500',
+    ERROR: 'bg-red-500'
+  };
 
   return (
     <div className="p-6 max-w-7xl mx-auto space-y-6">
       <div className="flex justify-between items-center">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Centro de Comando</h1>
-          <p className="text-muted-foreground">Vista global de salud operativa y de negocio</p>
+          <p className="text-muted-foreground flex items-center gap-2">
+            Vista global de salud operativa y de negocio
+            <span className={`inline-block w-2 h-2 rounded-full ${statusColors[sseStatus]}`} title={`SSE: ${sseStatus}`}></span>
+          </p>
         </div>
       </div>
 

@@ -30,27 +30,37 @@ export interface FlushPendingSalesResult {
 
 const memoryFallbackStore = new Map<string, PendingSaleRecord>();
 
-function isIndexedDbAvailable(): boolean {
-  return typeof window !== 'undefined' && typeof window.indexedDB !== 'undefined';
+let forceMemoryFallback = false;
+
+function isDbAvailable(): boolean {
+  return !forceMemoryFallback && typeof window !== 'undefined' && typeof window.indexedDB !== 'undefined';
 }
 
 function openDb(): Promise<IDBDatabase> {
-  if (!isIndexedDbAvailable()) {
-    return Promise.reject(new Error('IndexedDB is not available in this environment'));
+  if (!isDbAvailable()) {
+    return Promise.reject(new Error('IndexedDB is not available or disabled'));
   }
 
   return new Promise((resolve, reject) => {
-    const request = indexedDB.open(DB_NAME, DB_VERSION);
+    try {
+      const request = indexedDB.open(DB_NAME, DB_VERSION);
 
-    request.onupgradeneeded = () => {
-      const db = request.result;
-      if (!db.objectStoreNames.contains(STORE_NAME)) {
-        db.createObjectStore(STORE_NAME, { keyPath: 'id' });
-      }
-    };
+      request.onupgradeneeded = () => {
+        const db = request.result;
+        if (!db.objectStoreNames.contains(STORE_NAME)) {
+          db.createObjectStore(STORE_NAME, { keyPath: 'id' });
+        }
+      };
 
-    request.onsuccess = () => resolve(request.result);
-    request.onerror = () => reject(request.error);
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => {
+        forceMemoryFallback = true;
+        reject(request.error || new Error('IndexedDB open error'));
+      };
+    } catch (error) {
+      forceMemoryFallback = true;
+      reject(error);
+    }
   });
 }
 
@@ -92,60 +102,67 @@ function normalizePendingSaleRecord(rawRecord: unknown): PendingSaleRecord {
 }
 
 async function getPendingSale(recordId: string): Promise<PendingSaleRecord | null> {
-  if (!isIndexedDbAvailable()) {
+  if (!isDbAvailable()) return memoryFallbackStore.get(recordId) ?? null;
+
+  try {
+    const db = await openDb();
+    const record = await new Promise<PendingSaleRecord | null>((resolve, reject) => {
+      const tx = db.transaction(STORE_NAME, 'readonly');
+      const request = tx.objectStore(STORE_NAME).get(recordId);
+      request.onsuccess = () => resolve(request.result ? normalizePendingSaleRecord(request.result) : null);
+      request.onerror = () => reject(request.error);
+    });
+    db.close();
+    return record;
+  } catch (error) {
+    console.warn('IDB get failed, fallback to memory', error);
+    forceMemoryFallback = true;
     return memoryFallbackStore.get(recordId) ?? null;
   }
-
-  const db = await openDb();
-
-  const record = await new Promise<PendingSaleRecord | null>((resolve, reject) => {
-    const tx = db.transaction(STORE_NAME, 'readonly');
-    const request = tx.objectStore(STORE_NAME).get(recordId);
-    request.onsuccess = () => {
-      const rawRecord = request.result;
-      resolve(rawRecord ? normalizePendingSaleRecord(rawRecord) : null);
-    };
-    request.onerror = () => reject(request.error);
-  });
-
-  db.close();
-  return record;
 }
 
 async function putPendingSale(record: PendingSaleRecord): Promise<void> {
-  if (!isIndexedDbAvailable()) {
+  if (!isDbAvailable()) {
     memoryFallbackStore.set(record.id, record);
     return;
   }
 
-  const db = await openDb();
-
-  await new Promise<void>((resolve, reject) => {
-    const tx = db.transaction(STORE_NAME, 'readwrite');
-    tx.objectStore(STORE_NAME).put(record);
-    tx.oncomplete = () => resolve();
-    tx.onerror = () => reject(tx.error);
-  });
-
-  db.close();
+  try {
+    const db = await openDb();
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction(STORE_NAME, 'readwrite');
+      tx.objectStore(STORE_NAME).put(record);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+    db.close();
+  } catch (error) {
+    console.warn('IDB put failed, fallback to memory', error);
+    forceMemoryFallback = true;
+    memoryFallbackStore.set(record.id, record);
+  }
 }
 
 async function deletePendingSale(recordId: string): Promise<void> {
-  if (!isIndexedDbAvailable()) {
+  if (!isDbAvailable()) {
     memoryFallbackStore.delete(recordId);
     return;
   }
 
-  const db = await openDb();
-
-  await new Promise<void>((resolve, reject) => {
-    const tx = db.transaction(STORE_NAME, 'readwrite');
-    tx.objectStore(STORE_NAME).delete(recordId);
-    tx.oncomplete = () => resolve();
-    tx.onerror = () => reject(tx.error);
-  });
-
-  db.close();
+  try {
+    const db = await openDb();
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction(STORE_NAME, 'readwrite');
+      tx.objectStore(STORE_NAME).delete(recordId);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+    db.close();
+  } catch (error) {
+    console.warn('IDB delete failed, fallback to memory', error);
+    forceMemoryFallback = true;
+    memoryFallbackStore.delete(recordId);
+  }
 }
 
 function getSyncErrorMessage(error: unknown): string {
@@ -174,32 +191,37 @@ export async function addPendingSale(payload: CreateSaleRequest): Promise<Pendin
 }
 
 export async function listPendingSales(branchId?: string): Promise<PendingSaleRecord[]> {
-  if (!isIndexedDbAvailable()) {
+  if (!isDbAvailable()) {
     const all = sortByQueuedAt([...memoryFallbackStore.values()]);
     return branchId ? all.filter(r => r.payload.branch_id === branchId) : all;
   }
 
-  const db = await openDb();
-
-  const records = await new Promise<PendingSaleRecord[]>((resolve, reject) => {
-    const tx = db.transaction(STORE_NAME, 'readonly');
-    const request = tx.objectStore(STORE_NAME).getAll();
-    request.onsuccess = () => {
-      let records = (request.result as unknown[]).map((record) => normalizePendingSaleRecord(record));
-      if (branchId) {
-        records = records.filter(r => r.payload.branch_id === branchId);
-      }
-      resolve(records);
-    };
-    request.onerror = () => reject(request.error);
-  });
-
-  db.close();
-  return sortByQueuedAt(records);
+  try {
+    const db = await openDb();
+    const records = await new Promise<PendingSaleRecord[]>((resolve, reject) => {
+      const tx = db.transaction(STORE_NAME, 'readonly');
+      const request = tx.objectStore(STORE_NAME).getAll();
+      request.onsuccess = () => {
+        let records = (request.result as unknown[]).map((record) => normalizePendingSaleRecord(record));
+        if (branchId) {
+          records = records.filter(r => r.payload.branch_id === branchId);
+        }
+        resolve(records);
+      };
+      request.onerror = () => reject(request.error);
+    });
+    db.close();
+    return sortByQueuedAt(records);
+  } catch (error) {
+    console.warn('IDB list failed, fallback to memory', error);
+    forceMemoryFallback = true;
+    const all = sortByQueuedAt([...memoryFallbackStore.values()]);
+    return branchId ? all.filter(r => r.payload.branch_id === branchId) : all;
+  }
 }
 
 export async function getPendingSalesCount(branchId?: string): Promise<number> {
-  if (!isIndexedDbAvailable()) {
+  if (!isDbAvailable()) {
     return branchId 
       ? [...memoryFallbackStore.values()].filter(r => r.payload.branch_id === branchId).length 
       : memoryFallbackStore.size;
@@ -210,35 +232,43 @@ export async function getPendingSalesCount(branchId?: string): Promise<number> {
     return records.length;
   }
 
-  const db = await openDb();
-
-  const count = await new Promise<number>((resolve, reject) => {
-    const tx = db.transaction(STORE_NAME, 'readonly');
-    const request = tx.objectStore(STORE_NAME).count();
-    request.onsuccess = () => resolve(request.result);
-    request.onerror = () => reject(request.error);
-  });
-
-  db.close();
-  return count;
+  try {
+    const db = await openDb();
+    const count = await new Promise<number>((resolve, reject) => {
+      const tx = db.transaction(STORE_NAME, 'readonly');
+      const request = tx.objectStore(STORE_NAME).count();
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+    db.close();
+    return count;
+  } catch (error) {
+    console.warn('IDB count failed, fallback to memory', error);
+    forceMemoryFallback = true;
+    return memoryFallbackStore.size;
+  }
 }
 
 export async function clearPendingSales(): Promise<void> {
-  if (!isIndexedDbAvailable()) {
+  if (!isDbAvailable()) {
     memoryFallbackStore.clear();
     return;
   }
 
-  const db = await openDb();
-
-  await new Promise<void>((resolve, reject) => {
-    const tx = db.transaction(STORE_NAME, 'readwrite');
-    tx.objectStore(STORE_NAME).clear();
-    tx.oncomplete = () => resolve();
-    tx.onerror = () => reject(tx.error);
-  });
-
-  db.close();
+  try {
+    const db = await openDb();
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction(STORE_NAME, 'readwrite');
+      tx.objectStore(STORE_NAME).clear();
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+    db.close();
+  } catch (error) {
+    console.warn('IDB clear failed, fallback to memory', error);
+    forceMemoryFallback = true;
+    memoryFallbackStore.clear();
+  }
 }
 
 export async function flushPendingSales(

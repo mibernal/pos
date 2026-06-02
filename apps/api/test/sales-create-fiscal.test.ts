@@ -376,6 +376,14 @@ class FakeUpdateBuilder {
 class FakeDb {
   constructor(readonly state: FakeDbState) { }
 
+  get executorProvider() {
+    return {
+      getExecutor: () => ({
+        executeQuery: async () => ({ rows: [] })
+      })
+    };
+  }
+
   selectFrom(tableName: TableName): FakeSelectBuilder {
     return new FakeSelectBuilder(this.state, tableName);
   }

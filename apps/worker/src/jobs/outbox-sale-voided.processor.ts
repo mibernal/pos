@@ -10,7 +10,7 @@ import {
   getDianEmissionBlockReason,
   planDianStatusTransition
 } from '../domain/dian-document-status.js';
-import type { OutboxSaleVoidedJobData } from './types.js';
+import { type OutboxSaleVoidedJobData, saleVoidedPayloadSchema } from './types.js';
 import { logWorkerError, logWorkerInfo } from '../infra/logging/worker-log.js';
 import {
   buildIdempotencyKey,
@@ -135,10 +135,16 @@ export function buildOutboxSaleVoidedProcessor({
       return;
     }
 
+    const rawPayload = typeof claimedEvent.payload_json === 'string'
+      ? JSON.parse(claimedEvent.payload_json)
+      : claimedEvent.payload_json;
+      
+    const payload = saleVoidedPayloadSchema.parse(rawPayload);
+
     const saleId = claimedEvent.aggregate_id;
     const tenantId = claimedEvent.tenant_id;
     const nextAttemptNumber = claimedEvent.attempts + 1;
-    const idempotencyKey = buildIdempotencyKey(claimedEvent.payload_json, tenantId, saleId);
+    const idempotencyKey = buildIdempotencyKey(payload, tenantId, saleId);
 
     const invoiceDianDocument = await getInvoiceDianDocument(pool, tenantId, saleId);
     if (!invoiceDianDocument) {
@@ -212,9 +218,39 @@ export function buildOutboxSaleVoidedProcessor({
       return;
     }
 
-    const providerPayload = await loadProviderPayload(pool, tenantId, saleId, idempotencyKey, {
-      document_type: 'CREDIT_NOTE'
-    });
+    let providerPayload;
+    try {
+      providerPayload = await loadProviderPayload(pool, tenantId, saleId, idempotencyKey, {
+        document_type: 'CREDIT_NOTE'
+      });
+    } catch (loadError) {
+      const errorMsg = loadError instanceof Error ? loadError.message : 'Unknown load error';
+      const isMissingEntity = errorMsg.includes('not found') || errorMsg.includes('Sale not found');
+      if (isMissingEntity) {
+        await pool.query(
+          `UPDATE outbox_events
+           SET status = 'FAILED',
+               attempts = $2,
+               next_retry_at = NULL,
+               updated_at = NOW()
+           WHERE id = $1`,
+          [claimedEvent.id, nextAttemptNumber]
+        );
+        logWorkerError({
+          event: 'dian_outbox_job_dead_lettered',
+          message: 'Outbox void event permanently failed: referenced entity no longer exists',
+          job_id: job.id?.toString(),
+          outbox_event_id: claimedEvent.id,
+          sale_id: saleId,
+          tenant_id: tenantId,
+          attempt: nextAttemptNumber,
+          error: loadError
+        });
+        await job.log(`Outbox ${claimedEvent.id} permanentemente fallido (void): ${errorMsg}`);
+        return;
+      }
+      throw loadError;
+    }
 
     try {
       const providerResult = await provider.emitSale(providerPayload);

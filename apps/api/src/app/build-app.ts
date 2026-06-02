@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { trace, context } from '@opentelemetry/api';
 import Fastify from 'fastify';
 import cors from '@fastify/cors';
 import { z } from 'zod';
@@ -27,6 +28,7 @@ import { alertsRoutes } from '../contexts/alerts/http/alerts.routes.js';
 import { reportsRoutes } from '../contexts/reporting/http/reports.routes.js';
 import { dashboardRoutes } from '../contexts/reporting/http/dashboard.routes.js';
 import { globalDashboardRoutes } from '../contexts/reporting/http/global-dashboard.routes.js';
+import { journalRoutes } from '../contexts/sales/http/journal.routes.js';
 import { auditRoutes } from '../contexts/admin/http/audit.routes.js';
 import { terminalsRoutes } from '../contexts/sales/http/terminals.routes.js';
 import { auditContextStorage } from '../shared/infra/audit/audit-context.js';
@@ -125,18 +127,24 @@ export async function buildApp() {
   app.setSerializerCompiler(serializerCompiler);
 
   app.addHook('onRequest', (request, reply, done) => {
-    const correlationId = (request.headers['x-correlation-id'] as string) || randomUUID();
+    // OpenTelemetry integration
+    const activeContext = context.active();
+    const span = trace.getSpan(activeContext);
+    const traceId = span?.spanContext().traceId;
 
-    // Si queremos inyectarlo en el logger de fastify
-    request.log = request.log.child({ correlationId });
+    const correlationId = traceId || (request.headers['x-correlation-id'] as string) || randomUUID();
 
-    const context = {
+    // Inject trace_id and correlationId into Fastify logger
+    request.log = request.log.child({ correlationId, trace_id: traceId });
+
+    const auditContext = {
       correlationId,
+      traceId,
       ipAddress: request.ip,
       userAgent: request.headers['user-agent']
     };
 
-    auditContextStorage.run(context, done);
+    auditContextStorage.run(auditContext, done);
   });
 
   // Verify auth before running route handlers
@@ -195,6 +203,7 @@ export async function buildApp() {
   await app.register(globalDashboardRoutes, { prefix: '/api/v1' });
   await app.register(auditRoutes, { prefix: '/api/v1' });
   await app.register(terminalsRoutes, { prefix: '/api/v1' });
+  await app.register(journalRoutes, { prefix: '/api/v1' });
 
   app.addHook('onClose', async (instance) => {
     // C7: sin dianQueue, solo cerramos DB y Redis

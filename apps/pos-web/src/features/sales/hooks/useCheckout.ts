@@ -64,6 +64,9 @@ export function useCheckout({
       }
     };
 
+    let saleSucceeded = false;
+    let offlineQueued = false;
+
     try {
       const result = await api.createSale(salePayload);
 
@@ -73,32 +76,34 @@ export function useCheckout({
         items: ticketItemsSnapshot
       });
       setSaleMessage(
-        `Venta #${result.sale.sale_number} registrada. Estado DIAN: ${result.sale.dian_status ?? 'PENDING'
-        }`
+        `Venta #${result.sale.sale_number} registrada. Estado DIAN: ${result.sale.dian_status ?? 'PENDING'}`
       );
-      onSaleSuccess();
+      saleSucceeded = true;
     } catch (checkoutError) {
       if (shouldQueueSaleAsPending(checkoutError)) {
         try {
           await addPendingSale(salePayload);
-          await onSaleQueued();
+          offlineQueued = true;
           setIsCheckoutModalOpen(false);
           setLastPrintedSaleSnapshot(null);
           setSaleMessage(
             'Venta guardada como pendiente por falta de conexión. Sincroniza cuando vuelva internet.'
           );
-          onSaleSuccess();
-          return;
         } catch (queueError) {
           setSaleError('Error al guardar la venta como pendiente localmente. Por favor, revisa el almacenamiento.');
-          setCheckoutLoading(false);
-          return;
         }
+      } else {
+        setSaleError(getCheckoutErrorMessage(checkoutError));
       }
-
-      setSaleError(getCheckoutErrorMessage(checkoutError));
     } finally {
       setCheckoutLoading(false);
+    }
+
+    if (saleSucceeded) {
+      onSaleSuccess();
+    } else if (offlineQueued) {
+      await onSaleQueued();
+      onSaleSuccess();
     }
   }, [api, branchId, cashSessionId, onSaleQueued, onSaleSuccess]);
 

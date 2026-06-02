@@ -65,7 +65,7 @@ describe('outbox sale voided processor', () => {
               aggregate_id: 'sale-voided',
               status: 'PENDING',
               attempts: 0,
-              payload_json: { idempotency_key: 'void-idem-1' }
+              payload_json: { idempotency_key: 'void-idem-1', sale_id: 'sale-voided', tenant_id: 'tenant-voided', branch_id: 'branch-voided' }
             }
           ]
         };
@@ -236,7 +236,7 @@ describe('outbox sale voided processor', () => {
               aggregate_id: 'sale-waiting',
               status: 'PENDING',
               attempts: 1,
-              payload_json: {}
+              payload_json: { sale_id: 'sale-waiting', tenant_id: 'tenant-waiting', branch_id: 'branch-waiting' }
             }
           ]
         };

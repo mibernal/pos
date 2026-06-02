@@ -138,7 +138,7 @@ export function DashboardScreen({
 
             <div className="form-card" style={{ marginTop: '2rem' }}>
               <h3>Ventas por Hora</h3>
-              <div style={{ height: '300px', marginTop: '1.5rem' }}>
+              <div style={{ height: '300px', minHeight: '300px', width: '100%', minWidth: 0, marginTop: '1.5rem' }}>
                 <ResponsiveContainer width="100%" height="100%">
                   <AreaChart data={stats.chart_data}>
                     <defs>

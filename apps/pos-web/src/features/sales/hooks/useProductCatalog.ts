@@ -69,11 +69,18 @@ export function useProductCatalog({ api, branchId }: UseProductCatalogOptions) {
           });
           const activeProducts = response.items.filter((item) => item.active);
           setCachedProducts(activeProducts);
-          await setCachedProductsDb(activeProducts, branchId);
-
+          
           const custs = await api.listCustomers();
           setCustomers(custs);
-          await setCachedCustomersDb(custs);
+          
+          // Background caching - isolated so IDB failures don't break the UI
+          Promise.all([
+            setCachedProductsDb(activeProducts, branchId),
+            setCachedCustomersDb(custs)
+          ]).catch(cacheError => {
+            console.error('Error saving to offline cache:', cacheError);
+          });
+          
         } catch (apiError) {
           // Fallback a caché si la red falla (Offline First)
           try {

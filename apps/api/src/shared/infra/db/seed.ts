@@ -1,6 +1,8 @@
 import { sql } from 'kysely';
 import { createDb } from './connection.js';
 import { hashPassword } from '../../../contexts/identity/auth/password.js';
+import { Queue } from 'bullmq';
+import { OUTBOX_QUEUE_NAME } from '@pos-dian/shared';
 
 const demoIds = {
   tenantId: '11111111-1111-4111-8111-111111111111',
@@ -18,8 +20,27 @@ const demoCredentials = {
 
 async function runSeed(): Promise<void> {
   const db = createDb();
+  const redisUrl = process.env.REDIS_URL ?? 'redis://localhost:6379';
+  const queue = new Queue(OUTBOX_QUEUE_NAME, { connection: { url: redisUrl } });
 
   try {
+    // Drain BullMQ queue to remove stale jobs pointing to deleted sales
+    await queue.obliterate({ force: true });
+    console.info('[seed] BullMQ queue drained — stale outbox jobs cleared');
+
+    // Also clean up orphaned outbox_events and dian_documents in DB
+    await sql`
+      DELETE FROM outbox_events
+      WHERE aggregate_id NOT IN (SELECT id FROM sales)
+        AND type IN ('SALE_CREATED', 'SALE_VOIDED', 'SALE_RETURNED')
+    `.execute(db);
+    await sql`
+      DELETE FROM dian_documents
+      WHERE sale_id NOT IN (SELECT id FROM sales)
+    `.execute(db);
+    console.info('[seed] Orphaned outbox_events and dian_documents cleaned');
+
+
     const adminPasswordHash = await hashPassword(demoCredentials.adminPassword);
     const cashierPasswordHash = await hashPassword(demoCredentials.cashierPassword);
 
@@ -128,6 +149,7 @@ async function runSeed(): Promise<void> {
     console.info(`[seed] Admin: ${demoCredentials.adminEmail} / ${demoCredentials.adminPassword}`);
     console.info(`[seed] Cashier: ${demoCredentials.cashierEmail} / ${demoCredentials.cashierPassword}`);
   } finally {
+    await queue.close();
     await db.destroy();
   }
 }

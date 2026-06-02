@@ -118,7 +118,7 @@ export async function voidSaleService(input: VoidSaleServiceInput) {
         .where('tenant_id', '=', tenantId)
         .where('branch_id', '=', updatedSale.branch_id)
         .where('product_id', '=', item.product_id)
-        .where('variant_id', 'is', item.variant_id ?? null)
+        .where(sql`coalesce(variant_id, '00000000-0000-0000-0000-000000000000')`, '=', item.variant_id ?? '00000000-0000-0000-0000-000000000000')
         .executeTakeFirst();
 
       if (existingBalance) {

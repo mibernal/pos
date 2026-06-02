@@ -70,7 +70,7 @@ describe('outbox sale created processor', () => {
               aggregate_id: 'sale-1',
               status: 'PENDING',
               attempts: 2,
-              payload_json: { idempotency_key: 'idem-1' }
+              payload_json: { idempotency_key: 'idem-1', sale_id: 'sale-1', tenant_id: 'tenant-1', branch_id: 'branch-1' }
             }
           ]
         };
@@ -143,7 +143,7 @@ describe('outbox sale created processor', () => {
               aggregate_id: 'sale-2',
               status: 'PENDING',
               attempts: 0,
-              payload_json: { idempotency_key: 'idem-2' }
+              payload_json: { idempotency_key: 'idem-2', sale_id: 'sale-2', tenant_id: 'tenant-2', branch_id: 'branch-2' }
             }
           ]
         };
@@ -281,7 +281,7 @@ describe('outbox sale created processor', () => {
               aggregate_id: 'sale-accepted',
               status: 'PENDING',
               attempts: 0,
-              payload_json: { idempotency_key: 'idem-accepted' }
+              payload_json: { idempotency_key: 'idem-accepted', sale_id: 'sale-accepted', tenant_id: 'tenant-accepted', branch_id: 'branch-accepted' }
             }
           ]
         };
@@ -441,7 +441,7 @@ describe('outbox sale created processor', () => {
               aggregate_id: 'sale-3',
               status: 'FAILED',
               attempts: 1,
-              payload_json: { idempotency_key: 'idem-3' }
+              payload_json: { idempotency_key: 'idem-3', sale_id: 'sale-3', tenant_id: 'tenant-3', branch_id: 'branch-3' }
             }
           ]
         };
@@ -501,7 +501,7 @@ describe('outbox sale created processor', () => {
               aggregate_id: 'sale-4',
               status: 'PENDING',
               attempts: 0,
-              payload_json: { idempotency_key: 'idem-4' }
+              payload_json: { idempotency_key: 'idem-4', sale_id: 'sale-4', tenant_id: 'tenant-4', branch_id: 'branch-4' }
             }
           ]
         };
@@ -613,7 +613,7 @@ describe('outbox sale created processor', () => {
               aggregate_id: 'sale-failed',
               status: 'PENDING',
               attempts: 0,
-              payload_json: { idempotency_key: 'idem-failed' }
+              payload_json: { idempotency_key: 'idem-failed', sale_id: 'sale-failed', tenant_id: 'tenant-failed', branch_id: 'branch-failed' }
             }
           ]
         };

@@ -9,11 +9,13 @@ import {
 } from '../services/schemas.js';
 import { buildRequestLogContext } from '../../../shared/infra/logging/request-log-context.js';
 import { mapSaleRow, saleColumnList } from '../services/sale-mapper.js';
-import { createSaleService } from '../services/create-sale.service.js';
+import { CreateSaleCommand } from '../application/CreateSaleCommand.js';
+import { CreateSaleHandler } from '../application/CreateSaleHandler.js';
 import { voidSaleService } from '../services/void-sale.service.js';
 import { processPartialReturn } from '../services/create-return.service.js';
 import { CreateReturnRequestSchema } from '@pos-dian/shared';
 import { ensureUserCanAccessBranch } from '../../../shared/infra/security/permissions.js';
+import { executeAsTenant } from '../../../shared/infra/db/rls.js';
 
 export const salesRoutes: FastifyPluginAsync = async (app) => {
   const typedApp = app.withTypeProvider<ZodTypeProvider>();
@@ -37,15 +39,17 @@ export const salesRoutes: FastifyPluginAsync = async (app) => {
       const payload = createSaleBodySchema.parse(request.body);
       ensureUserCanAccessBranch(request.auth, payload.branch_id);
 
-      const result = await createSaleService({
-        db: app.db,
-        logger: request.log,
-        tenantId: request.auth.tenantId,
-        userId: request.auth.userId,
-        userRole: request.auth.role,
+      const command = new CreateSaleCommand(
         payload,
-        requestLogContext: buildRequestLogContext(request, {})
-      });
+        request.auth.tenantId,
+        request.auth.userId,
+        request.auth.role,
+        request.log,
+        buildRequestLogContext(request, {})
+      );
+
+      const handler = new CreateSaleHandler(app.db);
+      const result = await handler.handle(command);
 
       if (result.isIdempotentHit) {
         return reply.code(200).send(result.sale);
@@ -95,32 +99,35 @@ export const salesRoutes: FastifyPluginAsync = async (app) => {
 
       ensureUserCanAccessBranch(request.auth, branchId);
 
-      let queryBuilder = app.db
-        .selectFrom('sales')
-        .leftJoin('dian_documents', (join) =>
-          join
-            .onRef('dian_documents.sale_id', '=', 'sales.id')
-            .onRef('dian_documents.tenant_id', '=', 'sales.tenant_id')
-            .on('dian_documents.document_type', '=', 'INVOICE')
-        )
-        .selectAll('sales')
-        .select('dian_documents.status as dian_status')
-        .where('sales.tenant_id', '=', request.auth.tenantId)
-        .where('sales.branch_id', '=', branchId);
+      const rows = await executeAsTenant(app.db, request.auth.tenantId, async (trx) => {
+        let queryBuilder = trx
+          .selectFrom('sales')
+          .leftJoin('dian_documents', (join) =>
+            join
+              .onRef('dian_documents.sale_id', '=', 'sales.id')
+              .onRef('dian_documents.tenant_id', '=', 'sales.tenant_id')
+              .on('dian_documents.document_type', '=', 'INVOICE')
+          )
+          .selectAll('sales')
+          .select('dian_documents.status as dian_status')
+          // Optional now, but kept for clarity and explicit filtering
+          .where('sales.tenant_id', '=', request.auth!.tenantId)
+          .where('sales.branch_id', '=', branchId);
 
-      if (from) {
-        queryBuilder = queryBuilder.where('sales.created_at', '>=', from);
-      }
+        if (from) {
+          queryBuilder = queryBuilder.where('sales.created_at', '>=', from);
+        }
 
-      if (to) {
-        queryBuilder = queryBuilder.where('sales.created_at', '<=', to);
-      }
+        if (to) {
+          queryBuilder = queryBuilder.where('sales.created_at', '<=', to);
+        }
 
-      const rows = await queryBuilder
-        .orderBy('sales.created_at', 'desc')
-        .orderBy('sales.id', 'desc')
-        .limit(limit + 1)
-        .execute();
+        return await queryBuilder
+          .orderBy('sales.created_at', 'desc')
+          .orderBy('sales.id', 'desc')
+          .limit(limit + 1)
+          .execute();
+      });
 
       const hasMore = rows.length > limit;
       const items = rows.slice(0, limit).map((row) => mapSaleRow(row));
@@ -154,64 +161,70 @@ export const salesRoutes: FastifyPluginAsync = async (app) => {
 
       const params = saleIdParamsSchema.parse(request.params);
 
-      const sale = await app.db
-        .selectFrom('sales')
-        .select([...saleColumnList])
-        .where('tenant_id', '=', request.auth.tenantId)
-        .where('id', '=', params.id)
-        .executeTakeFirst();
+      const result = await executeAsTenant(app.db, request.auth.tenantId, async (trx) => {
+        const sale = await trx
+          .selectFrom('sales')
+          .select([...saleColumnList])
+          .where('tenant_id', '=', request.auth!.tenantId)
+          .where('id', '=', params.id)
+          .executeTakeFirst();
 
-      if (!sale) {
-        throw new AppError(404, 'SALE_NOT_FOUND', 'Venta no encontrada');
-      }
+        if (!sale) {
+          throw new AppError(404, 'SALE_NOT_FOUND', 'Venta no encontrada');
+        }
 
-      ensureUserCanAccessBranch(request.auth, sale.branch_id);
+        ensureUserCanAccessBranch(request.auth!, sale.branch_id);
 
-      const saleItems = await app.db
-        .selectFrom('sale_items')
-        .leftJoin('products', (join) =>
-          join
-            .onRef('products.id', '=', 'sale_items.product_id')
-            .onRef('products.tenant_id', '=', 'sale_items.tenant_id')
-        )
-        .leftJoin('product_variants', (join) =>
-          join
-            .onRef('product_variants.id', '=', 'sale_items.variant_id')
-            .onRef('product_variants.tenant_id', '=', 'sale_items.tenant_id')
-        )
-        .select([
-          'sale_items.id',
-          'sale_items.product_id',
-          'sale_items.variant_id',
-          'sale_items.qty',
-          'sale_items.price_cents',
-          'sale_items.line_total_cents',
-          'products.name as product_name',
-          'product_variants.name as variant_name',
-          'products.image_url as product_image_url',
-          'products.description as product_description'
-        ])
-        .where('sale_items.tenant_id', '=', request.auth.tenantId)
-        .where('sale_items.sale_id', '=', sale.id)
-        .orderBy('sale_items.id', 'asc')
-        .execute();
+        const saleItems = await trx
+          .selectFrom('sale_items')
+          .leftJoin('products', (join) =>
+            join
+              .onRef('products.id', '=', 'sale_items.product_id')
+              .onRef('products.tenant_id', '=', 'sale_items.tenant_id')
+          )
+          .leftJoin('product_variants', (join) =>
+            join
+              .onRef('product_variants.id', '=', 'sale_items.variant_id')
+              .onRef('product_variants.tenant_id', '=', 'sale_items.tenant_id')
+          )
+          .select([
+            'sale_items.id',
+            'sale_items.product_id',
+            'sale_items.variant_id',
+            'sale_items.qty',
+            'sale_items.price_cents',
+            'sale_items.line_total_cents',
+            'products.name as product_name',
+            'product_variants.name as variant_name',
+            'products.image_url as product_image_url',
+            'products.description as product_description'
+          ])
+          .where('sale_items.tenant_id', '=', request.auth!.tenantId)
+          .where('sale_items.sale_id', '=', sale.id)
+          .orderBy('sale_items.id', 'asc')
+          .execute();
 
-      const dianDocument = await app.db
-        .selectFrom('dian_documents')
-        .select([
-          'id',
-          'provider',
-          'status',
-          'cude',
-          'document_type',
-          'parent_document_id',
-          'created_at',
-          'updated_at'
-        ])
-        .where('tenant_id', '=', request.auth.tenantId)
-        .where('sale_id', '=', sale.id)
-        .where('document_type', '=', 'INVOICE')
-        .executeTakeFirst();
+        const dianDocument = await trx
+          .selectFrom('dian_documents')
+          .select([
+            'id',
+            'provider',
+            'status',
+            'cude',
+            'document_type',
+            'parent_document_id',
+            'created_at',
+            'updated_at'
+          ])
+          .where('tenant_id', '=', request.auth!.tenantId)
+          .where('sale_id', '=', sale.id)
+          .where('document_type', '=', 'INVOICE')
+          .executeTakeFirst();
+
+        return { sale, saleItems, dianDocument };
+      });
+
+      const { sale, saleItems, dianDocument } = result;
 
       return {
         sale: mapSaleRow(sale),
@@ -229,15 +242,15 @@ export const salesRoutes: FastifyPluginAsync = async (app) => {
         })),
         dian_document: dianDocument
           ? {
-              id: dianDocument.id,
-              provider: dianDocument.provider,
-              status: dianDocument.status,
-              cude: dianDocument.cude,
-              document_type: dianDocument.document_type,
-              parent_document_id: dianDocument.parent_document_id,
-              created_at: dianDocument.created_at.toISOString(),
-              updated_at: dianDocument.updated_at.toISOString()
-            }
+            id: dianDocument.id,
+            provider: dianDocument.provider,
+            status: dianDocument.status,
+            cude: dianDocument.cude,
+            document_type: dianDocument.document_type,
+            parent_document_id: dianDocument.parent_document_id,
+            created_at: dianDocument.created_at.toISOString(),
+            updated_at: dianDocument.updated_at.toISOString()
+          }
           : null
       };
     }

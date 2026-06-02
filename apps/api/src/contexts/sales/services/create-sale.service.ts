@@ -12,6 +12,9 @@ import {
 import { writeAuditLog } from '../../../shared/domain/audit/write-audit-log.js';
 import { env } from '../../../app/env.js';
 import { mapSaleRow, serializeJsonArrayForDb, saleColumnList } from './sale-mapper.js';
+import { OutboxPublisher } from '../../../shared/infra/outbox/OutboxPublisher.js';
+import { SaleCreatedEvent } from '../domain/events/SaleCreatedEvent.js';
+import { StockLowEvent } from '../../inventory/domain/events/StockLowEvent.js';
 import type { FastifyBaseLogger } from 'fastify';
 import type { CreateSaleBodyInput } from './schemas.js';
 
@@ -65,6 +68,9 @@ export async function createSaleService(input: CreateSaleServiceInput) {
 
   const createSaleInTransaction = () =>
     db.transaction().execute(async (trx) => {
+      // Configurar el contexto RLS para esta transacción
+      await sql`SELECT set_config('app.current_tenant', ${tenantId}, true)`.execute(trx);
+
       const cashSession = await trx
         .selectFrom('cash_sessions')
         .select(['id', 'closed_at', 'branch_id', 'opened_by_user_id'])
@@ -138,9 +144,9 @@ export async function createSaleService(input: CreateSaleServiceInput) {
         .where('tenant_id', '=', tenantId)
         .where('product_id', 'in', uniqueProductIds)
         .where('active', '=', true)
-        .where('start_date', '<=', sql<Date>`NOW()`)
+        .where('start_date', '<=', sql<Date>`CURRENT_DATE`)
         .where(
-          sql<boolean>`(end_date IS NULL OR end_date >= NOW())`
+          sql<boolean>`(end_date IS NULL OR end_date >= CURRENT_DATE)`
         )
         .execute();
         
@@ -273,15 +279,36 @@ export async function createSaleService(input: CreateSaleServiceInput) {
         discount_cents_total: payload.discount_cents
       });
 
+      // El backend es la fuente de verdad. Si hay desviación, logueamos un warning pero NO bloqueamos 
+      // la venta siempre y cuando los pagos coincidan con el monto requerido por el servidor.
       if (
         computedTaxes.subtotal_cents !== subtotalCents ||
-        computedTaxes.discount_cents !== payload.discount_cents ||
-        computedTaxes.total_cents !== totalCents
+        computedTaxes.total_cents !== payload.snapshot?.total_cents ||
+        computedTaxes.tax_total_cents !== payload.snapshot?.tax_total_cents
       ) {
+        logger.warn(
+          {
+            ...requestLogContext,
+            branchId: payload.branch_id,
+            event: 'sale_drift_detected',
+            payload_snapshot: payload.snapshot,
+            server_calculated: {
+               subtotal: subtotalCents,
+               discount: payload.discount_cents,
+               taxes: computedTaxes.tax_total_cents,
+               total: computedTaxes.total_cents
+            }
+          },
+          'Drift detectado entre los cálculos del frontend y del backend. El backend prevalecerá.'
+        );
+      }
+
+      // Validar que los pagos cubran el total calculado por el BACKEND, no por el frontend.
+      if (normalizedPayments.total_amount_cents < computedTaxes.total_cents) {
         throw new AppError(
-          500,
-          'TAX_CALCULATION_MISMATCH',
-          'Inconsistencia al calcular impuestos para la venta'
+          400,
+          'PAYMENTS_INSUFFICIENT',
+          `Los pagos (${normalizedPayments.total_amount_cents}) no cubren el total de la venta calculado por el servidor (${computedTaxes.total_cents})`
         );
       }
 
@@ -436,33 +463,17 @@ export async function createSaleService(input: CreateSaleServiceInput) {
           const product = productsById.get(req.productId);
           
           if (product && product.min_stock_alert_qty !== null && finalQty <= product.min_stock_alert_qty) {
-            // Generar evento asíncrono para alerta de stock bajo
-            await trx
-              .insertInto('outbox_events')
-              .values({
-                id: randomUUID(),
-                tenant_id: tenantId,
-                type: 'LOW_STOCK_ALERT',
-                event_version: 1,
-                aggregate_type: 'INVENTORY',
-                aggregate_id: req.productId,
-                branch_id: payload.branch_id,
-                payload_json: {
-                  product_id: req.productId,
-                  variant_id: req.variantId,
-                  branch_id: payload.branch_id,
-                  current_qty: finalQty,
-                  min_stock_alert_qty: product.min_stock_alert_qty,
-                  sale_id: saleId
-                },
-                metadata_json: {
-                  user_id: userId
-                },
-                status: 'PENDING',
-                attempts: 0,
-                next_retry_at: null
-              })
-              .execute();
+            const event = new StockLowEvent({
+              product_id: req.productId,
+              variant_id: req.variantId,
+              branch_id: payload.branch_id,
+              current_qty: finalQty,
+              min_stock_alert_qty: product.min_stock_alert_qty,
+              sale_id: saleId
+            }, req.productId, payload.branch_id);
+            
+            const publisher = new OutboxPublisher(trx);
+            await publisher.publish(event, tenantId, userId);
           }
         }
       }
@@ -546,32 +557,17 @@ export async function createSaleService(input: CreateSaleServiceInput) {
         })
         .execute();
 
-      await trx
-        .insertInto('outbox_events')
-        .values({
-          id: randomUUID(),
-          tenant_id: tenantId,
-          type: 'sale.created',
-          event_version: 1,
-          aggregate_type: 'SALE',
-          aggregate_id: saleId,
-          branch_id: payload.branch_id,
-          payload_json: {
-            sale_id: saleId,
-            tenant_id: tenantId,
-            branch_id: payload.branch_id,
-            cash_session_id: payload.cash_session_id,
-            sale_number: nextSaleNumber,
-            total_cents: finalTotalCents
-          },
-          metadata_json: {
-            user_id: userId
-          },
-          status: 'PENDING',
-          attempts: 0,
-          next_retry_at: null
-        })
-        .execute();
+      const saleCreatedEvent = new SaleCreatedEvent({
+        sale_id: saleId,
+        tenant_id: tenantId,
+        branch_id: payload.branch_id,
+        cash_session_id: payload.cash_session_id,
+        sale_number: nextSaleNumber,
+        total_cents: finalTotalCents
+      }, saleId, payload.branch_id);
+
+      const publisher = new OutboxPublisher(trx);
+      await publisher.publish(saleCreatedEvent, tenantId, userId);
 
       await writeAuditLog(trx, {
         tenantId,

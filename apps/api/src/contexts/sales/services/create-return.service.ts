@@ -168,7 +168,7 @@ export async function processPartialReturn(
         .where('tenant_id', '=', ctx.tenantId)
         .where('branch_id', '=', sale.branch_id)
         .where('product_id', '=', item.product_id)
-        .where('variant_id', 'is', item.variant_id ?? null)
+        .where(sql`coalesce(variant_id, '00000000-0000-0000-0000-000000000000')`, '=', item.variant_id ?? '00000000-0000-0000-0000-000000000000')
         .executeTakeFirst();
 
       if (existingBalance) {
