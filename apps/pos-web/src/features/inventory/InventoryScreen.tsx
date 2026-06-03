@@ -140,8 +140,10 @@ export function InventoryScreen({ api, branchId }: InventoryScreenProps) {
   };
 
   const handleExportCSV = () => {
-    const header = "barcode,name,qty_change,reason\n";
-    const rows = products.map(p => `${p.barcode || ''},"${p.name}",0,SOBRANTE`).join('\n');
+    const header = "id,name,category,tax_category,barcode,price_cents,active,stock_to_add\n";
+    const rows = products.map(p => 
+      `${p.id},"${p.name}","${p.category}","${p.taxCategory || 'IVA_19'}",${p.barcode || ''},${p.price_cents},${p.active ? 'true' : 'false'},0`
+    ).join('\n');
     const blob = new Blob([header + rows], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
@@ -160,38 +162,52 @@ export function InventoryScreen({ api, branchId }: InventoryScreenProps) {
       setIsSavingAdjustment(true);
       const text = await file.text();
       const lines = text.split('\n').filter(l => l.trim().length > 0);
-      const itemsToAdjust: Array<{product_id: string, qty_change: number}> = [];
       
+      const itemsToImport: Array<any> = [];
+      
+      // Parse header to find column indices
+      const headerLine = lines[0]?.toLowerCase().split(',') || [];
+      const colMap: Record<string, number> = {};
+      headerLine.forEach((col, idx) => colMap[col.trim().replace(/"/g, '')] = idx);
+
       for (let i = 1; i < lines.length; i++) {
         const line = lines[i];
         if (!line) continue;
-        // Basic CSV split, ignores quotes properly for simple numbers
-        const parts = line.split(',');
-        const barcode = parts[0]?.trim();
-        const qtyChangeStr = parts[2]?.trim();
-        const qtyChange = parseInt(qtyChangeStr || '0', 10);
         
-        if (qtyChange !== 0 && barcode) {
-          const product = products.find(p => p.barcode === barcode || p.id === barcode);
-          if (product) {
-            itemsToAdjust.push({
-              product_id: product.id,
-              qty_change: qtyChange
-            });
-          }
+        // Simple regex to split by comma but ignore commas inside quotes
+        const parts = line.split(/,(?=(?:(?:[^"]*"){2})*[^"]*$)/);
+        const cleanPart = (idx: number | undefined) => (idx !== undefined ? (parts[idx] || '').trim().replace(/^"|"$/g, '') : '');
+        
+        const id = cleanPart(colMap['id']);
+        const name = cleanPart(colMap['name']);
+        const category = cleanPart(colMap['category']) || 'General';
+        const tax_category = cleanPart(colMap['tax_category']) || 'IVA_19';
+        const barcode = cleanPart(colMap['barcode']);
+        const price_cents = parseInt(cleanPart(colMap['price_cents']) || '0', 10);
+        const active = cleanPart(colMap['active']) !== 'false';
+        const stock_to_add = parseInt(cleanPart(colMap['stock_to_add']) || '0', 10);
+        
+        if (name) {
+          itemsToImport.push({
+            id: id || undefined,
+            name,
+            category,
+            tax_category,
+            barcode: barcode || null,
+            price_cents,
+            active,
+            stock_to_add
+          });
         }
       }
 
-      if (itemsToAdjust.length > 0) {
-        await api.createInventoryAdjustment({
-          branch_id: branchId,
-          reason: 'AJUSTE',
-          items: itemsToAdjust
-        });
-        setAdjustmentSuccess(`Se ajustaron ${itemsToAdjust.length} productos vía CSV.`);
+      if (itemsToImport.length > 0) {
+        const res = await api.bulkImport({ items: itemsToImport }, branchId);
+        setAdjustmentSuccess(`Se importaron/actualizaron ${res.imported} productos vía CSV.`);
+        await queryClient.invalidateQueries({ queryKey: ['products', branchId] });
         await queryClient.invalidateQueries({ queryKey: ['balances', branchId] });
       } else {
-        setAdjustmentError('No se encontraron productos con cantidad a ajustar (asegúrate de cambiar el qty_change != 0).');
+        setAdjustmentError('No se encontraron productos válidos en el archivo CSV.');
       }
     } catch (err) {
       setAdjustmentError(err instanceof Error ? err.message : 'Error al importar CSV');

@@ -297,10 +297,12 @@ export function createApiClient({ baseUrl, getSession, setSession }: CreateApiCl
         body: JSON.stringify({ observed_cash_cents: observedCashCents, notes })
       }),
     closeCashSession: (sessionId: string, closingCashRealCents: number) =>
-      requestJson<{ cash_session: CashSession; summary: { completed_sales_count: number; expected_cash_cents: number; diff_cents: number } }>(`/cash-sessions/${sessionId}/close`, {
+      requestJson<{ cash_session: CashSession; summary: { completed_sales_count: number; expected_cash_cents: number; diff_cents: number; payment_breakdown: Record<string, number> } }>(`/cash-sessions/${sessionId}/close`, {
         method: 'POST',
         body: JSON.stringify({ closing_cash_real_cents: closingCashRealCents })
       }),
+    getZReport: (sessionId: string) =>
+      requestJson<any>(`/cash-sessions/${sessionId}/z-report`),
     addCashMovement: (sessionId: string, type: 'IN' | 'OUT', amountCents: number, reason: string) =>
       requestJson<{ movement: { id: string; cash_session_id: string; type: 'IN' | 'OUT'; amount_cents: number; reason: string; created_at: string } }>(`/cash-sessions/${sessionId}/movements`, {
         method: 'POST',
@@ -331,7 +333,14 @@ export function createApiClient({ baseUrl, getSession, setSession }: CreateApiCl
       requestJson<ProductItem>('/products', {
         method: 'POST',
         body: JSON.stringify(payload),
-        branchId
+        headers: branchId ? { 'x-branch-id': branchId } : {}
+      }),
+
+    bulkImport: (payload: { items: any[] }, branchId?: string) =>
+      requestJson<{ success: boolean; imported: number }>('/inventory/bulk-import', {
+        method: 'POST',
+        body: JSON.stringify(payload),
+        headers: branchId ? { 'x-branch-id': branchId } : {}
       }),
     patchProduct: (productId: string, payload: SharedPatchProductBody, branchId?: string) =>
       requestJson<ProductItem>(`/products/${productId}`, {

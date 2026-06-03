@@ -4,6 +4,9 @@ import { formatMoneyFromCents } from '../../lib/format';
 import type { PosApiClient } from '../../types';
 import type { SalesReportResponse } from '../../lib/api';
 
+import type { TicketTemplateConfig } from '../../lib/ticket-template';
+import { printZReportTicket } from '../../lib/ticket-printer';
+
 type DateFilter = 'TODAY' | 'WEEK' | 'MONTH' | 'CUSTOM';
 
 function toStartOfDayIso(value: string): string {
@@ -16,10 +19,14 @@ function toEndOfDayIso(value: string): string {
 
 export function ReportsScreen({
   api,
-  branchId
+  branchId,
+  branchName,
+  ticketTemplate
 }: {
   api: PosApiClient;
   branchId: string;
+  branchName: string;
+  ticketTemplate: TicketTemplateConfig;
 }) {
   const [filter, setFilter] = useState<DateFilter>('TODAY');
   const [customFrom, setCustomFrom] = useState('');
@@ -217,6 +224,35 @@ export function ReportsScreen({
                             <strong style={{ color: (shift.diff_cents ?? 0) < 0 ? 'var(--color-error-600)' : (shift.diff_cents ?? 0) > 0 ? 'var(--color-success-600)' : 'inherit' }}>
                               {formatMoneyFromCents(shift.diff_cents ?? 0)}
                             </strong>
+                          </div>
+                          <div>
+                            <button
+                              type="button"
+                              className="ghost-button button-sm"
+                              style={{ marginTop: '0.5rem' }}
+                              onClick={async () => {
+                                try {
+                                  const zData = await api.getZReport(shift.id);
+                                  printZReportTicket({
+                                    template: ticketTemplate,
+                                    branchName,
+                                    openedAt: zData.cash_session.opened_at,
+                                    closedAt: zData.cash_session.closed_at,
+                                    saleCount: zData.summary.completed_sales_count,
+                                    totalSalesCents: zData.summary.completed_sales_total_cents,
+                                    paymentBreakdown: zData.summary.payment_breakdown,
+                                    expectedCashCents: zData.summary.expected_cash_cents,
+                                    realCashCents: zData.summary.expected_cash_cents + zData.summary.diff_cents,
+                                    diffCents: zData.summary.diff_cents,
+                                    status: zData.cash_session.status
+                                  });
+                                } catch (err) {
+                                  alert(err instanceof Error ? err.message : 'Error al obtener reporte Z');
+                                }
+                              }}
+                            >
+                              🖨️ Imprimir Z
+                            </button>
                           </div>
                         </>
                       )}

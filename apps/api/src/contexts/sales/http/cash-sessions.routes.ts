@@ -746,5 +746,99 @@ export const cashSessionsRoutes: FastifyPluginAsync = async (app) => {
       return reply.code(201).send({ reconciliation: result });
     }
   );
+  typedApp.get(
+    '/cash-sessions/:id/z-report',
+    {
+      preHandler: [app.requirePermissions(['reports:view'])],
+      schema: {
+        tags: ['cash-sessions'],
+        security: [{ bearerAuth: [] }],
+        params: closeCashSessionParamsSchema
+      }
+    },
+    async (request, reply) => {
+      if (!request.auth) {
+        throw new AppError(401, 'AUTH_UNAUTHORIZED', 'No autorizado');
+      }
+
+      const params = closeCashSessionParamsSchema.parse(request.params);
+
+      const session = await app.db
+        .selectFrom('cash_sessions')
+        .select([
+          'id', 'tenant_id', 'branch_id', 'terminal_id', 'opened_by_user_id',
+          'opened_at', 'opening_amount_cents', 'closed_at', 'closing_cash_real_cents',
+          'expected_cash_cents', 'diff_cents', 'status'
+        ])
+        .where('tenant_id', '=', request.auth.tenantId)
+        .where('id', '=', params.id)
+        .executeTakeFirst();
+
+      if (!session) {
+        throw new AppError(404, 'CASH_SESSION_NOT_FOUND', 'Sesión de caja no encontrada');
+      }
+
+      ensureUserCanAccessBranch(request.auth, session.branch_id);
+
+      const salePayments = await app.db
+        .selectFrom('sales')
+        .select(['payment_json', 'total_cents'])
+        .where('tenant_id', '=', request.auth.tenantId)
+        .where('branch_id', '=', session.branch_id)
+        .where('cash_session_id', '=', session.id)
+        .where('status', '=', 'COMPLETED')
+        .execute();
+
+      const cashMovements = await app.db
+        .selectFrom('cash_movements')
+        .select(['type', 'amount_cents'])
+        .where('tenant_id', '=', request.auth.tenantId)
+        .where('cash_session_id', '=', session.id)
+        .execute();
+
+      let completedSalesTotalCents = 0;
+      const methodRevenues: Record<string, number> = {
+        CASH: 0,
+        CARD: 0,
+        TRANSFER: 0
+      };
+
+      salePayments.forEach(sale => {
+        completedSalesTotalCents += Number(sale.total_cents) || 0;
+        const payment = sale.payment_json as Record<string, unknown> | null;
+        if (!payment) return;
+
+        if (payment.mode === 'MIXED' && Array.isArray(payment.payments)) {
+          payment.payments.forEach((p: Record<string, unknown>) => {
+            const method = p.method as string;
+            if (methodRevenues[method] !== undefined) {
+              methodRevenues[method] += Number(p.amount_cents) || 0;
+            }
+          });
+        } else {
+          const method = payment.mode as string;
+          if (methodRevenues[method] !== undefined) {
+            methodRevenues[method] += Number(payment.total_cents) || 0;
+          }
+        }
+      });
+
+      return reply.code(200).send({
+        cash_session: mapCashSession(session),
+        summary: {
+          completed_sales_count: salePayments.length,
+          completed_sales_total_cents: completedSalesTotalCents,
+          expected_cash_cents: session.expected_cash_cents ?? 0,
+          diff_cents: session.diff_cents ?? 0,
+          payment_breakdown: methodRevenues,
+          cash_movements: cashMovements.reduce((acc, mov) => {
+            if (mov.type === 'IN') acc.in += mov.amount_cents;
+            if (mov.type === 'OUT') acc.out += mov.amount_cents;
+            return acc;
+          }, { in: 0, out: 0 })
+        }
+      });
+    }
+  );
 };
 

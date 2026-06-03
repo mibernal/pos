@@ -32,7 +32,7 @@ async function runSeed(): Promise<void> {
     await sql`
       DELETE FROM outbox_events
       WHERE aggregate_id NOT IN (SELECT id FROM sales)
-        AND type IN ('SALE_CREATED', 'SALE_VOIDED', 'SALE_RETURNED')
+        AND type IN ('sale.created', 'sale.voided', 'sale.returned', 'SALE_CREATED', 'SALE_VOIDED', 'SALE_RETURNED', 'sale_created', 'sale_voided', 'sale_returned')
     `.execute(db);
     await sql`
       DELETE FROM dian_documents

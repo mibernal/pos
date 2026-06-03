@@ -19,6 +19,8 @@ import { salesRoutes } from '../contexts/sales/http/sales.routes.js';
 import { adminTenantsRoutes } from '../contexts/identity/http/admin-tenants.routes.js';
 import { adminUsersRoutes } from '../contexts/identity/http/admin-users.routes.js';
 import { productsRoutes } from '../contexts/inventory/http/products.routes.js';
+import { bulkRoutes } from '../contexts/inventory/http/bulk.routes.js';
+
 import { promotionsRoutes } from '../contexts/inventory/http/promotions.routes.js';
 import { cashSessionsRoutes } from '../contexts/sales/http/cash-sessions.routes.js';
 import { customersRoutes } from '../contexts/sales/http/customers.routes.js';
@@ -191,6 +193,7 @@ export async function buildApp() {
   await app.register(adminTenantsRoutes, { prefix: '/api/v1' });
   await app.register(adminUsersRoutes, { prefix: '/api/v1' });
   await app.register(productsRoutes, { prefix: '/api/v1' });
+  await app.register(bulkRoutes, { prefix: '/api/v1/inventory' });
   await app.register(promotionsRoutes, { prefix: '/api/v1' });
   await app.register(cashSessionsRoutes, { prefix: '/api/v1' });
   await app.register(salesRoutes, { prefix: '/api/v1' });

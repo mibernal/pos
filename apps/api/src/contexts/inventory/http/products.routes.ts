@@ -128,8 +128,8 @@ export const productsRoutes: FastifyPluginAsync = async (app) => {
           .where('product_id', 'in', productIds)
           .where('tenant_id', '=', request.auth.tenantId)
           .where('active', '=', true)
-          .where('start_date', '<=', sql<Date>`CURRENT_DATE`)
-          .where(sql<boolean>`(end_date IS NULL OR end_date >= CURRENT_DATE)`)
+          .where('start_date', '<=', sql<Date>`CURRENT_TIMESTAMP`)
+          .where(sql<boolean>`(end_date IS NULL OR end_date >= CURRENT_TIMESTAMP)`)
           .execute();
           
         activePromotions.forEach(promo => {

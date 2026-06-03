@@ -231,7 +231,7 @@ export function buildOutboxSaleVoidedProcessor({
           `UPDATE outbox_events
            SET status = 'FAILED',
                attempts = $2,
-               next_retry_at = NULL,
+               next_retry_at = NOW() + INTERVAL '100 years',
                updated_at = NOW()
            WHERE id = $1`,
           [claimedEvent.id, nextAttemptNumber]

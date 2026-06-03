@@ -153,7 +153,12 @@ function AppShell() {
 
 
           if (activeRoute === 'reports') {
-            currentScreen = <ReportsScreen api={api} branchId={posContext.branchId} />;
+            currentScreen = <ReportsScreen 
+              api={api} 
+              branchId={posContext.branchId} 
+              branchName={posContext.branchName ?? posContext.branchId}
+              ticketTemplate={ticketTemplate}
+            />;
           }
 
           if (activeRoute === 'dashboard') {

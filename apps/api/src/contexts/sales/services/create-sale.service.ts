@@ -144,9 +144,9 @@ export async function createSaleService(input: CreateSaleServiceInput) {
         .where('tenant_id', '=', tenantId)
         .where('product_id', 'in', uniqueProductIds)
         .where('active', '=', true)
-        .where('start_date', '<=', sql<Date>`CURRENT_DATE`)
+        .where('start_date', '<=', sql<Date>`CURRENT_TIMESTAMP`)
         .where(
-          sql<boolean>`(end_date IS NULL OR end_date >= CURRENT_DATE)`
+          sql<boolean>`(end_date IS NULL OR end_date >= CURRENT_TIMESTAMP)`
         )
         .execute();
         
