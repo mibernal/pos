@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useState, useEffect } from 'react';
 import { Banner, Modal } from '../../../components/ui';
 import { formatMoneyFromCents } from '../../../lib/format';
 import type { Customer, CreateSaleRequest } from '../../../lib/api';
@@ -9,11 +9,11 @@ import { CashPaymentPanel } from './checkout/CashPaymentPanel';
 import { TerminalPaymentPanel } from './checkout/TerminalPaymentPanel';
 import { MixedPaymentPanel } from './checkout/MixedPaymentPanel';
 
-const SIMPLE_PAYMENT_OPTIONS: ReadonlyArray<{ label: string; method: PaymentMethod }> = [
-  { method: 'CASH', label: 'Efectivo' },
-  { method: 'CARD', label: 'Tarjeta' },
-  { method: 'TRANSFER', label: 'Transferencia' },
-  { method: 'MIXED', label: 'Mixto' }
+const SIMPLE_PAYMENT_OPTIONS: ReadonlyArray<{ label: string; method: PaymentMethod; shortcut: string }> = [
+  { method: 'CASH', label: 'Efectivo', shortcut: 'F1' },
+  { method: 'CARD', label: 'Tarjeta', shortcut: 'F2' },
+  { method: 'TRANSFER', label: 'Transferencia', shortcut: 'F3' },
+  { method: 'MIXED', label: 'Mixto', shortcut: 'F4' }
 ];
 
 export function CheckoutModal({
@@ -38,6 +38,7 @@ export function CheckoutModal({
   totalCents: number;
 }) {
   const [selectedCustomerId, setSelectedCustomerId] = useState<string>('');
+  const [customerSearchText, setCustomerSearchText] = useState<string>('');
 
   const {
     paymentMethod,
@@ -77,6 +78,38 @@ export function CheckoutModal({
     [cartItems]
   );
   const totalUnits = useMemo(() => cartItems.reduce((sum, item) => sum + item.qty, 0), [cartItems]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key === 'F1') {
+        event.preventDefault();
+        setPaymentMethod('CASH');
+      } else if (event.key === 'F2') {
+        event.preventDefault();
+        setPaymentMethod('CARD');
+      } else if (event.key === 'F3') {
+        event.preventDefault();
+        setPaymentMethod('TRANSFER');
+      } else if (event.key === 'F4') {
+        event.preventDefault();
+        setPaymentMethod('MIXED');
+      } else if (event.key === 'Enter') {
+        // Only trigger confirm if not inside an input (unless it's the cash input, where enter is very useful)
+        const target = event.target as HTMLElement | null;
+        const isSelect = target?.tagName === 'SELECT';
+        const isTextArea = target?.tagName === 'TEXTAREA';
+        if (!isSelect && !isTextArea && canSubmit && !isSubmitting) {
+          event.preventDefault();
+          handleConfirm();
+        }
+      }
+    }
+
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [isOpen, canSubmit, isSubmitting, setPaymentMethod]);
 
   if (!isOpen) {
     return null;
@@ -155,17 +188,25 @@ export function CheckoutModal({
               <p style={{ fontSize: '0.75rem', color: 'var(--color-slate-500)', marginBottom: '0.5rem' }}>
                 Requerido por DIAN para compras altas.
               </p>
-              <select
-                value={selectedCustomerId}
-                onChange={(e) => setSelectedCustomerId(e.target.value)}
-              >
-                <option value="">Consumidor Final (No identificado)</option>
+              <input
+                list="customer-list"
+                placeholder="Consumidor Final (Buscar por cédula o nombre...)"
+                value={customerSearchText}
+                onChange={(e) => {
+                  setCustomerSearchText(e.target.value);
+                  const found = customers.find(c => `${c.document_type} ${c.document_number} - ${c.name}` === e.target.value);
+                  if (found) {
+                    setSelectedCustomerId(found.id);
+                  } else {
+                    setSelectedCustomerId('');
+                  }
+                }}
+              />
+              <datalist id="customer-list">
                 {customers.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.document_type} {c.document_number} - {c.name}
-                  </option>
+                  <option key={c.id} value={`${c.document_type} ${c.document_number} - ${c.name}`} />
                 ))}
-              </select>
+              </datalist>
             </label>
 
             <div className="checkout-cart-preview">
@@ -194,6 +235,7 @@ export function CheckoutModal({
                   className={`payment-method-btn ${paymentMethod === option.method ? 'active' : ''}`}
                   onClick={() => setPaymentMethod(option.method)}
                 >
+                  {option.shortcut && <kbd style={{ marginRight: '0.5rem', background: 'rgba(0,0,0,0.1)', padding: '0.1rem 0.3rem', borderRadius: '4px', fontSize: '0.7em' }}>{option.shortcut}</kbd>}
                   {option.label}
                 </button>
               ))}
@@ -261,8 +303,8 @@ export function CheckoutModal({
               <button className="ghost-button" type="button" onClick={onClose} disabled={isSubmitting}>
                 Volver
               </button>
-              <button type="button" className="charge-button" onClick={handleConfirm} disabled={!canSubmit}>
-                <span>{isSubmitting ? 'Procesando cobro...' : 'Confirmar cobro'}</span>
+              <button type="button" className="charge-button" onClick={handleConfirm} disabled={!canSubmit || isSubmitting}>
+                <span>{isSubmitting ? 'Procesando cobro...' : '[Enter] Confirmar cobro'}</span>
                 <strong>{formatMoneyFromCents(totalCents)}</strong>
               </button>
             </div>

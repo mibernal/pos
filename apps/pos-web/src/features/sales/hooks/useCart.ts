@@ -39,7 +39,7 @@ export function useCart() {
 
   const totalCents = Math.max(0, subtotalCents - discountCents);
 
-  const addProduct = useCallback((product: ProductItem, variant?: { id: string, name: string, price_cents: number }) => {
+  const addProduct = useCallback((product: ProductItem, variant?: { id: string, name: string, price_cents: number }, qty: number = 1) => {
     setCartItems((currentCartItems) => {
       const existingIndex = currentCartItems.findIndex(
         (item) => item.productId === product.id && item.variantId === (variant?.id || null)
@@ -58,7 +58,7 @@ export function useCart() {
             barcode: product.barcode,
             priceCents: variant?.price_cents ?? product.price_cents,
             promotion: product.promotion as CartItem['promotion'],
-            qty: 1
+            qty
           }
         ];
       }
@@ -69,7 +69,7 @@ export function useCart() {
       const nextCartItems = [...currentCartItems];
       nextCartItems[existingIndex] = {
         ...existingItem,
-        qty: existingItem.qty + 1
+        qty: existingItem.qty + qty
       };
       setSelectedCartIndex(existingIndex);
       return nextCartItems;

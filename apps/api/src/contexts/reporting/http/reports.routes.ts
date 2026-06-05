@@ -116,13 +116,14 @@ export const reportsRoutes: FastifyPluginAsync = async (app) => {
       preHandler: [app.requirePermissions(['reports:view'])],
       schema: {
         tags: ['reports'],
-        security: [{ bearerAuth: [] }]
+        security: [{ bearerAuth: [] }],
+        querystring: salesReportQuerySchema
       }
     },
     async (request) => {
       if (!request.auth) throw new AppError(401, 'UNAUTHORIZED', 'No autorizado');
-      // Re-use salesReportQuerySchema structure manually or just extract from query
-      const { branch_id, from, to } = request.query as Record<string, string | undefined>;
+      
+      const { branch_id, from, to } = request.query;
 
       if (branch_id) ensureUserCanAccessBranch(request.auth, branch_id);
 

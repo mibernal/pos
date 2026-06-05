@@ -32,10 +32,7 @@ const authPluginImpl: FastifyPluginAsync = async (app) => {
 
   app.decorate('authenticate', async (request) => {
     try {
-      const query = request.query as { token?: string };
-      if (query?.token && !request.headers.authorization) {
-        request.headers.authorization = `Bearer ${query.token}`;
-      }
+
       await request.jwtVerify<JwtClaims>();
       request.auth = mapClaimsToAuthContext(request.user);
     } catch {

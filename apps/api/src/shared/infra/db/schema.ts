@@ -15,6 +15,9 @@ export type CountStatus = 'DRAFT' | 'COUNTING' | 'RECONCILING' | 'COMPLETED' | '
 export type ReceiptType = 'PO_LINKED' | 'BLIND';
 export type TenantTaxMode = 'IVA' | 'INC_RESTAURANT';
 export type ProductTaxCategory = 'IVA_0' | 'IVA_5' | 'IVA_19' | 'EXEMPT' | 'EXCLUDED' | 'INC_8';
+export type SalesLedgerOperation = 'SALE_CREATION' | 'SALE_VOID' | 'SALE_RETURN';
+export type InventoryLedgerOperation = 'SALE_DISCHARGE' | 'RESTOCK' | 'VOID_RESTOCK' | 'ADJUSTMENT';
+export type CashLedgerOperation = 'OPENING' | 'CASH_SALE' | 'CASH_REFUND' | 'MANUAL_IN' | 'MANUAL_OUT' | 'CLOSING_DISCREPANCY';
 type JsonObject = Record<string, unknown>;
 type JsonArray = unknown[];
 type JsonColumn = ColumnType<JsonObject, JsonObject | undefined, JsonObject>;
@@ -71,6 +74,7 @@ export interface UsersTable {
 
 export interface RefreshTokensTable {
   id: string;
+  tenant_id: string;
   user_id: string;
   token_hash: string;
   expires_at: Date;
@@ -446,6 +450,7 @@ export interface InventoryCountsTable {
 
 export interface InventoryCountItemsTable {
   id: Generated<string>;
+  tenant_id: string;
   count_id: string;
   product_id: string;
   variant_id: string | null;
@@ -482,9 +487,54 @@ export interface DailyBranchSalesRollupTable {
 
 export interface InventoryValuationSnapshotTable {
   tenant_id: string;
+  branch_id: string;
   date: Date;
-  total_value_cents: Generated<string>; // bigint comes as string
+  total_value_cents: Generated<string>;
   updated_at: Generated<Date>;
+}
+
+export interface SalesLedgerTable {
+  id: Generated<string>;
+  tenant_id: string;
+  sale_id: string;
+  type: SalesLedgerOperation;
+  amount_cents: string; // bigint is represented as string in node-postgres
+  tax_amount_cents: string;
+  sequence_number: string;
+  previous_hash: string;
+  hash: string;
+  created_at: Generated<Date>;
+  created_by_user_id: string;
+}
+
+export interface InventoryLedgerTable {
+  id: Generated<string>;
+  tenant_id: string;
+  branch_id: string;
+  product_id: string;
+  variant_id: string | null;
+  operation_type: InventoryLedgerOperation;
+  qty_change: string; // decimal is string
+  balance_after: string; // decimal is string
+  reference_id: string;
+  sequence_number: string;
+  previous_hash: string;
+  hash: string;
+  created_at: Generated<Date>;
+}
+
+export interface CashLedgerTable {
+  id: Generated<string>;
+  tenant_id: string;
+  cash_session_id: string;
+  terminal_id: string;
+  type: CashLedgerOperation;
+  amount_cents: string;
+  balance_after_cents: string;
+  sequence_number: string;
+  previous_hash: string;
+  hash: string;
+  created_at: Generated<Date>;
 }
 
 export interface Database {
@@ -525,4 +575,7 @@ export interface Database {
   tenant_alerts: TenantAlertsTable;
   daily_branch_sales_rollup: DailyBranchSalesRollupTable;
   inventory_valuation_snapshot: InventoryValuationSnapshotTable;
+  sales_ledger: SalesLedgerTable;
+  inventory_ledger: InventoryLedgerTable;
+  cash_ledger: CashLedgerTable;
 }

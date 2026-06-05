@@ -1,6 +1,7 @@
 import type { FastifyPluginAsync } from 'fastify';
 import { sql } from 'kysely';
 import { ensureUserCanAccessBranch } from '../../../shared/infra/security/permissions.js';
+import { setupSseStream } from '../../../shared/infra/security/sse-limits.js';
 
 export const dashboardRoutes: FastifyPluginAsync = async (app) => {
 
@@ -29,17 +30,13 @@ export const dashboardRoutes: FastifyPluginAsync = async (app) => {
         return reply.code(err.statusCode || 403).send({ message: err.message || 'No tienes acceso a esta sucursal' });
       }
 
-      
-      reply.raw.setHeader('Content-Type', 'text/event-stream');
-      reply.raw.setHeader('Cache-Control', 'no-cache');
-      reply.raw.setHeader('Connection', 'keep-alive');
-      reply.raw.flushHeaders();
+      const stream = setupSseStream(request, reply);
+      if (!stream) return;
 
       // Send initial data immediately
-      let active = true;
 
-      const pushData = async () => {
-        if (!active) return;
+      const sendUpdate = async () => {
+        if (!stream.isActive()) return;
         try {
           // Calculate today's stats
           const startOfDay = new Date();
@@ -94,29 +91,28 @@ export const dashboardRoutes: FastifyPluginAsync = async (app) => {
             amount_cents: amount
           })).filter(d => d.amount_cents > 0);
 
-          const payload = {
+          const responsePayload = {
             total_revenue_cents: Number(rows?.total_revenue_cents || 0),
             total_sales_count: Number(rows?.total_sales_count || 0),
             total_inventory_value_cents: Number(inventoryRows?.total_inventory_value_cents || 0),
             chart_data: chartData
           };
 
-          reply.raw.write(`data: ${JSON.stringify(payload)}\n\n`);
+          const payload = JSON.stringify(responsePayload);
+          stream.writeEvent(payload);
         } catch (err) {
           app.log.error(err, 'SSE Push error');
         }
       };
 
       // Push initial
-      void pushData();
+      sendUpdate();
 
-      // Push every 15 seconds
-      const interval = setInterval(() => {
-        void pushData();
-      }, 15000);
+      // En un entorno de producción, esto debería usar PostgreSQL LISTEN/NOTIFY o Redis Pub/Sub
+      // para suscribirse a eventos 'sale_completed', 'session_closed', etc., en lugar de polling.
+      const interval = setInterval(sendUpdate, 5000);
 
       request.raw.on('close', () => {
-        active = false;
         clearInterval(interval);
       });
     }

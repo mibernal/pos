@@ -54,6 +54,7 @@ export async function recordInventoryTransaction(
     const product = await trx
       .selectFrom('products')
       .select(['name', 'min_stock_alert_qty'])
+      .where('tenant_id', '=', tenantId)
       .where('id', '=', productId)
       .executeTakeFirst();
 
@@ -232,7 +233,7 @@ export const inventoryRoutes: FastifyPluginAsync = async (app) => {
       }
     },
     async (request) => {
-      const rows = await app.db
+      let query = app.db
         .selectFrom('inventory_balances as b')
         .innerJoin('products as p', (join) =>
           join
@@ -261,7 +262,13 @@ export const inventoryRoutes: FastifyPluginAsync = async (app) => {
             'in_transit_qty', b.in_transit_qty
           ))`.as('branches_breakdown')
         ])
-        .where('b.tenant_id', '=', request.auth!.tenantId)
+        .where('b.tenant_id', '=', request.auth!.tenantId);
+
+      if (request.auth!.role !== 'ADMIN') {
+        query = query.where('b.branch_id', 'in', request.auth!.branchIds);
+      }
+
+      const rows = await query
         .groupBy(['b.product_id', 'b.variant_id', 'p.name', 'p.category', 'p.image_url'])
         .orderBy('p.name', 'asc')
         .execute();
@@ -564,6 +571,7 @@ export const inventoryRoutes: FastifyPluginAsync = async (app) => {
         if (tr.status !== 'IN_TRANSIT') throw new AppError(400, 'INVALID_STATUS', 'La transferencia no está en tránsito');
 
         ensureUserCanAccessBranch(request.auth, tr.to_branch_id);
+        await ensureBranchBelongsToTenant(request.auth!.tenantId, tr.to_branch_id);
 
         const items = await trx
           .selectFrom('inventory_transfer_items')

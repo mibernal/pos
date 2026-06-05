@@ -1,6 +1,5 @@
 import { z } from 'zod';
 
-const defaultJwtSecret = 'replace-this-in-production-with-a-long-secret';
 
 const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
@@ -12,7 +11,7 @@ const envSchema = z.object({
     .min(1)
     .default('postgres://pos:pos@localhost:5432/pos_dian'),
   DATABASE_POOL_MAX: z.coerce.number().int().positive().default(10),
-  JWT_SECRET: z.string().min(32).default(defaultJwtSecret),
+  JWT_SECRET: z.string().min(32),
   JWT_EXPIRES_IN: z.string().min(2).default('15m'),
   REFRESH_TOKEN_EXPIRES_IN: z.string().min(2).default('7d'),
   AUTH_LOGIN_RATE_LIMIT_MAX: z.coerce.number().int().positive().max(100).default(5),
@@ -21,13 +20,7 @@ const envSchema = z.object({
   // C9: Ventana máxima configurable para anulación (default 24h en ms)
   SALE_VOID_MAX_AGE_HOURS: z.coerce.number().int().positive().max(720).default(24)
 }).superRefine((value, ctx) => {
-  if (value.NODE_ENV === 'production' && value.JWT_SECRET === defaultJwtSecret) {
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      path: ['JWT_SECRET'],
-      message: 'JWT_SECRET debe configurarse explícitamente en producción'
-    });
-  }
+
 
   if (value.NODE_ENV === 'production' && (!value.CORS_ALLOWED_ORIGINS || value.CORS_ALLOWED_ORIGINS.trim().length === 0)) {
     ctx.addIssue({

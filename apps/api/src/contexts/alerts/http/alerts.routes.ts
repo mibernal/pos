@@ -3,6 +3,7 @@ import { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { getAlertsQuerySchema, resolveAlertSchema } from '@pos-dian/shared';
 import { AppError } from '../../../shared/infra/errors/app-error.js';
 import { sql } from 'kysely';
+import { setupSseStream } from '../../../shared/infra/security/sse-limits.js';
 
 export const alertsRoutes: FastifyPluginAsync = async (app) => {
   const typedApp = app.withTypeProvider<ZodTypeProvider>();
@@ -16,16 +17,11 @@ export const alertsRoutes: FastifyPluginAsync = async (app) => {
     (request, reply) => {
       if (!request.auth) return reply.code(401).send({ message: 'No autorizado' });
 
-      reply.raw.setHeader('Content-Type', 'text/event-stream');
-      reply.raw.setHeader('Cache-Control', 'no-cache');
-      reply.raw.setHeader('Connection', 'keep-alive');
-      reply.raw.flushHeaders();
-
-      let active = true;
+      const stream = setupSseStream(request, reply);
+      if (!stream) return;
 
       const pushAlert = (alertData: any) => {
-        if (!active) return;
-        reply.raw.write(`data: ${JSON.stringify(alertData)}\n\n`);
+        stream.writeEvent(alertData);
       };
 
       // Since we don't have Redis configured yet for PubSub, we will simulate SSE push
@@ -35,7 +31,7 @@ export const alertsRoutes: FastifyPluginAsync = async (app) => {
       let lastCheck = new Date();
       
       const pollAlerts = async () => {
-        if (!active) return;
+        if (!stream.isActive()) return;
         try {
           // Find alerts created after lastCheck
           let query = app.db
@@ -68,7 +64,6 @@ export const alertsRoutes: FastifyPluginAsync = async (app) => {
       const interval = setInterval(() => void pollAlerts(), 5000);
 
       request.raw.on('close', () => {
-        active = false;
         clearInterval(interval);
       });
     }

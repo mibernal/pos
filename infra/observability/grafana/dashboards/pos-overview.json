@@ -1,0 +1,112 @@
+{
+  "title": "POS Enterprise Overview",
+  "timezone": "browser",
+  "refresh": "10s",
+  "panels": [
+    {
+      "type": "stat",
+      "title": "Ventas por Minuto",
+      "targets": [
+        {
+          "expr": "rate(pos_sales_count_total[1m]) * 60",
+          "legendFormat": "Ventas/min"
+        }
+      ],
+      "gridPos": { "h": 6, "w": 6, "x": 0, "y": 0 }
+    },
+    {
+      "type": "stat",
+      "title": "Eventos Outbox Pendientes",
+      "targets": [
+        {
+          "expr": "pos_outbox_pending",
+          "legendFormat": "Pendientes"
+        }
+      ],
+      "gridPos": { "h": 6, "w": 6, "x": 6, "y": 0 },
+      "thresholds": {
+        "mode": "absolute",
+        "steps": [
+          { "color": "green", "value": null },
+          { "color": "orange", "value": 100 },
+          { "color": "red", "value": 500 }
+        ]
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Latencia API",
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.99, sum(rate(pos_api_latency_bucket[5m])) by (le))",
+          "legendFormat": "p99"
+        },
+        {
+          "expr": "histogram_quantile(0.90, sum(rate(pos_api_latency_bucket[5m])) by (le))",
+          "legendFormat": "p90"
+        },
+        {
+          "expr": "histogram_quantile(0.50, sum(rate(pos_api_latency_bucket[5m])) by (le))",
+          "legendFormat": "p50"
+        }
+      ],
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 }
+    },
+    {
+      "type": "timeseries",
+      "title": "Tiempo de respuesta DB (Latencia Kysely)",
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.99, sum(rate(pos_db_latency_bucket[5m])) by (le))",
+          "legendFormat": "p99 DB"
+        },
+        {
+          "expr": "histogram_quantile(0.50, sum(rate(pos_db_latency_bucket[5m])) by (le))",
+          "legendFormat": "p50 DB"
+        }
+      ],
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 6 }
+    },
+    {
+      "type": "timeseries",
+      "title": "Errores por Endpoint",
+      "targets": [
+        {
+          "expr": "rate(pos_api_errors_total[5m])",
+          "legendFormat": "{{route}} ({{status_code}})"
+        }
+      ],
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 }
+    },
+    {
+      "type": "barchart",
+      "title": "Consumo por Tenant",
+      "targets": [
+        {
+          "expr": "sum(rate(pos_tenant_consumption_total[5m])) by (tenant_id)",
+          "legendFormat": "{{tenant_id}}"
+        }
+      ],
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 14 }
+    },
+    {
+      "type": "stat",
+      "title": "Errores DIAN",
+      "targets": [
+        {
+          "expr": "increase(pos_dian_errors_total[5m])",
+          "legendFormat": "Errores / 5m"
+        }
+      ],
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 16 },
+      "thresholds": {
+        "mode": "absolute",
+        "steps": [
+          { "color": "green", "value": null },
+          { "color": "red", "value": 1 }
+        ]
+      }
+    }
+  ],
+  "schemaVersion": 38
+}

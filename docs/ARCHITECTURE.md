@@ -1,152 +1,264 @@
 # ARCHITECTURE
 
+> Última actualización: Junio 2026
+
 ## Objetivo
-`pos-dian` es un POS multi-tenant para Colombia, orientado a operación real de caja y cumplimiento DIAN sin meter la emisión fiscal dentro del request de venta.
 
-## Componentes
-- `apps/api`: Fastify + TypeScript + Kysely. Expone auth, sucursales, caja, productos, ventas, configuración comercial/fiscal y auditoría.
-- `apps/worker`: BullMQ + PostgreSQL. Consume outbox, construye payload DIAN, aplica reglas de transición y persiste resultado del provider.
-- `apps/pos-web`: React + Vite + PWA. Shell POS con login, apertura de caja, venta, historial, sincronización offline y configuración operativa.
-- `packages/shared`: contratos Zod/TypeScript compartidos entre API, worker y web.
+`pos-dian` es un POS multi-tenant para Colombia, orientado a operación real de caja y cumplimiento DIAN sin meter la emisión fiscal dentro del request de venta. Diseñado bajo los principios de **desacoplamiento asíncrono**, **offline-first** y **observabilidad distribuida** desde el primer día.
 
-## Entidades clave
-- `tenants`: tenant comercial. Guarda `tax_mode`, `business_name`, `nit`, `address`, `phone`, `footer_message`.
-- `branches`: sucursal operativa. Aporta contexto de caja y datos de ticket por punto de venta.
-- `users`: usuarios con rol `ADMIN` o `CASHIER`.
-- `cash_sessions`: apertura y cierre de caja por sucursal.
-- `products`: catálogo por tenant, con `tax_category` y alcance por sucursal o global.
-- `sales` y `sale_items`: venta operativa, totales en `*_cents`, `client_uuid`, metadata de anulación.
-- `dian_documents`: documentos fiscales por venta. Distingue `INVOICE` y `CREDIT_NOTE`, conserva CUDE por documento y enlaza notas crédito con `parent_document_id`.
-- `outbox_events`: eventos de negocio para el worker.
-- `audit_logs`: trazabilidad operativa de acciones críticas.
+---
 
-## Flujo POS completo
-1. `pos-web` autentica con `POST /auth/login`.
-2. `SessionProvider` persiste token y usuario básico, restaura sesión al recargar y la invalida limpiamente en `401`.
-3. El usuario selecciona sucursal y abre caja con `POST /cash-sessions/open`.
-4. La pantalla POS consume catálogo desde API, busca por nombre o código de barras y arma carrito local.
-5. El checkout construye `CreateSaleInput` con `client_uuid`, `branch_id`, `cash_session_id`, `discount_cents`, `items` y `payments`.
-6. API valida, calcula impuestos desde DB, asigna consecutivo por sucursal, guarda venta, items, `dian_documents.document_type = INVOICE` en `PENDING` y outbox `SALE_CREATED`.
-7. POS muestra confirmación e imprime ticket. Si falla por red, la venta queda en cola offline local.
-8. Historial lista ventas recientes por sucursal, permite reimpresión y, para `ADMIN`, anulación con motivo.
+## Componentes del Sistema
 
-## Flujo fiscal Colombia
-- Todos los montos se manejan en `*_cents`.
-- El POS trabaja con precio final al consumidor; no calcula impuestos en frontend.
-- `tenants.tax_mode` define el modo fiscal del negocio:
-  - `IVA`
-  - `INC_RESTAURANT`
-- `products.tax_category` define la categoría por producto:
-  - `IVA_19`
-  - `IVA_5`
-  - `IVA_0`
-  - `EXEMPT`
-  - `EXCLUDED`
-  - `INC_8`
-- En `POST /sales`, API usa siempre `tax_mode` del tenant y `tax_category` del producto persistido, no lo que llegue del frontend.
-- El resultado se persiste en:
-  - `subtotal_cents`
-  - `discount_cents`
-  - `tax_total_cents`
-  - `tax_lines_json`
-  - `total_cents`
-- El ticket muestra texto contextual:
-  - `Incluye IVA`
-  - `Incluye INC`
+| Componente | Stack | Rol |
+|---|---|---|
+| `apps/api` | Fastify · TypeScript · Kysely · Zod · OpenTelemetry | Auth, sucursales, caja, catálogo, ventas, configuración fiscal, auditoría y trazas OTLP |
+| `apps/worker` | BullMQ · TypeScript · PostgreSQL | Consumo del outbox, construcción del payload DIAN, máquina de estados fiscal y reintentos |
+| `apps/pos-web` | React · Vite · Dexie.js · PWA (Workbox) | Shell POS con login, apertura de caja, venta offline-resiliente, historial y configuración operativa |
+| `packages/shared` | TypeScript · Zod | Contratos, tipos y esquemas compartidos entre API, worker y web |
 
-## Flujo DIAN con worker
-1. API inserta la venta y crea `outbox_events.type = SALE_CREATED`.
-2. El scheduler del worker toma eventos pendientes y los convierte en jobs BullMQ.
-3. `outbox-sale-created.processor` carga venta, items, tenant y sucursal.
-4. El processor construye payload fiscal con:
-  - `taxMode`
-  - `taxTotalCents`
-  - `taxLines`
-  - items
-  - pagos
-  - datos del negocio y sucursal
-5. El provider devuelve resultado DIAN.
-6. El worker aplica reglas centralizadas de transición:
-  - `PENDING -> SENT`
-  - `SENT -> ACCEPTED`
-  - `SENT -> REJECTED`
-  - `PENDING -> REJECTED`
-7. Transiciones inválidas se rechazan y documentos `ACCEPTED` no se reemiten.
-8. Si el provider falla, el outbox pasa a retry con backoff.
+---
 
-## Anulación fiscal y nota crédito
-1. `POST /sales/:id/void` es solo para `ADMIN`.
-2. API cambia la venta a `VOID`, persiste motivo, usuario y fecha de anulación.
-3. API repone inventario, audita `SALE_VOIDED` y crea outbox `SALE_VOIDED` si existe factura fiscal.
-4. El worker busca la factura `INVOICE`; si no está `ACCEPTED`, marca el outbox como retry.
-5. Cuando la factura está aceptada, el worker crea o reutiliza `dian_documents.document_type = CREDIT_NOTE`.
-6. La nota crédito inicia su propia máquina de estados desde `PENDING`; la factura original no se reescribe.
-7. La nota crédito guarda `parent_document_id` con el id de la factura original y usa `document_type = CREDIT_NOTE` en el payload al provider.
-8. `GET /sales/:id` mantiene compatibilidad exponiendo `dian_document` como la factura principal.
+## Entidades Clave (Modelo de Datos)
 
-## Flujo offline con `client_uuid`
-1. Cada venta se crea en web con `client_uuid`.
-2. Si `POST /sales` falla por red, `pos-web` guarda el payload completo en IndexedDB, con estado de sincronización, intentos y último error.
-3. El shell muestra contador de ventas pendientes y botón `Sincronizar`.
-4. La sincronización puede ser manual o automática al volver la conexión.
-5. Se reusa el mismo `client_uuid` en cada reintento.
-6. Si backend responde con la venta ya existente para ese `client_uuid`, la web la trata como sincronizada y elimina la pendiente.
+- **`tenants`**: Tenant comercial. Almacena `tax_mode`, `business_name`, `nit`, `address`, `phone`, `footer_message`.
+- **`branches`**: Sucursal operativa. Aporta contexto de caja y datos de ticket por punto de venta.
+- **`users`**: Usuarios con roles `ADMIN`, `MANAGER`, `CASHIER`, `AUDITOR`.
+- **`cash_sessions`**: Apertura y cierre de caja por sucursal. Controla el flujo de arqueos.
+- **`products`**: Catálogo por tenant con `tax_category`, variantes y alcance por sucursal o global.
+- **`sales` / `sale_items`**: Venta operativa con totales en `*_cents`, `client_uuid` e historial de anulación.
+- **`dian_documents`**: Documentos fiscales. Distingue `INVOICE` y `CREDIT_NOTE`, conserva `CUDE` y enlaza notas crédito con `parent_document_id`.
+- **`outbox_events`**: Eventos de negocio para el worker (`SALE_CREATED`, `SALE_VOIDED`).
+- **`audit_logs`**: Trazabilidad operativa de acciones críticas.
+- **`refresh_tokens`**: Tokens de refresco de sesión (sin RLS para permitir el ciclo auth).
 
-## Roles y permisos
-- `ADMIN` (Acceso global al Tenant):
-  - configurar negocio y sucursales (`settings:manage`, `branches:manage`)
-  - cambiar configuración de todos los usuarios (`users:manage`)
-  - editar productos y catálogos (`products:manage`)
-  - anular ventas (`sales:void`)
-  - ver todas las ventas y dashboard global (`sales:view`, `dashboard:global:view`)
-  - control de caja total (`cash:open`, `cash:close`, `cash:audit`)
-- `MANAGER` (Acceso restringido a sus sucursales):
-  - administrar únicamente cajeros (`users:manage` restringido)
-  - reportes de sucursal (`reports:view`, `dashboard:view`)
-  - movimientos de inventario (`inventory:adjust`, `inventory:receive`, `inventory:transfer`)
-  - **No ve** dashboard global ni puede anular ventas.
-- `CASHIER` (Acceso restringido a sus sucursales):
-  - abrir/cerrar su propia caja (`cash:open`, `cash:close` validado por sesión)
-  - vender (`sales:create`)
-  - ver historial de ventas (`sales:view`)
-  - ver saldos de inventario (`inventory:view`)
-  - **No ve** acciones administrativas ni reportes.
-- `AUDITOR` (Solo lectura global):
-  - ver trazabilidad y sistema (`audit:view`, `alerts:view`)
+---
 
-## Observabilidad y seguridad operativa
-- API agrega `request_id` y logs estructurados con `tenant_id`, `branch_id`, `user_id` y `sale_id` cuando aplica.
-- Worker loguea por job `outbox_event_id`, `sale_id`, `tenant_id`, intento, transición DIAN y resultado del provider.
-- `audit_logs` registra apertura/cierre de caja, creación/anulación de venta, cambios fiscales y cambios de productos.
-- Login tiene rate limit básico y CORS configurable por entorno.
+## Flujos de Sistema
 
-## Diagrama
-```mermaid
-flowchart LR
-  A["POS Web"] --> B["POST /auth/login"]
-  B --> C["Sesion persistida"]
-  C --> D["Abrir caja"]
-  D --> E["Carrito + checkout"]
-  E --> F["POST /sales"]
-  F --> G["Sales + sale_items"]
-  F --> H["dian_documents INVOICE = PENDING"]
-  F --> I["outbox SALE_CREATED"]
-  I --> J["Worker"]
-  J --> K["Provider DIAN"]
-  K --> L["SENT / ACCEPTED / REJECTED"]
-  F --> P["POST /sales/:id/void"]
-  P --> Q["outbox SALE_VOIDED"]
-  Q --> R["dian_documents CREDIT_NOTE"]
-  R --> K
-  E --> M["Falla de red"]
-  M --> N["Cola offline con client_uuid"]
-  N --> O["Sincronizar"]
-  O --> F
+### 1. Flujo POS Completo
+
+```
+pos-web → POST /auth/login
+→ SessionProvider persiste token + restaura en recarga + invalida en 401
+→ Seleccionar sucursal → POST /cash-sessions/open
+→ Cargar catálogo (Dexie TTL 12h → API → Dexie fallback offline)
+→ Búsqueda por nombre, código de barras o QTY*BARCODE
+→ Checkout: CreateSaleInput { client_uuid, branch_id, cash_session_id, items, payments }
+→ POST /sales → API valida, calcula fiscal, guarda venta + INVOICE + outbox SALE_CREATED
+→ Si falla por red → IndexedDB offline queue → sincroniza al reconectar
+→ Historial → reimpresión → anulación (ADMIN)
 ```
 
-## Lo que falta para producción final
-- Provider DIAN real end-to-end certificado contra el contrato exacto del PAC.
-- Mecanismo de consulta/finalización para documentos que queden en `SENT`.
-- Observabilidad centralizada fuera de logs locales.
-- Despliegue con secretos, HTTPS, backups y operación multi-instancia.
-- Integraciones de hardware de impresión y, si aplica, medios de pago físicos.
+### 2. Flujo Fiscal Colombia
+
+- Todos los montos en `*_cents` (centavos de COP).
+- El POS trabaja con **precio final al consumidor**; los impuestos nunca se calculan en el frontend.
+- `tenants.tax_mode` define el modo fiscal del negocio: `IVA` o `INC_RESTAURANT`.
+- `products.tax_category` por producto: `IVA_19`, `IVA_5`, `IVA_0`, `EXEMPT`, `EXCLUDED`, `INC_8`.
+- La API resuelve y persiste: `subtotal_cents`, `discount_cents`, `tax_total_cents`, `tax_lines_json`, `total_cents`.
+- El ticket muestra texto contextual: `Incluye IVA` o `Incluye INC`.
+
+### 3. Flujo DIAN con Worker (Transactional Outbox)
+
+```
+1. API inserta venta + dian_documents (INVOICE, PENDING) + outbox SALE_CREATED (transacción atómica)
+2. Scheduler del worker → jobs BullMQ por outbox pendiente
+3. outbox-sale-created.processor: carga venta, items, tenant, sucursal
+4. Construye payload fiscal: taxMode, taxTotalCents, taxLines, items, pagos, datos negocio
+5. Provider DIAN devuelve resultado
+6. Worker aplica transiciones centralizadas:
+   PENDING → SENT | SENT → ACCEPTED | SENT → REJECTED | PENDING → REJECTED
+7. Transiciones inválidas se rechazan. Documentos ACCEPTED + CUDE no se reemiten.
+8. Si el provider falla → outbox pasa a retry con backoff exponencial
+```
+
+### 4. Anulación Fiscal y Nota Crédito
+
+```
+POST /sales/:id/void (solo ADMIN, requiere motivo)
+→ Venta → VOID, persiste void_reason, voided_by_user_id, voided_at
+→ Repone inventario atómicamente
+→ Audita SALE_VOIDED
+→ Si existe factura INVOICE → crea outbox SALE_VOIDED
+→ Worker espera hasta que INVOICE esté ACCEPTED
+→ Crea o reutiliza dian_documents CREDIT_NOTE con parent_document_id
+→ CREDIT_NOTE inicia su propia máquina de estados desde PENDING
+→ GET /sales/:id mantiene compatibilidad exponiendo dian_document como la factura principal
+```
+
+### 5. Flujo Offline y Sincronización
+
+```
+1. Cada venta crea client_uuid = crypto.randomUUID() en el frontend
+2. POST /sales falla por red → addPendingSale(payload) → IndexedDB (pos-dian-offline)
+3. POS muestra contador de ventas pendientes
+4. window 'online' event → syncPendingSales() automático
+5. flushPendingSales: lotes de 5, MAX_SYNC_ATTEMPTS = 5
+6. Si backend responde 409 (client_uuid ya existe) → venta se da por sincronizada (idempotencia)
+7. Si backend responde 401 → sincronización se detiene; espera re-login
+8. Si sync_attempts >= 5 → estado ABORTED, visible para el cajero con opción de reintentar
+```
+
+---
+
+## Arquitectura Offline-First (PWA)
+
+### Capas de Persistencia
+
+| Capa | Tecnología | Base de Datos | Propósito |
+|---|---|---|---|
+| Catálogo (lectura) | Dexie.js | `pos-dexie-db` | Productos y clientes con TTL de 12h por `branch_id` |
+| Cola de mutaciones (escritura) | IndexedDB nativo | `pos-dian-offline` | Ventas pendientes offline |
+| Journal de operaciones | Dexie.js | `pos-journal-db` | Log de operaciones genéricas para sync |
+| Fallback en memoria | `Map<string, ...>` | RAM | Si IndexedDB no está disponible (navegación privada, disco lleno) |
+| Assets | Service Worker (Workbox) | Cache API | HTML, CSS, JS — acceso sin red |
+
+### Estrategia de Resiliencia
+
+- `useProductCatalog`: Intenta red → si falla, carga Dexie → si no hay caché, lanza error
+- `navigator.storage.persist()` llamado en `main.tsx` para prevenir evicción por el SO (crítico en tablets iOS con poco espacio)
+- `isClientUuidAlreadyRegistered` detecta HTTP 409 durante sync y lo trata como éxito (evita doble cobro)
+
+---
+
+## UX de Alta Velocidad (Cajero)
+
+### Atajos de Teclado Globales
+
+| Contexto | Tecla | Acción |
+|---|---|---|
+| Pantalla POS | `Ctrl+K` | Foco en buscador de productos |
+| Buscador | `↑ / ↓` | Navegar lista de productos |
+| Buscador | `Enter` | Agregar producto destacado al carrito |
+| Buscador | `F4` | Abrir modal de cobro |
+| Buscador | `P` | Aparcar carrito activo |
+| Modal de cobro | `F1` | Seleccionar Efectivo |
+| Modal de cobro | `F2` | Seleccionar Tarjeta |
+| Modal de cobro | `F3` | Seleccionar Transferencia |
+| Modal de cobro | `F4` | Seleccionar Pago Mixto |
+| Modal de cobro | `Enter` | Confirmar venta (si formulario válido) |
+
+### Multiplicador de Escáner
+
+Sintaxis: `CANTIDAD*CÓDIGO_DE_BARRAS`  
+Ejemplo: teclear o escanear `5*7701234567890` → agrega 5 unidades directamente.  
+Funciona tanto desde teclado (campo de búsqueda) como desde escáner físico de hardware.
+
+### Responsive Táctil
+
+Breakpoints CSS en `global.css`:
+- `1280px`: sidebar del carrito → 340px
+- `1024px`: sidebar → 300px, checkout 2 columnas
+- `768px`: layout columna única con `grid-template-rows: 1fr auto`, scroll interno, sin scroll de página
+- `640px / 480px / 380px`: ajustes tipografía, grillas y espaciados
+
+---
+
+## Integraciones de Hardware
+
+### Impresión de Tickets
+- **HTML dinámico:** Generación de ticket 58mm u 80mm en una ventana nueva. Selección guardada en configuración del tenant.
+- **ESC/POS directo:** Conexión por Web Serial API (`navigator.serial`) a impresoras térmicas sin diálogos del sistema. Ver `ticket-printer.ts`.
+
+### Báscula Digital (Web Serial API)
+- Archivo: `apps/pos-web/src/lib/hardware.ts` → `readScaleWeight()`
+- Abre el puerto serial en baudRate 9600 (compatible Mettler, CAS y similares)
+- Lee el peso, limpia el string (`"  0.450 kg\r\n"` → `0.450`) y lo aplica como cantidad del ítem del carrito
+- Timeout de 2 segundos; errores presentados en un `alert` contextual
+
+---
+
+## Observabilidad Distribuida
+
+### Stack (Infraestructura Local)
+
+```
+apps/api ──OTLP HTTP──► otel-collector ──► Prometheus (métricas)
+                                       ──► Tempo (trazas)
+                                       ──► Loki (logs)
+                                             ↑
+                                          Grafana
+```
+
+Configurado en `infra/docker-compose.obs.yml`. Levantar con:
+```bash
+cd infra && docker compose -f docker-compose.obs.yml up -d
+```
+
+### Instrumentación en API (`apps/api/src/tracing.ts`)
+
+- OpenTelemetry Node SDK con auto-instrumentaciones (HTTP, PostgreSQL)
+- Exporter OTLP HTTP: `OTLP_TRACE_ENDPOINT` (default `http://localhost:4318/v1/traces`)
+- W3C Trace Context Propagator para trazas distribuidas entre servicios
+- **Métricas de negocio custom** vía `posMeter`:
+  - `pos.sales.count` — contador de ventas por tenant
+
+### Worker
+
+El worker loguea por job: `outbox_event_id`, `sale_id`, `tenant_id`, `attempt`, transición DIAN y resultado del provider.
+
+---
+
+## Roles y Permisos
+
+| Rol | Permisos clave |
+|---|---|
+| `ADMIN` | Todo: configurar negocio, sucursales, usuarios, productos, anular ventas, dashboard global, control total de caja |
+| `MANAGER` | Sus sucursales: administrar cajeros, reportes, movimientos de inventario. **Sin** dashboard global ni anulaciones |
+| `CASHIER` | Abrir/cerrar su caja, vender, ver historial de ventas, ver saldos de inventario |
+| `AUDITOR` | Solo lectura global: trazabilidad, alertas, audit logs |
+
+---
+
+## Seguridad
+
+- **RLS (Row Level Security):** PostgreSQL enforced por `tenant_id` en datos de negocio. `refresh_tokens` excluida de RLS (D-015) para permitir el ciclo de autenticación.
+- **JWT:** Tokens de corta duración + refresh tokens por tenant.
+- **Rate Limiting:** Login con `AUTH_LOGIN_RATE_LIMIT_MAX` / `AUTH_LOGIN_RATE_LIMIT_WINDOW_MS`.
+- **CORS:** Configurable por entorno (`CORS_ALLOWED_ORIGINS`).
+- **`request_id`:** Inyectado en todos los logs del API para trazabilidad por request.
+- **`audit_logs`:** Apertura/cierre de caja, creación/anulación de venta, cambios fiscales y de catálogo.
+
+---
+
+## Diagrama de Flujo Completo
+
+```mermaid
+flowchart LR
+  A["POS Web (PWA)"] --> B["POST /auth/login"]
+  B --> C["SessionProvider (JWT + refresh)"]
+  C --> D["Abrir caja\nPOST /cash-sessions/open"]
+  D --> E["Catálogo Dexie\n(TTL 12h / fallback red)"]
+  E --> F["Carrito + Checkout\n(Atajos F1-F4 · Escáner QTY*CODE)"]
+  F --> G["POST /sales"]
+  G --> H["sales + sale_items\n(PostgreSQL)"]
+  G --> I["dian_documents INVOICE = PENDING"]
+  G --> J["outbox SALE_CREATED"]
+  J --> K["Worker BullMQ"]
+  K --> L["Provider DIAN"]
+  L --> M["SENT / ACCEPTED / REJECTED"]
+  G --> V["POST /sales/:id/void (ADMIN)"]
+  V --> W["outbox SALE_VOIDED"]
+  W --> X["dian_documents CREDIT_NOTE"]
+  X --> L
+  F --> N["Falla de red"]
+  N --> O["Cola offline IndexedDB\n(pos-dian-offline)"]
+  O --> P["Sync automático\nonline event"]
+  P --> G
+  K --> Q["OpenTelemetry\n(OTLP Exporter)"]
+  Q --> R["otel-collector\n→ Grafana / Prometheus / Tempo"]
+```
+
+---
+
+## Pendientes para Producción
+
+| Ítem | Estado |
+|---|---|
+| Provider DIAN real (PAC) certificado | ⏳ Pendiente |
+| Consulta/webhook para documentos en estado `SENT` | ⏳ Pendiente |
+| Despliegue HTTPS, secretos, backups, multi-instancia | ⏳ Pendiente |
+| Políticas operativas: soporte, rotación de usuarios, recuperación | ⏳ Pendiente |
+| Observabilidad centralizada (stack Grafana) | ✅ Implementado localmente |
+| Integración hardware (impresoras, báscula) | ✅ Implementado (Web Serial API) |

@@ -102,8 +102,8 @@ export function AppTopbar({
           <button className="ghost-button" onClick={onCloseRegister} title="Cerrar caja">
             🔒
           </button>
-          <button className="danger-button" style={{ padding: '0.5rem', borderRadius: 'var(--radius-md)' }} onClick={onLogout} title="Cerrar sesión">
-            🚪
+          <button className="danger-button" style={{ padding: '0.5rem 1rem', borderRadius: 'var(--radius-md)', display: 'flex', gap: '0.5rem', alignItems: 'center' }} onClick={onLogout} title="Cerrar sesión / Cambiar Usuario">
+            <span>Cambiar Usuario</span> 🚪
           </button>
         </div>
       </div>

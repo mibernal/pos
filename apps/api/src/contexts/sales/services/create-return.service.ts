@@ -13,7 +13,6 @@ interface ReturnServiceContext {
   db: Kysely<Database>;
   tenantId: string;
   auth: AuthContext;
-  branchId: string;
 }
 
 export async function processPartialReturn(
@@ -22,6 +21,10 @@ export async function processPartialReturn(
   request: CreateReturnRequest
 ) {
   return await ctx.db.transaction().execute(async (trx) => {
+    // CRIT-004: Activar contexto RLS para que la política de la tabla sales
+    // (app.current_tenant) filtre a nivel PostgreSQL como primera línea de defensa.
+    // SET LOCAL expira automáticamente al finalizar la transacción.
+    await sql`SELECT set_config('app.current_tenant', ${ctx.tenantId}, true)`.execute(trx);
     // 1. Lock the sale
     const sale = await trx
       .selectFrom('sales')
@@ -47,28 +50,35 @@ export async function processPartialReturn(
       .where('tenant_id', '=', ctx.tenantId)
       .where('client_uuid', '=', request.client_uuid)
       .executeTakeFirst();
-      
+
     if (existingReturn) {
-       return {
-         return_id: existingReturn.id,
-         total_refund_cents: existingReturn.total_refund_cents,
-         status: 'success',
-         message: 'Devolución parcial procesada exitosamente (Idempotente)'
-       };
+      return {
+        return_id: existingReturn.id,
+        total_refund_cents: existingReturn.total_refund_cents,
+        status: 'success',
+        message: 'Devolución parcial procesada exitosamente (Idempotente)'
+      };
     }
 
     // 2. Fetch sale items
+    // CRIT-002: Filtrar por tenant_id para evitar lectura cross-tenant si saleId
+    // perteneciera a otro tenant (defensa en profundidad sobre el check de sale arriba).
     const saleItems = await trx
       .selectFrom('sale_items')
       .selectAll()
+      .where('tenant_id', '=', ctx.tenantId)
       .where('sale_id', '=', saleId)
       .execute();
 
     // 3. Fetch existing returns to calculate available quantities
+    // CRIT-003: Ambas tablas del join deben filtrarse por tenant_id para evitar
+    // contaminación cruzada de devoluciones de otros tenants.
     const existingReturnItems = await trx
       .selectFrom('return_items')
       .innerJoin('sale_returns', 'sale_returns.id', 'return_items.return_id')
       .select(['return_items.product_id', 'return_items.qty'])
+      .where('sale_returns.tenant_id', '=', ctx.tenantId)
+      .where('return_items.tenant_id', '=', ctx.tenantId)
       .where('sale_returns.sale_id', '=', saleId)
       .execute();
 
@@ -143,7 +153,13 @@ export async function processPartialReturn(
     await trx.insertInto('return_items').values(returnItemsData).execute();
 
     // 7. Adjust Inventory (Add items back)
-    for (const item of itemsToInsert) {
+    const sortedItemsToInsert = [...itemsToInsert].sort((a, b) => {
+      const keyA = `${a.product_id}|${a.variant_id ?? ''}`;
+      const keyB = `${b.product_id}|${b.variant_id ?? ''}`;
+      return keyA.localeCompare(keyB);
+    });
+
+    for (const item of sortedItemsToInsert) {
       // Create transaction
       await trx
         .insertInto('inventory_transactions')
@@ -160,38 +176,20 @@ export async function processPartialReturn(
         })
         .execute();
 
-      // Usar SELECT → UPDATE/INSERT en lugar de onConflict para evitar incompatibilidad
-      // con el índice parcial uq_inv_balances_tenant_branch_prod_var (expresión COALESCE).
-      const existingBalance = await trx
-        .selectFrom('inventory_balances')
-        .select('id')
-        .where('tenant_id', '=', ctx.tenantId)
-        .where('branch_id', '=', sale.branch_id)
-        .where('product_id', '=', item.product_id)
-        .where(sql`coalesce(variant_id, '00000000-0000-0000-0000-000000000000')`, '=', item.variant_id ?? '00000000-0000-0000-0000-000000000000')
-        .executeTakeFirst();
-
-      if (existingBalance) {
-        await trx
-          .updateTable('inventory_balances')
-          .set({
-            on_hand_qty: sql`inventory_balances.on_hand_qty + ${Number(item.qty)}`,
-            updated_at: new Date()
-          })
-          .where('id', '=', existingBalance.id)
-          .execute();
-      } else {
-        await trx
-          .insertInto('inventory_balances')
-          .values({
-            tenant_id: ctx.tenantId,
-            branch_id: sale.branch_id,
-            product_id: item.product_id,
-            variant_id: item.variant_id ?? null,
-            on_hand_qty: Number(item.qty).toString()
-          })
-          .execute();
-      }
+      await trx.insertInto('inventory_balances')
+        .values({
+          tenant_id: ctx.tenantId,
+          branch_id: sale.branch_id,
+          product_id: item.product_id,
+          variant_id: item.variant_id ?? null,
+          on_hand_qty: Number(item.qty).toString()
+        })
+        .onConflict((oc) => oc.expression(sql`tenant_id, branch_id, product_id, coalesce(variant_id, '00000000-0000-0000-0000-000000000000')`)
+          .doUpdateSet({
+            on_hand_qty: sql`inventory_balances.on_hand_qty + EXCLUDED.on_hand_qty`,
+            updated_at: sql`NOW()`
+          }))
+        .execute();
     }
 
     // 8. Create Outbox Event for DIAN Credit Note
@@ -230,11 +228,11 @@ export async function processPartialReturn(
       entityId: returnRow.id,
       action: 'SALE_RETURN_CREATED',
       payloadJson: {
-         sale_id: saleId,
-         client_uuid: request.client_uuid,
-         items_returned: itemsToInsert,
-         total_refund_cents: totalRefundCents,
-         reason: request.reason
+        sale_id: saleId,
+        client_uuid: request.client_uuid,
+        items_returned: itemsToInsert,
+        total_refund_cents: totalRefundCents,
+        reason: request.reason
       }
     });
 

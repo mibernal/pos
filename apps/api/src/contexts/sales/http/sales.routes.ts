@@ -327,8 +327,7 @@ export const salesRoutes: FastifyPluginAsync = async (app) => {
         {
           db: app.db,
           tenantId: request.auth.tenantId,
-          auth: request.auth,
-          branchId: '00000000-0000-0000-0000-000000000000' // resolved inside service
+          auth: request.auth
         },
         params.id,
         payload

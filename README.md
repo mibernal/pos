@@ -1,37 +1,70 @@
 # POS DIAN - Colombia (Multi-Tenant)
 
-Un Punto de Venta (POS) multi-tenant de alto rendimiento con emisión de facturación electrónica (DIAN) en Colombia. Diseñado con una arquitectura desacoplada asíncrona, capacidades Offline PWA y empaquetamiento listo para la Nube.
+Un Punto de Venta (POS) multi-tenant de alto rendimiento con emisión de facturación electrónica (DIAN) en Colombia. Diseñado con una arquitectura desacoplada asíncrona, capacidades Offline-First PWA, observabilidad distribuida y empaquetamiento listo para la Nube.
 
-> **Nota de estado**: Documentación y estructura de proyecto actualizada y consolidada (Mayo 2026).
+> **Estado actual (Junio 2026):** Sistema operativo en desarrollo activo. Observabilidad distribuida implementada. UX de alta velocidad para cajero implementada. Catálogo offline-resiliente con Dexie + fallback en memoria activo.
+
+---
 
 ## 🏗 Arquitectura (Monorepo Turborepo)
 
 Este proyecto está construido como un monorepo administrado con `pnpm` workspace y `turborepo`. Sus módulos son:
 
-- `apps/api`: Backend principal impulsado por **Fastify, Kysely, TypeScript, y Zod**. Maneja la lógica core, seguridad (JWT) y expone la API RESTful.
-- `apps/worker`: Servidor de Background Jobs impulsado por **BullMQ**. Extrae eventos desde la base de datos (Patrón *Transactional Outbox*) para emisión a la DIAN mediante providers simulados o reales (HTTP), asegurando resiliencia a caídas de la DIAN.
-- `apps/pos-web`: Frontend (Aplicación Web Progresiva) en **React + Vite**. Interfaz para cajas, responsiva para tablets, con catálogo precargado en memoria y cola local de ventas pendientes.
-- `packages/shared`: Tipos, esquemas `Zod` y contratos utilitarios compartidos en todo el proyecto.
+| Módulo | Descripción |
+|---|---|
+| `apps/api` | Backend principal en **Fastify + Kysely + TypeScript + Zod**. Maneja la lógica core, seguridad (JWT + RLS), trazas OTLP y expone la API RESTful. |
+| `apps/worker` | Servidor de Background Jobs en **BullMQ**. Extrae eventos desde la base de datos (patrón *Transactional Outbox*) para emisión a la DIAN, con reintentos y backoff exponencial. |
+| `apps/pos-web` | Frontend PWA en **React + Vite**. Interfaz de caja con catálogo precargado en IndexedDB (Dexie), cola local de ventas pendientes, atajos de teclado y soporte táctil. |
+| `packages/shared` | Tipos, esquemas Zod y contratos compartidos en todo el monorepo. |
 
-## 🚀 Capacidades y Enfoque (SaaS Enterprise)
+---
 
-- **Multi-Tenant Global & Roles Granulares:** Cada negocio opera en su propio tenant aislado lógicamente (RLS) con selector en el login. Control de acceso robusto basado en roles (`ADMIN`, `MANAGER`, `CASHIER`, `AUDITOR`).
-- **Offline-Resilient / PWA:** La app cachea assets y mantiene una cola IndexedDB para ventas pendientes. El catálogo virtualizado en memoria soporta miles de SKUs a 60fps constantes (recargar completamente offline no garantiza catálogo persistente todavía).
-- **Control de Efectivo Avanzado:** Apertura/cierre de caja, arqueos de caja intermedios, cierres Z, y reportes por turno y cajero. Control estricto de descuadres de caja (arqueos ciegos para cajeros) y registro de movimientos de entrada/salida de dinero.
-- **Inventario Enterprise:** Catálogo con productos variantes, promociones avanzadas (porcentaje, dinero fijo, Buy X Get Y), vista de stock consolidada multi-sucursal y disparadores asíncronos de alertas por stock mínimo (vía Outbox).
-- **Emisión Asíncrona Robusta:** La venta se persiste atómicamente en PostgreSQL junto al evento Outbox. El Worker reintenta la conexión con el provider DIAN sin bloquear al cajero.
-- **Anulaciones y Devoluciones Fiscales:** Soporta anulación completa (`SALE_VOIDED`) y devoluciones parciales (`SALE_RETURNED`). El worker se encarga de que la factura original esté `ACCEPTED` y genera automáticamente la nota crédito `CREDIT_NOTE` enlazada (`parent_document_id`).
-- **Impresión Tickets Dinámicos:** Soporte HTML dinámico tradicional (Ticket ancho estándar 80mm ó pequeño de 58mm) y conexión directa por puerto serial (Web Serial API `navigator.serial`) a impresoras de tickets (ESC/POS) omitiendo diálogos del sistema para velocidad en caja.
-- **Micro-Deployments listos:** Empaque Multi-Stage de Docker con `pnpm deploy`, reduciendo drásticamente el peso de las imágenes. Servidor Nativo `HTTP Health / Uptime` en el Worker para SLA's en PaaS (Render, AWS, Railway).
+## 🚀 Capacidades
+
+### Core Operativo
+- **Multi-Tenant & Roles Granulares:** Cada negocio opera aislado lógicamente (PostgreSQL RLS). Roles: `ADMIN`, `MANAGER`, `CASHIER`, `AUDITOR`.
+- **Control de Efectivo Avanzado:** Apertura/cierre de caja, arqueos intermedios (ciegos para cajeros), cierres Z y reportes por turno.
+- **Inventario Enterprise:** Catálogo con variantes, promociones avanzadas (`PERCENTAGE`, `FIXED_AMOUNT`, `BUY_X_GET_Y`) y alertas de stock mínimo.
+
+### Emisión Fiscal
+- **Emisión Asíncrona Robusta:** La venta se persiste atómicamente (PostgreSQL) junto al evento Outbox. El Worker reintenta contra el provider DIAN sin bloquear al cajero.
+- **Anulaciones y Notas Crédito:** Soporte completo `SALE_VOIDED` → `CREDIT_NOTE` vinculada vía `parent_document_id`. El inventario se repone atómicamente.
+- **Idempotencia Comercial:** `client_uuid` garantiza que reintentos de red nunca dupliquen ventas.
+
+### Offline-First PWA
+- **Catálogo Persistente:** Dexie.js cachea hasta 5.000 SKUs en IndexedDB con TTL de 12 horas por `branch_id`. Al expirar o fallar la red, carga desde caché sin interrumpir al cajero.
+- **Cola de Ventas Offline:** Las ventas pendientes sobreviven cierres del navegador en IndexedDB con reintentos automáticos al reconectar (`navigator.onLine`).
+- **Almacenamiento Persistente:** Solicita `navigator.storage.persist()` al iniciar para prevenir evicción del SO en tablets con poco espacio.
+- **Service Worker (Workbox):** Assets cacheados para funcionamiento sin red.
+
+### UX de Alta Velocidad
+- **Atajos de Teclado Globales (Checkout):**
+  - `F1` → Efectivo · `F2` → Tarjeta · `F3` → Transferencia · `F4` → Pago Mixto
+  - `Enter` → Confirmar cobro (cuando el formulario es válido)
+  - `Ctrl+K` → Foco en búsqueda de producto
+- **Multiplicador de Escáner:** Sintaxis `CANTIDAD*CÓDIGO` (ej. `5*7701234567890`) desde teclado o escáner físico para agregar múltiples unidades en un paso.
+- **Botones Rápidos de Billetes:** `Exacto`, `$20.000`, `$50.000`, `$100.000` en el panel de efectivo con auto-foco en el campo de monto.
+- **Responsive Táctil:** Tap targets ≥ 40px. Layout app-like en tablets (768px) con `grid-template-rows: 1fr auto` — sin scroll de página.
+
+### Hardware
+- **Impresión de Tickets:** HTML dinámico (58mm / 80mm) y ESC/POS directo por Web Serial API (`navigator.serial`) sin diálogos del sistema.
+- **Báscula Serial:** Integración con básculas por Web Serial API (baudRate 9600, compatible Mettler/CAS). Botón por ítem en el carrito.
+
+### Observabilidad Distribuida
+- **OpenTelemetry SDK** instrumentado en `apps/api` (trazas HTTP, DB y métricas de negocio).
+- **Stack completo:** OpenTelemetry Collector → Prometheus → Grafana + Tempo (trazas) + Loki (logs).
+- **Métricas de negocio custom:** `pos.sales.count`, etc. exportadas vía OTLP.
 
 ---
 
 ## 💻 Quickstart (Ambiente Local)
 
-Sigue estos pasos para arrancar el entorno en tu máquina:
+### 1. Requisitos
+- Node.js `20.x`
+- pnpm `10.x` (`npm install -g pnpm@latest`)
+- Docker Desktop
 
-### 1. Variables de Entorno
-Copia los archivos de ejemplo en todos los sub-paquetes y la raíz. Sustituye las credenciales de DIAN/DB en caso de tener reales.
+### 2. Variables de Entorno
 ```bash
 cp .env.example .env
 cp apps/api/.env.example apps/api/.env
@@ -39,29 +72,28 @@ cp apps/worker/.env.example apps/worker/.env
 cp apps/pos-web/.env.example apps/pos-web/.env
 ```
 
-### 2. Infraestructura
-Levanta la Base de Datos PostgreSQL y Redis usando Docker Compose:
+### 3. Infraestructura Core (PostgreSQL + Redis)
 ```bash
-cd infra
-docker compose up -d
-cd ..
+cd infra && docker compose up -d && cd ..
 ```
 
-### 3. Instalación de Dependencias
-Asegurate de usar Node.js `20.x` y Pnpm `9.x`.
+### 4. Infraestructura de Observabilidad (Opcional)
+```bash
+cd infra && docker compose -f docker-compose.obs.yml up -d && cd ..
+```
+
+### 5. Dependencias
 ```bash
 pnpm install
 ```
 
-### 4. Base de Datos
-Correr las migraciones y sembrar datos semilla (Usuarios y Negocio Demo):
+### 6. Base de Datos
 ```bash
 pnpm --filter @pos-dian/api db:migrate
 pnpm --filter @pos-dian/api db:seed
 ```
 
-### 5. Ejecutar Monorepo (Dev Mode)
-Inicia todas las apps en paralelo gracias a Turborepo.
+### 7. Ejecutar en Modo Desarrollo
 ```bash
 pnpm dev
 ```
@@ -70,64 +102,79 @@ pnpm dev
 
 ## 🌍 URLs Locales
 
-- **API Base:** [http://localhost:3000](http://localhost:3000)
-- **Documentación Swagger:** [http://localhost:3000/docs](http://localhost:3000/docs)
-- **Documentación Técnica Interna:** Consulta el archivo [docs/API.md](./docs/API.md) para ver los esquemas y contratos detallados.
-- **POS Web Frontend:** [http://localhost:5173](http://localhost:5173)
+| Servicio | URL |
+|---|---|
+| POS Web | http://localhost:5173 |
+| API REST | http://localhost:3000 |
+| Swagger UI | http://localhost:3000/docs |
+| Grafana | http://localhost:3100 *(si levantaste obs.)* |
+| Prometheus | http://localhost:9090 *(si levantaste obs.)* |
 
 ---
 
-## 🔑 Credenciales Demo (Semilla)
+## 🔑 Credenciales Demo
 
-Puedes utilizar estas credenciales iniciales en `http://localhost:5173`:
-- **Administrador:** `admin@demo.posdian.local` / `Admin123*`
-- **Cajero:** `cashier@demo.posdian.local` / `Cashier123*`
-
----
-
-## ⚙️ Flujo Sugerido (Demo de Producto)
-
-1. Ingresa a la interfaz web con el rol de `ADMIN`.
-2. Dirígete a **Ajustes de Sistema** y configura los detalles de tu negocio (incluyendo el tamaño de la impresora deseada de tickets: `58mm` u `80mm`).
-3. Ve a **Configuración Fiscal** e identifica si requieres emitir en Base a INC_RESTAURANT (Impoconsumo) o Tienda Múltiple (Tasas IVA mixtas).
-4. Abre la la caja. Comienza a tipear en el buscador (Observará latencia `0ms` off-grid).
-5. Completa una Venta en efectivo o Mixta. El Pos Screen renderizará la ventana de impresión al finalizar.
-6. Ve al **Historial**. Allí figurará la venta indicando si la emisión a la DIAN está pendiente, enviada, aceptada o rechazada.
-7. Simula una anulación desde el Historial o procesa una devolución parcial de ítems. La venta o devolución repondrá el inventario y el worker emitirá una nota de crédito fiscal separada (CREDIT_NOTE) a la DIAN cuando la factura original esté aceptada.
+| Rol | Email | Contraseña |
+|---|---|---|
+| `ADMIN` | `admin@demo.posdian.local` | `Admin123*` |
+| `CASHIER` | `cashier@demo.posdian.local` | `Cashier123*` |
 
 ---
 
-## 🧾 Modelo Fiscal Actual
+## ⚙️ Flujo de Demo
+
+1. Entra como `ADMIN` → **Configuración del Negocio** (NIT, dirección, ticket 58mm/80mm).
+2. **Configuración DIAN** → elige modo fiscal (`IVA` o `INC_RESTAURANT`).
+3. **Productos** → asigna `tax_category` a cada SKU.
+4. Abre caja en la sucursal demo.
+5. En la pantalla POS: busca con `Ctrl+K`, agrega con `↑↓ + Enter`, cobra con `F1` + `Enter`.
+6. Revisa el **Historial** → estado DIAN, CUDE, ticket, anulaciones.
+7. Desconecta el cable de red → vende → reconecta → observa sincronización automática.
+
+---
+
+## 🧾 Modelo Fiscal
 
 - `dian_documents.document_type` distingue `INVOICE` y `CREDIT_NOTE`.
-- Las facturas se crean con la venta y se procesan desde outbox `SALE_CREATED`.
-- Las notas crédito se crean desde outbox `SALE_VOIDED` y guardan `parent_document_id` apuntando a la factura original.
-- El endpoint `GET /api/v1/sales/:id` conserva compatibilidad: `dian_document` sigue exponiendo la factura principal.
-- El provider HTTP exige `status` válido (`SENT`, `ACCEPTED`, `REJECTED`) y exige `CUDE` cuando responde `ACCEPTED`.
+- Las facturas se crean con la venta desde el outbox `SALE_CREATED`.
+- Las notas crédito se crean desde `SALE_VOIDED` con `parent_document_id` apuntando a la factura original.
+- El provider HTTP exige `status` válido (`SENT`, `ACCEPTED`, `REJECTED`) y `CUDE` cuando responde `ACCEPTED`.
+- `GET /api/v1/sales/:id` expone `dian_document` como la factura principal por retrocompatibilidad.
 
 ---
 
-## 🚢 Despliegue en Producción (Cloud / PaaS)
+## 🚢 Despliegue en Producción
 
-El proyecto incluye dos Dockerfiles multi-etapa optimizados que empaquetan cada aplicación usando el comando core `pnpm deploy`, permitiendo omitir todo el código TypeScript y *DevDependencies*.
+El proyecto incluye Dockerfiles multi-etapa optimizados usando `pnpm deploy`:
 
-### A. Construcción API
+### API
 ```bash
 docker build -t pos-dian-api -f apps/api/Dockerfile .
 ```
-- Variables Entorno exigidas: `DATABASE_URL`, `JWT_SECRET`, `CORS_ALLOWED_ORIGINS`
-- Expone el puerto por defecto: `3000`
+Variables requeridas: `DATABASE_URL`, `JWT_SECRET`, `CORS_ALLOWED_ORIGINS`, `OTLP_TRACE_ENDPOINT` (opcional)
 
-### B. Construcción Worker (BullMQ)
+### Worker (BullMQ)
 ```bash
 docker build -t pos-dian-worker -f apps/worker/Dockerfile .
 ```
-- Variables Entorno exigidas: `DATABASE_URL`, `REDIS_URL`, `DIAN_PROVIDER`, `DIAN_HTTP_URL`
-- Provisión de Vida (Health): A diferencia de otros workers que mueren bajo regulaciones PaaS por no exponer puertos HTTP, este binario expone un MiniServidor nativo en la variable `$PORT` (O `8080`) respondiendo en `/health`, manteniéndose perenne para AWS/Render/DigitalOcean.
+Variables requeridas: `DATABASE_URL`, `REDIS_URL`, `DIAN_PROVIDER`, `DIAN_HTTP_URL`
 
-### C. Frontend Estático
-La App Frontend puede subirse gratis a Vercel, Netlify o S3 inyectando durante build:
-- `VITE_API_URL` -> Apuntando a tu endpoint público de la `API`.
+> El worker expone `/health` en `$PORT` (default `8080`) para cumplir con SLA de plataformas PaaS (Render, Railway, DigitalOcean App Platform).
 
-### CI/CD (GitHub Actions)
-La Integración continua ya está parametrizada en `.github/workflows/ci.yml`. Correrá `pnpm build`, `pnpm lint`, y `pnpm test` (incluyendo validación del outbox, providers DIAN y flujo E2E) en todos los Pull Requests hacia `main`.
+### Frontend Estático
+```bash
+VITE_API_URL=https://tu-api.com/api/v1 pnpm --filter @pos-dian/pos-web build
+```
+Desplegable en Vercel, Netlify o S3 + CloudFront.
+
+### CI/CD
+La integración continua está parametrizada en `.github/workflows/ci.yml` y ejecuta `pnpm build`, `pnpm lint` y `pnpm test` en todos los Pull Requests hacia `main`.
+
+---
+
+## ⚠️ Pendientes para Producción
+
+- Provider DIAN real (PAC) certificado end-to-end.
+- Consulta/webhook de finalización para documentos que queden en estado `SENT`.
+- Despliegue con HTTPS, gestión de secretos, backups automáticos y operación multi-instancia.
+- Políticas operativas de soporte, rotación de usuarios y recuperación de incidentes.

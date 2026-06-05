@@ -8,6 +8,7 @@ import { env } from '../../../app/env.js';
 import { mapSaleRow, saleColumnList } from './sale-mapper.js';
 import { ensureUserCanAccessBranch } from '../../../shared/infra/security/permissions.js';
 import type { AuthContext } from '../../../shared/infra/security/types.js';
+import { LedgerService } from '../../../shared/infra/db/ledger-service.js';
 
 interface VoidSaleServiceInput {
   db: Kysely<Database>;
@@ -23,6 +24,11 @@ export async function voidSaleService(input: VoidSaleServiceInput) {
   const { db, tenantId, auth, saleId, payload } = input;
 
   const voidedSale = await db.transaction().execute(async (trx) => {
+    // CRIT-005: Activar contexto RLS para que la política tenant_isolation_policy
+    // de la tabla sales sea efectiva en esta transacción de anulación.
+    // SET LOCAL expira automáticamente al hacer COMMIT/ROLLBACK.
+    await sql`SELECT set_config('app.current_tenant', ${tenantId}, true)`.execute(trx);
+
     const currentSale = await trx
       .selectFrom('sales')
       .select([
@@ -31,6 +37,8 @@ export async function voidSaleService(input: VoidSaleServiceInput) {
         'sale_number',
         'status',
         'total_cents',
+        'tax_total_cents',
+        'cash_session_id',
         'void_reason',
         'voided_by_user_id',
         'voided_at',
@@ -85,6 +93,27 @@ export async function voidSaleService(input: VoidSaleServiceInput) {
       .returning([...saleColumnList])
       .executeTakeFirstOrThrow();
 
+    await LedgerService.appendSalesLedger(trx, {
+      tenantId,
+      saleId: updatedSale.id,
+      type: 'SALE_VOID',
+      amountCents: -Number(currentSale.total_cents),
+      taxAmountCents: -Number(currentSale.tax_total_cents),
+      userId: auth.userId
+    });
+
+    const cashSession = await trx.selectFrom('cash_sessions').select('terminal_id').where('id', '=', currentSale.cash_session_id).executeTakeFirst();
+    if (cashSession) {
+      await LedgerService.appendCashLedger(trx, {
+        tenantId,
+        cashSessionId: currentSale.cash_session_id,
+        terminalId: cashSession.terminal_id,
+        type: 'CASH_REFUND',
+        amountCents: -Number(currentSale.total_cents),
+        balanceAfterCents: 0
+      });
+    }
+
     const saleItems = await trx
       .selectFrom('sale_items')
       .select(['product_id', 'variant_id', 'qty'])
@@ -92,7 +121,13 @@ export async function voidSaleService(input: VoidSaleServiceInput) {
       .where('sale_id', '=', saleId)
       .execute();
 
-    for (const item of saleItems) {
+    const sortedSaleItems = [...saleItems].sort((a, b) => {
+      const keyA = `${a.product_id}|${a.variant_id ?? ''}`;
+      const keyB = `${b.product_id}|${b.variant_id ?? ''}`;
+      return keyA.localeCompare(keyB);
+    });
+
+    for (const item of sortedSaleItems) {
       const txId = randomUUID();
       await trx
         .insertInto('inventory_transactions')
@@ -110,38 +145,32 @@ export async function voidSaleService(input: VoidSaleServiceInput) {
         })
         .execute();
 
-      // Usar SELECT → UPDATE/INSERT en lugar de onConflict para evitar incompatibilidad
-      // con el índice parcial uq_inv_balances_tenant_branch_prod_var (expresión COALESCE).
-      const existingBalance = await trx
-        .selectFrom('inventory_balances')
-        .select('id')
-        .where('tenant_id', '=', tenantId)
-        .where('branch_id', '=', updatedSale.branch_id)
-        .where('product_id', '=', item.product_id)
-        .where(sql`coalesce(variant_id, '00000000-0000-0000-0000-000000000000')`, '=', item.variant_id ?? '00000000-0000-0000-0000-000000000000')
+      const result = await trx.insertInto('inventory_balances')
+        .values({
+          tenant_id: tenantId,
+          branch_id: updatedSale.branch_id,
+          product_id: item.product_id,
+          variant_id: item.variant_id ?? null,
+          on_hand_qty: Number(item.qty).toString()
+        })
+        .onConflict((oc) => oc.expression(sql`tenant_id, branch_id, product_id, coalesce(variant_id, '00000000-0000-0000-0000-000000000000')`)
+          .doUpdateSet({
+            on_hand_qty: sql`inventory_balances.on_hand_qty + EXCLUDED.on_hand_qty`,
+            updated_at: sql`NOW()`
+          }))
+        .returning('on_hand_qty')
         .executeTakeFirst();
 
-      if (existingBalance) {
-        await trx
-          .updateTable('inventory_balances')
-          .set({
-            on_hand_qty: sql`inventory_balances.on_hand_qty + ${Number(item.qty)}`,
-            updated_at: sql`NOW()`
-          })
-          .where('id', '=', existingBalance.id)
-          .execute();
-      } else {
-        await trx
-          .insertInto('inventory_balances')
-          .values({
-            tenant_id: tenantId,
-            branch_id: updatedSale.branch_id,
-            product_id: item.product_id,
-            variant_id: item.variant_id ?? null,
-            on_hand_qty: Number(item.qty).toString()
-          })
-          .execute();
-      }
+      await LedgerService.appendInventoryLedger(trx, {
+        tenantId,
+        branchId: updatedSale.branch_id,
+        productId: item.product_id,
+        variantId: item.variant_id ?? null,
+        operation: 'VOID_RESTOCK',
+        qtyChange: Number(item.qty),
+        balanceAfter: result ? Number(result.on_hand_qty) : Number(item.qty),
+        referenceId: updatedSale.id
+      });
     }
 
     await writeAuditLog(trx, {

@@ -104,12 +104,19 @@ export async function buildApp() {
 
   const app = Fastify({
     logger: {
+      redact: ['req.headers.authorization', 'req.headers.cookie', 'password', 'body.password', 'body.token'],
       transport:
         env.NODE_ENV === 'development'
           ? {
-            target: 'pino-pretty'
+            targets: [
+              { target: 'pino-pretty' },
+              { target: 'pino-loki', options: { batching: true, interval: 5, host: 'http://localhost:3100' } }
+            ]
           }
-          : undefined
+          : {
+            target: 'pino-loki',
+            options: { batching: true, interval: 5, host: 'http://loki:3100' }
+          }
     },
     requestIdHeader: false,
     requestIdLogLabel: 'request_id',
@@ -128,6 +135,9 @@ export async function buildApp() {
   app.setValidatorCompiler(validatorCompiler);
   app.setSerializerCompiler(serializerCompiler);
 
+  // Hook to record metrics
+  const { apiLatencyHistogram, apiErrorsCounter } = await import('../tracing.js');
+
   app.addHook('onRequest', (request, reply, done) => {
     // OpenTelemetry integration
     const activeContext = context.active();
@@ -135,6 +145,9 @@ export async function buildApp() {
     const traceId = span?.spanContext().traceId;
 
     const correlationId = traceId || (request.headers['x-correlation-id'] as string) || randomUUID();
+
+    // Store start time for latency metric
+    (request as any).startTime = process.hrtime();
 
     // Inject trace_id and correlationId into Fastify logger
     request.log = request.log.child({ correlationId, trace_id: traceId });
@@ -147,6 +160,21 @@ export async function buildApp() {
     };
 
     auditContextStorage.run(auditContext, done);
+  });
+
+  app.addHook('onResponse', (request, reply, done) => {
+    const startTime = (request as any).startTime;
+    if (startTime) {
+      const diff = process.hrtime(startTime);
+      const latencyMs = (diff[0] * 1e9 + diff[1]) / 1e6;
+      const route = request.routeOptions.url || request.url;
+      apiLatencyHistogram.record(latencyMs, { method: request.method, route, status_code: reply.statusCode });
+      
+      if (reply.statusCode >= 400) {
+        apiErrorsCounter.add(1, { method: request.method, route, status_code: reply.statusCode });
+      }
+    }
+    done();
   });
 
   // Verify auth before running route handlers

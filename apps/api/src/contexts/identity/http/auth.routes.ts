@@ -26,7 +26,7 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
     },
     async (request, reply) => {
       const { email, password, tenantId } = loginBodySchema.parse(request.body);
-      const rateLimitKey = buildLoginRateLimitKey(request.ip, email);
+      const rateLimitKey = buildLoginRateLimitKey(request.ip, email, tenantId);
 
       // C2: Rate limit persistido en Redis — sobrevive restarts y escala horizontal
       try {
@@ -136,6 +136,7 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
 
       await app.db.insertInto('refresh_tokens').values({
         id: randomUUID(),
+        tenant_id: user.tenant_id,
         user_id: user.id,
         token_hash: refreshTokenHash,
         expires_at: expiresAt,
@@ -272,7 +273,7 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
 
       const tokenRecord = await app.db
         .selectFrom('refresh_tokens')
-        .select(['id', 'user_id', 'expires_at', 'revoked_at'])
+        .select(['id', 'tenant_id', 'user_id', 'expires_at', 'revoked_at'])
         .where('token_hash', '=', currentHash)
         .executeTakeFirst();
 
@@ -288,6 +289,7 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
         await app.db
           .updateTable('refresh_tokens')
           .set({ revoked_at: new Date() })
+          .where('tenant_id', '=', tokenRecord.tenant_id)
           .where('user_id', '=', tokenRecord.user_id)
           .where('revoked_at', 'is', null)
           .execute();
@@ -346,11 +348,13 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
         await trx
           .updateTable('refresh_tokens')
           .set({ revoked_at: new Date() })
+          .where('tenant_id', '=', tokenRecord.tenant_id)
           .where('id', '=', tokenRecord.id)
           .execute();
 
         await trx.insertInto('refresh_tokens').values({
           id: randomUUID(),
+          tenant_id: user.tenant_id,
           user_id: user.id,
           token_hash: refreshTokenHash,
           expires_at: expiresAt,

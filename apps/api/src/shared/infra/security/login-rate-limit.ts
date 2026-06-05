@@ -28,8 +28,8 @@ end
 return current
 `;
 
-export function buildLoginRateLimitKey(ipAddress: string, normalizedEmail: string): string {
-  return `${RATE_LIMIT_KEY_PREFIX}:${ipAddress}:${normalizedEmail}`;
+export function buildLoginRateLimitKey(ipAddress: string, normalizedEmail: string, tenantId?: string): string {
+  return `${RATE_LIMIT_KEY_PREFIX}:${tenantId || 'global'}:${ipAddress}:${normalizedEmail}`;
 }
 
 /**

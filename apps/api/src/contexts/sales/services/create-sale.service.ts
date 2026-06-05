@@ -15,6 +15,8 @@ import { mapSaleRow, serializeJsonArrayForDb, saleColumnList } from './sale-mapp
 import { OutboxPublisher } from '../../../shared/infra/outbox/OutboxPublisher.js';
 import { SaleCreatedEvent } from '../domain/events/SaleCreatedEvent.js';
 import { StockLowEvent } from '../../inventory/domain/events/StockLowEvent.js';
+import { LedgerService } from '../../../shared/infra/db/ledger-service.js';
+import { executeAsTenant } from '../../../shared/infra/db/rls.js';
 import type { FastifyBaseLogger } from 'fastify';
 import type { CreateSaleBodyInput } from './schemas.js';
 
@@ -73,7 +75,7 @@ export async function createSaleService(input: CreateSaleServiceInput) {
 
       const cashSession = await trx
         .selectFrom('cash_sessions')
-        .select(['id', 'closed_at', 'branch_id', 'opened_by_user_id'])
+        .select(['id', 'closed_at', 'branch_id', 'opened_by_user_id', 'terminal_id'])
         .where('tenant_id', '=', tenantId)
         .where('id', '=', payload.cash_session_id)
         .forUpdate()
@@ -393,6 +395,26 @@ export async function createSaleService(input: CreateSaleServiceInput) {
         .returning([...saleColumnList])
         .executeTakeFirstOrThrow();
 
+      await LedgerService.appendSalesLedger(trx, {
+        tenantId,
+        saleId,
+        type: 'SALE_CREATION',
+        amountCents: finalTotalCents,
+        taxAmountCents: finalTaxTotalCents,
+        userId
+      });
+
+      await LedgerService.appendCashLedger(trx, {
+        tenantId,
+        cashSessionId: payload.cash_session_id,
+        terminalId: cashSession.terminal_id,
+        type: 'CASH_SALE',
+        amountCents: finalTotalCents,
+        // En una implementación real, balance_after_cents vendría de calcular sumatorias.
+        // Simularemos 0 por ahora para el PoC, pero en prop se debe traer el balance de la session.
+        balanceAfterCents: 0 
+      });
+
       await trx.insertInto('sale_items').values(saleItemsToInsert).execute();
 
       // C3: Stock guard — verificar saldo disponible antes de descontar inventario.
@@ -417,6 +439,8 @@ export async function createSaleService(input: CreateSaleServiceInput) {
           .where('tenant_id', '=', tenantId)
           .where('branch_id', '=', payload.branch_id)
           .where('product_id', 'in', uniqueProductIds)
+          .orderBy('product_id')
+          .orderBy('variant_id')
           .forUpdate()
           .execute();
 
@@ -478,7 +502,13 @@ export async function createSaleService(input: CreateSaleServiceInput) {
         }
       }
 
-      for (const item of saleItemsToInsert) {
+      const sortedSaleItems = [...saleItemsToInsert].sort((a, b) => {
+        const keyA = `${a.product_id}|${a.variant_id ?? ''}`;
+        const keyB = `${b.product_id}|${b.variant_id ?? ''}`;
+        return keyA.localeCompare(keyB);
+      });
+
+      for (const item of sortedSaleItems) {
         const txId = randomUUID();
         const key = `${item.product_id}|${item.variant_id ?? ''}`;
         
@@ -505,37 +535,32 @@ export async function createSaleService(input: CreateSaleServiceInput) {
           })
           .execute();
 
-        // Para evitar problemas con el onConflict y un index condicional, es más seguro hacer un UPDATE
-        // si sabemos que existe, o un INSERT si no existe, o usar la sintaxis ON CONFLICT usando la restricción explícita.
-        // El índice es: idx_inventory_balances_unique_variant ON (tenant_id, branch_id, product_id, coalesce(variant_id, '00000000-0000-0000-0000-000000000000'))
-        
-        const existingBalance = await trx.selectFrom('inventory_balances')
-           .select('id')
-           .where('tenant_id', '=', tenantId)
-           .where('branch_id', '=', payload.branch_id)
-           .where('product_id', '=', item.product_id)
-           .where((eb) => item.variant_id === null ? eb('variant_id', 'is', null) : eb('variant_id', '=', item.variant_id))
-           .executeTakeFirst();
-           
-        if (existingBalance) {
-           await trx.updateTable('inventory_balances')
-              .set({
-                 on_hand_qty: sql`inventory_balances.on_hand_qty - ${Number(item.qty)}`,
-                 updated_at: sql`NOW()`
-              })
-              .where('id', '=', existingBalance.id)
-              .execute();
-        } else {
-           await trx.insertInto('inventory_balances')
-              .values({
-                 tenant_id: tenantId,
-                 branch_id: payload.branch_id,
-                 product_id: item.product_id,
-                 variant_id: item.variant_id,
-                 on_hand_qty: (-Number(item.qty)).toString()
-              })
-              .execute();
-        }
+        const result = await trx.insertInto('inventory_balances')
+          .values({
+            tenant_id: tenantId,
+            branch_id: payload.branch_id,
+            product_id: item.product_id,
+            variant_id: item.variant_id ?? null,
+            on_hand_qty: (-Number(item.qty)).toString()
+          })
+          .onConflict((oc) => oc.expression(sql`tenant_id, branch_id, product_id, coalesce(variant_id, '00000000-0000-0000-0000-000000000000')`)
+            .doUpdateSet({
+              on_hand_qty: sql`inventory_balances.on_hand_qty + EXCLUDED.on_hand_qty`,
+              updated_at: sql`NOW()`
+            }))
+          .returning('on_hand_qty')
+          .executeTakeFirst();
+
+        await LedgerService.appendInventoryLedger(trx, {
+          tenantId,
+          branchId: payload.branch_id,
+          productId: item.product_id,
+          variantId: item.variant_id ?? null,
+          operation: 'SALE_DISCHARGE',
+          qtyChange: -Number(item.qty),
+          balanceAfter: result ? Number(result.on_hand_qty) : -Number(item.qty),
+          referenceId: saleId
+        });
       }
 
       await trx
@@ -652,38 +677,45 @@ export async function createSaleService(input: CreateSaleServiceInput) {
     throw lastCreateError;
   }
 
+  // === METRICS HOOK ===
+  const { salesCounter, tenantConsumptionCounter } = await import('../../../tracing.js');
+  salesCounter.add(1, { branch_id: payload.branch_id, terminal_id: payload.terminal_id });
+  tenantConsumptionCounter.add(1, { tenant_id: tenantId, operation: 'create_sale' });
+
   return { sale: createdSale!, isIdempotentHit: false };
 }
 
 async function loadExistingSaleByClientUuid(db: Kysely<Database>, tenantId: string, clientUuid: string) {
-  const existingSale = await db
-    .selectFrom('sales')
-    .select([...saleColumnList])
-    .where('tenant_id', '=', tenantId)
-    .where('client_uuid', '=', clientUuid)
-    .executeTakeFirst();
+  return await executeAsTenant(db, tenantId, async (trx: any) => {
+    const existingSale = await trx
+      .selectFrom('sales')
+      .select([...saleColumnList])
+      .where('tenant_id', '=', tenantId)
+      .where('client_uuid', '=', clientUuid)
+      .executeTakeFirst();
 
-  if (!existingSale) {
-    return null;
-  }
+    if (!existingSale) {
+      return null;
+    }
 
-  const saleItems = await db
-    .selectFrom('sale_items')
-    .select(['id', 'product_id', 'variant_id', 'qty', 'price_cents', 'line_total_cents'])
-    .where('tenant_id', '=', tenantId)
-    .where('sale_id', '=', existingSale.id)
-    .orderBy('id', 'asc')
-    .execute();
+    const saleItems = await trx
+      .selectFrom('sale_items')
+      .select(['id', 'product_id', 'variant_id', 'qty', 'price_cents', 'line_total_cents'])
+      .where('tenant_id', '=', tenantId)
+      .where('sale_id', '=', existingSale.id)
+      .orderBy('id', 'asc')
+      .execute();
 
-  return {
-    sale: mapSaleRow(existingSale),
-    items: saleItems.map((item) => ({
-      id: item.id,
-      product_id: item.product_id,
-      variant_id: item.variant_id,
-      qty: Number(item.qty),
-      price_cents: item.price_cents,
-      line_total_cents: item.line_total_cents
-    }))
-  };
+    return {
+      sale: mapSaleRow(existingSale),
+      items: saleItems.map((item: any) => ({
+        id: item.id,
+        product_id: item.product_id,
+        variant_id: item.variant_id,
+        qty: Number(item.qty),
+        price_cents: item.price_cents,
+        line_total_cents: item.line_total_cents
+      }))
+    };
+  });
 }

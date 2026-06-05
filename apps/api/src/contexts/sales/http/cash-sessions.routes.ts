@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
+import { LedgerService } from '../../../shared/infra/db/ledger-service.js';
 import type { FastifyPluginAsync } from 'fastify';
 import { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { AppError } from '../../../shared/infra/errors/app-error.js';
@@ -167,6 +168,15 @@ export const cashSessionsRoutes: FastifyPluginAsync = async (app) => {
               'status'
             ])
             .executeTakeFirstOrThrow();
+
+          await LedgerService.appendCashLedger(trx, {
+            tenantId: request.auth!.tenantId,
+            cashSessionId: insertedSession.id,
+            terminalId: insertedSession.terminal_id,
+            type: 'OPENING',
+            amountCents: insertedSession.opening_amount_cents,
+            balanceAfterCents: insertedSession.opening_amount_cents
+          });
 
           await writeAuditLog(trx, {
             tenantId: request.auth!.tenantId,
@@ -441,6 +451,17 @@ export const cashSessionsRoutes: FastifyPluginAsync = async (app) => {
           ])
           .executeTakeFirstOrThrow();
 
+        if (diffCents !== 0) {
+          await LedgerService.appendCashLedger(trx, {
+            tenantId: request.auth!.tenantId,
+            cashSessionId: updatedSession.id,
+            terminalId: updatedSession.terminal_id,
+            type: 'CLOSING_DISCREPANCY',
+            amountCents: diffCents,
+            balanceAfterCents: 0 // Simplificado para PoC
+          });
+        }
+
         // Emit alert if there is a significant mismatch (e.g., more than $5 / 500 cents)
         if (Math.abs(diffCents) >= 500) {
           await trx
@@ -617,7 +638,7 @@ export const cashSessionsRoutes: FastifyPluginAsync = async (app) => {
       const createdMovement = await app.db.transaction().execute(async (trx) => {
         const session = await trx
           .selectFrom('cash_sessions')
-          .select(['id', 'closed_at', 'branch_id', 'opened_by_user_id'])
+          .select(['id', 'closed_at', 'branch_id', 'opened_by_user_id', 'terminal_id'])
           .where('tenant_id', '=', request.auth!.tenantId)
           .where('id', '=', params.id)
           .executeTakeFirst();
@@ -652,6 +673,15 @@ export const cashSessionsRoutes: FastifyPluginAsync = async (app) => {
           })
           .returningAll()
           .executeTakeFirstOrThrow();
+
+        await LedgerService.appendCashLedger(trx, {
+          tenantId: request.auth!.tenantId,
+          cashSessionId: session.id,
+          terminalId: session.terminal_id,
+          type: payload.type === 'IN' ? 'MANUAL_IN' : 'MANUAL_OUT',
+          amountCents: payload.type === 'IN' ? payload.amount_cents : -payload.amount_cents,
+          balanceAfterCents: 0
+        });
 
         await writeAuditLog(trx, {
           tenantId: request.auth!.tenantId,

@@ -113,28 +113,32 @@ export function PosScreen({
 
   // HW Scanner Support
   useBarcodeScanner({
-    onScan: (barcode: string) => {
+    onScan: (rawBarcode: string) => {
+      let qty = 1;
+      let barcode = rawBarcode;
+      const match = rawBarcode.match(/^(\d+)\*(.+)$/);
+      if (match) {
+        qty = parseInt(match[1] || '1', 10);
+        barcode = match[2] || rawBarcode;
+      }
+
       const product = cachedProducts.find((p) => p.barcode === barcode);
       if (product) {
-        if (product.variants && product.variants.length > 0) {
-          setVariantSelectionProduct(product);
-        } else {
-          addProduct(product);
-          setSaleError(null);
-          setQuery('');
-          searchInputRef.current?.focus();
-        }
+        handleProductSelect(product, qty);
       } else {
         setSaleError(`Producto no encontrado para el código de barras: ${barcode}`);
       }
     }
   });
 
-  const handleProductSelect = useCallback((product: ProductItem) => {
+  const [variantSelectionQty, setVariantSelectionQty] = useState<number>(1);
+
+  const handleProductSelect = useCallback((product: ProductItem, qty: number = 1) => {
     if (product.variants && product.variants.length > 0) {
       setVariantSelectionProduct(product);
+      setVariantSelectionQty(qty);
     } else {
-      addProduct(product);
+      addProduct(product, undefined, qty);
       setQuery('');
       searchInputRef.current?.focus();
     }
@@ -265,6 +269,20 @@ export function PosScreen({
       }
 
       if (event.key === 'Enter') {
+        if (isSearchInput && query.includes('*')) {
+          const match = query.match(/^(\d+)\*(.+)$/);
+          if (match) {
+            const qty = parseInt(match[1] || '1', 10);
+            const barcode = match[2] || '';
+            const product = cachedProducts.find((p) => p.barcode === barcode);
+            if (product) {
+              event.preventDefault();
+              handleProductSelect(product, qty);
+              return;
+            }
+          }
+        }
+
         if (isSearchInput && highlightedProduct) {
           event.preventDefault();
           handleProductSelect(highlightedProduct);
@@ -347,11 +365,22 @@ export function PosScreen({
                     event.preventDefault();
                     event.stopPropagation();
                     moveHighlightedProduct('previous');
-                  } else if (event.key === 'Enter' && highlightedProduct) {
+                  } else if (event.key === 'Enter') {
                     event.preventDefault();
                     event.stopPropagation();
-                    addProduct(highlightedProduct);
-                    setQuery('');
+                    const match = query.match(/^(\d+)\*(.+)$/);
+                    if (match) {
+                      const qty = parseInt(match[1] || '1', 10);
+                      const barcode = match[2] || '';
+                      const product = cachedProducts.find((p) => p.barcode === barcode);
+                      if (product) {
+                        handleProductSelect(product, qty);
+                        return;
+                      }
+                    }
+                    if (highlightedProduct) {
+                      handleProductSelect(highlightedProduct);
+                    }
                   }
                 }}
               />
@@ -549,8 +578,9 @@ export function PosScreen({
         onClose={() => setVariantSelectionProduct(null)}
         onSelect={(variant) => {
           if (variantSelectionProduct) {
-            addProduct(variantSelectionProduct, variant);
+            addProduct(variantSelectionProduct, variant, variantSelectionQty);
             setVariantSelectionProduct(null);
+            setVariantSelectionQty(1);
             setQuery('');
             searchInputRef.current?.focus();
           }

@@ -1211,27 +1211,25 @@ kbd {
   .history-layout,
   .products-layout {
     grid-template-columns: 1fr;
-    height: auto;
-    overflow: visible;
-    min-height: calc(100dvh - 60px);
+    grid-template-rows: 1fr auto;
+    height: calc(100dvh - 60px);
+    overflow: hidden;
   }
 
   .products-panel,
   .history-list,
   .products-list-panel {
     max-height: none;
-    overflow: visible;
-    min-height: 60vh;
+    overflow: hidden;
+    min-height: 0;
   }
 
-  /* Cart & detail panels become sticky at bottom */
+  /* Cart & detail panels become fixed at bottom of the grid */
   .cart-panel {
-    position: sticky;
-    bottom: 0;
     z-index: 10;
     box-shadow: 0 -6px 24px rgba(0, 0, 0, 0.1);
     border-radius: var(--radius-2xl) var(--radius-2xl) 0 0;
-    max-height: 60vh;
+    height: 40vh; /* Fixed percentage so products list gets 60vh */
     overflow: hidden;
   }
 

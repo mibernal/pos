@@ -2,6 +2,7 @@ import type { FastifyPluginAsync } from 'fastify';
 import { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { sql } from 'kysely';
 import { AppError } from '../../../shared/infra/errors/app-error.js';
+import { setupSseStream } from '../../../shared/infra/security/sse-limits.js';
 
 export const globalDashboardRoutes: FastifyPluginAsync = async (app) => {
   const typedApp = app.withTypeProvider<ZodTypeProvider>();
@@ -46,8 +47,16 @@ export const globalDashboardRoutes: FastifyPluginAsync = async (app) => {
         .selectFrom('inventory_valuation_snapshot')
         .where('tenant_id', '=', tenantId);
 
+      if (request.auth!.role !== 'ADMIN') {
+        valuationQuery = valuationQuery.where('branch_id', 'in', request.auth!.branchIds);
+      }
+
       const valuation = await valuationQuery
-        .select(['total_value_cents', 'updated_at'])
+        .select([
+          sql<number>`COALESCE(SUM(total_value_cents), 0)`.as('total_value_cents'),
+          sql<Date>`MAX(updated_at)`.as('updated_at')
+        ])
+        .groupBy('date')
         .orderBy('date', 'desc')
         .limit(1)
         .executeTakeFirst();
@@ -131,17 +140,15 @@ export const globalDashboardRoutes: FastifyPluginAsync = async (app) => {
       if (!request.auth) throw new AppError(401, 'UNAUTHORIZED', 'No autorizado');
       const { tenantId } = request.auth;
 
-      reply.raw.writeHead(200, {
-        'Content-Type': 'text/event-stream',
-        'Cache-Control': 'no-cache',
-        'Connection': 'keep-alive'
-      });
+      const stream = setupSseStream(request, reply);
+      if (!stream) return;
 
       const todayStr = new Date().toISOString().split('T')[0];
       const todayStart = new Date();
       todayStart.setHours(0, 0, 0, 0);
 
       const sendDashboardData = async () => {
+        if (!stream.isActive()) return;
         try {
           // Top-Level KPIs
           let todaySalesQuery = app.db
@@ -165,8 +172,16 @@ export const globalDashboardRoutes: FastifyPluginAsync = async (app) => {
             .selectFrom('inventory_valuation_snapshot')
             .where('tenant_id', '=', tenantId);
 
+          if (request.auth!.role !== 'ADMIN') {
+            valuationQuery = valuationQuery.where('branch_id', 'in', request.auth!.branchIds);
+          }
+
           const valuation = await valuationQuery
-            .select(['total_value_cents', 'updated_at'])
+            .select([
+              sql<number>`COALESCE(SUM(total_value_cents), 0)`.as('total_value_cents'),
+              sql<Date>`MAX(updated_at)`.as('updated_at')
+            ])
+            .groupBy('date')
             .orderBy('date', 'desc')
             .limit(1)
             .executeTakeFirst();
@@ -234,7 +249,7 @@ export const globalDashboardRoutes: FastifyPluginAsync = async (app) => {
             }))
           };
 
-          reply.raw.write(`data: ${JSON.stringify(data)}\n\n`);
+          stream.writeEvent(data);
         } catch (error) {
           console.error('Error generating dashboard stream data:', error);
         }
@@ -242,14 +257,7 @@ export const globalDashboardRoutes: FastifyPluginAsync = async (app) => {
 
       // Send immediately, then every 30 seconds
       await sendDashboardData();
-      const interval = setInterval(sendDashboardData, 30000);
-
-      request.raw.on('close', () => {
-        clearInterval(interval);
-      });
-      
-      // Prevent fastify from immediately resolving the handler
-      await new Promise(() => {});
+      setInterval(sendDashboardData, 30000);
     }
   );
 

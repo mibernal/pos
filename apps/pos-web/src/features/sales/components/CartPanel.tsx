@@ -83,7 +83,7 @@ export function CartPanel({
                   <button
                     type="button"
                     className="mini-btn"
-                    style={{ border: 'none', background: 'transparent', boxShadow: 'none' }}
+                    style={{ border: 'none', background: 'transparent', boxShadow: 'none', padding: '0.4rem 0.6rem', minWidth: '32px' }}
                     onClick={(event) => {
                       event.stopPropagation();
                       updateCartQty(index, item.qty - 1);
@@ -94,7 +94,7 @@ export function CartPanel({
                   <input
                     aria-label="Cantidad"
                     className="cart-row-qty"
-                    style={{ border: 'none', background: '#ffffff', height: '1.75rem', fontSize: '0.875rem' }}
+                    style={{ border: 'none', background: '#ffffff', height: '2rem', fontSize: '0.875rem', padding: '0 0.5rem', minWidth: '40px', textAlign: 'center' }}
                     value={item.qty}
                     type="number"
                     min={1}
@@ -104,7 +104,7 @@ export function CartPanel({
                   <button
                     type="button"
                     className="mini-btn"
-                    style={{ border: 'none', background: 'transparent', boxShadow: 'none' }}
+                    style={{ border: 'none', background: 'transparent', boxShadow: 'none', padding: '0.4rem 0.6rem', minWidth: '32px' }}
                     onClick={(event) => {
                       event.stopPropagation();
                       updateCartQty(index, item.qty + 1);

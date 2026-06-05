@@ -157,6 +157,18 @@ export const adminUsersRoutes: FastifyPluginAsync = async (app) => {
       const targetUserId = request.params.id;
       const { branch_ids } = request.body;
 
+      // MED-007: Validar siempre que el target user pertenece a este tenant
+      const targetUserValidation = await app.db
+        .selectFrom('users')
+        .select(['role'])
+        .where('id', '=', targetUserId)
+        .where('tenant_id', '=', request.auth.tenantId)
+        .executeTakeFirst();
+
+      if (!targetUserValidation) {
+        throw new AppError(404, 'NOT_FOUND', 'Usuario no encontrado en este tenant');
+      }
+
       if (request.auth.role !== 'ADMIN') {
         const userBranchIds = request.auth.branchIds || [];
         const allBranchesAllowed = branch_ids.every((bid) => userBranchIds.includes(bid));
@@ -165,14 +177,7 @@ export const adminUsersRoutes: FastifyPluginAsync = async (app) => {
         }
 
         // Verify target user is only CASHIER
-        const targetUser = await app.db
-          .selectFrom('users')
-          .select('role')
-          .where('id', '=', targetUserId)
-          .where('tenant_id', '=', request.auth.tenantId)
-          .executeTakeFirst();
-        
-        if (!targetUser || targetUser.role !== 'CASHIER') {
+        if (targetUserValidation.role !== 'CASHIER') {
           throw new AppError(403, 'AUTH_FORBIDDEN', 'Solo puedes modificar sucursales de cajeros');
         }
       }

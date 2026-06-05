@@ -3,6 +3,7 @@ import { createDb } from './connection.js';
 import { hashPassword } from '../../../contexts/identity/auth/password.js';
 import { Queue } from 'bullmq';
 import { OUTBOX_QUEUE_NAME } from '@pos-dian/shared';
+import { executeAsTenant } from './rls.js';
 
 const demoIds = {
   tenantId: '11111111-1111-4111-8111-111111111111',
@@ -44,7 +45,7 @@ async function runSeed(): Promise<void> {
     const adminPasswordHash = await hashPassword(demoCredentials.adminPassword);
     const cashierPasswordHash = await hashPassword(demoCredentials.cashierPassword);
 
-    await db.transaction().execute(async (trx) => {
+    await executeAsTenant(db, demoIds.tenantId, async (trx) => {
       await sql`
         INSERT INTO tenants (id, name, nit, business_name, address, phone, footer_message)
         VALUES (
