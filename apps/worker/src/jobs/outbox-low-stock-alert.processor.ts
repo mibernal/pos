@@ -17,7 +17,6 @@ const lowStockAlertPayloadSchema = z.object({
   min_stock_alert_qty: z.number(),
 });
 
-type LowStockAlertPayload = z.infer<typeof lowStockAlertPayloadSchema>;
 
 interface BuildLowStockAlertProcessorInput {
   pool: Pool;
