@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Banner } from '../../components/ui';
+import { Banner, Button, Card, Input, Label } from '../../components/ui';
 import type { PosApiClient } from '../../types';
 
 interface RegisterScreenProps {
@@ -44,7 +44,6 @@ export function RegisterScreen({ api, login, onBack }: RegisterScreenProps) {
     setSimulationState(1);
 
     try {
-      // Simulate onboarding progress steps visually
       setTimeout(() => setSimulationState(2), 1500);
       setTimeout(() => setSimulationState(3), 3000);
       
@@ -74,58 +73,61 @@ export function RegisterScreen({ api, login, onBack }: RegisterScreenProps) {
 
   if (simulationState > 0) {
     return (
-      <main style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--color-slate-50)', fontFamily: 'var(--font-sans)' }}>
-        <div style={{ background: '#fff', padding: '3rem', borderRadius: '1.5rem', boxShadow: 'var(--shadow-lg)', border: '1px solid var(--color-slate-100)', width: '100%', maxWidth: '400px' }}>
-          <div style={{ textAlign: 'center', marginBottom: '2rem' }}>
-            <div className="spinner" style={{ width: '40px', height: '40px', border: '3px solid var(--color-primary-100)', borderTopColor: 'var(--color-primary-600)', borderRadius: '50%', margin: '0 auto 1rem', animation: 'spin 1s linear infinite' }}></div>
-            <h2 style={{ fontSize: '1.25rem', fontWeight: 700 }}>Configurando tu entorno</h2>
-            <p style={{ color: 'var(--color-slate-500)', fontSize: '0.875rem' }}>Estamos preparando todo para ti...</p>
+      <main className="min-h-screen flex items-center justify-center bg-background font-sans p-6">
+        <Card className="w-full max-w-md p-10 flex flex-col items-center shadow-lg border-border">
+          <div className="text-center mb-8">
+            <div className="w-12 h-12 border-4 border-muted border-t-primary rounded-full mx-auto mb-4 animate-spin"></div>
+            <h2 className="text-xl font-bold text-foreground">Configurando tu entorno</h2>
+            <p className="text-muted-foreground text-sm mt-1">Estamos preparando todo para ti...</p>
           </div>
           
-          <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-            <li style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', color: simulationState >= 1 ? 'var(--color-slate-900)' : 'var(--color-slate-400)', opacity: simulationState >= 1 ? 1 : 0.5, transition: 'all 0.3s' }}>
+          <ul className="w-full flex flex-col gap-4">
+            <li className={`flex items-center gap-3 transition-all duration-300 ${simulationState >= 1 ? 'text-foreground opacity-100' : 'text-muted-foreground opacity-50'}`}>
               <CheckCircle active={simulationState >= 2} /> Creando organización
             </li>
-            <li style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', color: simulationState >= 2 ? 'var(--color-slate-900)' : 'var(--color-slate-400)', opacity: simulationState >= 2 ? 1 : 0.5, transition: 'all 0.3s' }}>
+            <li className={`flex items-center gap-3 transition-all duration-300 ${simulationState >= 2 ? 'text-foreground opacity-100' : 'text-muted-foreground opacity-50'}`}>
               <CheckCircle active={simulationState >= 3} /> Configurando sucursal
             </li>
-            <li style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', color: simulationState >= 3 ? 'var(--color-slate-900)' : 'var(--color-slate-400)', opacity: simulationState >= 3 ? 1 : 0.5, transition: 'all 0.3s' }}>
+            <li className={`flex items-center gap-3 transition-all duration-300 ${simulationState >= 3 ? 'text-foreground opacity-100' : 'text-muted-foreground opacity-50'}`}>
               <CheckCircle active={simulationState >= 4} /> Preparando caja registradora
             </li>
           </ul>
-        </div>
-        <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+        </Card>
       </main>
     );
   }
 
   return (
-    <main style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--color-slate-50)', padding: '1.5rem', fontFamily: 'var(--font-sans)' }}>
-      <section style={{ width: '100%', maxWidth: step === 3 ? '800px' : '480px', background: '#ffffff', padding: '2.5rem', borderRadius: '1.5rem', boxShadow: 'var(--shadow-lg)', border: '1px solid var(--color-slate-100)', transition: 'all 0.3s ease-in-out' }}>
+    <main className="min-h-screen flex items-center justify-center bg-muted/20 p-6 font-sans">
+      <Card className={`w-full ${step === 3 ? 'max-w-4xl' : 'max-w-lg'} p-8 sm:p-10 transition-all duration-500 shadow-xl border-border bg-card`}>
         
         {/* Wizard Header */}
-        <header style={{ marginBottom: '2.5rem' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
-            <button type="button" onClick={step === 1 ? onBack : () => setStep(step - 1)} style={{ background: 'none', border: 'none', padding: 0, color: 'var(--color-slate-500)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.25rem', fontSize: '0.875rem' }}>
+        <header className="mb-10">
+          <div className="flex justify-between items-center mb-6">
+            <button 
+              type="button" 
+              onClick={step === 1 ? onBack : () => setStep(step - 1)} 
+              className="text-muted-foreground hover:text-foreground text-sm flex items-center gap-1 font-medium transition-colors"
+            >
               &larr; Volver
             </button>
-            <div style={{ fontSize: '0.875rem', fontWeight: 600, color: 'var(--color-primary-600)', background: 'var(--color-primary-50)', padding: '0.25rem 0.75rem', borderRadius: '1rem' }}>
+            <div className="text-sm font-semibold text-primary bg-primary/10 px-3 py-1 rounded-full">
               Paso {step} de 3
             </div>
           </div>
           
-          <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '2rem' }}>
-            <div style={{ flex: 1, height: '4px', background: step >= 1 ? 'var(--color-primary-600)' : 'var(--color-slate-200)', borderRadius: '2px', transition: 'background 0.3s' }} />
-            <div style={{ flex: 1, height: '4px', background: step >= 2 ? 'var(--color-primary-600)' : 'var(--color-slate-200)', borderRadius: '2px', transition: 'background 0.3s' }} />
-            <div style={{ flex: 1, height: '4px', background: step >= 3 ? 'var(--color-primary-600)' : 'var(--color-slate-200)', borderRadius: '2px', transition: 'background 0.3s' }} />
+          <div className="flex gap-2 mb-8">
+            <div className={`flex-1 h-1.5 rounded-full transition-colors duration-300 ${step >= 1 ? 'bg-primary' : 'bg-muted'}`} />
+            <div className={`flex-1 h-1.5 rounded-full transition-colors duration-300 ${step >= 2 ? 'bg-primary' : 'bg-muted'}`} />
+            <div className={`flex-1 h-1.5 rounded-full transition-colors duration-300 ${step >= 3 ? 'bg-primary' : 'bg-muted'}`} />
           </div>
 
-          <h1 style={{ fontSize: '1.75rem', fontWeight: 800, color: 'var(--color-slate-900)', marginBottom: '0.5rem' }}>
+          <h1 className="text-3xl font-extrabold text-foreground mb-2 tracking-tight">
             {step === 1 && 'Crea tu cuenta de usuario'}
             {step === 2 && 'Datos de tu negocio'}
             {step === 3 && 'Selecciona un plan'}
           </h1>
-          <p style={{ color: 'var(--color-slate-500)', fontSize: '0.9375rem' }}>
+          <p className="text-muted-foreground text-base">
             {step === 1 && 'Ingresa tus datos personales para acceder a la plataforma.'}
             {step === 2 && 'Esta información aparecerá en tus facturas electrónicas.'}
             {step === 3 && 'Puedes cambiar de plan más adelante.'}
@@ -133,57 +135,57 @@ export function RegisterScreen({ api, login, onBack }: RegisterScreenProps) {
         </header>
 
         {error && (
-          <div style={{ marginBottom: '1.5rem' }}>
+          <div className="mb-6">
             <Banner tone="error">{error}</Banner>
           </div>
         )}
 
-        <form onSubmit={nextStep} style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+        <form onSubmit={nextStep} className="flex flex-col gap-6">
           
           {step === 1 && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem', animation: 'fadeIn 0.3s ease-in-out' }}>
-              <div className="input-group">
-                <label style={labelStyle}>Nombre Completo</label>
-                <input required type="text" name="name" value={formData.name} onChange={handleChange} autoComplete="name" className="input" placeholder="Ej. Ana Pérez" style={inputStyle} />
+            <div className="flex flex-col gap-5 animate-in fade-in slide-in-from-bottom-4 duration-500">
+              <div className="grid gap-2">
+                <Label htmlFor="name">Nombre Completo</Label>
+                <Input required type="text" id="name" name="name" value={formData.name} onChange={handleChange} autoComplete="name" placeholder="Ej. Ana Pérez" />
               </div>
-              <div className="input-group">
-                <label style={labelStyle}>Correo Electrónico</label>
-                <input required type="email" name="email" value={formData.email} onChange={handleChange} autoComplete="email" className="input" placeholder="correo@ejemplo.com" style={inputStyle} />
+              <div className="grid gap-2">
+                <Label htmlFor="email">Correo Electrónico</Label>
+                <Input required type="email" id="email" name="email" value={formData.email} onChange={handleChange} autoComplete="email" placeholder="correo@ejemplo.com" />
               </div>
-              <div className="input-group">
-                <label style={labelStyle}>Contraseña</label>
-                <input required type="password" name="password" value={formData.password} onChange={handleChange} autoComplete="new-password" className="input" placeholder="••••••••" minLength={8} style={inputStyle} />
+              <div className="grid gap-2">
+                <Label htmlFor="password">Contraseña</Label>
+                <Input required type="password" id="password" name="password" value={formData.password} onChange={handleChange} autoComplete="new-password" placeholder="••••••••" minLength={8} />
               </div>
             </div>
           )}
 
           {step === 2 && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem', animation: 'fadeIn 0.3s ease-in-out' }}>
-              <div className="input-group">
-                <label style={labelStyle}>Nombre del Negocio (Corto)</label>
-                <input required type="text" name="tenant_name" value={formData.tenant_name} onChange={handleChange} className="input" placeholder="Ej. Mi Tienda" style={inputStyle} />
+            <div className="flex flex-col gap-5 animate-in fade-in slide-in-from-bottom-4 duration-500">
+              <div className="grid gap-2">
+                <Label htmlFor="tenant_name">Nombre del Negocio (Corto)</Label>
+                <Input required type="text" id="tenant_name" name="tenant_name" value={formData.tenant_name} onChange={handleChange} placeholder="Ej. Mi Tienda" />
               </div>
-              <div className="input-group">
-                <label style={labelStyle}>Razón Social</label>
-                <input required type="text" name="tenant_business_name" value={formData.tenant_business_name} onChange={handleChange} className="input" placeholder="Ej. Mi Tienda S.A.S." style={inputStyle} />
+              <div className="grid gap-2">
+                <Label htmlFor="tenant_business_name">Razón Social</Label>
+                <Input required type="text" id="tenant_business_name" name="tenant_business_name" value={formData.tenant_business_name} onChange={handleChange} placeholder="Ej. Mi Tienda S.A.S." />
               </div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '1rem' }}>
-                <div className="input-group">
-                  <label style={labelStyle}>Tipo Doc.</label>
-                  <select required name="tenant_document_type" value={formData.tenant_document_type} onChange={handleChange} className="input" style={inputStyle}>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <div className="grid gap-2 sm:col-span-1">
+                  <Label htmlFor="tenant_document_type">Tipo Doc.</Label>
+                  <select required id="tenant_document_type" name="tenant_document_type" value={formData.tenant_document_type} onChange={handleChange} className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
                     <option value="NIT">NIT</option>
                     <option value="CC">CC</option>
                     <option value="CE">CE</option>
                   </select>
                 </div>
-                <div className="input-group">
-                  <label style={labelStyle}>Número de Documento</label>
-                  <input required type="text" name="tenant_document_number" value={formData.tenant_document_number} onChange={handleChange} className="input" placeholder="Ej. 900123456" style={inputStyle} />
+                <div className="grid gap-2 sm:col-span-2">
+                  <Label htmlFor="tenant_document_number">Número de Documento</Label>
+                  <Input required type="text" id="tenant_document_number" name="tenant_document_number" value={formData.tenant_document_number} onChange={handleChange} placeholder="Ej. 900123456" />
                 </div>
               </div>
-              <div className="input-group">
-                <label style={labelStyle}>Régimen Tributario</label>
-                <select required name="tax_mode" value={formData.tax_mode} onChange={handleChange} className="input" style={inputStyle}>
+              <div className="grid gap-2">
+                <Label htmlFor="tax_mode">Régimen Tributario</Label>
+                <select required id="tax_mode" name="tax_mode" value={formData.tax_mode} onChange={handleChange} className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
                   <option value="IVA">Responsable de IVA</option>
                   <option value="INC_RESTAURANT">Impoconsumo Restaurantes</option>
                   <option value="NO_RESPONSIBLE">No responsable de IVA</option>
@@ -193,39 +195,39 @@ export function RegisterScreen({ api, login, onBack }: RegisterScreenProps) {
           )}
 
           {step === 3 && (
-            <div style={{ animation: 'fadeIn 0.3s ease-in-out' }}>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '1rem', marginBottom: '2rem' }}>
+            <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-8">
                 {plans.map(p => {
                   const isSelected = formData.plan === p.id;
                   return (
                     <div 
                       key={p.id} 
                       onClick={() => setFormData(prev => ({ ...prev, plan: p.id }))}
-                      style={{ 
-                        border: isSelected ? '2px solid var(--color-primary-600)' : '1px solid var(--color-slate-200)',
-                        background: isSelected ? 'var(--color-primary-50)' : '#fff',
-                        borderRadius: '1rem',
-                        padding: '1.5rem',
-                        cursor: 'pointer',
-                        transition: 'all 0.2s',
-                        boxShadow: isSelected ? '0 4px 12px rgba(79, 70, 229, 0.15)' : 'none',
-                        position: 'relative'
-                      }}
+                      className={`relative p-6 rounded-2xl cursor-pointer transition-all duration-200 border-2 ${isSelected ? 'border-primary bg-primary/5 shadow-md' : 'border-border bg-card hover:border-primary/50 hover:shadow-sm'}`}
                     >
                       {isSelected && (
-                        <div style={{ position: 'absolute', top: '-10px', right: '15px', background: 'var(--color-primary-600)', color: '#fff', fontSize: '0.65rem', fontWeight: 700, padding: '0.25rem 0.5rem', borderRadius: '1rem', textTransform: 'uppercase' }}>
+                        <div className="absolute -top-3 right-4 bg-primary text-primary-foreground text-xs font-bold px-3 py-1 rounded-full uppercase tracking-wide shadow-sm">
                           Seleccionado
                         </div>
                       )}
-                      <h3 style={{ fontSize: '1.125rem', fontWeight: 700, color: 'var(--color-slate-900)', marginBottom: '0.25rem' }}>{p.name}</h3>
-                      <div style={{ fontSize: '1.5rem', fontWeight: 800, color: 'var(--color-slate-900)', marginBottom: '1rem' }}>
+                      <h3 className="text-lg font-bold text-foreground mb-1">{p.name}</h3>
+                      <div className="text-3xl font-extrabold text-foreground mb-4">
                         ${(p.priceCents / 100).toLocaleString('es-CO')}
-                        <span style={{ fontSize: '0.875rem', color: 'var(--color-slate-500)', fontWeight: 400 }}>/mes</span>
+                        <span className="text-sm text-muted-foreground font-normal">/mes</span>
                       </div>
-                      <ul style={{ listStyle: 'none', padding: 0, margin: 0, fontSize: '0.875rem', color: 'var(--color-slate-600)', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                        <li>✓ Usuarios {p.id === 'STARTER' ? 'limitados' : 'ilimitados'}</li>
-                        <li>✓ Facturación {p.id === 'STARTER' ? 'básica' : 'avanzada'}</li>
-                        <li>✓ Soporte {p.id === 'PRO' ? 'prioritario 24/7' : 'estándar'}</li>
+                      <ul className="text-sm text-muted-foreground flex flex-col gap-2">
+                        <li className="flex items-center gap-2">
+                          <svg className="w-4 h-4 text-primary" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="3"><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>
+                          Usuarios {p.id === 'STARTER' ? 'limitados' : 'ilimitados'}
+                        </li>
+                        <li className="flex items-center gap-2">
+                          <svg className="w-4 h-4 text-primary" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="3"><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>
+                          Facturación {p.id === 'STARTER' ? 'básica' : 'avanzada'}
+                        </li>
+                        <li className="flex items-center gap-2">
+                          <svg className="w-4 h-4 text-primary" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="3"><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>
+                          Soporte {p.id === 'PRO' ? 'prioritario 24/7' : 'estándar'}
+                        </li>
                       </ul>
                     </div>
                   );
@@ -234,38 +236,20 @@ export function RegisterScreen({ api, login, onBack }: RegisterScreenProps) {
             </div>
           )}
 
-          <div style={{ marginTop: '1rem' }}>
-            <button type="submit" disabled={loading} style={{ 
-              width: '100%', 
-              padding: '1rem', 
-              background: 'var(--color-primary-600)', 
-              color: '#ffffff', 
-              border: 'none', 
-              borderRadius: '1rem', 
-              fontSize: '1rem', 
-              fontWeight: 600, 
-              cursor: 'pointer',
-              boxShadow: '0 4px 6px -1px rgba(79, 70, 229, 0.3)',
-              transition: 'all 0.2s'
-            }}>
+          <div className="mt-4">
+            <Button type="submit" disabled={loading} size="lg" className="w-full text-base py-6">
               {step === 3 ? 'Comenzar a usar POS Cloud' : 'Continuar'}
-            </button>
+            </Button>
           </div>
 
         </form>
-      </section>
-      <style>{`
-        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
-      `}</style>
+      </Card>
     </main>
   );
 }
 
-const labelStyle = { display: 'block', marginBottom: '0.375rem', fontSize: '0.875rem', fontWeight: 600, color: 'var(--color-slate-700)' };
-const inputStyle = { width: '100%', padding: '0.875rem 1rem', borderRadius: '0.75rem', border: '1px solid var(--color-slate-300)', background: '#fff', fontSize: '1rem', transition: 'border-color 0.2s, box-shadow 0.2s' };
-
 const CheckCircle = ({ active }: { active: boolean }) => (
-  <svg width="24" height="24" viewBox="0 0 24 24" fill={active ? 'var(--color-success-600)' : 'none'} stroke={active ? 'var(--color-success-600)' : 'currentColor'} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ transition: 'all 0.3s' }}>
+  <svg width="24" height="24" viewBox="0 0 24 24" fill={active ? 'currentColor' : 'none'} stroke={active ? 'currentColor' : 'currentColor'} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={`transition-all duration-300 ${active ? 'text-green-500' : 'text-muted'}`}>
     {active ? (
       <>
         <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" stroke="#fff"></path>

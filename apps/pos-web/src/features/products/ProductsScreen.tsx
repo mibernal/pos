@@ -155,157 +155,216 @@ export function ProductsScreen({
   }
 
   return (
-    <div className="products-layout">
-      <section className="products-list-panel">
-        <header className="section-heading">
-          <div className="heading-copy">
-            <h2>Catálogo de Productos</h2>
-            <p>Gestiona los artículos disponibles para la venta</p>
+    <div className="flex flex-col lg:flex-row h-full bg-muted/20 overflow-hidden animate-in fade-in duration-300 relative">
+      <section className="flex-1 flex flex-col h-full overflow-hidden">
+        <header className="flex-shrink-0 px-6 py-4 border-b border-border bg-background sticky top-0 z-10 shadow-sm">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 max-w-7xl mx-auto">
+            <div>
+              <h2 className="text-2xl font-bold text-foreground tracking-tight">Catálogo de Productos</h2>
+              <p className="text-sm text-muted-foreground mt-1">Gestiona los artículos disponibles para la venta</p>
+            </div>
+            <div className="flex items-center gap-3">
+              <button 
+                className="inline-flex items-center justify-center h-9 px-4 rounded-md text-sm font-medium border border-border bg-background hover:bg-muted text-foreground transition-colors shadow-sm"
+                onClick={() => void loadProducts()}
+              >
+                <span className="mr-2">🔄</span> Sincronizar
+              </button>
+              {/* Mobile toggle button */}
+              <button
+                type="button"
+                className="lg:hidden inline-flex items-center justify-center h-9 px-4 rounded-md text-sm font-medium bg-primary text-primary-foreground shadow-sm"
+                onClick={() => setShowForm(f => !f)}
+                aria-expanded={showForm}
+              >
+                {showForm ? '✕ Cerrar Formulario' : '+ Nuevo Producto'}
+              </button>
+            </div>
           </div>
-          <button className="ghost-button" style={{ padding: '0.5rem 1rem' }} onClick={() => void loadProducts()}>
-            🔄 Sincronizar
-          </button>
         </header>
 
-        <div className="pos-search-toolbar" style={{ marginBottom: '1.5rem' }}>
-          <div className="pos-search-field">
-            <input
-              placeholder="Buscar por nombre, categoría o código..."
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-            />
-          </div>
-          {query && (
-            <button
-              className="ghost-button"
-              style={{ padding: '0 1rem' }}
-              onClick={() => setQuery('')}
-            >
-              Limpiar
-            </button>
-          )}
-        </div>
-
-        {loading ? <Banner tone="info">Cargando productos...</Banner> : null}
-        {error ? <Banner tone="error">{error}</Banner> : null}
-        {message ? <Banner tone="success">{message}</Banner> : null}
-
-        <div className="products-table">
-          {products.length === 0 && !loading ? (
-            <div className="empty-state">
-              No se encontraron productos en esta sucursal.
+        <main className="flex-1 overflow-y-auto p-6 max-w-7xl mx-auto w-full">
+          <div className="bg-card border border-border rounded-xl p-4 mb-6 shadow-sm flex flex-col sm:flex-row gap-3 items-center relative">
+            <div className="relative flex-1 w-full">
+              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
+              </span>
+              <input
+                placeholder="Buscar por nombre, categoría o código..."
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+                className="w-full h-10 pl-9 pr-4 rounded-md border border-input bg-background text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              />
             </div>
-          ) : (
-            products.map((product) => (
-              <div key={product.id} className="product-row">
-                <div style={{ width: '48px', height: '48px', borderRadius: '8px', overflow: 'hidden', flexShrink: 0 }}>
-                  {product.imageUrl ? (
-                    <img src={product.imageUrl} alt={product.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                  ) : (
-                    <PlaceholderImage name={product.name} category={product.category} size="sm" />
-                  )}
+            {query && (
+              <button
+                className="inline-flex items-center justify-center h-10 px-4 rounded-md text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+                onClick={() => setQuery('')}
+              >
+                Limpiar
+              </button>
+            )}
+          </div>
+
+          <div className="flex flex-col gap-4">
+            {loading ? <Banner tone="info" className="mb-2">Cargando productos...</Banner> : null}
+            {error ? <Banner tone="error" className="mb-2">{error}</Banner> : null}
+            {message ? <Banner tone="success" className="mb-2">{message}</Banner> : null}
+          </div>
+
+          <div className="flex flex-col gap-3">
+            {products.length === 0 && !loading ? (
+              <div className="flex flex-col items-center justify-center py-24 text-center border border-border border-dashed rounded-xl bg-card">
+                <div className="w-16 h-16 bg-muted rounded-full flex items-center justify-center mb-4">
+                  <span className="text-2xl">🛍️</span>
                 </div>
-                <div style={{ flex: 1 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '0.25rem' }}>
-                    <strong style={{ fontSize: '1rem', color: 'var(--color-slate-900)' }}>{product.name}</strong>
-                    <span className={`tag ${product.active ? 'tag-success' : 'tag-muted'}`} style={{ fontSize: '0.65rem' }}>
-                      {product.active ? 'ACTIVO' : 'INACTIVO'}
-                    </span>
-                  </div>
-                  <div className="subtle-text" style={{ fontSize: '0.8125rem', color: 'var(--color-slate-500)' }}>
-                    <span style={{ color: 'var(--color-primary-600)', fontWeight: 600 }}>{product.category}</span>
-                    <span style={{ margin: '0 0.5rem' }}>•</span>
-                    <span>{getProductTaxCategoryLabel(product.taxCategory)}</span>
-                    {product.barcode && (
-                      <>
-                        <span style={{ margin: '0 0.5rem' }}>•</span>
-                        <code style={{ background: 'var(--color-slate-100)', padding: '0.1rem 0.3rem', borderRadius: '4px', fontSize: '0.75rem' }}>{product.barcode}</code>
-                      </>
+                <h3 className="text-xl font-semibold text-foreground mb-2">Sin productos</h3>
+                <p className="text-muted-foreground max-w-md">
+                  No se encontraron productos en esta sucursal. Ajusta los filtros o crea un nuevo producto.
+                </p>
+              </div>
+            ) : (
+              products.map((product) => (
+                <div key={product.id} className="bg-card border border-border rounded-xl p-4 sm:p-5 shadow-sm hover:shadow-md transition-all duration-200 flex flex-col sm:flex-row gap-4 sm:gap-5">
+                  <div className="w-16 h-16 sm:w-24 sm:h-24 rounded-xl overflow-hidden border border-border bg-muted flex-shrink-0">
+                    {product.imageUrl ? (
+                      <img src={product.imageUrl} alt={product.name} className="w-full h-full object-cover" />
+                    ) : (
+                      <PlaceholderImage name={product.name} category={product.category} size="sm" />
                     )}
                   </div>
-                </div>
-                <div className="product-row-right" style={{ display: 'flex', alignItems: 'center', gap: '1.5rem' }}>
-                  <div style={{ textAlign: 'right' }}>
-                    <span style={{ display: 'block', fontSize: '1.125rem', fontWeight: 700, color: 'var(--color-slate-900)' }}>
-                      {formatMoneyFromCents(product.price_cents)}
-                    </span>
-                    <span style={{ fontSize: '0.65rem', color: 'var(--color-slate-400)', textTransform: 'uppercase', letterSpacing: '0.025em' }}>Precio Base</span>
-                  </div>
-                  <PermissionGuard allowedPermissions={['products:manage']}>
-                    <div style={{ display: 'flex', gap: '0.5rem' }}>
-                      <button className="button button-sm ghost-button" style={{ padding: '0.4rem 0.8rem' }} onClick={() => startEdit(product)}>
-                        Editar
-                      </button>
-                      <button
-                        className="button button-sm ghost-button"
-                        style={{ padding: '0.4rem 0.8rem', color: product.active ? 'var(--color-error-600)' : 'var(--color-success-600)' }}
-                        onClick={() => void handleToggleActive(product.id)}
-                      >
-                        {product.active ? 'Desactivar' : 'Activar'}
-                      </button>
+                  
+                  <div className="flex-1 flex flex-col min-w-0 justify-between">
+                    <div>
+                      <div className="flex flex-wrap items-start gap-2 mb-1.5">
+                        <strong className="text-lg sm:text-xl font-bold text-foreground truncate max-w-full">{product.name}</strong>
+                        <span className={`flex-shrink-0 inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider mt-1 sm:mt-0.5 ${
+                          product.active ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400' : 'bg-muted text-muted-foreground'
+                        }`}>
+                          {product.active ? 'ACTIVO' : 'INACTIVO'}
+                        </span>
+                      </div>
+                      <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5 text-sm text-muted-foreground">
+                        <span className="inline-flex items-center px-2 py-0.5 rounded-md bg-primary/10 text-primary font-medium text-xs">{product.category}</span>
+                        <span className="hidden sm:inline text-border">•</span>
+                        <span className="text-xs font-medium">{getProductTaxCategoryLabel(product.taxCategory)}</span>
+                        {product.barcode && (
+                          <>
+                            <span className="hidden sm:inline text-border">•</span>
+                            <code className="bg-muted px-1.5 py-0.5 rounded font-mono text-xs text-foreground/80">Ref: {product.barcode}</code>
+                          </>
+                        )}
+                      </div>
+                      {product.description && (
+                        <p className="mt-2 text-sm text-muted-foreground line-clamp-2 leading-relaxed">
+                          {product.description}
+                        </p>
+                      )}
                     </div>
-                  </PermissionGuard>
+                  </div>
+                  
+                  <div className="flex flex-row sm:flex-col items-center sm:items-end justify-between sm:justify-start gap-4 sm:gap-3 flex-shrink-0 border-t sm:border-t-0 border-border pt-4 sm:pt-0 mt-2 sm:mt-0">
+                    <div className="text-left sm:text-right">
+                      <span className="block text-xl sm:text-2xl font-extrabold text-foreground tracking-tight">
+                        {formatMoneyFromCents(product.price_cents)}
+                      </span>
+                      <span className="block text-[10px] text-muted-foreground uppercase tracking-widest font-semibold mt-0.5">Precio Base</span>
+                    </div>
+                    <PermissionGuard allowedPermissions={['products:manage']}>
+                      <div className="flex items-center gap-2 sm:mt-auto">
+                        <button 
+                          className="inline-flex items-center justify-center h-8 sm:h-9 px-3 sm:px-4 rounded-md text-xs sm:text-sm font-semibold border border-border bg-background hover:bg-muted text-foreground transition-colors shadow-sm"
+                          onClick={() => {
+                            startEdit(product);
+                            setShowForm(true);
+                          }}
+                        >
+                          Editar
+                        </button>
+                        <button
+                          className={`inline-flex items-center justify-center h-8 sm:h-9 px-3 sm:px-4 rounded-md text-xs sm:text-sm font-semibold border transition-colors shadow-sm ${
+                            product.active 
+                              ? 'border-destructive/20 text-destructive hover:bg-destructive/10' 
+                              : 'border-green-500/20 text-green-600 hover:bg-green-500/10'
+                          }`}
+                          onClick={() => void handleToggleActive(product.id)}
+                        >
+                          {product.active ? 'Desactivar' : 'Activar'}
+                        </button>
+                      </div>
+                    </PermissionGuard>
+                  </div>
                 </div>
-              </div>
-            ))
-          )}
-        </div>
+              ))
+            )}
+          </div>
+        </main>
       </section>
 
-      <aside className="products-form-panel">
-        <header className="section-heading" style={{ padding: '0 0 0.5rem' }}>
-          <div className="heading-copy">
-            <h3>{editingId ? 'Editar Producto' : 'Nuevo Producto'}</h3>
-            <p>{editingId ? 'Modifica los detalles del item seleccionado' : 'Ingresa los datos para un nuevo artículo'}</p>
+      {/* Form Sidebar Overlay for Mobile */}
+      {showForm && (
+        <div 
+          className="fixed inset-0 bg-background/80 backdrop-blur-sm z-40 lg:hidden"
+          onClick={() => setShowForm(false)}
+        />
+      )}
+
+      <aside className={`fixed inset-y-0 right-0 z-50 w-full sm:w-[400px] bg-card border-l border-border shadow-2xl transform transition-transform duration-300 ease-in-out lg:relative lg:transform-none lg:w-96 flex flex-col h-full ${showForm ? 'translate-x-0' : 'translate-x-full lg:hidden'}`}>
+        <header className="flex-shrink-0 px-6 py-4 border-b border-border bg-muted/30 flex items-center justify-between sticky top-0 z-10">
+          <div>
+            <h3 className="text-lg font-bold text-foreground">{editingId ? 'Editar Producto' : 'Nuevo Producto'}</h3>
+            <p className="text-xs text-muted-foreground mt-0.5">{editingId ? 'Modifica los detalles' : 'Ingresa los datos del artículo'}</p>
           </div>
-          {/* Mobile toggle button */}
           <button
             type="button"
-            className="ghost-button"
-            style={{ padding: '0.375rem 0.75rem', fontSize: '0.8125rem' }}
-            onClick={() => setShowForm(f => !f)}
-            aria-expanded={showForm}
+            className="lg:hidden p-2 text-muted-foreground hover:text-foreground hover:bg-muted rounded-md transition-colors"
+            onClick={() => setShowForm(false)}
           >
-            {showForm ? '✕ Cerrar' : '+ Nuevo'}
+            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" /></svg>
           </button>
         </header>
 
         <PermissionGuard
           allowedPermissions={['products:manage']}
           fallback={
-            <div className="product-grid" style={{ gridTemplateColumns: '1fr' }}>
-              <div className="empty-state">No tienes permisos para gestionar productos.</div>
+            <div className="p-6">
+              <div className="p-4 bg-destructive/10 text-destructive rounded-lg text-sm border border-destructive/20">
+                No tienes permisos para gestionar productos.
+              </div>
             </div>
           }
         >
-          <form className="stack-md" style={{ padding: '0 0 1rem' }} onSubmit={handleSaveProduct}>
-            <div className="field-group">
-              <label className="field">
-                <span>Nombre del Producto</span>
+          <div className="flex-1 overflow-y-auto p-6">
+            <form onSubmit={handleSaveProduct} className="flex flex-col gap-5">
+              <div className="flex flex-col gap-1.5">
+                <label className="text-sm font-semibold text-foreground">Nombre del Producto</label>
                 <input 
                   placeholder="Ej. Café Espresso 250g" 
                   value={name} 
                   onChange={(event) => setName(event.target.value)} 
                   required 
+                  className="h-10 px-3 rounded-md border border-input bg-background text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 />
-              </label>
+              </div>
 
-              <label className="field">
-                <span>Categoría</span>
+              <div className="flex flex-col gap-1.5">
+                <label className="text-sm font-semibold text-foreground">Categoría</label>
                 <input 
                   placeholder="Ej. Bebidas, Granos..." 
                   value={category} 
                   onChange={(event) => setCategory(event.target.value)} 
                   required 
+                  className="h-10 px-3 rounded-md border border-input bg-background text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 />
-              </label>
+              </div>
 
-              <label className="field">
-                <span>Categoría Fiscal (Impuesto)</span>
+              <div className="flex flex-col gap-1.5">
+                <label className="text-sm font-semibold text-foreground">Categoría Fiscal (Impuesto)</label>
                 <select
                   value={taxCategory}
                   onChange={(event) => setTaxCategory(event.target.value as ProductTaxCategoryOption)}
                   required
+                  className="h-10 px-3 rounded-md border border-input bg-background text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 >
                   {PRODUCT_TAX_CATEGORY_OPTIONS.map((option) => (
                     <option key={option.value} value={option.value}>
@@ -313,20 +372,21 @@ export function ProductsScreen({
                     </option>
                   ))}
                 </select>
-              </label>
+              </div>
 
-              <label className="field">
-                <span>Código de Barras</span>
+              <div className="flex flex-col gap-1.5">
+                <label className="text-sm font-semibold text-foreground">Código de Barras</label>
                 <input 
                   placeholder="Opcional" 
                   value={barcode} 
                   onChange={(event) => setBarcode(event.target.value)} 
+                  className="h-10 px-3 rounded-md border border-input bg-background text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring font-mono"
                 />
-              </label>
+              </div>
 
-              <label className="field">
-                <span>Precio Unitario (COP)</span>
-                <div style={{ position: 'relative' }}>
+              <div className="flex flex-col gap-1.5">
+                <label className="text-sm font-semibold text-foreground">Precio Unitario</label>
+                <div className="relative">
                   <input
                     type="number"
                     min={0}
@@ -335,64 +395,70 @@ export function ProductsScreen({
                     value={pricePesos}
                     onChange={(event) => setPricePesos(Number(event.target.value))}
                     required
-                    style={{ paddingRight: '4rem' }}
+                    className="w-full h-10 pl-3 pr-12 rounded-md border border-input bg-background text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                   />
-                  <span style={{ position: 'absolute', right: '1rem', top: '50%', transform: 'translateY(-50%)', fontSize: '0.75rem', fontWeight: 600, color: 'var(--color-slate-400)' }}>COP</span>
+                  <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-bold text-muted-foreground pointer-events-none">COP</span>
                 </div>
-              </label>
+              </div>
 
-              <label className="field">
-                <span>URL de Imagen</span>
-                <input 
-                  type="url"
-                  placeholder="https://ejemplo.com/imagen.jpg" 
-                  value={imageUrl} 
-                  onChange={(event) => setImageUrl(event.target.value)} 
-                />
+              <div className="flex flex-col gap-1.5">
+                <label className="text-sm font-semibold text-foreground">URL de Imagen</label>
+                <div className="flex flex-col gap-2">
+                  <input 
+                    type="url"
+                    placeholder="https://ejemplo.com/imagen.jpg" 
+                    value={imageUrl} 
+                    onChange={(event) => setImageUrl(event.target.value)} 
+                    className="h-10 px-3 rounded-md border border-input bg-background text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  />
+                  <p className="text-[11px] text-muted-foreground">Pega aquí el enlace (URL) de la imagen del producto.</p>
+                </div>
                 {imageUrl.trim() && (
-                  <div className="image-preview" style={{ marginTop: '0.5rem' }}>
+                  <div className="mt-3 w-full h-40 rounded-lg border border-border overflow-hidden bg-muted flex items-center justify-center relative group shadow-inner">
                     <img
                       src={imageUrl}
                       alt="Vista previa"
+                      className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
                       onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
                       onLoad={(e) => { (e.target as HTMLImageElement).style.display = 'block'; }}
                     />
+                    <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                      <span className="text-white text-xs font-semibold bg-black/60 px-2 py-1 rounded">Vista previa</span>
+                    </div>
                   </div>
                 )}
-              </label>
+              </div>
 
-              <label className="field">
-                <span>Descripción</span>
+              <div className="flex flex-col gap-1.5">
+                <label className="text-sm font-semibold text-foreground">Descripción</label>
                 <textarea 
                   placeholder="Detalles adicionales del producto..." 
                   value={description} 
                   onChange={(event) => setDescription(event.target.value)}
-                  rows={3}
-                  style={{ resize: 'vertical' }}
+                  rows={4}
+                  className="w-full p-3 rounded-md border border-input bg-background text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring resize-y"
                 />
-              </label>
-            </div>
+              </div>
 
-            <div className="row-actions" style={{ marginTop: '2rem', display: 'grid', gridTemplateColumns: editingId ? '1fr 1fr' : '1fr', gap: '0.75rem' }}>
-              <button 
-                type="submit" 
-                className="button"
-                style={{ background: 'var(--color-primary-600)', color: '#ffffff', padding: '0.75rem' }}
-              >
-                {editingId ? 'Guardar Cambios' : 'Crear Producto'}
-              </button>
-              {editingId && (
+              <div className="flex flex-col gap-3 mt-4 pt-4 border-t border-border">
                 <button 
-                  className="ghost-button" 
-                  type="button" 
-                  onClick={resetForm}
-                  style={{ padding: '0.75rem' }}
+                  type="submit" 
+                  className="w-full h-10 px-4 inline-flex items-center justify-center rounded-md text-sm font-medium bg-primary text-primary-foreground hover:bg-primary/90 transition-colors shadow-sm"
                 >
-                  Cancelar
+                  {editingId ? 'Guardar Cambios' : 'Crear Producto'}
                 </button>
-              )}
-            </div>
-          </form>
+                {editingId && (
+                  <button 
+                    type="button" 
+                    onClick={resetForm}
+                    className="w-full h-10 px-4 inline-flex items-center justify-center rounded-md text-sm font-medium border border-border bg-background hover:bg-muted text-foreground transition-colors"
+                  >
+                    Cancelar Edición
+                  </button>
+                )}
+              </div>
+            </form>
+          </div>
         </PermissionGuard>
       </aside>
     </div>

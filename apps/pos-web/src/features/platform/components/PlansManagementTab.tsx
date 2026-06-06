@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { Card, Button } from '../../../components/ui';
 
 interface PlansManagementTabProps {
   api: any;
@@ -25,40 +26,61 @@ export function PlansManagementTab({ api }: PlansManagementTabProps) {
     }
   }
 
-  if (loading) return <div style={{ padding: '2rem', textAlign: 'center' }}>Cargando planes...</div>;
+  if (loading) {
+    return (
+      <div className="p-8 text-center text-slate-500 animate-pulse">
+        Cargando planes de suscripción...
+      </div>
+    );
+  }
 
   return (
-    <div style={{ background: '#ffffff', borderRadius: '1.25rem', border: '1px solid var(--color-slate-200)', boxShadow: 'var(--shadow-sm)' }}>
-      <div style={{ padding: '1.5rem', borderBottom: '1px solid var(--color-slate-100)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <h2 style={{ fontSize: '1.25rem', fontWeight: 700, color: 'var(--color-slate-900)' }}>Planes de Suscripción</h2>
-        <button style={{ padding: '0.5rem 1rem', borderRadius: '0.5rem', border: 'none', backgroundColor: 'var(--color-primary-600)', color: 'white', fontWeight: 600, cursor: 'pointer' }}>
+    <Card className="flex flex-col">
+      <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-white/50 rounded-t-2xl">
+        <h2 className="text-xl font-bold text-slate-900 tracking-tight">Planes de Suscripción</h2>
+        <Button size="sm">
           + Crear Plan
-        </button>
+        </Button>
       </div>
 
-      {error && <div style={{ padding: '1rem', background: 'var(--color-error-50)', color: 'var(--color-error-700)' }}>{error}</div>}
+      {error && (
+        <div className="m-6 p-4 bg-error-50 border border-error-100 text-error-700 rounded-xl text-sm font-medium">
+          {error}
+        </div>
+      )}
 
-      <div style={{ padding: '1.5rem', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '1.5rem' }}>
+      <div className="p-6 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         {plans.map(plan => (
-          <div key={plan.id} style={{ border: '1px solid var(--color-slate-200)', borderRadius: '1rem', padding: '1.5rem', display: 'flex', flexDirection: 'column' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
-              <h3 style={{ fontSize: '1.25rem', fontWeight: 700, color: 'var(--color-slate-900)' }}>{plan.name}</h3>
-              <span style={{ padding: '0.25rem 0.5rem', borderRadius: '0.5rem', fontSize: '0.75rem', fontWeight: 600, backgroundColor: plan.active ? 'var(--color-success-100)' : 'var(--color-slate-100)', color: plan.active ? 'var(--color-success-700)' : 'var(--color-slate-700)' }}>
+          <div key={plan.id} className="border border-slate-200 rounded-2xl p-6 flex flex-col bg-white shadow-sm hover:shadow-md transition-shadow">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-lg font-bold text-slate-900">{plan.name}</h3>
+              <span className={`px-2.5 py-1 rounded-full text-xs font-semibold ${
+                plan.active 
+                  ? 'bg-success-100 text-success-700' 
+                  : 'bg-slate-100 text-slate-600'
+              }`}>
                 {plan.active ? 'Activo' : 'Inactivo'}
               </span>
             </div>
             
-            <div style={{ fontSize: '2rem', fontWeight: 800, color: 'var(--color-slate-900)', marginBottom: '0.5rem' }}>
-              {new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(plan.price_cents / 100)}
-              <span style={{ fontSize: '1rem', fontWeight: 500, color: 'var(--color-slate-500)' }}>/{plan.billing_cycle === 'MONTHLY' ? 'mes' : 'año'}</span>
+            <div className="mb-6">
+              <span className="text-3xl font-extrabold text-slate-900 tracking-tight">
+                {new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(plan.price_cents / 100)}
+              </span>
+              <span className="text-sm font-medium text-slate-500 ml-1">
+                /{plan.billing_cycle === 'MONTHLY' ? 'mes' : 'año'}
+              </span>
             </div>
 
-            <div style={{ marginTop: 'auto', paddingTop: '1.5rem', display: 'flex', gap: '0.5rem' }}>
-              <button style={{ flex: 1, padding: '0.5rem', borderRadius: '0.5rem', border: '1px solid var(--color-slate-300)', backgroundColor: 'transparent', fontWeight: 600, cursor: 'pointer' }}>Editar</button>
+            <div className="mt-auto pt-6 flex gap-3">
+              <Button variant="outline" className="w-full">
+                Editar
+              </Button>
             </div>
           </div>
         ))}
       </div>
-    </div>
+    </Card>
   );
 }
+

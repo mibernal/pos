@@ -1,61 +1,62 @@
 import React from 'react';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar } from 'recharts';
+import { Card } from '../../../components/ui';
 
 export function GrowthChartsWidget({ growthData }: { growthData: any[] }) {
   if (!growthData || growthData.length === 0) return null;
 
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(400px, 1fr))', gap: '1.5rem', marginBottom: '2rem' }}>
+    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
       {/* Chart 1: Revenue Growth */}
-      <div style={{ background: '#ffffff', borderRadius: '1.25rem', padding: '1.5rem', border: '1px solid var(--color-slate-200)', boxShadow: 'var(--shadow-sm)' }}>
-        <h3 style={{ fontSize: '1rem', fontWeight: 600, color: 'var(--color-slate-800)', marginBottom: '1.5rem' }}>Evolución de Ingresos SaaS (MRR)</h3>
-        <div style={{ width: '100%', height: 250 }}>
-          <ResponsiveContainer width="100%" height={250}>
+      <Card className="p-6">
+        <h3 className="text-base font-semibold text-slate-800 mb-6">Evolución de Ingresos SaaS (MRR)</h3>
+        <div className="w-full h-64">
+          <ResponsiveContainer width="100%" height="100%">
             <AreaChart data={growthData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
               <defs>
                 <linearGradient id="colorRevenue" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="var(--color-primary-500)" stopOpacity={0.3}/>
-                  <stop offset="95%" stopColor="var(--color-primary-500)" stopOpacity={0}/>
+                  <stop offset="5%" stopColor="#4f46e5" stopOpacity={0.3}/>
+                  <stop offset="95%" stopColor="#4f46e5" stopOpacity={0}/>
                 </linearGradient>
               </defs>
-              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--color-slate-100)" />
-              <XAxis dataKey="month" axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: 'var(--color-slate-500)' }} dy={10} />
+              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+              <XAxis dataKey="month" axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#64748b' }} dy={10} />
               <YAxis 
                 axisLine={false} 
                 tickLine={false} 
-                tick={{ fontSize: 12, fill: 'var(--color-slate-500)' }} 
+                tick={{ fontSize: 12, fill: '#64748b' }} 
                 tickFormatter={(val) => `$${(val / 1000000).toFixed(1)}M`} 
                 width={60} 
               />
               <Tooltip 
                 formatter={(val: any) => [new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(val / 100), 'Ingreso']}
-                contentStyle={{ borderRadius: '0.5rem', border: 'none', boxShadow: 'var(--shadow-md)' }}
+                contentStyle={{ borderRadius: '0.5rem', border: 'none', boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)' }}
               />
-              <Area type="monotone" dataKey="revenueCents" stroke="var(--color-primary-500)" strokeWidth={3} fillOpacity={1} fill="url(#colorRevenue)" />
+              <Area type="monotone" dataKey="revenueCents" stroke="#4f46e5" strokeWidth={3} fillOpacity={1} fill="url(#colorRevenue)" />
             </AreaChart>
           </ResponsiveContainer>
         </div>
-      </div>
+      </Card>
 
       {/* Chart 2: Tenants & Users Growth */}
-      <div style={{ background: '#ffffff', borderRadius: '1.25rem', padding: '1.5rem', border: '1px solid var(--color-slate-200)', boxShadow: 'var(--shadow-sm)' }}>
-        <h3 style={{ fontSize: '1rem', fontWeight: 600, color: 'var(--color-slate-800)', marginBottom: '1.5rem' }}>Nuevos Tenants y Usuarios</h3>
-        <div style={{ width: '100%', height: 250 }}>
-          <ResponsiveContainer width="100%" height={250}>
+      <Card className="p-6">
+        <h3 className="text-base font-semibold text-slate-800 mb-6">Nuevos Tenants y Usuarios</h3>
+        <div className="w-full h-64">
+          <ResponsiveContainer width="100%" height="100%">
             <BarChart data={growthData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
-              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--color-slate-100)" />
-              <XAxis dataKey="month" axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: 'var(--color-slate-500)' }} dy={10} />
-              <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: 'var(--color-slate-500)' }} width={40} />
+              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+              <XAxis dataKey="month" axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#64748b' }} dy={10} />
+              <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#64748b' }} width={40} />
               <Tooltip 
-                cursor={{ fill: 'var(--color-slate-50)' }}
-                contentStyle={{ borderRadius: '0.5rem', border: 'none', boxShadow: 'var(--shadow-md)' }}
+                cursor={{ fill: '#f8fafc' }}
+                contentStyle={{ borderRadius: '0.5rem', border: 'none', boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)' }}
               />
-              <Bar dataKey="tenants" name="Tenants" fill="var(--color-slate-800)" radius={[4, 4, 0, 0]} />
-              <Bar dataKey="users" name="Usuarios" fill="var(--color-primary-400)" radius={[4, 4, 0, 0]} />
+              <Bar dataKey="tenants" name="Tenants" fill="#0f172a" radius={[4, 4, 0, 0]} />
+              <Bar dataKey="users" name="Usuarios" fill="#60a5fa" radius={[4, 4, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>
         </div>
-      </div>
+      </Card>
     </div>
   );
 }

@@ -1,10 +1,9 @@
 import { useState } from 'react';
-import { Banner } from '../../components/ui';
+import { Banner, Button, Card } from '../../components/ui';
 import { LoginForm } from './components/LoginForm';
 import { useSession } from './context/SessionProvider';
 import { RegisterScreen } from './RegisterScreen';
 
-// Mock SVG icons
 const ChartIcon = () => (
   <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
     <line x1="18" y1="20" x2="18" y2="10"></line>
@@ -71,102 +70,73 @@ export function LoginScreen() {
 
   return (
     <>
-      <main style={{ minHeight: '100vh', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', background: 'var(--color-slate-50)', fontFamily: 'var(--font-sans)' }}>
+      <main className="min-h-screen grid grid-cols-1 md:grid-cols-2 bg-background font-sans">
         
-        {/* Left Column: Hero Section (Visible on all sizes, but stacked on mobile) */}
-        <section style={{ 
-          display: 'flex',
-          flexDirection: 'column',
-          justifyContent: 'center',
-          alignItems: 'center',
-          background: 'linear-gradient(135deg, #0f172a 0%, #312e81 100%)', // Hardcoded dark colors to ensure contrast
-          position: 'relative',
-          overflow: 'hidden',
-          padding: '4rem 2rem',
-          color: '#ffffff',
-          minHeight: '40vh'
-        }}>
+        {/* Left Column: Hero Section */}
+        <section className="relative flex flex-col justify-center items-center overflow-hidden p-8 md:p-16 text-primary-foreground bg-primary/95 min-h-[40vh]">
           
           {/* Subtle mesh gradient background effect */}
-          <div style={{ position: 'absolute', top: '-10%', left: '-10%', width: '400px', height: '400px', background: '#6366f1', filter: 'blur(100px)', opacity: '0.3', borderRadius: '50%' }}></div>
-          <div style={{ position: 'absolute', bottom: '-10%', right: '-10%', width: '300px', height: '300px', background: '#3b82f6', filter: 'blur(80px)', opacity: '0.2', borderRadius: '50%' }}></div>
+          <div className="absolute -top-[10%] -left-[10%] w-[400px] h-[400px] bg-white/10 blur-[100px] rounded-full"></div>
+          <div className="absolute -bottom-[10%] -right-[10%] w-[300px] h-[300px] bg-black/10 blur-[80px] rounded-full"></div>
 
-          <div style={{ zIndex: 10, maxWidth: '500px', width: '100%' }}>
-            <h1 style={{ fontSize: 'clamp(2rem, 5vw, 3rem)', fontWeight: 800, lineHeight: 1.1, marginBottom: '1.5rem', letterSpacing: '-0.03em' }}>
+          <div className="z-10 max-w-lg w-full">
+            <h1 className="text-4xl md:text-5xl font-extrabold leading-tight tracking-tight mb-6">
               Gestiona ventas, inventario y facturación desde una sola plataforma.
             </h1>
-            <p style={{ fontSize: '1.125rem', color: 'rgba(255, 255, 255, 0.8)', marginBottom: '3rem', fontWeight: 400 }}>
+            <p className="text-lg text-primary-foreground/80 font-normal mb-12">
               Más de 5,000 negocios digitalizan sus operaciones con POS Cloud. Rápido, seguro y siempre disponible.
             </p>
 
-            {/* Floating Glass Cards Grid - Hidden on very small screens to save space */}
-            <div className="hero-cards" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem' }}>
-              <div style={{ 
-                background: 'rgba(255, 255, 255, 0.05)', 
-                backdropFilter: 'blur(10px)', 
-                border: '1px solid rgba(255, 255, 255, 0.1)', 
-                padding: '1.5rem', 
-                borderRadius: '1rem',
-              }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '1rem' }}>
-                  <div style={{ color: '#60a5fa' }}><ChartIcon /></div>
-                  <span style={{ fontSize: '0.875rem', fontWeight: 600, color: 'rgba(255,255,255,0.7)' }}>Ventas Hoy</span>
+            {/* Floating Glass Cards Grid */}
+            <div className="hidden sm:grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="bg-white/10 backdrop-blur-md border border-white/20 p-6 rounded-2xl shadow-xl">
+                <div className="flex items-center gap-3 mb-4">
+                  <div className="text-primary-foreground/90"><ChartIcon /></div>
+                  <span className="text-sm font-semibold text-primary-foreground/70">Ventas Hoy</span>
                 </div>
-                <div style={{ fontSize: '1.5rem', fontWeight: 700, marginBottom: '0.25rem' }}>$2.4M</div>
-                <div style={{ fontSize: '0.75rem', color: '#4ade80', fontWeight: 500 }}>+14.5% vs ayer</div>
+                <div className="text-2xl font-bold mb-1">$2.4M</div>
+                <div className="text-xs font-medium text-green-300">+14.5% vs ayer</div>
               </div>
 
-              <div style={{ 
-                background: 'rgba(255, 255, 255, 0.05)', 
-                backdropFilter: 'blur(10px)', 
-                border: '1px solid rgba(255, 255, 255, 0.1)', 
-                padding: '1.5rem', 
-                borderRadius: '1rem',
-              }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '1rem' }}>
-                  <div style={{ color: '#a78bfa' }}><InvoiceIcon /></div>
-                  <span style={{ fontSize: '0.875rem', fontWeight: 600, color: 'rgba(255,255,255,0.7)' }}>Facturas DIAN</span>
+              <div className="bg-white/10 backdrop-blur-md border border-white/20 p-6 rounded-2xl shadow-xl">
+                <div className="flex items-center gap-3 mb-4">
+                  <div className="text-primary-foreground/90"><InvoiceIcon /></div>
+                  <span className="text-sm font-semibold text-primary-foreground/70">Facturas DIAN</span>
                 </div>
-                <div style={{ fontSize: '1.5rem', fontWeight: 700, marginBottom: '0.25rem' }}>142</div>
-                <div style={{ fontSize: '0.75rem', color: 'rgba(255,255,255,0.5)', fontWeight: 500 }}>Procesadas con éxito</div>
+                <div className="text-2xl font-bold mb-1">142</div>
+                <div className="text-xs font-medium text-primary-foreground/50">Procesadas con éxito</div>
               </div>
             </div>
           </div>
         </section>
 
         {/* Right Column: Auth Form */}
-        <section style={{ 
-          display: 'flex', 
-          justifyContent: 'center', 
-          alignItems: 'center',
-          padding: '2rem 1.5rem',
-          background: '#ffffff'
-        }}>
-          <div style={{ width: '100%', maxWidth: '400px' }}>
-            <header style={{ marginBottom: '2.5rem' }}>
-              <div style={{ width: '40px', height: '40px', background: 'var(--color-primary-600)', borderRadius: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#ffffff', fontSize: '1.25rem', fontWeight: 700, marginBottom: '1.5rem', boxShadow: '0 4px 14px rgba(79, 70, 229, 0.4)' }}>
+        <section className="flex justify-center items-center p-8 bg-card">
+          <div className="w-full max-w-[400px]">
+            <header className="mb-10">
+              <div className="w-10 h-10 bg-primary rounded-xl flex items-center justify-center text-primary-foreground text-xl font-bold mb-6 shadow-md shadow-primary/20">
                 P
               </div>
-              <h1 style={{ fontSize: '1.75rem', fontWeight: 800, color: 'var(--color-slate-900)', marginBottom: '0.5rem', letterSpacing: '-0.02em' }}>Inicia sesión</h1>
-              <p style={{ fontSize: '0.9375rem', color: 'var(--color-slate-500)' }}>Ingresa tus credenciales para acceder a tu panel.</p>
+              <h1 className="text-3xl font-extrabold text-foreground mb-2 tracking-tight">Inicia sesión</h1>
+              <p className="text-muted-foreground">Ingresa tus credenciales para acceder a tu panel.</p>
             </header>
 
             {authMessage && (
-              <div style={{ marginBottom: '1.5rem' }}>
+              <div className="mb-6">
                 <Banner tone="success" onClose={clearAuthMessage}>{authMessage}</Banner>
               </div>
             )}
             
             {error && (
-              <div style={{ marginBottom: '1.5rem' }}>
+              <div className="mb-6">
                 <Banner tone="error">{error}</Banner>
               </div>
             )}
 
             <LoginForm onSubmit={(creds) => handleSubmit(creds)} loading={loading} />
 
-            <div style={{ marginTop: '2rem', textAlign: 'center', fontSize: '0.875rem', color: 'var(--color-slate-500)' }}>
-              ¿No tienes una cuenta? <button onClick={() => setIsRegistering(true)} style={{ background: 'none', border: 'none', color: 'var(--color-primary-600)', fontWeight: 600, cursor: 'pointer', padding: 0 }}>Regístrate aquí</button>
+            <div className="mt-8 text-center text-sm text-muted-foreground">
+              ¿No tienes una cuenta? <button onClick={() => setIsRegistering(true)} className="text-primary font-semibold hover:underline bg-transparent border-none p-0 cursor-pointer">Regístrate aquí</button>
             </div>
           </div>
         </section>
@@ -174,43 +144,29 @@ export function LoginScreen() {
 
       {/* Modern Tenant Selection Modal */}
       {tenantOptions && (
-        <div className="modal-overlay" style={{ background: 'rgba(15, 23, 42, 0.8)', backdropFilter: 'blur(12px)' }}>
-          <div className="modal-card" style={{ maxWidth: '440px', padding: '2.5rem', borderRadius: '1.5rem', border: '1px solid rgba(255,255,255,0.1)' }}>
-            <header style={{ marginBottom: '2rem', textAlign: 'center' }}>
-              <div style={{ width: '48px', height: '48px', background: 'var(--color-slate-100)', borderRadius: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 1rem', fontSize: '1.25rem' }}>
+        <div className="fixed inset-0 z-50 bg-background/80 backdrop-blur-md flex items-center justify-center p-4 sm:p-6 animate-in fade-in duration-200">
+          <Card className="w-full max-w-[440px] p-8 border-border bg-card shadow-2xl">
+            <header className="mb-8 text-center">
+              <div className="w-12 h-12 bg-muted rounded-xl flex items-center justify-center mx-auto mb-4 text-xl">
                 🏢
               </div>
-              <h2 style={{ fontSize: '1.5rem', fontWeight: 700, color: 'var(--color-slate-900)' }}>Selecciona una Empresa</h2>
-              <p style={{ fontSize: '0.875rem', color: 'var(--color-slate-500)', marginTop: '0.5rem' }}>Tienes acceso a múltiples organizaciones.</p>
+              <h2 className="text-2xl font-bold text-foreground">Selecciona una Empresa</h2>
+              <p className="text-sm text-muted-foreground mt-2">Tienes acceso a múltiples organizaciones.</p>
             </header>
             
-            <div style={{ display: 'grid', gap: '0.75rem', maxHeight: '300px', overflowY: 'auto' }}>
+            <div className="grid gap-3 max-h-[300px] overflow-y-auto">
               {tenantOptions.map((tenant, idx) => (
                 <button
                   key={tenant.id || `tenant-${idx}`}
                   onClick={() => handleSelectTenant(tenant.id)}
                   disabled={loading}
-                  style={{
-                    padding: '1.25rem',
-                    textAlign: 'left',
-                    background: '#ffffff',
-                    border: '1px solid var(--color-slate-200)',
-                    borderRadius: '1rem',
-                    cursor: loading ? 'wait' : 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    boxShadow: 'var(--shadow-sm)',
-                    transition: 'all 0.2s ease'
-                  }}
-                  onMouseOver={(e) => { e.currentTarget.style.borderColor = 'var(--color-primary-300)'; e.currentTarget.style.boxShadow = 'var(--shadow-md)'; }}
-                  onMouseOut={(e) => { e.currentTarget.style.borderColor = 'var(--color-slate-200)'; e.currentTarget.style.boxShadow = 'var(--shadow-sm)'; }}
+                  className="w-full flex items-center justify-between p-5 text-left bg-background border border-border rounded-2xl cursor-pointer hover:border-primary/50 hover:shadow-md transition-all group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
                 >
                   <div>
-                    <strong style={{ display: 'block', fontSize: '1rem', color: 'var(--color-slate-900)', fontWeight: 600 }}>{tenant.name}</strong>
-                    <span style={{ fontSize: '0.8125rem', color: 'var(--color-slate-500)' }}>{tenant.business_name}</span>
+                    <strong className="block text-base text-foreground font-semibold group-hover:text-primary transition-colors">{tenant.name}</strong>
+                    <span className="text-sm text-muted-foreground">{tenant.business_name}</span>
                   </div>
-                  <div style={{ color: 'var(--color-primary-600)' }}>
+                  <div className="text-primary opacity-0 group-hover:opacity-100 transition-opacity">
                     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                       <polyline points="9 18 15 12 9 6"></polyline>
                     </svg>
@@ -219,36 +175,30 @@ export function LoginScreen() {
               ))}
             </div>
             
-            {/* Action Buttons */}
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '0.5rem', marginTop: '2rem' }}>
-              <button
+            <div className="mt-8 flex flex-col gap-3">
+              <Button
+                variant="outline"
+                size="lg"
                 onClick={() => { setTenantOptions(null); setPendingCredentials(null); }}
-                className="ghost-button"
-                style={{ width: '100%', padding: '0.875rem', borderRadius: '1rem' }}
+                className="w-full rounded-xl"
               >
                 Volver
-              </button>
-              <button
+              </Button>
+              <Button
+                variant="ghost"
                 onClick={() => {
                   setTenantOptions(null);
                   setPendingCredentials(null);
-                  logout(); // Explicitly clear any session states
+                  logout();
                 }}
-                style={{ width: '100%', padding: '0.875rem', borderRadius: '1rem', background: 'transparent', color: 'var(--color-error-600)', border: 'none', fontWeight: 600, cursor: 'pointer' }}
+                className="w-full text-destructive hover:text-destructive hover:bg-destructive/10 rounded-xl"
               >
                 Cerrar Sesión
-              </button>
+              </Button>
             </div>
-          </div>
+          </Card>
         </div>
       )}
-
-      {/* Global CSS for responsiveness */}
-      <style>{`
-        @media (max-width: 768px) {
-          .hero-cards { display: none !important; }
-        }
-      `}</style>
     </>
   );
 }

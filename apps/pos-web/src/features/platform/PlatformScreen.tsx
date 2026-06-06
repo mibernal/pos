@@ -8,6 +8,7 @@ import { AdvancedTenantsTable } from './components/AdvancedTenantsTable';
 import { CreateTenantModal } from './components/CreateTenantModal';
 import { TenantDetailDrawer } from './components/TenantDetailDrawer';
 import { PlansManagementTab } from './components/PlansManagementTab';
+import { Banner } from '../../components/ui';
 
 interface PlatformScreenProps {
   api: ReturnType<typeof import('../../lib/api/client').createApiClient>;
@@ -65,22 +66,21 @@ export function PlatformScreen({ api }: PlatformScreenProps) {
   }
 
   return (
-    <div style={{ padding: '2rem', maxWidth: '1400px', margin: '0 auto', fontFamily: 'var(--font-sans)' }}>
-      <header style={{ marginBottom: '2rem' }}>
-        <h1 style={{ fontSize: '1.875rem', fontWeight: 800, color: 'var(--color-slate-900)', letterSpacing: '-0.02em', marginBottom: '0.25rem' }}>SaaS Control Center</h1>
-        <p style={{ color: 'var(--color-slate-500)', fontSize: '1rem' }}>Operación ejecutiva y gestión de organizaciones.</p>
+    <div className="p-4 md:p-8 max-w-7xl mx-auto font-sans animate-in fade-in duration-300">
+      <header className="mb-8">
+        <h1 className="text-3xl font-extrabold text-foreground tracking-tight mb-1">SaaS Control Center</h1>
+        <p className="text-muted-foreground text-base">Operación ejecutiva y gestión de organizaciones.</p>
         
-        <div style={{ display: 'flex', gap: '1rem', marginTop: '1.5rem', borderBottom: '1px solid var(--color-slate-200)' }}>
+        <div className="flex gap-4 mt-6 border-b border-border overflow-x-auto pb-px">
           {['OVERVIEW', 'TENANTS', 'PLANS'].map((tab) => (
             <button
               key={tab}
               onClick={() => setActiveTab(tab as any)}
-              style={{
-                padding: '0.75rem 1rem', background: 'none', border: 'none', cursor: 'pointer',
-                fontSize: '0.875rem', fontWeight: 600, 
-                color: activeTab === tab ? 'var(--color-primary-600)' : 'var(--color-slate-500)',
-                borderBottom: activeTab === tab ? '2px solid var(--color-primary-600)' : '2px solid transparent'
-              }}
+              className={`pb-3 px-1 text-sm font-semibold transition-colors border-b-2 whitespace-nowrap ${
+                activeTab === tab 
+                  ? 'border-primary text-primary' 
+                  : 'border-transparent text-muted-foreground hover:text-foreground hover:border-muted'
+              }`}
             >
               {tab === 'OVERVIEW' ? 'Resumen Ejecutivo' : tab === 'TENANTS' ? 'Directorio de Tenants' : 'Planes de Suscripción'}
             </button>
@@ -89,24 +89,24 @@ export function PlatformScreen({ api }: PlatformScreenProps) {
       </header>
 
       {error && (
-        <div style={{ marginBottom: '2rem', padding: '1rem', background: 'var(--color-error-50)', color: 'var(--color-error-700)', borderRadius: '0.75rem', border: '1px solid var(--color-error-200)', fontWeight: 500 }}>
-          {error}
+        <div className="mb-8">
+          <Banner tone="error">{error}</Banner>
         </div>
       )}
 
       {loading && !dashboardMetrics ? (
-        <div style={{ display: 'grid', gap: '1.5rem' }}>
-           <div style={{ height: '120px', background: 'var(--color-slate-100)', borderRadius: '1.25rem', animation: 'pulse 1.5s infinite' }} />
-           <div style={{ height: '300px', background: 'var(--color-slate-100)', borderRadius: '1.25rem', animation: 'pulse 1.5s infinite' }} />
+        <div className="grid gap-6">
+           <div className="h-32 bg-muted/50 rounded-2xl animate-pulse" />
+           <div className="h-72 bg-muted/50 rounded-2xl animate-pulse" />
         </div>
       ) : (
-        <>
+        <div className="animate-in slide-in-from-bottom-4 duration-500">
           {activeTab === 'OVERVIEW' && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
+            <div className="flex flex-col gap-8">
               <ExecutiveMetricsWidget metrics={dashboardMetrics} />
               <GrowthChartsWidget growthData={growthData} />
               
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(350px, 1fr))', gap: '1.5rem' }}>
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                 <PlatformAlertsWidget baseUrl={api.baseUrl} sessionToken={api.getAccessToken() || ''} />
                 <RecentActivityWidget activity={recentActivity} />
               </div>
@@ -148,7 +148,7 @@ export function PlatformScreen({ api }: PlatformScreenProps) {
             onClose={() => setSelectedTenant(null)}
             onSuccess={() => { loadData(); }} // Don't close so they can see changes
           />
-        </>
+        </div>
       )}
     </div>
   );

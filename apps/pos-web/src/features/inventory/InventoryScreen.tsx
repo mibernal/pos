@@ -231,292 +231,326 @@ export function InventoryScreen({ api, branchId }: InventoryScreenProps) {
   }
 
   return (
-    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '1.5rem', padding: '1rem', minHeight: '0' }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <div>
-          <h2 style={{ fontSize: '1.5rem', fontWeight: 600, margin: 0 }}>Stock e Inventario</h2>
-          <p style={{ color: 'var(--color-slate-400)', margin: '0.25rem 0 0 0' }}>
-            Control de entrada y salida de mercancía
-          </p>
-        </div>
-        <PermissionGuard allowedPermissions={['inventory:adjust']}>
-          <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
-            {viewMode === 'LOCAL' && (
-              <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+    <div className="flex flex-col h-full bg-muted/20 animate-in fade-in duration-300">
+      <header className="flex-shrink-0 px-6 py-4 border-b border-border bg-background sticky top-0 z-10 shadow-sm">
+        <div className="max-w-7xl mx-auto flex flex-col md:flex-row md:items-center justify-between gap-4">
+          <div>
+            <h2 className="text-2xl font-bold text-foreground tracking-tight">Stock e Inventario</h2>
+            <p className="text-sm text-muted-foreground mt-1">Control de entrada y salida de mercancía</p>
+          </div>
+          <PermissionGuard allowedPermissions={['inventory:adjust']}>
+            <div className="flex flex-wrap items-center gap-3">
+              {viewMode === 'LOCAL' && (
+                <div className="flex items-center gap-2">
+                  <button
+                    className="inline-flex items-center justify-center h-9 px-3 rounded-md text-sm font-medium hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
+                    onClick={handleExportCSV}
+                  >
+                    <span className="mr-2">📥</span> Exportar
+                  </button>
+                  <label className="inline-flex items-center justify-center h-9 px-3 rounded-md text-sm font-medium hover:bg-muted text-muted-foreground hover:text-foreground transition-colors cursor-pointer m-0">
+                    <span className="mr-2">📤</span> Importar
+                    <input type="file" accept=".csv" className="hidden" onChange={e => void handleImportCSV(e)} />
+                  </label>
+                </div>
+              )}
+              <button
+                className="inline-flex items-center justify-center h-9 px-4 rounded-md text-sm font-medium bg-primary text-primary-foreground hover:bg-primary/90 transition-colors shadow-sm disabled:opacity-50"
+                onClick={() => openAdjustmentModal()}
+                disabled={isSavingAdjustment}
+              >
+                {isSavingAdjustment ? 'Procesando...' : 'Ajustar Stock'}
+              </button>
+              <div className="flex bg-muted p-1 rounded-lg border border-border/50">
                 <button
-                  className="ghost-button button-sm"
-                  onClick={handleExportCSV}
+                  className={`px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${viewMode === 'LOCAL' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}
+                  onClick={() => setViewMode('LOCAL')}
                 >
-                  📥 Exportar CSV
+                  Local
                 </button>
-                <label className="ghost-button button-sm" style={{ cursor: 'pointer', margin: 0 }}>
-                  📤 Importar CSV
-                  <input type="file" accept=".csv" style={{ display: 'none' }} onChange={e => void handleImportCSV(e)} />
-                </label>
+                <button
+                  className={`px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${viewMode === 'CONSOLIDATED' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}
+                  onClick={() => setViewMode('CONSOLIDATED')}
+                >
+                  Consolidado
+                </button>
               </div>
-            )}
-            <button
-              className="button button-sm"
-              style={{ background: 'var(--color-primary-600)', color: '#fff', border: 'none' }}
-              onClick={() => openAdjustmentModal()}
-              disabled={isSavingAdjustment}
-            >
-              {isSavingAdjustment ? 'Procesando...' : 'Ajustar Stock'}
-            </button>
-            <div style={{ display: 'flex', background: 'var(--color-slate-800)', borderRadius: '6px', padding: '0.25rem' }}>
-              <button
-                className={`ghost-button button-sm ${viewMode === 'LOCAL' ? 'is-active' : ''}`}
-                style={{ background: viewMode === 'LOCAL' ? 'var(--color-slate-700)' : 'transparent', color: viewMode === 'LOCAL' ? '#fff' : 'inherit' }}
-                onClick={() => setViewMode('LOCAL')}
-              >
-                Local
-              </button>
-              <button
-                className={`ghost-button button-sm ${viewMode === 'CONSOLIDATED' ? 'is-active' : ''}`}
-                style={{ background: viewMode === 'CONSOLIDATED' ? 'var(--color-slate-700)' : 'transparent', color: viewMode === 'CONSOLIDATED' ? '#fff' : 'inherit' }}
-                onClick={() => setViewMode('CONSOLIDATED')}
-              >
-                Consolidado
-              </button>
+            </div>
+          </PermissionGuard>
+        </div>
+      </header>
+
+      <main className="flex-1 p-6 w-full max-w-7xl mx-auto overflow-y-auto">
+        {errorMessage && <Banner tone="error" className="mb-6">{errorMessage}</Banner>}
+
+        {products.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-24 text-center">
+            <div className="w-16 h-16 bg-muted rounded-full flex items-center justify-center mb-4">
+              <span className="text-2xl">📦</span>
+            </div>
+            <h3 className="text-xl font-semibold text-foreground mb-2">Sin productos</h3>
+            <p className="text-muted-foreground max-w-md">
+              Aún no has creado productos en esta sucursal. Crea un producto en el catálogo primero.
+            </p>
+          </div>
+        ) : (
+          <div className="bg-card border border-border rounded-xl shadow-sm overflow-hidden animate-in slide-in-from-bottom-4 duration-500">
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-sm whitespace-nowrap">
+                <thead className="bg-muted/50 border-b border-border">
+                  <tr>
+                    <th className="px-6 py-4 font-semibold text-muted-foreground w-16">Img</th>
+                    <th className="px-6 py-4 font-semibold text-muted-foreground">Producto</th>
+                    <th className="px-6 py-4 font-semibold text-muted-foreground">Categoría</th>
+                    <th className="px-6 py-4 font-semibold text-muted-foreground text-right">
+                      {viewMode === 'LOCAL' ? 'Stock Disponible' : 'Stock Total'}
+                    </th>
+                    {viewMode === 'LOCAL' && (
+                      <th className="px-6 py-4 font-semibold text-muted-foreground text-right">Acción</th>
+                    )}
+                    {viewMode === 'CONSOLIDATED' && (
+                      <th className="px-6 py-4 font-semibold text-muted-foreground">Desglose por Sucursal</th>
+                    )}
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border">
+                  {viewMode === 'LOCAL' && products.map((p) => {
+                    const qty = balances[p.id] || 0;
+                    const isLowStock = qty <= 5;
+                    const isOutOfStock = qty <= 0;
+
+                    return (
+                      <tr key={p.id} className="hover:bg-muted/30 transition-colors">
+                        <td className="px-6 py-4">
+                          <div className="w-10 h-10 rounded-lg overflow-hidden border border-border bg-muted">
+                            {p.imageUrl ? (
+                              <img src={p.imageUrl} alt="" className="w-full h-full object-cover" />
+                            ) : (
+                              <PlaceholderImage name={p.name} category={p.category} size="sm" />
+                            )}
+                          </div>
+                        </td>
+                        <td className="px-6 py-4">
+                          <div className="font-semibold text-foreground">{p.name}</div>
+                          {p.barcode && <div className="text-xs text-muted-foreground mt-0.5 font-mono">{p.barcode}</div>}
+                        </td>
+                        <td className="px-6 py-4 text-muted-foreground">{p.category}</td>
+                        <td className="px-6 py-4 text-right">
+                          <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold ${
+                            isOutOfStock ? 'bg-destructive/10 text-destructive' : 
+                            isLowStock ? 'bg-yellow-500/10 text-yellow-600 dark:text-yellow-400' : 
+                            'bg-green-500/10 text-green-600 dark:text-green-400'
+                          }`}>
+                            {qty} unds
+                          </span>
+                        </td>
+                        <td className="px-6 py-4 text-right">
+                          <PermissionGuard allowedPermissions={['inventory:adjust']}>
+                             <button 
+                                className="inline-flex items-center justify-center h-8 px-3 rounded-md text-xs font-medium border border-border bg-background hover:bg-muted hover:text-foreground transition-colors"
+                                onClick={() => openAdjustmentModal(p.id)}
+                             >
+                                Ajustar
+                             </button>
+                          </PermissionGuard>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                  
+                  {viewMode === 'CONSOLIDATED' && (consolidatedData || []).map((p) => {
+                    const isLowStock = p.total_on_hand_qty <= 10;
+                    const isOutOfStock = p.total_on_hand_qty <= 0;
+
+                    return (
+                      <tr key={p.product_id} className="hover:bg-muted/30 transition-colors">
+                        <td className="px-6 py-4">
+                          <div className="w-10 h-10 rounded-lg overflow-hidden border border-border bg-muted">
+                            {p.image_url ? (
+                              <img src={p.image_url ?? undefined} alt="" className="w-full h-full object-cover" />
+                            ) : (
+                              <PlaceholderImage name={p.product_name} category={p.category} size="sm" />
+                            )}
+                          </div>
+                        </td>
+                        <td className="px-6 py-4">
+                          <div className="font-semibold text-foreground">{p.product_name}</div>
+                        </td>
+                        <td className="px-6 py-4 text-muted-foreground">{p.category}</td>
+                        <td className="px-6 py-4 text-right">
+                          <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold ${
+                            isOutOfStock ? 'bg-destructive/10 text-destructive' : 
+                            isLowStock ? 'bg-yellow-500/10 text-yellow-600 dark:text-yellow-400' : 
+                            'bg-green-500/10 text-green-600 dark:text-green-400'
+                          }`}>
+                            {p.total_on_hand_qty} unds
+                          </span>
+                        </td>
+                        <td className="px-6 py-4 text-sm text-muted-foreground">
+                          <div className="flex flex-col gap-1">
+                            {(p.branches_breakdown as Array<{ branch_id: string; branch_name: string; on_hand_qty: number }>).map((b) => (
+                              <div key={b.branch_id} className="flex justify-between items-center gap-4 border-b border-border/30 last:border-0 pb-1 last:pb-0">
+                                <span>{b.branch_name}:</span>
+                                <strong className="text-foreground">{b.on_hand_qty}</strong>
+                              </div>
+                            ))}
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
             </div>
           </div>
-        </PermissionGuard>
-      </div>
+        )}
 
-      {errorMessage && <Banner tone="error">{errorMessage}</Banner>}
-
-      {products.length === 0 ? (
-        <div className="empty-state" style={{ textAlign: 'center', padding: '3rem 1rem' }}>
-          <h3 style={{ fontSize: '1.125rem', marginBottom: '0.5rem' }}>Sin productos</h3>
-          <p style={{ color: 'var(--color-slate-500)', marginBottom: '1.5rem' }}>
-            Aún no has creado productos en esta sucursal. Crea un producto en el catálogo primero.
-          </p>
-        </div>
-      ) : (
-        <div style={{ backgroundColor: 'var(--color-bg)', border: '1px solid var(--color-slate-700)', borderRadius: '8px', overflowX: 'auto' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '0.875rem' }}>
-            <thead style={{ borderBottom: '1px solid var(--color-slate-700)', backgroundColor: 'var(--color-slate-800)' }}>
-              <tr>
-                <th style={{ padding: '0.75rem 1rem', width: '50px' }}>Img</th>
-                <th style={{ padding: '0.75rem 1rem' }}>Producto</th>
-                <th style={{ padding: '0.75rem 1rem' }}>Categoría</th>
-                <th style={{ padding: '0.75rem 1rem', textAlign: 'right' }}>
-                  {viewMode === 'LOCAL' ? 'Stock Disponible' : 'Stock Total'}
-                </th>
-                {viewMode === 'LOCAL' && (
-                  <th style={{ padding: '0.75rem 1rem', textAlign: 'right' }}>Acción</th>
-                )}
-                {viewMode === 'CONSOLIDATED' && (
-                  <th style={{ padding: '0.75rem 1rem' }}>Desglose por Sucursal</th>
-                )}
-              </tr>
-            </thead>
-            <tbody>
-              {viewMode === 'LOCAL' && products.map((p) => {
-                const qty = balances[p.id] || 0;
-                const isLowStock = qty <= 5;
-                const isOutOfStock = qty <= 0;
-
-                return (
-                  <tr key={p.id} style={{ borderBottom: '1px solid var(--color-slate-800)' }}>
-                    <td style={{ padding: '0.5rem 1rem' }}>
-                      <div style={{ width: '32px', height: '32px', borderRadius: '4px', overflow: 'hidden' }}>
-                        {p.imageUrl ? (
-                          <img src={p.imageUrl} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                        ) : (
-                          <PlaceholderImage name={p.name} category={p.category} size="sm" />
-                        )}
-                      </div>
-                    </td>
-                    <td style={{ padding: '0.75rem 1rem' }}>
-                      <strong>{p.name}</strong>
-                      {p.barcode && <div style={{ fontSize: '0.7rem', color: 'var(--color-slate-500)' }}>{p.barcode}</div>}
-                    </td>
-                    <td style={{ padding: '0.75rem 1rem', color: 'var(--color-slate-400)' }}>{p.category}</td>
-                    <td style={{ padding: '0.75rem 1rem', textAlign: 'right' }}>
-                      <span className={`tag ${isOutOfStock ? 'tag-error' : isLowStock ? 'tag-warning' : 'tag-success'}`} style={{ fontSize: '0.875rem', fontWeight: 600 }}>
-                        {qty} unds
-                      </span>
-                    </td>
-                    <td style={{ padding: '0.75rem 1rem', textAlign: 'right' }}>
-                      <PermissionGuard allowedPermissions={['inventory:adjust']}>
-                         <button 
-                            className="ghost-button button-sm" 
-                            onClick={() => openAdjustmentModal(p.id)}
-                            style={{ padding: '0.25rem 0.75rem', fontSize: '0.8rem' }}
-                         >
-                            Ajustar
-                         </button>
-                      </PermissionGuard>
-                    </td>
-                  </tr>
-                );
-              })}
+        {/* Modal */}
+        {isAdjustmentModalOpen && (
+          <div className="fixed inset-0 bg-background/80 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-in fade-in duration-200">
+            <div className="bg-card border border-border shadow-xl rounded-xl w-full max-w-2xl max-h-[90vh] flex flex-col animate-in zoom-in-95 duration-200">
+              <div className="flex items-center justify-between px-6 py-4 border-b border-border">
+                 <h3 className="text-lg font-bold text-foreground">Ajustar Stock</h3>
+                 <button 
+                   onClick={() => setIsAdjustmentModalOpen(false)}
+                   className="text-muted-foreground hover:text-foreground hover:bg-muted p-1 rounded-md transition-colors"
+                 >
+                   <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" /></svg>
+                 </button>
+              </div>
               
-              {viewMode === 'CONSOLIDATED' && (consolidatedData || []).map((p) => {
-                const isLowStock = p.total_on_hand_qty <= 10;
-                const isOutOfStock = p.total_on_hand_qty <= 0;
-
-                return (
-                  <tr key={p.product_id} style={{ borderBottom: '1px solid var(--color-slate-800)' }}>
-                    <td style={{ padding: '0.5rem 1rem' }}>
-                      <div style={{ width: '32px', height: '32px', borderRadius: '4px', overflow: 'hidden' }}>
-                        {p.image_url ? (
-                          <img src={p.image_url ?? undefined} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                        ) : (
-                          <PlaceholderImage name={p.product_name} category={p.category} size="sm" />
-                        )}
-                      </div>
-                    </td>
-                    <td style={{ padding: '0.75rem 1rem' }}>
-                      <strong>{p.product_name}</strong>
-                    </td>
-                    <td style={{ padding: '0.75rem 1rem', color: 'var(--color-slate-400)' }}>{p.category}</td>
-                    <td style={{ padding: '0.75rem 1rem', textAlign: 'right' }}>
-                      <span className={`tag ${isOutOfStock ? 'tag-error' : isLowStock ? 'tag-warning' : 'tag-success'}`} style={{ fontSize: '0.875rem', fontWeight: 600 }}>
-                        {p.total_on_hand_qty} unds
-                      </span>
-                    </td>
-                    <td style={{ padding: '0.75rem 1rem', color: 'var(--color-slate-400)', fontSize: '0.8rem' }}>
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
-                        {(p.branches_breakdown as Array<{ branch_id: string; branch_name: string; on_hand_qty: number }>).map((b) => (
-                          <div key={b.branch_id} style={{ display: 'flex', justifyContent: 'space-between', gap: '1rem' }}>
-                            <span>{b.branch_name}:</span>
-                            <strong>{b.on_hand_qty}</strong>
-                          </div>
-                        ))}
-                      </div>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      )}
-
-      {isAdjustmentModalOpen && (
-        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.5)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <div style={{ background: 'var(--color-bg)', padding: '2rem', borderRadius: '12px', border: '1px solid var(--color-slate-700)', width: '100%', maxWidth: '500px', maxHeight: '90vh', overflowY: 'auto' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
-               <h3 style={{ margin: 0, fontSize: '1.25rem' }}>Ajustar Stock</h3>
-               <button onClick={() => setIsAdjustmentModalOpen(false)} style={{ background: 'transparent', border: 'none', color: 'var(--color-slate-400)', fontSize: '1.5rem', cursor: 'pointer' }}>&times;</button>
-            </div>
-            
-            <form onSubmit={handleSaveAdjustment}>
-              {adjustmentError && <Banner tone="error">{adjustmentError}</Banner>}
-              {adjustmentSuccess && <Banner tone="success">{adjustmentSuccess}</Banner>}
-              
-              <div className="stack-md" style={{ marginTop: adjustmentError || adjustmentSuccess ? '1rem' : '0' }}>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', background: 'var(--color-slate-900)', padding: '1rem', borderRadius: '8px', border: '1px solid var(--color-slate-700)' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <span style={{ fontWeight: 600 }}>Productos a Ajustar</span>
-                    <button type="button" onClick={addAdjustmentRow} className="ghost-button button-sm" style={{ padding: '0.25rem 0.5rem' }}>+ Añadir Fila</button>
-                  </div>
-                  {adjustmentRows.map((row, index) => (
-                    <div key={row.id} style={{ display: 'flex', gap: '0.5rem', alignItems: 'flex-start' }}>
-                      <label className="field" style={{ flex: 1 }}>
-                        {index === 0 && <span style={{ fontSize: '0.75rem' }}>Producto</span>}
-                        <select
-                          value={row.productId}
-                          onChange={(e) => updateRow(row.id, 'productId', e.target.value)}
-                          required
-                          style={{ width: '100%', padding: '0.5rem', borderRadius: '6px', border: '1px solid var(--color-slate-700)', background: 'var(--color-slate-800)', color: 'white' }}
-                        >
-                          <option value="" disabled>Seleccione un producto</option>
-                          {products.map((p) => (
-                            <option key={p.id} value={p.id}>{p.name} {p.barcode ? `(${p.barcode})` : ''} - (Stock: {balances[p.id] || 0})</option>
-                          ))}
-                        </select>
-                      </label>
-                      <label className="field" style={{ width: '100px' }}>
-                        {index === 0 && <span style={{ fontSize: '0.75rem' }}>Cantidad</span>}
-                        <input
-                          type="number"
-                          min="1"
-                          step="1"
-                          value={row.qtyChange}
-                          onChange={(e) => updateRow(row.id, 'qtyChange', Number(e.target.value))}
-                          required
-                          style={{ width: '100%', padding: '0.5rem', borderRadius: '6px', border: '1px solid var(--color-slate-700)', background: 'var(--color-slate-800)', color: 'white' }}
-                        />
-                      </label>
-                      <div style={{ paddingTop: index === 0 ? '1.25rem' : '0' }}>
-                        <button type="button" onClick={() => removeRow(row.id)} className="ghost-button" style={{ padding: '0.5rem', color: 'var(--color-error-500)' }} disabled={adjustmentRows.length === 1}>
-                          &times;
-                        </button>
-                      </div>
+              <div className="p-6 overflow-y-auto">
+                <form onSubmit={handleSaveAdjustment} className="flex flex-col gap-6">
+                  {adjustmentError && <Banner tone="error">{adjustmentError}</Banner>}
+                  {adjustmentSuccess && <Banner tone="success">{adjustmentSuccess}</Banner>}
+                  
+                  <div className="bg-muted/30 border border-border rounded-xl p-5">
+                    <div className="flex justify-between items-center mb-4">
+                      <span className="font-semibold text-foreground text-sm uppercase tracking-wider">Productos a Ajustar</span>
+                      <button 
+                        type="button" 
+                        onClick={addAdjustmentRow} 
+                        className="inline-flex items-center justify-center h-8 px-3 rounded-md text-xs font-medium bg-background border border-border hover:bg-muted transition-colors"
+                      >
+                        + Añadir Fila
+                      </button>
                     </div>
-                  ))}
-                </div>
+                    
+                    <div className="flex flex-col gap-3">
+                      {adjustmentRows.map((row, index) => (
+                        <div key={row.id} className="flex items-start gap-3">
+                          <div className="flex-1 flex flex-col gap-1.5">
+                            {index === 0 && <label className="text-xs font-medium text-muted-foreground">Producto</label>}
+                            <select
+                              value={row.productId}
+                              onChange={(e) => updateRow(row.id, 'productId', e.target.value)}
+                              required
+                              className="h-10 px-3 rounded-md border border-input bg-background text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                            >
+                              <option value="" disabled>Seleccione un producto</option>
+                              {products.map((p) => (
+                                <option key={p.id} value={p.id}>{p.name} {p.barcode ? `(${p.barcode})` : ''} - (Stock: {balances[p.id] || 0})</option>
+                              ))}
+                            </select>
+                          </div>
+                          <div className="w-24 flex flex-col gap-1.5">
+                            {index === 0 && <label className="text-xs font-medium text-muted-foreground">Cantidad</label>}
+                            <input
+                              type="number"
+                              min="1"
+                              step="1"
+                              value={row.qtyChange}
+                              onChange={(e) => updateRow(row.id, 'qtyChange', Number(e.target.value))}
+                              required
+                              className="h-10 px-3 rounded-md border border-input bg-background text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                            />
+                          </div>
+                          <div className={`flex items-center ${index === 0 ? 'mt-6' : 'mt-1'}`}>
+                            <button 
+                              type="button" 
+                              onClick={() => removeRow(row.id)} 
+                              className="p-2 text-muted-foreground hover:text-destructive hover:bg-destructive/10 rounded-md transition-colors" 
+                              disabled={adjustmentRows.length === 1}
+                            >
+                              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
 
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '1rem' }}>
-                  <label className="field">
-                    <span style={{ fontWeight: 600 }}>Tipo de Ajuste General</span>
+                  <div className="flex flex-col gap-1.5">
+                    <label className="text-sm font-semibold text-foreground">Tipo de Ajuste General</label>
                     <select
                       value={operation}
                       onChange={(e) => setOperation(e.target.value as 'MANUAL_ENTRY' | 'MANUAL_EXIT')}
                       required
-                      style={{ width: '100%', padding: '0.75rem', borderRadius: '8px', border: '1px solid var(--color-slate-700)', background: 'var(--color-slate-800)', color: 'white' }}
+                      className="h-10 px-3 rounded-md border border-input bg-background text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                     >
                       <option value="MANUAL_ENTRY">Entrada (+)</option>
                       <option value="MANUAL_EXIT">Salida / Merma (-)</option>
                     </select>
-                  </label>
-                </div>
+                  </div>
 
-                <label className="field">
-                  <span style={{ fontWeight: 600 }}>Razón</span>
-                  <select
-                    value={reason}
-                    onChange={(e) => setReason(e.target.value)}
-                    required
-                    style={{ width: '100%', padding: '0.75rem', borderRadius: '8px', border: '1px solid var(--color-slate-700)', background: 'var(--color-slate-800)', color: 'white' }}
-                  >
-                    {operation === 'MANUAL_ENTRY' ? (
-                      <>
-                        <option value="SOBRANTE">Sobrante en inventario físico</option>
-                        <option value="AJUSTE">Ajuste de sistema</option>
-                        <option value="INGRESO_ESPECIAL">Ingreso extraordinario</option>
-                      </>
-                    ) : (
-                      <>
-                        <option value="MERMA">Merma o daño</option>
-                        <option value="ROBO">Pérdida o Robo</option>
-                        <option value="CONSUMO">Consumo interno</option>
-                        <option value="AJUSTE">Ajuste de sistema</option>
-                        <option value="VENCIMIENTO">Caducidad / Vencimiento</option>
-                      </>
-                    )}
-                  </select>
-                </label>
+                  <div className="flex flex-col gap-1.5">
+                    <label className="text-sm font-semibold text-foreground">Razón</label>
+                    <select
+                      value={reason}
+                      onChange={(e) => setReason(e.target.value)}
+                      required
+                      className="h-10 px-3 rounded-md border border-input bg-background text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    >
+                      {operation === 'MANUAL_ENTRY' ? (
+                        <>
+                          <option value="SOBRANTE">Sobrante en inventario físico</option>
+                          <option value="AJUSTE">Ajuste de sistema</option>
+                          <option value="INGRESO_ESPECIAL">Ingreso extraordinario</option>
+                        </>
+                      ) : (
+                        <>
+                          <option value="MERMA">Merma o daño</option>
+                          <option value="ROBO">Pérdida o Robo</option>
+                          <option value="CONSUMO">Consumo interno</option>
+                          <option value="AJUSTE">Ajuste de sistema</option>
+                          <option value="VENCIMIENTO">Caducidad / Vencimiento</option>
+                        </>
+                      )}
+                    </select>
+                  </div>
 
-                <label className="field">
-                  <span style={{ fontWeight: 600 }}>Notas (Opcional)</span>
-                  <input
-                    value={notes}
-                    onChange={(e) => setNotes(e.target.value)}
-                    placeholder="Ej: Producto encontrado en bodega..."
-                    style={{ width: '100%', padding: '0.75rem', borderRadius: '8px', border: '1px solid var(--color-slate-700)', background: 'var(--color-slate-800)', color: 'white' }}
-                  />
-                </label>
+                  <div className="flex flex-col gap-1.5">
+                    <label className="text-sm font-semibold text-foreground">Notas (Opcional)</label>
+                    <input
+                      value={notes}
+                      onChange={(e) => setNotes(e.target.value)}
+                      placeholder="Ej: Producto encontrado en bodega..."
+                      className="h-10 px-3 rounded-md border border-input bg-background text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    />
+                  </div>
 
-                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem', marginTop: '1rem' }}>
-                  <button type="button" onClick={() => setIsAdjustmentModalOpen(false)} className="ghost-button">Cancelar</button>
-                  <button 
-                    type="submit" 
-                    className="button" 
-                    style={{ background: 'var(--color-primary-600)', color: '#fff', padding: '0.5rem 1.5rem' }} 
-                    disabled={isSavingAdjustment || !!adjustmentSuccess}
-                  >
-                    {isSavingAdjustment ? 'Guardando...' : 'Confirmar Ajuste'}
-                  </button>
-                </div>
+                  <div className="flex justify-end gap-3 pt-4 border-t border-border mt-2">
+                    <button 
+                      type="button" 
+                      onClick={() => setIsAdjustmentModalOpen(false)} 
+                      className="h-10 px-4 inline-flex items-center justify-center rounded-md text-sm font-medium border border-border bg-background hover:bg-muted text-foreground transition-colors"
+                    >
+                      Cancelar
+                    </button>
+                    <button 
+                      type="submit" 
+                      className="h-10 px-4 inline-flex items-center justify-center rounded-md text-sm font-medium bg-primary text-primary-foreground hover:bg-primary/90 transition-colors shadow-sm disabled:opacity-50"
+                      disabled={isSavingAdjustment || !!adjustmentSuccess}
+                    >
+                      {isSavingAdjustment ? 'Guardando...' : 'Confirmar Ajuste'}
+                    </button>
+                  </div>
+                </form>
               </div>
-            </form>
+            </div>
           </div>
-        </div>
-      )}
+        )}
+      </main>
     </div>
   );
 }

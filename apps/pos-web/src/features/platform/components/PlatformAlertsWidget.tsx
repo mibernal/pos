@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { Card, CardHeader, CardTitle, CardContent } from '../../../components/ui';
 
 export function PlatformAlertsWidget({ baseUrl, sessionToken }: { baseUrl: string, sessionToken: string }) {
   const [alerts, setAlerts] = useState<any[]>([]);
@@ -38,31 +39,31 @@ export function PlatformAlertsWidget({ baseUrl, sessionToken }: { baseUrl: strin
   if (!alerts.length) return null;
 
   return (
-    <div style={{ background: '#ffffff', borderRadius: '1.25rem', border: '1px solid var(--color-slate-200)', boxShadow: 'var(--shadow-sm)', marginBottom: '2rem', overflow: 'hidden' }}>
-      <div style={{ padding: '1rem 1.5rem', background: 'var(--color-slate-50)', borderBottom: '1px solid var(--color-slate-200)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <h2 style={{ fontSize: '1rem', fontWeight: 700, color: 'var(--color-slate-900)', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+    <Card className="overflow-hidden">
+      <CardHeader className="bg-slate-50 border-b border-slate-200 flex flex-row items-center justify-between py-4">
+        <CardTitle className="text-base flex items-center gap-2">
           <span>Alertas de Plataforma</span>
           {connected ? (
-            <span style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--color-success-500)', display: 'inline-block' }} title="Conectado en tiempo real" />
+            <span className="w-2 h-2 rounded-full bg-success-500 inline-block" title="Conectado en tiempo real" />
           ) : (
-            <span style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--color-error-500)', display: 'inline-block' }} title="Desconectado" />
+            <span className="w-2 h-2 rounded-full bg-error-500 inline-block" title="Desconectado" />
           )}
-        </h2>
-      </div>
-      <div style={{ padding: '1rem' }}>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="p-4">
+        <div className="flex flex-col gap-2">
           {alerts.map((alert, i) => (
-            <div key={i} style={{ 
-              display: 'flex', alignItems: 'center', gap: '0.75rem', padding: '0.75rem', borderRadius: '0.5rem', 
-              background: alert.severity === 'CRITICAL' ? 'var(--color-error-50)' : alert.severity === 'WARNING' ? 'var(--color-warning-50)' : 'var(--color-primary-50)',
-              border: `1px solid ${alert.severity === 'CRITICAL' ? 'var(--color-error-200)' : alert.severity === 'WARNING' ? 'var(--color-warning-200)' : 'var(--color-primary-200)'}`
-            }}>
-              <span style={{ fontSize: '1.25rem' }}>{alert.severity === 'CRITICAL' ? '🔴' : alert.severity === 'WARNING' ? '⚠️' : 'ℹ️'}</span>
-              <span style={{ fontSize: '0.875rem', fontWeight: 600, color: 'var(--color-slate-800)' }}>{alert.title}</span>
+            <div key={i} className={`flex items-center gap-3 p-3 rounded-lg border ${
+              alert.severity === 'CRITICAL' ? 'bg-error-50 border-error-200' : 
+              alert.severity === 'WARNING' ? 'bg-warning-50 border-warning-200' : 
+              'bg-primary-50 border-primary-200'
+            }`}>
+              <span className="text-xl">{alert.severity === 'CRITICAL' ? '🔴' : alert.severity === 'WARNING' ? '⚠️' : 'ℹ️'}</span>
+              <span className="text-sm font-semibold text-slate-800">{alert.title}</span>
             </div>
           ))}
         </div>
-      </div>
-    </div>
+      </CardContent>
+    </Card>
   );
 }

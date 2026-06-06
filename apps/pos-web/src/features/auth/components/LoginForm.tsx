@@ -1,4 +1,5 @@
 import { useState, type FormEvent } from 'react';
+import { Button, Input, Label } from '../../../components/ui';
 
 export function LoginForm({
   loading,
@@ -18,10 +19,11 @@ export function LoginForm({
   }
 
   return (
-    <form className="stack-md" onSubmit={handleSubmit} style={{ display: 'grid', gap: '1.25rem' }}>
-      <label className="field" style={{ display: 'grid', gap: '0.5rem' }}>
-        <span style={{ fontSize: '0.8125rem', fontWeight: 600, color: 'var(--color-slate-700)' }}>Correo Electrónico</span>
-        <input
+    <form className="grid gap-5" onSubmit={handleSubmit}>
+      <div className="grid gap-2">
+        <Label htmlFor="email">Correo Electrónico</Label>
+        <Input
+          id="email"
           autoFocus
           autoComplete="username"
           placeholder="nombre@ejemplo.com"
@@ -32,12 +34,21 @@ export function LoginForm({
             setEmail(event.target.value);
           }}
           required
-          style={{ padding: '0.75rem 1rem', borderRadius: 'var(--radius-lg)', border: '1px solid var(--color-slate-200)', fontSize: '0.875rem' }}
         />
-      </label>
-      <label className="field" style={{ display: 'grid', gap: '0.5rem' }}>
-        <span style={{ fontSize: '0.8125rem', fontWeight: 600, color: 'var(--color-slate-700)' }}>Contraseña</span>
-        <input
+      </div>
+      <div className="grid gap-2">
+        <div className="flex items-center justify-between">
+          <Label htmlFor="password">Contraseña</Label>
+          <button 
+            type="button" 
+            className="text-sm font-medium text-primary hover:text-primary/80 hover:underline bg-transparent border-none p-0 cursor-pointer"
+            onClick={() => alert('La recuperación de contraseña será enviada a tu correo.')}
+          >
+            ¿Olvidaste tu contraseña?
+          </button>
+        </div>
+        <Input
+          id="password"
           autoComplete="current-password"
           placeholder="••••••••"
           type="password"
@@ -48,25 +59,16 @@ export function LoginForm({
           }}
           required
           minLength={8}
-          style={{ padding: '0.75rem 1rem', borderRadius: 'var(--radius-lg)', border: '1px solid var(--color-slate-200)', fontSize: '0.875rem' }}
         />
-      </label>
-      <button 
+      </div>
+      <Button 
         type="submit" 
-        className="button"
         disabled={loading}
-        style={{ 
-          marginTop: '0.5rem', 
-          padding: '0.875rem', 
-          background: 'var(--color-primary-600)', 
-          color: '#ffffff', 
-          fontWeight: 700, 
-          borderRadius: 'var(--radius-lg)',
-          boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)'
-        }}
+        className="mt-2 w-full"
+        size="lg"
       >
         {loading ? 'Validando...' : 'Iniciar Sesión'}
-      </button>
+      </Button>
     </form>
   );
 }

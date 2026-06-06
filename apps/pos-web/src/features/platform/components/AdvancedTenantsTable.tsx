@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { Card, Button, Input } from '../../../components/ui';
 
 export function AdvancedTenantsTable({ 
   tenants, 
@@ -17,102 +18,91 @@ export function AdvancedTenantsTable({
   };
 
   return (
-    <div style={{ background: '#ffffff', borderRadius: '1.25rem', border: '1px solid var(--color-slate-200)', boxShadow: 'var(--shadow-sm)', overflow: 'hidden' }}>
-      <div style={{ padding: '1.5rem', borderBottom: '1px solid var(--color-slate-100)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
-        <h2 style={{ fontSize: '1.25rem', fontWeight: 700, color: 'var(--color-slate-900)' }}>Directorio de Organizaciones</h2>
-        <div style={{ display: 'flex', gap: '1rem' }}>
-          <input 
+    <Card className="overflow-hidden">
+      <div className="p-6 border-b border-slate-100 flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <h2 className="text-xl font-bold text-slate-900">Directorio de Organizaciones</h2>
+        <div className="flex flex-col sm:flex-row gap-4">
+          <Input 
             type="text" 
             placeholder="Buscar por NIT, nombre, email..." 
             value={searchTerm}
             onChange={handleSearch}
-            style={{ padding: '0.5rem 1rem', borderRadius: '0.5rem', border: '1px solid var(--color-slate-300)', minWidth: '250px' }}
+            className="min-w-[250px]"
           />
           <select 
             onChange={(e) => onFilterStatus(e.target.value)}
-            style={{ padding: '0.5rem 1rem', borderRadius: '0.5rem', border: '1px solid var(--color-slate-300)' }}
+            className="flex h-10 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500"
           >
             <option value="ALL">Todos los Estados</option>
             <option value="ACTIVE">Activos</option>
             <option value="SUSPENDED">Suspendidos</option>
             <option value="TRIALING">En Trial</option>
           </select>
-          <button 
-            onClick={onCreate}
-            style={{ padding: '0.5rem 1rem', borderRadius: '0.5rem', border: 'none', backgroundColor: 'var(--color-primary-600)', color: 'white', fontWeight: 600, cursor: 'pointer' }}
-          >
+          <Button onClick={onCreate}>
             + Nuevo Tenant
-          </button>
+          </Button>
         </div>
       </div>
-      <div style={{ overflowX: 'auto' }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', minWidth: '800px' }}>
-          <thead style={{ background: 'var(--color-slate-50)' }}>
+      <div className="overflow-x-auto">
+        <table className="w-full border-collapse text-left min-w-[800px]">
+          <thead className="bg-slate-50">
             <tr>
-              <th style={{ padding: '1rem 1.5rem', fontSize: '0.75rem', fontWeight: 600, color: 'var(--color-slate-500)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Negocio</th>
-              <th style={{ padding: '1rem 1.5rem', fontSize: '0.75rem', fontWeight: 600, color: 'var(--color-slate-500)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Estado</th>
-              <th style={{ padding: '1rem 1.5rem', fontSize: '0.75rem', fontWeight: 600, color: 'var(--color-slate-500)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Plan & MRR</th>
-              <th style={{ padding: '1rem 1.5rem', fontSize: '0.75rem', fontWeight: 600, color: 'var(--color-slate-500)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Creado</th>
-              <th style={{ padding: '1rem 1.5rem', fontSize: '0.75rem', fontWeight: 600, color: 'var(--color-slate-500)', textTransform: 'uppercase', letterSpacing: '0.05em', textAlign: 'right' }}>Acciones</th>
+              <th className="p-4 text-xs font-semibold text-slate-500 uppercase tracking-wide">Negocio</th>
+              <th className="p-4 text-xs font-semibold text-slate-500 uppercase tracking-wide">Estado</th>
+              <th className="p-4 text-xs font-semibold text-slate-500 uppercase tracking-wide">Plan & MRR</th>
+              <th className="p-4 text-xs font-semibold text-slate-500 uppercase tracking-wide">Creado</th>
+              <th className="p-4 text-xs font-semibold text-slate-500 uppercase tracking-wide text-right">Acciones</th>
             </tr>
           </thead>
           <tbody>
             {tenants.map((t: any) => (
-              <tr key={t.id} style={{ borderBottom: '1px solid var(--color-slate-100)', transition: 'background 0.2s' }} onMouseOver={e => e.currentTarget.style.backgroundColor = 'var(--color-slate-50)'} onMouseOut={e => e.currentTarget.style.backgroundColor = 'transparent'}>
-                <td style={{ padding: '1.25rem 1.5rem' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
-                    <div style={{ width: '40px', height: '40px', borderRadius: '0.5rem', background: 'var(--color-primary-50)', color: 'var(--color-primary-600)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.25rem', fontWeight: 700 }}>
+              <tr key={t.id} className="border-b border-slate-100 transition-colors hover:bg-slate-50">
+                <td className="p-4">
+                  <div className="flex items-center gap-4">
+                    <div className="w-10 h-10 rounded-lg bg-primary-50 text-primary-600 flex items-center justify-center text-xl font-bold shrink-0">
                       {t.business_name?.charAt(0).toUpperCase()}
                     </div>
                     <div>
-                      <div style={{ fontWeight: 600, color: 'var(--color-slate-900)', fontSize: '0.9375rem' }}>{t.business_name}</div>
-                      <div style={{ fontSize: '0.8125rem', color: 'var(--color-slate-500)', marginTop: '0.125rem' }}>NIT: {t.document_number} | {t.owner_email}</div>
+                      <div className="font-semibold text-slate-900 text-sm">{t.business_name}</div>
+                      <div className="text-xs text-slate-500 mt-0.5">NIT: {t.document_number} | {t.owner_email}</div>
                     </div>
                   </div>
                 </td>
-                <td style={{ padding: '1.25rem 1.5rem' }}>
-                  <span style={{ 
-                    padding: '0.375rem 0.75rem', 
-                    borderRadius: '9999px', 
-                    fontSize: '0.75rem', 
-                    fontWeight: 600,
-                    backgroundColor: t.status === 'ACTIVE' ? 'var(--color-success-100)' : t.status === 'SUSPENDED' ? 'var(--color-error-100)' : 'var(--color-warning-100)',
-                    color: t.status === 'ACTIVE' ? 'var(--color-success-700)' : t.status === 'SUSPENDED' ? 'var(--color-error-700)' : 'var(--color-warning-700)',
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: '0.375rem'
-                  }}>
-                    <span style={{ width: '6px', height: '6px', borderRadius: '50%', backgroundColor: t.status === 'ACTIVE' ? 'var(--color-success-500)' : t.status === 'SUSPENDED' ? 'var(--color-error-500)' : 'var(--color-warning-500)' }}></span>
+                <td className="p-4">
+                  <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold ${
+                    t.status === 'ACTIVE' ? 'bg-success-100 text-success-700' : 
+                    t.status === 'SUSPENDED' ? 'bg-error-100 text-error-700' : 
+                    'bg-warning-100 text-warning-700'
+                  }`}>
+                    <span className={`w-1.5 h-1.5 rounded-full ${
+                      t.status === 'ACTIVE' ? 'bg-success-500' : 
+                      t.status === 'SUSPENDED' ? 'bg-error-500' : 
+                      'bg-warning-500'
+                    }`}></span>
                     {t.status === 'ACTIVE' ? 'Activo' : t.status === 'SUSPENDED' ? 'Suspendido' : t.status}
                   </span>
                 </td>
-                <td style={{ padding: '1.25rem 1.5rem' }}>
-                  <div style={{ fontSize: '0.875rem', fontWeight: 600, color: 'var(--color-slate-700)' }}>
+                <td className="p-4">
+                  <div className="text-sm font-semibold text-slate-700">
                     {t.plan_name || 'Sin plan'}
                   </div>
                   {t.plan_price_cents && (
-                    <div style={{ fontSize: '0.8125rem', color: 'var(--color-slate-500)', marginTop: '0.125rem' }}>
+                    <div className="text-xs text-slate-500 mt-0.5">
                       {new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(t.plan_price_cents / 100)} / mes
                     </div>
                   )}
                 </td>
-                <td style={{ padding: '1.25rem 1.5rem' }}>
-                  <div style={{ fontSize: '0.875rem', color: 'var(--color-slate-700)' }}>{new Date(t.created_at).toLocaleDateString('es-CO')}</div>
+                <td className="p-4">
+                  <div className="text-sm text-slate-700">{new Date(t.created_at).toLocaleDateString('es-CO')}</div>
                 </td>
-                <td style={{ padding: '1.25rem 1.5rem', textAlign: 'right' }}>
-                  <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end' }}>
-                    <button 
-                      style={{ padding: '0.5rem 0.75rem', border: '1px solid var(--color-slate-200)', borderRadius: '0.5rem', backgroundColor: '#ffffff', cursor: 'pointer', fontSize: '0.8125rem', fontWeight: 600, color: 'var(--color-slate-700)' }} 
-                      onClick={() => onEdit(t)}
-                    >
+                <td className="p-4 text-right">
+                  <div className="flex gap-2 justify-end">
+                    <Button variant="outline" size="sm" onClick={() => onEdit(t)}>
                       Ver Detalles
-                    </button>
-                    <button 
-                      style={{ padding: '0.5rem 0.75rem', border: 'none', borderRadius: '0.5rem', backgroundColor: 'var(--color-slate-900)', color: 'white', cursor: 'pointer', fontSize: '0.8125rem', fontWeight: 600 }} 
-                      onClick={() => onImpersonate(t.id)}
-                    >
+                    </Button>
+                    <Button size="sm" onClick={() => onImpersonate(t.id)}>
                       Ingresar &rarr;
-                    </button>
+                    </Button>
                   </div>
                 </td>
               </tr>
@@ -120,6 +110,6 @@ export function AdvancedTenantsTable({
           </tbody>
         </table>
       </div>
-    </div>
+    </Card>
   );
 }

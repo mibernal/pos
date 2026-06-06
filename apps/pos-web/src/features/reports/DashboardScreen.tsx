@@ -87,89 +87,103 @@ export function DashboardScreen({
   }, [api.baseUrl, branchId, session?.accessToken]);
 
   return (
-    <div className="pos-screen" style={{ flexDirection: 'column', overflowY: 'auto' }}>
-      <header className="section-heading" style={{ padding: '1rem', borderBottom: '1px solid var(--color-slate-200)', flexShrink: 0 }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
+    <div className="flex flex-col h-full bg-muted/20 overflow-y-auto animate-in fade-in duration-300">
+      <header className="flex-shrink-0 px-6 py-4 border-b border-border bg-background sticky top-0 z-10 shadow-sm">
+        <div className="flex justify-between items-center w-full max-w-7xl mx-auto">
           <div>
-            <h2>Dashboard en Tiempo Real</h2>
-            <p>Métricas de ventas al instante</p>
+            <h2 className="text-2xl font-bold text-foreground tracking-tight">Dashboard en Tiempo Real</h2>
+            <p className="text-sm text-muted-foreground mt-1">Métricas de ventas al instante</p>
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-            <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: connected ? 'var(--color-success-500)' : 'var(--color-error-500)', boxShadow: connected ? '0 0 8px var(--color-success-500)' : 'none' }}></div>
-            <span style={{ fontSize: '0.875rem', color: 'var(--color-slate-500)' }}>
+          <div className="flex items-center gap-2 bg-muted/50 px-3 py-1.5 rounded-full border border-border/50">
+            <div className={`w-2 h-2 rounded-full ${connected ? 'bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.6)] animate-pulse' : 'bg-destructive shadow-[0_0_8px_rgba(239,68,68,0.6)]'}`}></div>
+            <span className="text-sm font-medium text-muted-foreground">
               {connected ? 'Conectado (Live)' : 'Desconectado'}
             </span>
           </div>
         </div>
       </header>
 
-      <div style={{ padding: '1.5rem', maxWidth: '1000px', margin: '0 auto', width: '100%' }}>
-        {error && <Banner tone="error">{error}</Banner>}
-
-        {!stats && !error && <Banner tone="info">Conectando al stream en vivo...</Banner>}
+      <main className="flex-1 p-6 w-full max-w-7xl mx-auto">
+        {error && <Banner tone="error" className="mb-6">{error}</Banner>}
+        {!stats && !error && <Banner tone="info" className="mb-6">Conectando al stream en vivo...</Banner>}
 
         {stats && (
-          <div className="stack-lg">
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '1.5rem' }}>
-              <div className="metric-card" style={{ background: '#ffffff', border: '1px solid var(--color-slate-200)', borderRadius: '12px', padding: '1.5rem', boxShadow: 'var(--shadow-sm)' }}>
-                <span style={{ fontSize: '0.875rem', color: 'var(--color-slate-500)', fontWeight: 600 }}>Ventas de Hoy</span>
-                <strong style={{ display: 'block', fontSize: '2.5rem', color: 'var(--color-slate-900)', marginTop: '0.5rem' }}>
+          <div className="flex flex-col gap-8 animate-in slide-in-from-bottom-4 duration-500">
+            {/* Metric Cards Grid */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              {/* Card 1 */}
+              <div className="bg-card border border-border rounded-xl p-6 shadow-sm hover:shadow-md transition-shadow">
+                <span className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">Ventas de Hoy</span>
+                <strong className="block text-4xl font-extrabold text-foreground mt-2 tracking-tight">
                   {formatMoneyFromCents(stats.total_revenue_cents)}
                 </strong>
-                <p style={{ marginTop: '0.5rem', fontSize: '0.75rem', color: 'var(--color-slate-400)' }}>Total facturado hoy</p>
+                <p className="mt-2 text-sm text-muted-foreground">Total facturado hoy</p>
               </div>
 
-              <div className="metric-card" style={{ background: '#ffffff', border: '1px solid var(--color-slate-200)', borderRadius: '12px', padding: '1.5rem', boxShadow: 'var(--shadow-sm)' }}>
-                <span style={{ fontSize: '0.875rem', color: 'var(--color-slate-500)', fontWeight: 600 }}>Transacciones</span>
-                <strong style={{ display: 'block', fontSize: '2.5rem', color: 'var(--color-slate-900)', marginTop: '0.5rem' }}>
+              {/* Card 2 */}
+              <div className="bg-card border border-border rounded-xl p-6 shadow-sm hover:shadow-md transition-shadow">
+                <span className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">Transacciones</span>
+                <strong className="block text-4xl font-extrabold text-foreground mt-2 tracking-tight">
                   {stats.total_sales_count}
                 </strong>
-                <p style={{ marginTop: '0.5rem', fontSize: '0.75rem', color: 'var(--color-slate-400)' }}>Operaciones exitosas</p>
+                <p className="mt-2 text-sm text-muted-foreground">Operaciones exitosas</p>
               </div>
 
-              <div className="metric-card" style={{ background: '#ffffff', border: '1px solid var(--color-slate-200)', borderRadius: '12px', padding: '1.5rem', boxShadow: 'var(--shadow-sm)' }}>
-                <span style={{ fontSize: '0.875rem', color: 'var(--color-slate-500)', fontWeight: 600 }}>Valor del Inventario</span>
-                <strong style={{ display: 'block', fontSize: '2.5rem', color: 'var(--color-slate-900)', marginTop: '0.5rem' }}>
+              {/* Card 3 */}
+              <div className="bg-card border border-border rounded-xl p-6 shadow-sm hover:shadow-md transition-shadow">
+                <span className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">Valor del Inventario</span>
+                <strong className="block text-4xl font-extrabold text-foreground mt-2 tracking-tight">
                   {formatMoneyFromCents(stats.total_inventory_value_cents)}
                 </strong>
-                <p style={{ marginTop: '0.5rem', fontSize: '0.75rem', color: 'var(--color-slate-400)' }}>Capital en bodega</p>
+                <p className="mt-2 text-sm text-muted-foreground">Capital en bodega</p>
               </div>
             </div>
 
-            <div className="form-card" style={{ marginTop: '2rem' }}>
-              <h3>Ventas por Hora</h3>
-              <div style={{ height: '300px', width: '100%', marginTop: '1.5rem' }}>
-                <ResponsiveContainer width="100%" height={300}>
-                  <AreaChart data={stats.chart_data}>
+            {/* Chart Area */}
+            <div className="bg-card border border-border rounded-xl p-6 shadow-sm">
+              <div className="mb-6">
+                <h3 className="text-lg font-bold text-foreground">Ventas por Hora</h3>
+                <p className="text-sm text-muted-foreground">Evolución de ingresos en la jornada actual</p>
+              </div>
+              <div className="h-[350px] w-full">
+                <ResponsiveContainer width="100%" height="100%">
+                  <AreaChart data={stats.chart_data} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
                     <defs>
                       <linearGradient id="colorAmount" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="var(--color-primary-500)" stopOpacity={0.3} />
-                        <stop offset="95%" stopColor="var(--color-primary-500)" stopOpacity={0} />
+                        <stop offset="5%" stopColor="hsl(var(--primary))" stopOpacity={0.4} />
+                        <stop offset="95%" stopColor="hsl(var(--primary))" stopOpacity={0} />
                       </linearGradient>
                     </defs>
-                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--color-slate-100)" />
+                    <CartesianGrid strokeDasharray="4 4" vertical={false} stroke="hsl(var(--border))" opacity={0.5} />
                     <XAxis
                       dataKey="hour"
                       axisLine={false}
                       tickLine={false}
-                      tick={{ fill: 'var(--color-slate-400)', fontSize: 12 }}
-                      dy={10}
+                      tick={{ fill: 'hsl(var(--muted-foreground))', fontSize: 12, fontWeight: 500 }}
+                      dy={15}
                     />
                     <YAxis
-                      tickFormatter={(value) => `$${(value / 100).toLocaleString()}`}
+                      tickFormatter={(value) => `$${(value / 100).toLocaleString('es-CO')}`}
                       axisLine={false}
                       tickLine={false}
-                      tick={{ fill: 'var(--color-slate-400)', fontSize: 12 }}
-                      dx={-10}
+                      tick={{ fill: 'hsl(var(--muted-foreground))', fontSize: 12, fontWeight: 500 }}
+                      dx={-15}
                     />
                     <Tooltip
                       formatter={(value: unknown) => [formatMoneyFromCents(Number(value as string | number) || 0), 'Total']}
-                      contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: 'var(--shadow-md)' }}
+                      contentStyle={{ 
+                        borderRadius: '0.75rem', 
+                        border: '1px solid hsl(var(--border))', 
+                        boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1)', 
+                        backgroundColor: 'hsl(var(--card))',
+                        color: 'hsl(var(--card-foreground))'
+                      }}
+                      itemStyle={{ color: 'hsl(var(--foreground))', fontWeight: 600 }}
                     />
                     <Area
                       type="monotone"
                       dataKey="amount_cents"
-                      stroke="var(--color-primary-500)"
+                      stroke="hsl(var(--primary))"
                       strokeWidth={3}
                       fillOpacity={1}
                       fill="url(#colorAmount)"
@@ -180,7 +194,7 @@ export function DashboardScreen({
             </div>
           </div>
         )}
-      </div>
+      </main>
     </div>
   );
 }

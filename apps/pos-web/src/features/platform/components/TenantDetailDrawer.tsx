@@ -1,4 +1,7 @@
 import React, { useState, useEffect } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { Button, Input, Label } from '../../../components/ui';
+import { X, CheckCircle, AlertTriangle, AlertCircle, Eye, LogIn, Edit, Trash2, Plus } from 'lucide-react';
 
 interface TenantDetailDrawerProps {
   api: any;
@@ -7,8 +10,6 @@ interface TenantDetailDrawerProps {
   onClose: () => void;
   onSuccess: () => void;
 }
-
-import { useQuery } from '@tanstack/react-query';
 
 export function TenantDetailDrawer({ api, tenant, isOpen, onClose, onSuccess }: TenantDetailDrawerProps) {
   const [activeTab, setActiveTab] = useState<'DETAILS' | 'USERS' | 'CONFIG' | 'ACTIONS'>('DETAILS');
@@ -31,7 +32,6 @@ export function TenantDetailDrawer({ api, tenant, isOpen, onClose, onSuccess }: 
   const [editingUser, setEditingUser] = useState<any>(null);
   const [userFormData, setUserFormData] = useState({ name: '', email: '', password: '', role: 'CASHIER', active: true });
 
-  // Edit form state
   const [formData, setFormData] = useState({
     name: tenant?.name || '',
     business_name: tenant?.business_name || '',
@@ -39,7 +39,7 @@ export function TenantDetailDrawer({ api, tenant, isOpen, onClose, onSuccess }: 
     tax_mode: tenant?.tax_mode || 'IVA',
     plan: tenant?.plan || 'STARTER',
     owner_email: tenant?.owner_email || '',
-    owner_name: '' // We don't have owner_name in the tenant object right now, but we can allow editing if needed. Wait, tenant.owner_email is passed, maybe not owner_name. I will just pass owner_email.
+    owner_name: '' 
   });
 
   useEffect(() => {
@@ -163,209 +163,354 @@ export function TenantDetailDrawer({ api, tenant, isOpen, onClose, onSuccess }: 
   return (
     <>
       <div 
-        style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', backdropFilter: 'blur(4px)', zIndex: 40 }}
+        className="fixed inset-0 bg-background/50 backdrop-blur-sm z-40 transition-opacity"
         onClick={onClose}
       />
-      <div style={{
-        position: 'fixed', top: 0, right: 0, bottom: 0, width: '450px', background: 'white', zIndex: 50,
-        boxShadow: '-4px 0 15px rgba(0,0,0,0.1)', display: 'flex', flexDirection: 'column'
-      }}>
+      <div className="fixed inset-y-0 right-0 w-full md:w-[450px] bg-card z-50 shadow-2xl flex flex-col transform transition-transform duration-300 ease-in-out border-l border-border">
         {/* Header */}
-        <div style={{ padding: '1.5rem', borderBottom: '1px solid var(--color-slate-200)', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+        <div className="p-6 border-b border-border flex justify-between items-start bg-card">
           <div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '0.5rem' }}>
-              <div style={{ width: '40px', height: '40px', borderRadius: '0.5rem', background: 'var(--color-primary-50)', color: 'var(--color-primary-600)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.25rem', fontWeight: 700 }}>
+            <div className="flex items-center gap-4 mb-3">
+              <div className="w-12 h-12 rounded-xl bg-primary/10 text-primary flex items-center justify-center text-xl font-bold shrink-0">
                 {tenant.business_name?.charAt(0).toUpperCase()}
               </div>
               <div>
-                <h2 style={{ fontSize: '1.25rem', fontWeight: 700, color: 'var(--color-slate-900)', lineHeight: 1.2 }}>{tenant.business_name}</h2>
-                <div style={{ fontSize: '0.875rem', color: 'var(--color-slate-500)' }}>NIT: {tenant.document_number || tenant.nit}</div>
+                <h2 className="text-xl font-bold text-foreground leading-tight">{tenant.business_name}</h2>
+                <div className="text-sm text-muted-foreground mt-0.5">NIT: {tenant.document_number || tenant.nit}</div>
               </div>
             </div>
-            <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.75rem' }}>
-              <span style={{ 
-                padding: '0.25rem 0.75rem', borderRadius: '9999px', fontSize: '0.75rem', fontWeight: 600,
-                backgroundColor: tenant.status === 'ACTIVE' ? 'var(--color-success-100)' : tenant.status === 'SUSPENDED' ? 'var(--color-error-100)' : 'var(--color-warning-100)',
-                color: tenant.status === 'ACTIVE' ? 'var(--color-success-700)' : tenant.status === 'SUSPENDED' ? 'var(--color-error-700)' : 'var(--color-warning-700)'
-              }}>
-                {tenant.status}
+            <div className="flex flex-wrap gap-2 mt-4">
+              <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold ${
+                tenant.status === 'ACTIVE' ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400' : 
+                tenant.status === 'SUSPENDED' ? 'bg-destructive/10 text-destructive' : 
+                'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400'
+              }`}>
+                {tenant.status === 'ACTIVE' && <CheckCircle size={14} />}
+                {tenant.status === 'SUSPENDED' && <AlertCircle size={14} />}
+                {tenant.status === 'TRIALING' && <AlertTriangle size={14} />}
+                {tenant.status === 'ACTIVE' ? 'Activo' : tenant.status === 'SUSPENDED' ? 'Suspendido' : tenant.status}
               </span>
-              <span style={{ padding: '0.25rem 0.75rem', borderRadius: '9999px', fontSize: '0.75rem', fontWeight: 600, backgroundColor: 'var(--color-slate-100)', color: 'var(--color-slate-700)' }}>
+              <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold bg-muted text-muted-foreground">
                 {tenant.plan || 'STARTER'}
               </span>
             </div>
           </div>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '1.5rem', color: 'var(--color-slate-400)' }}>&times;</button>
+          <button onClick={onClose} className="text-muted-foreground hover:text-foreground transition-colors p-2 -mr-2 -mt-2 rounded-full hover:bg-muted">
+            <X size={24} />
+          </button>
         </div>
 
         {/* Tabs */}
-        <div style={{ display: 'flex', borderBottom: '1px solid var(--color-slate-200)', background: 'var(--color-slate-50)' }}>
+        <div className="flex border-b border-border bg-muted/30 px-2 pt-2">
           {['DETAILS', 'USERS', 'CONFIG', 'ACTIONS'].map(tab => (
             <button 
               key={tab}
               onClick={() => setActiveTab(tab as any)}
-              style={{
-                flex: 1, padding: '0.75rem', background: 'none', border: 'none', cursor: 'pointer',
-                fontSize: '0.875rem', fontWeight: 600, color: activeTab === tab ? 'var(--color-primary-600)' : 'var(--color-slate-500)',
-                borderBottom: activeTab === tab ? '2px solid var(--color-primary-600)' : '2px solid transparent'
-              }}
+              className={`flex-1 pb-3 pt-2 px-2 text-sm font-semibold transition-colors border-b-2 ${
+                activeTab === tab 
+                  ? 'text-primary border-primary bg-card rounded-t-lg' 
+                  : 'text-muted-foreground border-transparent hover:text-foreground hover:bg-muted/50 rounded-t-lg'
+              }`}
             >
-              {tab === 'DETAILS' ? 'Detalles' : tab === 'USERS' ? 'Usuarios' : tab === 'CONFIG' ? 'Configuración' : 'Acciones'}
+              {tab === 'DETAILS' ? 'Detalles' : tab === 'USERS' ? 'Usuarios' : tab === 'CONFIG' ? 'Config' : 'Acciones'}
             </button>
           ))}
         </div>
 
         {/* Content */}
-        <div style={{ flex: 1, overflowY: 'auto', padding: '1.5rem' }}>
-          {error && <div style={{ padding: '1rem', background: 'var(--color-error-50)', color: 'var(--color-error-700)', borderRadius: '0.5rem', marginBottom: '1.5rem', fontSize: '0.875rem' }}>{error}</div>}
+        <div className="flex-1 overflow-y-auto p-6 bg-muted/10">
+          {error && (
+            <div className="p-4 bg-destructive/10 text-destructive rounded-lg mb-6 text-sm flex items-start gap-3 border border-destructive/20">
+              <AlertCircle size={20} className="shrink-0 mt-0.5" />
+              <div>{error}</div>
+            </div>
+          )}
 
           {activeTab === 'DETAILS' && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-              <div><label style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--color-slate-500)', textTransform: 'uppercase' }}>Nombre Corto</label><div style={{ fontWeight: 500 }}>{tenant.name}</div></div>
-              <div><label style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--color-slate-500)', textTransform: 'uppercase' }}>Dueño / Contacto</label><div style={{ fontWeight: 500 }}>{tenant.owner_email || 'No asignado'}</div></div>
-              <div><label style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--color-slate-500)', textTransform: 'uppercase' }}>Fecha de Registro</label><div style={{ fontWeight: 500 }}>{new Date(tenant.created_at).toLocaleString('es-CO')}</div></div>
+            <div className="flex flex-col gap-6 animate-in slide-in-from-bottom-4 duration-300">
+              <div className="bg-card p-5 rounded-xl border border-border shadow-sm">
+                <h3 className="text-sm font-semibold text-foreground mb-4 border-b border-border pb-2">Información General</h3>
+                <div className="space-y-4">
+                  <div>
+                    <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider block mb-1">Nombre Corto</label>
+                    <div className="text-sm font-medium text-foreground">{tenant.name}</div>
+                  </div>
+                  <div>
+                    <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider block mb-1">Dueño / Contacto principal</label>
+                    <div className="text-sm font-medium text-foreground">{tenant.owner_email || 'No asignado'}</div>
+                  </div>
+                  <div>
+                    <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider block mb-1">Fecha de Registro</label>
+                    <div className="text-sm font-medium text-foreground">{new Date(tenant.created_at).toLocaleString('es-CO', { dateStyle: 'long', timeStyle: 'short' })}</div>
+                  </div>
+                </div>
+              </div>
             </div>
           )}
 
           {activeTab === 'USERS' && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+            <div className="flex flex-col gap-4 animate-in slide-in-from-bottom-4 duration-300">
               {!showUserForm ? (
                 <>
-                  <button onClick={() => {
-                    setEditingUser(null);
-                    setUserFormData({ name: '', email: '', password: '', role: 'CASHIER', active: true });
-                    setShowUserForm(true);
-                  }} style={{ padding: '0.5rem', background: 'var(--color-primary-600)', color: 'white', borderRadius: '0.5rem', border: 'none', fontWeight: 600, cursor: 'pointer' }}>
-                    + Nuevo Usuario
-                  </button>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                    {usersData?.users?.map((u: any) => (
-                      <div key={u.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.75rem', border: '1px solid var(--color-slate-200)', borderRadius: '0.5rem' }}>
-                        <div>
-                          <div style={{ fontWeight: 600, fontSize: '0.875rem' }}>{u.name}</div>
-                          <div style={{ fontSize: '0.75rem', color: 'var(--color-slate-500)' }}>{u.email} &middot; {u.role}</div>
-                        </div>
-                        <div style={{ display: 'flex', gap: '0.5rem' }}>
-                          <button onClick={() => {
-                            setEditingUser(u);
-                            setUserFormData({ name: u.name, email: u.email, password: '', role: u.role, active: u.active });
-                            setShowUserForm(true);
-                          }} style={{ padding: '0.25rem 0.5rem', fontSize: '0.75rem', background: 'var(--color-slate-100)', border: 'none', borderRadius: '0.25rem', cursor: 'pointer' }}>Editar</button>
-                          <button onClick={() => handleDeleteUser(u.id)} style={{ padding: '0.25rem 0.5rem', fontSize: '0.75rem', background: 'var(--color-error-50)', color: 'var(--color-error-600)', border: 'none', borderRadius: '0.25rem', cursor: 'pointer' }}>Eliminar</button>
-                        </div>
+                  <div className="flex justify-between items-center mb-2">
+                    <h3 className="text-sm font-semibold text-foreground">Usuarios del Tenant</h3>
+                    <Button 
+                      size="sm" 
+                      onClick={() => {
+                        setEditingUser(null);
+                        setUserFormData({ name: '', email: '', password: '', role: 'CASHIER', active: true });
+                        setShowUserForm(true);
+                      }}
+                      className="gap-2"
+                    >
+                      <Plus size={16} /> Nuevo
+                    </Button>
+                  </div>
+                  
+                  <div className="flex flex-col gap-3">
+                    {usersData?.users?.length === 0 ? (
+                      <div className="text-center py-8 text-muted-foreground text-sm bg-card rounded-xl border border-border">
+                        No hay usuarios registrados
                       </div>
-                    ))}
+                    ) : (
+                      usersData?.users?.map((u: any) => (
+                        <div key={u.id} className="flex flex-col sm:flex-row sm:items-center justify-between p-4 border border-border bg-card rounded-xl gap-4 shadow-sm hover:border-primary/30 transition-colors">
+                          <div>
+                            <div className="font-semibold text-foreground text-sm flex items-center gap-2">
+                              {u.name}
+                              {!u.active && <span className="px-2 py-0.5 rounded-full bg-muted text-muted-foreground text-[10px] font-bold uppercase">Inactivo</span>}
+                            </div>
+                            <div className="text-xs text-muted-foreground mt-1">{u.email} &middot; {u.role}</div>
+                          </div>
+                          <div className="flex gap-2 shrink-0">
+                            <Button 
+                              variant="outline" 
+                              size="sm"
+                              className="h-8 px-3"
+                              onClick={() => {
+                                setEditingUser(u);
+                                setUserFormData({ name: u.name, email: u.email, password: '', role: u.role, active: u.active });
+                                setShowUserForm(true);
+                              }}
+                            >
+                              <Edit size={14} className="mr-1.5" /> Editar
+                            </Button>
+                            <Button 
+                              variant="destructive" 
+                              size="sm"
+                              className="h-8 px-3"
+                              onClick={() => handleDeleteUser(u.id)}
+                            >
+                              <Trash2 size={14} />
+                            </Button>
+                          </div>
+                        </div>
+                      ))
+                    )}
                   </div>
                 </>
               ) : (
-                <form onSubmit={handleSaveUser} style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', background: 'var(--color-slate-50)', padding: '1rem', borderRadius: '0.5rem', border: '1px solid var(--color-slate-200)' }}>
-                  <h3 style={{ fontSize: '1rem', fontWeight: 600 }}>{editingUser ? 'Editar Usuario' : 'Nuevo Usuario'}</h3>
-                  <input placeholder="Nombre" required value={userFormData.name} onChange={e => setUserFormData({...userFormData, name: e.target.value})} style={{ padding: '0.5rem', borderRadius: '0.25rem', border: '1px solid var(--color-slate-300)' }} />
-                  {!editingUser && (
-                    <>
-                      <input type="email" placeholder="Correo electrónico" required value={userFormData.email} onChange={e => setUserFormData({...userFormData, email: e.target.value})} style={{ padding: '0.5rem', borderRadius: '0.25rem', border: '1px solid var(--color-slate-300)' }} />
-                      <input type="password" placeholder="Contraseña (min 8)" required minLength={8} value={userFormData.password} onChange={e => setUserFormData({...userFormData, password: e.target.value})} style={{ padding: '0.5rem', borderRadius: '0.25rem', border: '1px solid var(--color-slate-300)' }} />
-                    </>
-                  )}
-                  <select value={userFormData.role} onChange={e => setUserFormData({...userFormData, role: e.target.value})} style={{ padding: '0.5rem', borderRadius: '0.25rem', border: '1px solid var(--color-slate-300)' }}>
-                    <option value="TENANT_OWNER">Dueño (Tenant Owner)</option>
-                    <option value="ADMIN">Administrador</option>
-                    <option value="MANAGER">Gerente de Sucursal</option>
-                    <option value="CASHIER">Cajero</option>
-                    <option value="AUDITOR">Auditor</option>
-                  </select>
-                  {editingUser && (
-                    <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.875rem' }}>
-                      <input type="checkbox" checked={userFormData.active} onChange={e => setUserFormData({...userFormData, active: e.target.checked})} />
-                      Usuario Activo
-                    </label>
-                  )}
-                  <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.5rem' }}>
-                    <button type="submit" disabled={loading} style={{ flex: 1, padding: '0.5rem', background: 'var(--color-primary-600)', color: 'white', border: 'none', borderRadius: '0.25rem', cursor: 'pointer' }}>Guardar</button>
-                    <button type="button" onClick={() => setShowUserForm(false)} style={{ padding: '0.5rem', background: 'var(--color-slate-200)', border: 'none', borderRadius: '0.25rem', cursor: 'pointer' }}>Cancelar</button>
-                  </div>
-                </form>
+                <div className="bg-card p-5 rounded-xl border border-border shadow-sm animate-in zoom-in-95 duration-200">
+                  <h3 className="text-base font-semibold text-foreground mb-5 border-b border-border pb-3">
+                    {editingUser ? 'Editar Usuario' : 'Nuevo Usuario'}
+                  </h3>
+                  <form onSubmit={handleSaveUser} className="space-y-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="userName">Nombre</Label>
+                      <Input id="userName" placeholder="Nombre completo" required value={userFormData.name} onChange={e => setUserFormData({...userFormData, name: e.target.value})} />
+                    </div>
+                    
+                    {!editingUser && (
+                      <>
+                        <div className="space-y-2">
+                          <Label htmlFor="userEmail">Correo electrónico</Label>
+                          <Input id="userEmail" type="email" placeholder="ejemplo@empresa.com" required value={userFormData.email} onChange={e => setUserFormData({...userFormData, email: e.target.value})} />
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="userPassword">Contraseña</Label>
+                          <Input id="userPassword" type="password" placeholder="Mínimo 8 caracteres" required minLength={8} value={userFormData.password} onChange={e => setUserFormData({...userFormData, password: e.target.value})} />
+                        </div>
+                      </>
+                    )}
+                    
+                    <div className="space-y-2">
+                      <Label htmlFor="userRole">Rol en el sistema</Label>
+                      <select 
+                        id="userRole"
+                        value={userFormData.role} 
+                        onChange={e => setUserFormData({...userFormData, role: e.target.value})}
+                        className="flex h-11 w-full rounded-lg border border-input bg-background px-3 py-2 text-sm text-foreground shadow-sm transition-colors file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        <option value="TENANT_OWNER">Dueño (Tenant Owner)</option>
+                        <option value="ADMIN">Administrador</option>
+                        <option value="MANAGER">Gerente de Sucursal</option>
+                        <option value="CASHIER">Cajero</option>
+                        <option value="AUDITOR">Auditor</option>
+                      </select>
+                    </div>
+                    
+                    {editingUser && (
+                      <div className="flex items-center space-x-2 pt-2">
+                        <input 
+                          type="checkbox" 
+                          id="userActive"
+                          checked={userFormData.active} 
+                          onChange={e => setUserFormData({...userFormData, active: e.target.checked})} 
+                          className="h-4 w-4 rounded border-input text-primary focus:ring-primary"
+                        />
+                        <Label htmlFor="userActive" className="font-normal cursor-pointer">Usuario Activo en el sistema</Label>
+                      </div>
+                    )}
+                    
+                    <div className="flex gap-3 pt-4 border-t border-border mt-6">
+                      <Button type="button" variant="outline" className="flex-1" onClick={() => setShowUserForm(false)}>
+                        Cancelar
+                      </Button>
+                      <Button type="submit" disabled={loading} className="flex-1">
+                        {loading ? 'Guardando...' : 'Guardar Usuario'}
+                      </Button>
+                    </div>
+                  </form>
+                </div>
               )}
             </div>
           )}
 
           {activeTab === 'CONFIG' && (
-            <form onSubmit={handleUpdate} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-              <div>
-                <label style={{ display: 'block', fontSize: '0.875rem', fontWeight: 500, marginBottom: '0.25rem' }}>Nombre Corto</label>
-                <input required value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} style={{ width: '100%', padding: '0.5rem', borderRadius: '0.5rem', border: '1px solid var(--color-slate-300)' }} />
-              </div>
-              <div>
-                <label style={{ display: 'block', fontSize: '0.875rem', fontWeight: 500, marginBottom: '0.25rem' }}>Razón Social</label>
-                <input required value={formData.business_name} onChange={e => setFormData({...formData, business_name: e.target.value})} style={{ width: '100%', padding: '0.5rem', borderRadius: '0.5rem', border: '1px solid var(--color-slate-300)' }} />
-              </div>
-              <div>
-                <label style={{ display: 'block', fontSize: '0.875rem', fontWeight: 500, marginBottom: '0.25rem' }}>NIT</label>
-                <input required value={formData.nit} onChange={e => setFormData({...formData, nit: e.target.value})} style={{ width: '100%', padding: '0.5rem', borderRadius: '0.5rem', border: '1px solid var(--color-slate-300)' }} />
-              </div>
-              <div>
-                <label style={{ display: 'block', fontSize: '0.875rem', fontWeight: 500, marginBottom: '0.25rem' }}>Correo del Dueño / Contacto</label>
-                <input type="email" value={formData.owner_email} onChange={e => setFormData({...formData, owner_email: e.target.value})} style={{ width: '100%', padding: '0.5rem', borderRadius: '0.5rem', border: '1px solid var(--color-slate-300)' }} />
-              </div>
-              <div>
-                <label style={{ display: 'block', fontSize: '0.875rem', fontWeight: 500, marginBottom: '0.25rem' }}>Régimen Fiscal</label>
-                <select value={formData.tax_mode} onChange={e => setFormData({...formData, tax_mode: e.target.value})} style={{ width: '100%', padding: '0.5rem', borderRadius: '0.5rem', border: '1px solid var(--color-slate-300)' }}>
-                  <option value="IVA">IVA</option>
-                  <option value="INC_RESTAURANT">Impoconsumo</option>
-                  <option value="REGIMEN_SIMPLIFICADO">Régimen Simplificado</option>
-                </select>
-              </div>
-              <div>
-                <label style={{ display: 'block', fontSize: '0.875rem', fontWeight: 500, marginBottom: '0.25rem' }}>Plan de Suscripción</label>
-                <select value={formData.plan} onChange={e => setFormData({...formData, plan: e.target.value})} style={{ width: '100%', padding: '0.5rem', borderRadius: '0.5rem', border: '1px solid var(--color-slate-300)' }}>
-                  {plansData?.plans?.map((p: any) => (
-                    <option key={p.id} value={p.name}>{p.name} (${(p.price_cents / 100).toFixed(0)}/mes)</option>
-                  )) || (
-                    <>
-                      <option value="STARTER">Starter</option>
-                      <option value="PRO">Pro</option>
-                      <option value="ENTERPRISE">Enterprise</option>
-                    </>
-                  )}
-                </select>
-              </div>
-              <button type="submit" disabled={loading} style={{ marginTop: '1rem', padding: '0.75rem', background: 'var(--color-primary-600)', color: 'white', border: 'none', borderRadius: '0.5rem', fontWeight: 600, cursor: 'pointer', opacity: loading ? 0.7 : 1 }}>
-                Guardar Cambios
-              </button>
-            </form>
+            <div className="bg-card p-5 rounded-xl border border-border shadow-sm animate-in slide-in-from-bottom-4 duration-300">
+              <form onSubmit={handleUpdate} className="space-y-4">
+                <div className="space-y-2">
+                  <Label htmlFor="tenantName">Nombre Corto (URL friendly)</Label>
+                  <Input id="tenantName" required value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} />
+                </div>
+                
+                <div className="space-y-2">
+                  <Label htmlFor="tenantBusinessName">Razón Social</Label>
+                  <Input id="tenantBusinessName" required value={formData.business_name} onChange={e => setFormData({...formData, business_name: e.target.value})} />
+                </div>
+                
+                <div className="space-y-2">
+                  <Label htmlFor="tenantNit">NIT / Documento</Label>
+                  <Input id="tenantNit" required value={formData.nit} onChange={e => setFormData({...formData, nit: e.target.value})} />
+                </div>
+                
+                <div className="space-y-2">
+                  <Label htmlFor="tenantEmail">Correo de Contacto</Label>
+                  <Input id="tenantEmail" type="email" value={formData.owner_email} onChange={e => setFormData({...formData, owner_email: e.target.value})} />
+                </div>
+                
+                <div className="space-y-2">
+                  <Label htmlFor="tenantTaxMode">Régimen Fiscal</Label>
+                  <select 
+                    id="tenantTaxMode"
+                    value={formData.tax_mode} 
+                    onChange={e => setFormData({...formData, tax_mode: e.target.value})}
+                    className="flex h-11 w-full rounded-lg border border-input bg-background px-3 py-2 text-sm text-foreground shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  >
+                    <option value="IVA">IVA (Régimen Común)</option>
+                    <option value="INC_RESTAURANT">Impoconsumo</option>
+                    <option value="REGIMEN_SIMPLIFICADO">Régimen Simplificado</option>
+                  </select>
+                </div>
+                
+                <div className="space-y-2">
+                  <Label htmlFor="tenantPlan">Plan de Suscripción</Label>
+                  <select 
+                    id="tenantPlan"
+                    value={formData.plan} 
+                    onChange={e => setFormData({...formData, plan: e.target.value})}
+                    className="flex h-11 w-full rounded-lg border border-input bg-background px-3 py-2 text-sm text-foreground shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  >
+                    {plansData?.plans?.map((p: any) => (
+                      <option key={p.id} value={p.name}>{p.name} (${(p.price_cents / 100).toFixed(0)}/mes)</option>
+                    )) || (
+                      <>
+                        <option value="STARTER">Starter</option>
+                        <option value="PRO">Pro</option>
+                        <option value="ENTERPRISE">Enterprise</option>
+                      </>
+                    )}
+                  </select>
+                </div>
+                
+                <div className="pt-4 border-t border-border mt-6">
+                  <Button type="submit" disabled={loading} className="w-full">
+                    {loading ? 'Guardando...' : 'Guardar Cambios'}
+                  </Button>
+                </div>
+              </form>
+            </div>
           )}
 
           {activeTab === 'ACTIONS' && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
-              <div style={{ background: 'var(--color-slate-50)', padding: '1rem', borderRadius: '0.5rem', border: '1px solid var(--color-slate-200)' }}>
-                <h3 style={{ fontSize: '1rem', fontWeight: 600, marginBottom: '0.5rem' }}>Suplantar Identidad</h3>
-                <p style={{ fontSize: '0.875rem', color: 'var(--color-slate-500)', marginBottom: '1rem' }}>Ingresa a la cuenta como si fueras el administrador del negocio. Esta acción será auditada.</p>
-                <button onClick={handleImpersonate} style={{ width: '100%', padding: '0.75rem', background: 'var(--color-slate-900)', color: 'white', border: 'none', borderRadius: '0.5rem', fontWeight: 600, cursor: 'pointer' }}>
-                  Ingresar como Tenant
-                </button>
+            <div className="flex flex-col gap-6 animate-in slide-in-from-bottom-4 duration-300">
+              <div className="bg-primary text-primary-foreground p-6 rounded-xl shadow-lg relative overflow-hidden">
+                <div className="absolute top-0 right-0 p-4 opacity-10">
+                  <LogIn size={80} />
+                </div>
+                <div className="relative z-10">
+                  <h3 className="text-lg font-bold mb-2 flex items-center gap-2">
+                    <Eye size={20} /> Suplantar Identidad
+                  </h3>
+                  <p className="text-primary-foreground/80 text-sm mb-6 max-w-[85%]">
+                    Ingresa a la cuenta como si fueras el administrador del negocio. Podrás ver y modificar sus datos. 
+                    <span className="block mt-1 font-semibold text-yellow-300">Esta acción será auditada.</span>
+                  </p>
+                  <Button 
+                    onClick={handleImpersonate} 
+                    className="w-full bg-background text-foreground hover:bg-muted"
+                  >
+                    Ingresar como Tenant &rarr;
+                  </Button>
+                </div>
               </div>
 
               {tenant.status === 'ACTIVE' ? (
-                <div style={{ background: 'var(--color-error-50)', padding: '1rem', borderRadius: '0.5rem', border: '1px solid var(--color-error-200)' }}>
-                  <h3 style={{ fontSize: '1rem', fontWeight: 600, color: 'var(--color-error-700)', marginBottom: '0.5rem' }}>Suspender Cuenta</h3>
-                  <p style={{ fontSize: '0.875rem', color: 'var(--color-error-600)', marginBottom: '1rem' }}>El negocio no podrá acceder al sistema de punto de venta.</p>
-                  <input 
-                    placeholder="Motivo de suspensión..." 
-                    value={suspendReason} 
-                    onChange={e => setSuspendReason(e.target.value)}
-                    style={{ width: '100%', padding: '0.5rem', borderRadius: '0.5rem', border: '1px solid var(--color-error-300)', marginBottom: '1rem' }} 
-                  />
-                  <button onClick={handleSuspend} disabled={loading} style={{ width: '100%', padding: '0.75rem', background: 'var(--color-error-600)', color: 'white', border: 'none', borderRadius: '0.5rem', fontWeight: 600, cursor: 'pointer', opacity: loading ? 0.7 : 1 }}>
-                    Suspender
-                  </button>
+                <div className="bg-card border border-destructive/30 p-6 rounded-xl shadow-sm relative overflow-hidden">
+                  <div className="absolute top-0 left-0 w-1 h-full bg-destructive"></div>
+                  <h3 className="text-lg font-bold text-destructive mb-2 flex items-center gap-2">
+                    <AlertTriangle size={20} /> Suspender Cuenta
+                  </h3>
+                  <p className="text-muted-foreground text-sm mb-4">
+                    El negocio y todos sus usuarios no podrán acceder al sistema de punto de venta inmediatamente.
+                  </p>
+                  <div className="space-y-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="suspendReason" className="text-destructive">Motivo de suspensión (requerido)</Label>
+                      <Input 
+                        id="suspendReason"
+                        placeholder="Ej: Falta de pago, violación de términos..." 
+                        value={suspendReason} 
+                        onChange={e => setSuspendReason(e.target.value)}
+                        className="border-destructive/30 focus-visible:ring-destructive/50"
+                      />
+                    </div>
+                    <Button 
+                      onClick={handleSuspend} 
+                      disabled={loading || !suspendReason.trim()} 
+                      variant="destructive"
+                      className="w-full"
+                    >
+                      {loading ? 'Suspendiendo...' : 'Suspender Acceso'}
+                    </Button>
+                  </div>
                 </div>
               ) : (
-                <div style={{ background: 'var(--color-success-50)', padding: '1rem', borderRadius: '0.5rem', border: '1px solid var(--color-success-200)' }}>
-                  <h3 style={{ fontSize: '1rem', fontWeight: 600, color: 'var(--color-success-700)', marginBottom: '0.5rem' }}>Reactivar Cuenta</h3>
-                  <p style={{ fontSize: '0.875rem', color: 'var(--color-success-600)', marginBottom: '1rem' }}>El negocio recuperará el acceso al sistema.</p>
-                  <button onClick={handleReactivate} disabled={loading} style={{ width: '100%', padding: '0.75rem', background: 'var(--color-success-600)', color: 'white', border: 'none', borderRadius: '0.5rem', fontWeight: 600, cursor: 'pointer', opacity: loading ? 0.7 : 1 }}>
-                    Activar Cuenta
-                  </button>
+                <div className="bg-card border border-green-200 dark:border-green-900/30 p-6 rounded-xl shadow-sm relative overflow-hidden">
+                  <div className="absolute top-0 left-0 w-1 h-full bg-green-500"></div>
+                  <h3 className="text-lg font-bold text-green-600 dark:text-green-500 mb-2 flex items-center gap-2">
+                    <CheckCircle size={20} /> Reactivar Cuenta
+                  </h3>
+                  <p className="text-muted-foreground text-sm mb-6">
+                    El negocio y todos sus usuarios recuperarán el acceso al sistema inmediatamente.
+                  </p>
+                  <Button 
+                    onClick={handleReactivate} 
+                    disabled={loading} 
+                    className="w-full bg-green-600 hover:bg-green-700 text-white border-0 shadow-sm"
+                  >
+                    {loading ? 'Activando...' : 'Reactivar Cuenta'}
+                  </Button>
                 </div>
               )}
             </div>
