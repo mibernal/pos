@@ -7,18 +7,27 @@ export function usePosNavigation(user: { role?: string; permissions?: string[] }
   const isTenantAdmin = user?.role === 'ADMIN' || user?.role === 'TENANT_OWNER';
   
   const allowedRoutes = APP_ROUTE_DEFINITIONS.filter(r => {
+    // PLATFORM_OWNER solo ve la vista global de plataforma
+    if (isPlatformOwner) {
+      return r.id === 'platform';
+    }
+
+    // TENANT ADMIN / OWNER ve todo EXCEPTO la vista global de plataforma
+    // Su gestión de suscripción la hacen en 'billing'
+    if (isTenantAdmin) {
+      return r.id !== 'platform';
+    }
+    
     if (!r.requiredPermissions) return true;
-    
-    const hasPlatformPerms = r.requiredPermissions.some(p => p.startsWith('platform:'));
-    const isBypassRole = isPlatformOwner || (isTenantAdmin && !hasPlatformPerms);
-    
-    if (isBypassRole) return true;
-    
     return user?.permissions && r.requiredPermissions.some(p => user.permissions?.includes(p));
   });
   
   // If the initial route is not allowed, default to the first allowed route
-  const defaultRoute = allowedRoutes.find(r => r.id === initialRoute) ? initialRoute : allowedRoutes[0]?.id ?? 'pos';
+  let defaultRoute = allowedRoutes.find(r => r.id === initialRoute) ? initialRoute : allowedRoutes[0]?.id ?? 'pos';
+  
+  if (isPlatformOwner) {
+    defaultRoute = 'platform';
+  }
   
   const [activeRoute, setActiveRoute] = useState<AppRoute>(defaultRoute);
 

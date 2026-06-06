@@ -12,6 +12,17 @@ export const healthRoutes: FastifyPluginAsync = async (app) => {
     {
       schema: {
         tags: ['system']
+      },
+      preHandler: (req, reply, done) => {
+        // Permitir loopback y redes privadas (allowlist básica)
+        const ip = req.ip;
+        const isLocal = ip === '127.0.0.1' || ip === '::1' || ip === '::ffff:127.0.0.1';
+        const isPrivate = ip.startsWith('10.') || ip.startsWith('172.16.') || ip.startsWith('192.168.');
+        if (!isLocal && !isPrivate && process.env.NODE_ENV === 'production') {
+          reply.code(403).send({ error: 'Forbidden' });
+          return;
+        }
+        done();
       }
     },
     async (_, reply) => {

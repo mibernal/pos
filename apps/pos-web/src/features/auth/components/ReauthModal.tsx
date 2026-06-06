@@ -29,38 +29,50 @@ export function ReauthModal() {
   };
 
   return (
-    <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60 backdrop-blur-sm">
-      <div className="w-full max-w-md rounded-xl bg-white p-6 shadow-2xl">
-        <div className="mb-6 text-center">
-          <h2 className="text-2xl font-bold text-gray-900">Sesión Expirada</h2>
-          <p className="mt-2 text-sm text-gray-600">
-            Tu sesión por motivos de seguridad ha caducado. Ingresa tu contraseña para continuar exactamente donde estabas.
+    <div style={{ position: 'fixed', inset: 0, zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(15, 23, 42, 0.75)', backdropFilter: 'blur(8px)', padding: '1.5rem', fontFamily: 'var(--font-sans)', animation: 'fadeIn 0.2s ease-out' }}>
+      <div style={{ width: '100%', maxWidth: '440px', background: '#ffffff', borderRadius: '1.5rem', padding: '2.5rem', boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)', border: '1px solid rgba(255,255,255,0.1)', animation: 'slideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1)' }}>
+        <div style={{ textAlign: 'center', marginBottom: '2rem' }}>
+          <div style={{ width: '56px', height: '56px', background: 'var(--color-warning-50)', color: 'var(--color-warning-600)', borderRadius: '1rem', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 1.5rem' }}>
+            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+              <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+            </svg>
+          </div>
+          <h2 style={{ fontSize: '1.5rem', fontWeight: 800, color: 'var(--color-slate-900)', letterSpacing: '-0.02em', marginBottom: '0.5rem' }}>Sesión Expirada</h2>
+          <p style={{ fontSize: '0.9375rem', color: 'var(--color-slate-500)' }}>
+            Por tu seguridad hemos pausado la sesión. Ingresa tu contraseña para continuar exactamente donde estabas.
           </p>
         </div>
 
         {error && (
-          <div className="mb-4 rounded-md bg-red-50 p-4 text-sm text-red-700">
+          <div style={{ marginBottom: '1.5rem', padding: '1rem', background: 'var(--color-error-50)', color: 'var(--color-error-700)', borderRadius: '0.75rem', border: '1px solid var(--color-error-100)', fontSize: '0.875rem', fontWeight: 500 }}>
             {error}
           </div>
         )}
 
-        <div className="rounded-lg border border-gray-100 bg-gray-50 p-4">
+        <div style={{ marginBottom: '2rem' }}>
           <LoginForm 
             onSubmit={handleLogin}
             loading={loading}
           />
         </div>
 
-        <div className="mt-6 text-center">
+        <div style={{ textAlign: 'center' }}>
           <button
             onClick={rejectReauth}
             disabled={loading}
-            className="text-sm font-medium text-red-600 hover:text-red-500 disabled:opacity-50"
+            style={{ background: 'transparent', border: 'none', color: 'var(--color-slate-500)', fontSize: '0.875rem', fontWeight: 600, cursor: loading ? 'wait' : 'pointer', transition: 'color 0.2s' }}
+            onMouseOver={(e) => { e.currentTarget.style.color = 'var(--color-error-600)' }}
+            onMouseOut={(e) => { e.currentTarget.style.color = 'var(--color-slate-500)' }}
           >
-            Cancelar y salir al Login principal
+            Cancelar y volver al inicio de sesión
           </button>
         </div>
       </div>
+      <style>{`
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+        @keyframes slideUp { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
+      `}</style>
     </div>
   );
 }

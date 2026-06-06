@@ -9,7 +9,7 @@ import type { IPaymentGateway } from '../domain/payment-gateway.interface.js';
 interface CreateCheckoutInput {
   tenantId: string;
   planId: string;
-  gateway: 'WOMPI' | 'MERCADOPAGO';
+  gateway: 'WOMPI' | 'MERCADOPAGO' | 'MOCK';
   customerEmail: string;
   redirectUrl: string;
 }
@@ -33,8 +33,12 @@ export async function createCheckoutSession(db: Kysely<Database>, input: CreateC
   let gatewayAdapter: IPaymentGateway;
   if (input.gateway === 'WOMPI') {
     gatewayAdapter = new WompiGateway();
-  } else {
+  } else if (input.gateway === 'MERCADOPAGO') {
     gatewayAdapter = new MercadoPagoGateway();
+  } else {
+    // MOCK import
+    const { MockGateway } = await import('../domain/mock-gateway.js');
+    gatewayAdapter = new MockGateway();
   }
 
   // 2. Generar el checkout

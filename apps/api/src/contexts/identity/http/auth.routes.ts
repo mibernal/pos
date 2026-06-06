@@ -16,13 +16,15 @@ import { getPermissionsForRole } from '../../../shared/infra/security/permission
 import { writeAuditLog } from '../../../shared/domain/audit/write-audit-log.js';
 
 const registerBodySchema = z.object({
-  email: z.string().email(),
+  email: z.string().trim().email().transform((value) => value.toLowerCase()),
   password: z.string().min(8),
   name: z.string().min(1),
   tenant_name: z.string().min(1),
   tenant_business_name: z.string().min(1),
   tenant_document_type: z.enum(['NIT', 'CC', 'CE', 'PASSPORT']),
   tenant_document_number: z.string().min(1),
+  tax_mode: z.enum(['IVA', 'INC_RESTAURANT']).default('IVA'),
+  plan: z.string().default('STARTER'),
 });
 
 export const authRoutes: FastifyPluginAsync = async (app) => {
@@ -59,10 +61,10 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
           name: payload.tenant_name,
           business_name: payload.tenant_business_name,
           nit: payload.tenant_document_number,
-          address: '',
-          tax_mode: 'REGIMEN_SIMPLIFICADO', // Default
+          address: 'No especificada',
+          tax_mode: payload.tax_mode,
           status: 'TRIAL',
-          plan: 'STARTER',
+          plan: payload.plan,
           owner_user_id: userId
         }).execute();
 
@@ -75,6 +77,20 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
           role: 'TENANT_OWNER',
           active: true
         }).execute();
+
+        const branchId = randomUUID();
+        await trx.insertInto('branches').values({
+          id: branchId,
+          tenant_id: tenantId,
+          name: 'Sucursal Principal',
+          address: 'No especificada'
+        }).execute();
+
+        await trx.insertInto('user_branches').values({
+          tenant_id: tenantId,
+          user_id: userId,
+          branch_id: branchId
+        }).execute();
       });
 
       await writeAuditLog(app.db, {
@@ -83,7 +99,15 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
         entityType: 'TENANT',
         entityId: tenantId,
         action: 'TENANT_CREATED',
-        payloadJson: { current: { plan: 'STARTER', status: 'TRIAL' } }
+        payloadJson: { current: { plan: payload.plan, status: 'TRIAL', tax_mode: payload.tax_mode } }
+      });
+
+      // Simular envío de notificación (email) al administrador inicial
+      app.log.info({
+        event: 'EMAIL_SENT',
+        to: payload.email,
+        subject: 'Bienvenido al POS',
+        body: `Hola ${payload.name}, tu negocio ${payload.tenant_business_name} ha sido registrado exitosamente con el plan ${payload.plan}.`
       });
 
       return reply.code(201).send({ success: true, message: 'Registro exitoso' });
@@ -139,7 +163,7 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
         throw new AppError(401, 'AUTH_INVALID_CREDENTIALS', 'Credenciales inválidas');
       }
 
-      const validCandidates = [];
+      let validCandidates = [];
       for (const candidate of candidates) {
         const isValidPassword = await verifyPassword(password, candidate.password_hash);
         if (isValidPassword) {
@@ -155,14 +179,26 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
       await clearLoginRateLimit(app.redis, rateLimitKey);
 
       if (validCandidates.length > 1) {
-        return {
-          requireTenantSelection: true,
-          tenants: validCandidates.map(c => ({
-            id: c.tenant_id!,
-            name: c.tenant_name!,
-            business_name: c.tenant_business_name!
-          }))
-        };
+        const platformOwner = validCandidates.find(c => c.role === 'PLATFORM_OWNER');
+        if (platformOwner) {
+          // If there's a platform owner account, default to it (ignoring duplicates or tenant accounts)
+          validCandidates = [platformOwner];
+        } else {
+          // Filter out any candidates without a tenant (safety check)
+          const tenantCandidates = validCandidates.filter(c => c.tenant_id);
+          if (tenantCandidates.length > 1) {
+            return {
+              requireTenantSelection: true,
+              tenants: tenantCandidates.map(c => ({
+                id: c.tenant_id!,
+                name: c.tenant_name!,
+                business_name: c.tenant_business_name!
+              }))
+            };
+          } else {
+            validCandidates = [tenantCandidates[0]!];
+          }
+        }
       }
 
       const user = validCandidates[0]!;

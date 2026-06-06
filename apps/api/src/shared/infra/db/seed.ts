@@ -33,7 +33,8 @@ const demoCredentials = {
   t1_manager: 'manager@demo.posdian.local',
   t2_admin: 'admin2@demo.posdian.local',
   t2_cashier: 'cashier2@demo.posdian.local',
-  defaultPassword: 'Password123*'
+  p_owner: 'superadmin@demo.posdian.local',
+  p_admin: 'platform_admin@demo.posdian.local'
 } as const;
 
 async function runSeed(): Promise<void> {
@@ -51,7 +52,26 @@ async function runSeed(): Promise<void> {
     `.execute(db);
     console.info('[seed] Orphaned records cleaned');
 
-    const pwHash = await hashPassword(demoCredentials.defaultPassword);
+    const defaultPassword = process.env.SEED_DEFAULT_PASSWORD;
+    if (!defaultPassword) {
+      if (process.env.NODE_ENV === 'production') {
+        throw new Error('SEED_DEFAULT_PASSWORD must be provided in production to avoid hardcoded credentials.');
+      }
+      console.warn('⚠️ SEED_DEFAULT_PASSWORD not provided. Falling back to insecure default for development.');
+    }
+    const finalPassword = defaultPassword || 'Password123*';
+    const pwHash = await hashPassword(finalPassword);
+
+    // ==========================================
+    // PLATFORM: Administradores Globales
+    // ==========================================
+    await sql`DELETE FROM users WHERE tenant_id IS NULL;`.execute(db);
+    await sql`
+      INSERT INTO users (id, tenant_id, email, password_hash, name, role, active) VALUES
+      (${randomUUID()}, NULL, ${demoCredentials.p_owner}, ${pwHash}, 'Super Admin', 'PLATFORM_OWNER', TRUE),
+      (${randomUUID()}, NULL, ${demoCredentials.p_admin}, ${pwHash}, 'Platform Admin', 'PLATFORM_OWNER', TRUE)
+      ON CONFLICT (tenant_id, email) DO UPDATE SET password_hash = EXCLUDED.password_hash
+    `.execute(db);
 
     // ==========================================
     // TENANT 1: Restaurante multi-sede
@@ -182,14 +202,18 @@ async function runSeed(): Promise<void> {
     console.info('==========================================');
     console.info('[seed] SEED EXITOSO!');
     console.info('==========================================');
+    console.info('PLATAFORMA (Global Backoffice):');
+    console.info(`- Owner:   ${demoCredentials.p_owner} / [PROTECTED]`);
+    console.info(`- Admin:   ${demoCredentials.p_admin} / [PROTECTED]`);
+    console.info('');
     console.info('TENANT 1 (Restaurante Multi-Sede):');
-    console.info(`- Admin:   ${demoCredentials.t1_admin} / ${demoCredentials.defaultPassword}`);
-    console.info(`- Manager: ${demoCredentials.t1_manager} / ${demoCredentials.defaultPassword}`);
-    console.info(`- Cashier: ${demoCredentials.t1_cashier} / ${demoCredentials.defaultPassword}`);
+    console.info(`- Admin:   ${demoCredentials.t1_admin} / [PROTECTED]`);
+    console.info(`- Manager: ${demoCredentials.t1_manager} / [PROTECTED]`);
+    console.info(`- Cashier: ${demoCredentials.t1_cashier} / [PROTECTED]`);
     console.info('');
     console.info('TENANT 2 (Retail Básico):');
-    console.info(`- Admin:   ${demoCredentials.t2_admin} / ${demoCredentials.defaultPassword}`);
-    console.info(`- Cashier: ${demoCredentials.t2_cashier} / ${demoCredentials.defaultPassword}`);
+    console.info(`- Admin:   ${demoCredentials.t2_admin} / [PROTECTED]`);
+    console.info(`- Cashier: ${demoCredentials.t2_cashier} / [PROTECTED]`);
     console.info('==========================================');
 
   } finally {

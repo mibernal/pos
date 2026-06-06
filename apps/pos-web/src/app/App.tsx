@@ -157,7 +157,7 @@ function AppShell() {
             );
           } else if (activeRoute === 'inventory' && posContext) {
             currentScreen = (
-              <PermissionGuard allowedPermissions={['products:view', 'inventory:adjust', 'inventory:transfer', 'inventory:receive']} requireAll={false}>
+              <PermissionGuard allowedPermissions={['inventory:view', 'inventory:adjust', 'inventory:transfer', 'inventory:receive']} requireAll={false}>
                 <InventoryScreen api={api} branchId={posContext.branchId} />
               </PermissionGuard>
             );

@@ -8,7 +8,7 @@ export async function rollupDailySales(pool: Pool): Promise<void> {
         branch_id,
         CURRENT_DATE as date,
         COALESCE(SUM(CASE WHEN status = 'COMPLETED' THEN total_cents ELSE 0 END), 0) as total_revenue_cents,
-        COALESCE(SUM(CASE WHEN status IN ('VOID', 'RETURNED') THEN total_cents ELSE 0 END), 0) as total_voids_cents,
+        COALESCE(SUM(CASE WHEN status = 'VOID' THEN total_cents ELSE 0 END), 0) as total_voids_cents,
         COUNT(CASE WHEN status = 'COMPLETED' THEN 1 END) as sales_count
       FROM sales
       WHERE created_at >= CURRENT_DATE

@@ -7,7 +7,7 @@ export async function checkAbnormalRefunds(pool: Pool): Promise<number> {
     WITH recent_refunds AS (
       SELECT tenant_id, branch_id, COUNT(id) as refund_count
       FROM sales
-      WHERE status IN ('VOID', 'RETURNED')
+      WHERE status = 'VOID'
         AND created_at >= NOW() - INTERVAL '24 hours'
       GROUP BY tenant_id, branch_id
       HAVING COUNT(id) >= $1

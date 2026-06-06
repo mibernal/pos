@@ -1,3 +1,4 @@
+name: pos-dian
 services:
   otel-collector:
     image: otel/opentelemetry-collector:0.96.0

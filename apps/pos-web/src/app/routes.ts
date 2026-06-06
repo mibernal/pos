@@ -9,7 +9,7 @@ export const APP_ROUTE_DEFINITIONS: readonly AppRouteDefinition[] = [
   {
     id: 'history',
     label: 'Historial',
-    requiredPermissions: ['sales:create', 'reports:view']
+    requiredPermissions: ['sales:create', 'sales:view', 'reports:view']
   },
   {
     id: 'cash-control',
@@ -34,7 +34,7 @@ export const APP_ROUTE_DEFINITIONS: readonly AppRouteDefinition[] = [
   {
     id: 'inventory',
     label: 'Inventario',
-    requiredPermissions: ['products:view', 'inventory:adjust', 'inventory:transfer', 'inventory:receive']
+    requiredPermissions: ['inventory:view', 'inventory:adjust', 'inventory:transfer', 'inventory:receive']
   },
   {
     id: 'bulk-import',

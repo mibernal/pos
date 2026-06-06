@@ -14,7 +14,7 @@ export function useBranchCashSession({
   const [sessionError, setSessionError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!selectedTerminalId || selectedTerminalId === 'undefined') {
+    if (!selectedTerminalId || selectedTerminalId === 'undefined' || selectedTerminalId === 'null') {
       setCurrentSession(null);
       setSessionError(null);
       return;

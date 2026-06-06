@@ -6,7 +6,7 @@ import { createCheckoutSession } from '../application/create-checkout-session.js
 
 const checkoutBodySchema = z.object({
   planId: z.string(),
-  gateway: z.enum(['WOMPI', 'MERCADOPAGO']),
+  gateway: z.enum(['WOMPI', 'MERCADOPAGO', 'MOCK']),
   redirectUrl: z.string().url()
 });
 
@@ -66,6 +66,43 @@ export const billingRoutes: FastifyPluginAsync = async (app) => {
         checkoutUrl: result.checkoutUrl,
         transactionId: result.transactionId
       });
+    }
+  );
+  typedApp.get(
+    '/billing/mock-checkout',
+    {
+      schema: {
+        tags: ['billing'],
+        querystring: z.object({
+          reference: z.string(),
+          redirectUrl: z.string().url()
+        })
+      }
+    },
+    async (request, reply) => {
+      const { reference, redirectUrl } = request.query;
+
+      // Update the transaction to APPROVED
+      const updatedTx = await app.db
+        .updateTable('payment_transactions')
+        .set({ status: 'APPROVED', updated_at: new Date() })
+        .where('gateway_reference', '=', reference)
+        .returning(['tenant_id', 'metadata_json'])
+        .executeTakeFirst();
+
+      if (updatedTx) {
+        const metadata = updatedTx.metadata_json as { planId?: string } | null;
+        if (metadata?.planId) {
+          // Update tenant plan
+          await app.db
+            .updateTable('tenants')
+            .set({ plan: metadata.planId, status: 'ACTIVE' })
+            .where('id', '=', updatedTx.tenant_id)
+            .execute();
+        }
+      }
+
+      return reply.redirect(redirectUrl);
     }
   );
 };

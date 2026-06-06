@@ -108,10 +108,10 @@ interface RequestOptions extends RequestInit {
 
 type LoginResponse = SharedLoginResponse;
 
-function toQueryString(params: Record<string, string | number | undefined>): string {
+function toQueryString(params: Record<string, string | number | undefined> = {}): string {
   const search = new URLSearchParams();
-  for (const [key, value] of Object.entries(params)) {
-    if (value === undefined) {
+  for (const [key, value] of Object.entries(params || {})) {
+    if (value === undefined || value === null) {
       continue;
     }
 
@@ -241,6 +241,13 @@ export function createApiClient({ baseUrl, getSession, setSession, onReauthRequi
     return response;
   }
 
+  async function register(payload: any): Promise<void> {
+    await requestJson('/auth/register', {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    });
+  }
+
   async function logout(): Promise<void> {
     try {
       await requestJson('/auth/logout', { method: 'POST', body: '{}' });
@@ -252,6 +259,7 @@ export function createApiClient({ baseUrl, getSession, setSession, onReauthRequi
   return {
     baseUrl,
     login,
+    register,
     logout,
     me: () => requestJson<SharedMeResponse>('/auth/me'),
     refresh: () => requestJson<AuthSession>('/auth/refresh', { method: 'POST', body: '{}' }),
@@ -522,7 +530,7 @@ export function createApiClient({ baseUrl, getSession, setSession, onReauthRequi
       
     // BILLING ENDPOINTS
     getBillingPlans: () => requestJson<{ plans: any[] }>('/billing/plans'),
-    createCheckoutSession: (payload: { planId: string; gateway: 'WOMPI' | 'MERCADOPAGO'; redirectUrl: string }) =>
+    createCheckoutSession: (payload: { planId: string; gateway: 'WOMPI' | 'MERCADOPAGO' | 'MOCK'; redirectUrl: string }) =>
       requestJson<{ checkoutUrl: string; transactionId: string }>('/billing/checkout', {
         method: 'POST',
         body: JSON.stringify(payload)

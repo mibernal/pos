@@ -7,7 +7,7 @@ async function bootstrap() {
   try {
     await app.listen({
       port: env.PORT,
-      host: '0.0.0.0'
+      host: process.env.HOST || '127.0.0.1'
     });
 
     app.log.info(`API running on http://localhost:${env.PORT}`);
@@ -32,7 +32,7 @@ async function bootstrap() {
           .executeTakeFirst();
         lastPendingCount = parseInt(row?.count || '0', 10);
       } catch (err) {
-        app.log.error('Error polling outbox_events for metrics', err);
+        app.log.error(err, 'Error polling outbox_events for metrics');
       }
     }, 10000);
   } catch (error) {

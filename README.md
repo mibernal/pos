@@ -74,15 +74,15 @@ cp apps/worker/.env.example apps/worker/.env
 cp apps/pos-web/.env.example apps/pos-web/.env
 ```
 
-### 3. Infraestructura Core (PostgreSQL + Redis)
+### 3. Infraestructura Core & Observabilidad (PostgreSQL, Redis, Grafana, Loki, etc.)
+Para evitar advertencias de contenedores huérfanos (orphan containers), recomendamos levantar toda la infraestructura del proyecto `pos-dian` mediante un comando unificado:
+
 ```bash
-cd infra && docker compose up -d && cd ..
+docker compose -f infra/docker-compose.yml -f infra/docker-compose.obs.yml up -d
 ```
 
-### 4. Infraestructura de Observabilidad (Opcional)
-```bash
-cd infra && docker compose -f docker-compose.obs.yml up -d && cd ..
-```
+> **Nota:** Si solo deseas levantar la base de datos y caché sin observabilidad, puedes omitir el segundo archivo:
+> `docker compose -f infra/docker-compose.yml up -d`
 
 ### 5. Dependencias
 ```bash
@@ -117,6 +117,12 @@ pnpm dev
 ## 🔑 Credenciales Demo
 
 El script de inicialización (`pnpm db:seed`) crea un entorno multi-tenant para pruebas. La contraseña por defecto para todas las cuentas es **`Password123*`**.
+
+### Plataforma Global (Backoffice SaaS)
+| Rol | Email |
+|---|---|
+| `PLATFORM_OWNER` | `superadmin@demo.posdian.local` |
+| `PLATFORM_OWNER` (Admin) | `platform_admin@demo.posdian.local` |
 
 ### Tenant 1: Restaurante Multi-Sede (Plan Pro)
 | Rol | Email |

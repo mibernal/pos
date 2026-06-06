@@ -4,6 +4,11 @@ import { jsonSchemaTransform } from 'fastify-type-provider-zod';
 import type { FastifyInstance } from 'fastify';
 
 export async function registerSwagger(app: FastifyInstance): Promise<void> {
+  if (process.env.NODE_ENV === 'production') {
+    app.log.info('Swagger is disabled in production.');
+    return;
+  }
+
   await app.register(swagger, {
     openapi: {
       info: {

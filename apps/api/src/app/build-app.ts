@@ -111,18 +111,23 @@ export async function buildApp() {
   const app = Fastify({
     logger: {
       redact: ['req.headers.authorization', 'req.headers.cookie', 'password', 'body.password', 'body.token'],
-      transport:
-        env.NODE_ENV === 'development'
-          ? {
-            targets: [
-              { target: 'pino-pretty' },
-              { target: 'pino-loki', options: { batching: true, interval: 5, host: 'http://localhost:3100' } }
-            ]
-          }
-          : {
-            target: 'pino-loki',
-            options: { batching: true, interval: 5, host: 'http://loki:3100' }
-          }
+      transport: {
+        targets: [
+          ...(env.NODE_ENV === 'development' ? [{ target: 'pino-pretty' }] : []),
+          ...(process.env.ENABLE_LOKI === 'true'
+            ? [
+                {
+                  target: 'pino-loki',
+                  options: {
+                    batching: true,
+                    interval: 5,
+                    host: env.NODE_ENV === 'development' ? 'http://localhost:3100' : 'http://loki:3100'
+                  }
+                }
+              ]
+            : [])
+        ]
+      }
     },
     requestIdHeader: false,
     requestIdLogLabel: 'request_id',

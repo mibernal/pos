@@ -265,6 +265,16 @@ void enqueueDueOutboxEvents(dbPool, queue, env.OUTBOX_BATCH_SIZE)
   });
 
 const healthServer = http.createServer((req, res) => {
+  const ip = req.socket.remoteAddress || '';
+  const isLocal = ip === '127.0.0.1' || ip === '::1' || ip === '::ffff:127.0.0.1';
+  const isPrivate = ip.startsWith('10.') || ip.startsWith('172.16.') || ip.startsWith('192.168.') || ip.startsWith('::ffff:10.') || ip.startsWith('::ffff:172.16.') || ip.startsWith('::ffff:192.168.');
+  
+  if (!isLocal && !isPrivate && process.env.NODE_ENV === 'production') {
+    res.writeHead(403);
+    res.end(JSON.stringify({ error: 'Forbidden' }));
+    return;
+  }
+
   if (req.url === '/health') {
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ status: 'ok', service: 'worker' }));
@@ -275,10 +285,11 @@ const healthServer = http.createServer((req, res) => {
 });
 
 const port = process.env.PORT || 8080;
-healthServer.listen(port, () => {
+const host = process.env.HOST || '127.0.0.1';
+healthServer.listen(Number(port), host, () => {
   logWorkerInfo({
     event: 'health_server_started',
-    message: `Worker health server listening on port ${port}`
+    message: `Worker health server listening on ${host}:${port}`
   });
 });
 

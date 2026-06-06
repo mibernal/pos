@@ -18,28 +18,33 @@ export const platformRoutes: FastifyPluginAsync = async (app) => {
       summary: 'List all tenants',
       response: {
         200: z.object({
-          data: z.array(z.object({
+          tenants: z.array(z.object({
             id: z.string(),
             name: z.string(),
             business_name: z.string(),
-            nit: z.string(),
+            document_number: z.string(),
             status: z.string(),
             plan: z.string(),
-            created_at: z.string()
+            created_at: z.string(),
+            owner_user_id: z.string().nullable(),
+            owner_email: z.string().nullable()
           }))
         })
       }
     }
   }, async (request, reply) => {
     const tenants = await app.db.selectFrom('tenants')
+      .leftJoin('users', 'users.id', 'tenants.owner_user_id')
       .select([
-        'id', 'name', 'business_name', 'nit',
-        'status', 'plan', 'created_at'
+        'tenants.id', 'tenants.name', 'tenants.business_name', 'tenants.nit as document_number',
+        'tenants.status', 'tenants.plan', 'tenants.created_at',
+        'tenants.owner_user_id',
+        'users.email as owner_email'
       ])
-      .orderBy('created_at', 'desc')
+      .orderBy('tenants.created_at', 'desc')
       .execute();
 
-    return { data: tenants.map(t => ({ ...t, created_at: t.created_at.toISOString() })) };
+    return { tenants: tenants.map(t => ({ ...t, created_at: t.created_at.toISOString() })) };
   });
 
   // PATCH /platform/tenants/:id/status
@@ -97,15 +102,21 @@ export const platformRoutes: FastifyPluginAsync = async (app) => {
       .select(({ fn }) => fn.count<number>('id').as('count'))
       .executeTakeFirst();
       
+    const activeTenantsCount = await app.db.selectFrom('tenants')
+      .select(({ fn }) => fn.count<number>('id').as('count'))
+      .where('status', '=', 'ACTIVE')
+      .executeTakeFirst();
+      
     const usersCount = await app.db.selectFrom('users')
       .select(({ fn }) => fn.count<number>('id').as('count'))
       .where('active', '=', true)
       .executeTakeFirst();
 
     return {
-      data: {
-        total_tenants: Number(tenantsCount?.count || 0),
-        active_users: Number(usersCount?.count || 0)
+      globalMetrics: {
+        totalTenants: Number(tenantsCount?.count || 0),
+        activeTenants: Number(activeTenantsCount?.count || 0),
+        totalUsers: Number(usersCount?.count || 0)
       }
     };
   });
