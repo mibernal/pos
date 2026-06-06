@@ -9,14 +9,12 @@ if ('serviceWorker' in navigator) {
   registerSW({ immediate: true });
 }
 
+import { ApiClientError } from './lib/api';
+
 // Solicitar almacenamiento persistente para evitar evicción de la cola offline en móviles
 if (navigator.storage && navigator.storage.persist) {
-  navigator.storage.persist().then((persistent) => {
-    if (persistent) {
-      console.log('Almacenamiento persistente concedido.');
-    } else {
-      console.warn('Almacenamiento persistente denegado. La cola offline podría ser purgada por el SO si hay poca memoria.');
-    }
+  navigator.storage.persist().catch(() => {
+    // Ignorar errores de solicitud de persistencia silenciosamente
   });
 }
 
@@ -25,6 +23,12 @@ const queryClient = new QueryClient({
     queries: {
       refetchOnWindowFocus: false,
       staleTime: 5 * 60 * 1000,
+      retry: (failureCount, error) => {
+        if (error instanceof ApiClientError && error.status === 401) {
+          return false;
+        }
+        return failureCount < 3;
+      }
     },
   },
 });

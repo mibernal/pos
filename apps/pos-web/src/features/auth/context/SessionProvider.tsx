@@ -8,17 +8,21 @@ import {
   useState,
   type ReactNode
 } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { ApiClientError, createApiClient, type AuthSession, type UserRole } from '../../../lib/api';
 import { API_BASE_URL } from '../../../lib/env';
 import { readAuthUser, writeAuthUser, writePosContext } from '../../../lib/session';
 
 const SESSION_EXPIRED_MESSAGE = 'Tu sesión expiró o ya no es válida. Inicia sesión de nuevo.';
 
+export type AuthState = 'authenticated' | 'refreshing' | 'reauth_required' | 'unauthenticated';
+
 interface SessionContextValue {
   api: ReturnType<typeof createApiClient>;
   authMessage: string | null;
   clearAuthMessage: () => void;
-  isHydrating: boolean;
+  authState: AuthState;
+  isHydrating: boolean; // keep for backward compatibility
   isAuthenticated: boolean;
   login: (credentials: { email: string; password: string; tenantId?: string }) => Promise<void>;
   logout: () => void;
@@ -27,18 +31,23 @@ interface SessionContextValue {
   tenantId: string | null;
   token: string | null;
   user: AuthSession['user'] | null;
+  resolveReauth: (session: AuthSession) => void;
+  rejectReauth: () => void;
 }
 
 const SessionContext = createContext<SessionContextValue | null>(null);
 
 export function SessionProvider({ children }: { children: ReactNode }) {
+  const queryClient = useQueryClient();
   const initialUserRef = useRef<AuthSession['user'] | null>(readAuthUser());
   const [session, setSession] = useState<AuthSession | null>(null);
   const [user, setUser] = useState<AuthSession['user'] | null>(initialUserRef.current);
   const [authMessage, setAuthMessage] = useState<string | null>(null);
-  const [isHydrating, setIsHydrating] = useState(true);
+  const [authState, setAuthState] = useState<AuthState>('refreshing');
 
   const sessionRef = useRef<AuthSession | null>(session);
+  const pendingReauthRef = useRef<Promise<AuthSession | null> | null>(null);
+  const reauthResolverRef = useRef<((session: AuthSession | null) => void) | null>(null);
 
   const commitSession = useCallback((nextSession: AuthSession | null) => {
     sessionRef.current = nextSession;
@@ -60,9 +69,48 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       writeAuthUser(null);
       writePosContext(null);
       setAuthMessage(reason ?? null);
+      setAuthState('unauthenticated');
+      // Clean query cache securely
+      queryClient.clear();
     },
-    []
+    [queryClient]
   );
+
+  const onReauthRequired = useCallback(() => {
+    if (pendingReauthRef.current) {
+      return pendingReauthRef.current;
+    }
+
+    setAuthState('reauth_required');
+
+    pendingReauthRef.current = new Promise<AuthSession | null>((resolve) => {
+      reauthResolverRef.current = resolve;
+    });
+
+    return pendingReauthRef.current;
+  }, []);
+
+  const resolveReauth = useCallback(
+    (newSession: AuthSession) => {
+      commitSession(newSession);
+      setAuthState('authenticated');
+      if (reauthResolverRef.current) {
+        reauthResolverRef.current(newSession);
+        reauthResolverRef.current = null;
+        pendingReauthRef.current = null;
+      }
+    },
+    [commitSession]
+  );
+
+  const rejectReauth = useCallback(() => {
+    clearSession('Reautenticación cancelada');
+    if (reauthResolverRef.current) {
+      reauthResolverRef.current(null);
+      reauthResolverRef.current = null;
+      pendingReauthRef.current = null;
+    }
+  }, [clearSession]);
 
   useEffect(() => {
     sessionRef.current = session;
@@ -76,13 +124,14 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         setSession: (nextSession) => {
           if (nextSession) {
             commitSession(nextSession);
+            setAuthState('authenticated');
             return;
           }
-
           clearSession(SESSION_EXPIRED_MESSAGE);
-        }
+        },
+        onReauthRequired
       }),
-    [clearSession, commitSession]
+    [clearSession, commitSession, onReauthRequired]
   );
 
   const clearAuthMessage = useCallback(() => {
@@ -95,7 +144,6 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       const response = await api.login(credentials.email, credentials.password, credentials.tenantId);
 
       if (response.requireTenantSelection && response.tenants) {
-        // We throw an object or handle it via a special error so LoginScreen can catch it
         throw { requireTenantSelection: true, tenants: response.tenants };
       }
 
@@ -104,6 +152,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       }
 
       commitSession({ accessToken: response.accessToken, user: response.user });
+      setAuthState('authenticated');
     },
     [api, clearAuthMessage, commitSession]
   );
@@ -114,20 +163,26 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     });
   }, [api, clearSession]);
 
+  const refreshPromiseRef = useRef<Promise<AuthSession | null> | null>(null);
+
   useEffect(() => {
     let cancelled = false;
 
     async function hydrateSession() {
       try {
-        const refreshedSession = await api.refresh();
+        if (!refreshPromiseRef.current) {
+          refreshPromiseRef.current = api.refresh();
+        }
+        const refreshedSession = await refreshPromiseRef.current;
+        
         if (cancelled) {
           return;
         }
 
         if (refreshedSession) {
           commitSession(refreshedSession);
+          setAuthState('authenticated');
         } else {
-          // If we had a user but refresh failed (and not a network error), clear it
           if (user) {
             clearSession(SESSION_EXPIRED_MESSAGE);
           } else {
@@ -140,9 +195,6 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         }
 
         if (error instanceof ApiClientError && error.isNetworkError) {
-          // We are offline. We can't refresh. We must stay unauthenticated
-          // or allow limited offline capabilities using the stored user.
-          // For now, if we have a user, we stay logged out but keep the user profile?
           if (user) {
             clearSession('Error de conexión. Revisa tu internet e intenta de nuevo.');
           } else {
@@ -156,10 +208,6 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         } else {
           clearSession();
         }
-      } finally {
-        if (!cancelled) {
-          setIsHydrating(false);
-        }
       }
     }
 
@@ -168,24 +216,27 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     return () => {
       cancelled = true;
     };
-  }, [api, clearSession, commitSession]);
+  }, [api, clearSession, commitSession]); // Note: running this once initially. We only re-run if api or clearSession change.
 
   const value = useMemo<SessionContextValue>(
     () => ({
       api,
       authMessage,
       clearAuthMessage,
-      isAuthenticated: Boolean(session),
-      isHydrating,
+      authState,
+      isHydrating: authState === 'refreshing',
+      isAuthenticated: authState === 'authenticated' || authState === 'reauth_required', // Treat as authenticated to keep DOM
       login,
       logout,
       role: user?.role ?? null,
       session,
       tenantId: user?.tenantId ?? null,
       token: session?.accessToken ?? null,
-      user: user
+      user: user,
+      resolveReauth,
+      rejectReauth
     }),
-    [api, authMessage, clearAuthMessage, isHydrating, login, logout, session, user]
+    [api, authMessage, clearAuthMessage, authState, login, logout, session, user, resolveReauth, rejectReauth]
   );
 
   return <SessionContext.Provider value={value}>{children}</SessionContext.Provider>;

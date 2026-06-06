@@ -36,6 +36,11 @@ export const APP_ROUTE_DEFINITIONS: readonly AppRouteDefinition[] = [
     label: 'Inventario',
     requiredPermissions: ['products:view', 'inventory:adjust', 'inventory:transfer', 'inventory:receive']
   },
+  {
+    id: 'bulk-import',
+    label: 'Importación Masiva',
+    requiredPermissions: ['products:manage', 'inventory:adjust']
+  },
 
   {
     id: 'reports',
@@ -56,5 +61,15 @@ export const APP_ROUTE_DEFINITIONS: readonly AppRouteDefinition[] = [
     id: 'branches',
     label: 'Sucursales',
     requiredPermissions: ['branches:manage']
+  },
+  {
+    id: 'platform',
+    label: 'Plataforma',
+    requiredPermissions: ['platform:tenants:create']
+  },
+  {
+    id: 'billing',
+    label: 'Facturación / Plan',
+    requiredPermissions: ['tenant:settings:manage']
   }
 ] as const;

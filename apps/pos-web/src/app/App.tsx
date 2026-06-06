@@ -1,22 +1,25 @@
 import { lazy, Suspense, useEffect, useState, type ReactNode } from 'react';
 import { AppShellLayout, AppTopbar } from '../components/layout';
 import { Banner, ShellMessage } from '../components/ui';
-import { LoginScreen, RequireSession, SessionProvider, useSession, PermissionGuard } from '../features/auth';
+import { LoginScreen, RequireSession, SessionProvider, useSession, PermissionGuard, ReauthModal } from '../features/auth';
 import { CloseCashSessionModal, CashControlScreen, CashMovementModal } from '../features/cash-sessions';
 import { BranchSetupScreen } from '../features/branches';
 import { PosScreen } from '../features/sales';
 import { DianConfigModal, TicketTemplateModal } from '../features/settings';
+import { BillingScreen } from '../features/billing/BillingScreen';
 
 // Lazy Loaded Screens
 const CustomersScreen = lazy(() => import('../features/customers').then(m => ({ default: m.CustomersScreen })));
 const HistoryScreen = lazy(() => import('../features/history').then(m => ({ default: m.HistoryScreen })));
 const InventoryScreen = lazy(() => import('../features/inventory').then(m => ({ default: m.InventoryScreen })));
+const BulkImportScreen = lazy(() => import('../features/inventory/BulkImportScreen').then(m => ({ default: m.BulkImportScreen })));
 const ProductsScreen = lazy(() => import('../features/products').then(m => ({ default: m.ProductsScreen })));
 const PromotionsScreen = lazy(() => import('../features/promotions/PromotionsScreen').then(m => ({ default: m.PromotionsScreen })));
 const ReportsScreen = lazy(() => import('../features/reports').then(m => ({ default: m.ReportsScreen })));
 const DashboardScreen = lazy(() => import('../features/reports').then(m => ({ default: m.DashboardScreen })));
 const BranchesScreen = lazy(() => import('../features/settings').then(m => ({ default: m.BranchesScreen })));
 const UsersScreen = lazy(() => import('../features/settings').then(m => ({ default: m.UsersScreen })));
+const PlatformScreen = lazy(() => import('../features/platform').then(m => ({ default: m.PlatformScreen })));
 import {
   usePendingSalesSync,
   usePosNavigation,
@@ -28,7 +31,7 @@ import {
 function AppShell() {
   const { api, logout, session } = useSession();
   const { commitPosContext, posContext } = usePosStore();
-  const { activeRoute, navigate, resetNavigation, routeDefinitions } = usePosNavigation(session?.user.permissions ?? null);
+  const { activeRoute, navigate, resetNavigation, routeDefinitions } = usePosNavigation(session?.user ?? null);
   const {
     isOnline,
     pendingSales,
@@ -75,10 +78,10 @@ function AppShell() {
       loadingFallback={<ShellMessage title="Validando sesión..." subtitle="Preparando entorno POS" />}
       fallback={<LoginScreen />}
     >
-      {!posContext || !session ? (
+      {!posContext && !session?.user.isPlatformRole ? (
         <BranchSetupScreen
           api={api}
-          session={session}
+          session={session!}
           onReady={(context) => {
             commitPosContext(context);
             resetNavigation();
@@ -88,7 +91,13 @@ function AppShell() {
         (() => {
           let currentScreen: ReactNode = null;
 
-          if (activeRoute === 'pos') {
+          if (activeRoute === 'platform') {
+            currentScreen = (
+              <PermissionGuard allowedPermissions={['platform:tenants:create']}>
+                <PlatformScreen api={api} />
+              </PermissionGuard>
+            );
+          } else if (activeRoute === 'pos' && posContext) {
             currentScreen = (
               <PosScreen
                 api={api}
@@ -109,9 +118,7 @@ function AppShell() {
                 syncingPendingSales={syncingPendingSales}
               />
             );
-          }
-
-          if (activeRoute === 'history') {
+          } else if (activeRoute === 'history' && posContext) {
             currentScreen = (
               <HistoryScreen
                 api={api}
@@ -122,9 +129,7 @@ function AppShell() {
                 tenantTaxMode={tenantTaxMode}
               />
             );
-          }
-
-          if (activeRoute === 'cash-control') {
+          } else if (activeRoute === 'cash-control' && posContext) {
             currentScreen = (
               <CashControlScreen
                 api={api}
@@ -132,40 +137,54 @@ function AppShell() {
                 cashSessionId={posContext.cashSessionId}
               />
             );
-          }
-
-          if (activeRoute === 'products') {
-            currentScreen = <ProductsScreen api={api} branchId={posContext.branchId} />;
-          }
-
-          if (activeRoute === 'promotions') {
-            currentScreen = <PromotionsScreen api={api} />;
-          }
-
-          if (activeRoute === 'customers') {
-            currentScreen = <CustomersScreen api={api} />;
-          }
-
-          if (activeRoute === 'inventory') {
-            currentScreen = <InventoryScreen api={api} branchId={posContext.branchId} />;
-          }
-
-
-
-          if (activeRoute === 'reports') {
-            currentScreen = <ReportsScreen 
-              api={api} 
-              branchId={posContext.branchId} 
-              branchName={posContext.branchName ?? posContext.branchId}
-              ticketTemplate={ticketTemplate}
-            />;
-          }
-
-          if (activeRoute === 'dashboard') {
-            currentScreen = <DashboardScreen api={api} branchId={posContext.branchId} />;
-          }
-
-          if (activeRoute === 'branches') {
+          } else if (activeRoute === 'products' && posContext) {
+            currentScreen = (
+              <PermissionGuard allowedPermissions={['products:view']} requireAll={false}>
+                <ProductsScreen api={api} branchId={posContext.branchId} />
+              </PermissionGuard>
+            );
+          } else if (activeRoute === 'promotions' && posContext) {
+            currentScreen = (
+              <PermissionGuard allowedPermissions={['products:manage']} requireAll={false}>
+                <PromotionsScreen api={api} />
+              </PermissionGuard>
+            );
+          } else if (activeRoute === 'customers' && posContext) {
+            currentScreen = (
+              <PermissionGuard allowedPermissions={['customers:view']} requireAll={false}>
+                <CustomersScreen api={api} />
+              </PermissionGuard>
+            );
+          } else if (activeRoute === 'inventory' && posContext) {
+            currentScreen = (
+              <PermissionGuard allowedPermissions={['products:view', 'inventory:adjust', 'inventory:transfer', 'inventory:receive']} requireAll={false}>
+                <InventoryScreen api={api} branchId={posContext.branchId} />
+              </PermissionGuard>
+            );
+          } else if (activeRoute === 'bulk-import' && posContext) {
+            currentScreen = (
+              <PermissionGuard allowedPermissions={['products:manage', 'inventory:adjust']} requireAll={true}>
+                <BulkImportScreen />
+              </PermissionGuard>
+            );
+          } else if (activeRoute === 'reports' && posContext) {
+            currentScreen = (
+              <PermissionGuard allowedPermissions={['reports:view']} requireAll={false}>
+                <ReportsScreen 
+                  api={api} 
+                  branchId={posContext.branchId} 
+                  branchName={posContext.branchName ?? posContext.branchId}
+                  ticketTemplate={ticketTemplate}
+                />
+              </PermissionGuard>
+            );
+          } else if (activeRoute === 'dashboard' && posContext) {
+            currentScreen = (
+              <PermissionGuard allowedPermissions={['dashboard:view']} requireAll={false}>
+                <DashboardScreen api={api} branchId={posContext.branchId} />
+              </PermissionGuard>
+            );
+          } else if (activeRoute === 'branches') {
             currentScreen = (
               <PermissionGuard allowedPermissions={['branches:manage']}>
                 <BranchesScreen api={api} />
@@ -177,6 +196,8 @@ function AppShell() {
                 <UsersScreen api={api} />
               </PermissionGuard>
             );
+          } else if (activeRoute === 'billing') {
+            currentScreen = <BillingScreen api={api} session={session!} />;
           }
 
           return (
@@ -184,9 +205,9 @@ function AppShell() {
               header={
                 <AppTopbar
                   activeRoute={activeRoute}
-                  branchId={posContext.branchId}
-                  branchName={posContext.branchName}
-                  cashSessionId={posContext.cashSessionId}
+                  branchId={posContext?.branchId ?? ''}
+                  branchName={posContext?.branchName}
+                  cashSessionId={posContext?.cashSessionId ?? ''}
                   onChangeRegister={() => commitPosContext(null)}
                   onCloseRegister={() => setIsCloseSessionModalOpen(true)}
                   onLogout={handleLogout}
@@ -197,7 +218,7 @@ function AppShell() {
                   onSyncPendingSales={() => void syncPendingSales()}
                   pendingSalesCount={pendingSalesCount}
                   routeDefinitions={routeDefinitions}
-                  session={session}
+                  session={session!}
                   syncingPendingSales={syncingPendingSales}
                 />
               }
@@ -254,6 +275,7 @@ function AppShell() {
           );
         })()
       )}
+      <ReauthModal />
     </RequireSession>
   );
 }

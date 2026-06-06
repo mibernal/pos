@@ -15,6 +15,10 @@ declare module 'fastify' {
     requirePermissions: (
       permissions: UserPermission[]
     ) => (request: FastifyRequest, reply?: FastifyReply) => Promise<void>;
+
+    requirePlatformOwner: (request: FastifyRequest, reply?: FastifyReply) => Promise<void>;
+
+    requireTenantOwnerOrAdmin: (request: FastifyRequest, reply?: FastifyReply) => Promise<void>;
   }
 
   interface FastifyRequest {

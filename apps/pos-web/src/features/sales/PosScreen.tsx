@@ -319,7 +319,16 @@ export function PosScreen({
     setQuery,
     setSaleError,
     setIsCheckoutModalOpen,
-    handleProductSelect
+    handleProductSelect,
+    cachedProducts,
+    cartItems.length,
+    handlePrintLastSale,
+    lastPrintedSaleSnapshot,
+    parkCart,
+    parkedCarts.length,
+    query,
+    restoreCart,
+    setSaleMessage
   ]);
 
   return (

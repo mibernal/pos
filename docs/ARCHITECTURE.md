@@ -12,25 +12,23 @@
 
 | Componente | Stack | Rol |
 |---|---|---|
-| `apps/api` | Fastify · TypeScript · Kysely · Zod · OpenTelemetry | Auth, sucursales, caja, catálogo, ventas, configuración fiscal, auditoría y trazas OTLP |
-| `apps/worker` | BullMQ · TypeScript · PostgreSQL | Consumo del outbox, construcción del payload DIAN, máquina de estados fiscal y reintentos |
-| `apps/pos-web` | React · Vite · Dexie.js · PWA (Workbox) | Shell POS con login, apertura de caja, venta offline-resiliente, historial y configuración operativa |
+| `apps/api` | Fastify · TypeScript · Kysely · Zod · OpenTelemetry | Auth, sucursales, caja, catálogo, ventas, configuración fiscal, billing, importaciones masivas y trazas OTLP |
+| `apps/worker` | BullMQ · TypeScript · PostgreSQL | Consumo del outbox, DIAN, importaciones masivas (Enterprise), Schedulers (Limpieza, Alertas, Rollups) |
+| `apps/pos-web` | React · Vite · Dexie.js · PWA (Workbox) | Shell POS offline-first, backoffice (Identity, Platform), historial y configuración |
 | `packages/shared` | TypeScript · Zod | Contratos, tipos y esquemas compartidos entre API, worker y web |
 
 ---
 
 ## Entidades Clave (Modelo de Datos)
 
-- **`tenants`**: Tenant comercial. Almacena `tax_mode`, `business_name`, `nit`, `address`, `phone`, `footer_message`.
-- **`branches`**: Sucursal operativa. Aporta contexto de caja y datos de ticket por punto de venta.
-- **`users`**: Usuarios con roles `ADMIN`, `MANAGER`, `CASHIER`, `AUDITOR`.
-- **`cash_sessions`**: Apertura y cierre de caja por sucursal. Controla el flujo de arqueos.
-- **`products`**: Catálogo por tenant con `tax_category`, variantes y alcance por sucursal o global.
-- **`sales` / `sale_items`**: Venta operativa con totales en `*_cents`, `client_uuid` e historial de anulación.
-- **`dian_documents`**: Documentos fiscales. Distingue `INVOICE` y `CREDIT_NOTE`, conserva `CUDE` y enlaza notas crédito con `parent_document_id`.
-- **`outbox_events`**: Eventos de negocio para el worker (`SALE_CREATED`, `SALE_VOIDED`).
-- **`audit_logs`**: Trazabilidad operativa de acciones críticas.
-- **`refresh_tokens`**: Tokens de refresco de sesión (sin RLS para permitir el ciclo auth).
+- **`tenants` / `tenant_subscriptions` / `billing_plans`**: Gestión multi-tenant y modelo SaaS prepago.
+- **`users` / `user_branches`**: RBAC (PlatformOwner, TenantOwner, Admin, Cashier, Manager).
+- **`inventory_balances` / `inventory_ledger` / `inventory_adjustments`**: Fuerte consistencia de inventario (Optimistic Locking & Ledger inmutable).
+- **`sales` / `sale_items` / `sales_ledger`**: Venta operativa con protección por idempotencia (`client_uuid`).
+- **`payment_transactions`**: Transacciones de pago y webhooks de pasarelas (Wompi, MercadoPago).
+- **`bulk_import_jobs`**: Control de cargas masivas de catálogo procesadas en background.
+- **`idempotency_records`**: Tracking de peticiones seguras (ej. creación de ventas) con TTL de 24h.
+- **`dian_documents` / `outbox_events`**: Orquestación asíncrona de facturación electrónica.
 
 ---
 
@@ -44,8 +42,8 @@ pos-web → POST /auth/login
 → Seleccionar sucursal → POST /cash-sessions/open
 → Cargar catálogo (Dexie TTL 12h → API → Dexie fallback offline)
 → Búsqueda por nombre, código de barras o QTY*BARCODE
-→ Checkout: CreateSaleInput { client_uuid, branch_id, cash_session_id, items, payments }
-→ POST /sales → API valida, calcula fiscal, guarda venta + INVOICE + outbox SALE_CREATED
+→ Checkout: CreateSaleInput { Idempotency-Key header, client_uuid, branch_id, cash_session_id, items, payments }
+→ POST /sales → API intercepta Idempotencia, usa Bloqueo Pesimista (FOR UPDATE) en inventario, calcula fiscal, guarda venta + ledger + outbox
 → Si falla por red → IndexedDB offline queue → sincroniza al reconectar
 → Historial → reimpresión → anulación (ADMIN)
 ```
@@ -98,6 +96,26 @@ POST /sales/:id/void (solo ADMIN, requiere motivo)
 6. Si backend responde 409 (client_uuid ya existe) → venta se da por sincronizada (idempotencia)
 7. Si backend responde 401 → sincronización se detiene; espera re-login
 8. Si sync_attempts >= 5 → estado ABORTED, visible para el cajero con opción de reintentar
+
+### 6. Carga Masiva (Enterprise Bulk Import)
+
+```
+1. Usuario sube CSV/Excel (hasta 50,000 productos)
+2. API (multipart) procesa en chunks stream-based y encola job en BullMQ (`bulk-import-queue`)
+3. Worker procesa por chunks (batching), validando SKUs, tipos, y previniendo duplicados
+4. Se maneja `processed_rows`, `valid_rows` y estado completado
+5. Interfaz actualiza barra de progreso sin bloquear uso del POS
+```
+
+### 7. SaaS Billing & Subscriptions
+
+```
+1. API expone `/api/v1/billing/checkout` → redirección a Pasarela (Wompi/MercadoPago)
+2. Usuario completa pago → Redirección a la App
+3. Webhook asíncrono `/api/v1/webhooks/:gateway`
+4. Validación de firma criptográfica
+5. Actualización atómica de `payment_transactions` y `tenants.plan`
+```
 ```
 
 ---
@@ -227,27 +245,25 @@ El worker loguea por job: `outbox_event_id`, `sale_id`, `tenant_id`, `attempt`, 
 ```mermaid
 flowchart LR
   A["POS Web (PWA)"] --> B["POST /auth/login"]
+  A -->|Idempotency-Key| G
   B --> C["SessionProvider (JWT + refresh)"]
   C --> D["Abrir caja\nPOST /cash-sessions/open"]
   D --> E["Catálogo Dexie\n(TTL 12h / fallback red)"]
   E --> F["Carrito + Checkout\n(Atajos F1-F4 · Escáner QTY*CODE)"]
   F --> G["POST /sales"]
-  G --> H["sales + sale_items\n(PostgreSQL)"]
-  G --> I["dian_documents INVOICE = PENDING"]
+  G --> H["sales + ledger\n(PostgreSQL FOR UPDATE)"]
+  G --> I["idempotency_records"]
   G --> J["outbox SALE_CREATED"]
-  J --> K["Worker BullMQ"]
+  J --> K["Worker BullMQ (Outbox)"]
   K --> L["Provider DIAN"]
   L --> M["SENT / ACCEPTED / REJECTED"]
-  G --> V["POST /sales/:id/void (ADMIN)"]
-  V --> W["outbox SALE_VOIDED"]
-  W --> X["dian_documents CREDIT_NOTE"]
-  X --> L
   F --> N["Falla de red"]
   N --> O["Cola offline IndexedDB\n(pos-dian-offline)"]
   O --> P["Sync automático\nonline event"]
   P --> G
-  K --> Q["OpenTelemetry\n(OTLP Exporter)"]
-  Q --> R["otel-collector\n→ Grafana / Prometheus / Tempo"]
+  Q["Admin Web"] --> R["Subir CSV/XLSX"]
+  R --> S["Worker BullMQ (Bulk Import)"]
+  S --> T["inventory_balances\n(Optimistic Lock)"]
 ```
 
 ---

@@ -77,7 +77,7 @@ export function usePendingSalesSync({
       pendingCount,
       queuedSales
     };
-  }, []);
+  }, [posContext?.branchId]);
 
   const createSaleForSync = useCallback(
     async (payload: CreateSaleRequest) => {
@@ -153,7 +153,7 @@ export function usePendingSalesSync({
         syncInProgressRef.current = false;
       }
     },
-    [createSaleForSync, refreshPendingSales, session]
+    [createSaleForSync, posContext?.branchId, refreshPendingSales, session]
   );
 
   const retryPendingSale = useCallback(

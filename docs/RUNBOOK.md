@@ -218,6 +218,15 @@ VITE_API_URL=http://localhost:3000/api/v1
 
 ---
 
+## Operación BullMQ (Cargas Masivas)
+
+El Worker también escucha la cola `bulk-import-queue` para la subida de inventarios de más de 50k productos.
+* **Monitoreo:** El progreso se lee desde el API consultando el job en Redis (`/api/v1/inventory/bulk-import/:id`).
+* **Concurrencia:** Limitado a 2 trabajos en paralelo para proteger PostgreSQL.
+* **Destrabar:** Si un job se queda *stalled*, borrar la key `bull:bulk-import-queue:*` en Redis vía `redis-cli FLUSHALL` (en desarrollo local) o reiniciar el worker.
+
+---
+
 ## Observabilidad (Grafana)
 
 1. Levanta el stack: `cd infra && docker compose -f docker-compose.obs.yml up -d`.
@@ -264,6 +273,8 @@ open http://localhost:3000/docs
 | Sin estado DIAN final | Worker detenido, Redis caído o `DIAN_PROVIDER` incorrecto | Verificar `docker ps`, logs del worker y env vars |
 | Documento DIAN en `SENT` por mucho tiempo | Falta implementar consulta/webhook de finalización del PAC | Pendiente de producción (D-003) |
 | `SALE_VOIDED` reintentando | La `INVOICE` de la venta aún no está `ACCEPTED` | Esperar a que el worker procese la factura original |
+| Importación Masiva congelada | OOM en Worker o Redis caído | Subir RAM al worker, verificar `REDIS_URL` |
+| Webhook Wompi/MercadoPago no llega | URL de callback inaccesible desde internet | Exponer puerto 3000 con `ngrok` y registrar URL en el Gateway |
 | Provider HTTP falla por status inválido | Contrato de respuesta del PAC no mapeado | Revisar mapeo en `dian-http.provider.ts` |
 | Cola offline no persiste en iOS | Safari purgó IndexedDB por falta de espacio | Verificar en consola: `navigator.storage.persist()` debe retornar `true` |
 | Error `ERR_MODULE_NOT_FOUND` al migrar | Dependencias OpenTelemetry no instaladas | `pnpm install` en el root del monorepo |

@@ -147,7 +147,7 @@ export function HistoryScreen({
   }, [loadSales]);
 
   function openVoidModal() {
-    if (!selectedSale || selectedSale.status === 'VOID' || (role !== 'ADMIN' && !user?.permissions?.includes('sales:void'))) {
+    if (!selectedSale || selectedSale.status === 'VOID' || (role !== 'ADMIN' && role !== 'TENANT_OWNER' && !user?.permissions?.includes('sales:void'))) {
       return;
     }
 
@@ -166,7 +166,7 @@ export function HistoryScreen({
   }
 
   async function handleVoidSale() {
-    if (!selectedSale || selectedSale.status === 'VOID' || (role !== 'ADMIN' && !user?.permissions?.includes('sales:void'))) {
+    if (!selectedSale || selectedSale.status === 'VOID' || (role !== 'ADMIN' && role !== 'TENANT_OWNER' && !user?.permissions?.includes('sales:void'))) {
       return;
     }
 
@@ -362,7 +362,7 @@ export function HistoryScreen({
                   className="button button-sm"
                   type="button"
                   onClick={openVoidModal}
-                  disabled={!selectedSale || selectedSale.status === 'VOID' || (role !== 'ADMIN' && !user?.permissions?.includes('sales:void'))}
+                  disabled={!selectedSale || selectedSale.status === 'VOID' || (role !== 'ADMIN' && role !== 'TENANT_OWNER' && !user?.permissions?.includes('sales:void'))}
                   style={{ flex: 1, background: 'var(--color-slate-200)', color: 'var(--color-error-600)', border: 'none' }}
                 >
                   Anular
@@ -371,7 +371,7 @@ export function HistoryScreen({
                   className="button button-sm"
                   type="button"
                   onClick={() => setIsReturnModalOpen(true)}
-                  disabled={!selectedSale || selectedSale.status === 'VOID' || (role !== 'ADMIN' && !user?.permissions?.includes('returns:create'))}
+                  disabled={!selectedSale || selectedSale.status === 'VOID' || (role !== 'ADMIN' && role !== 'TENANT_OWNER' && !user?.permissions?.includes('returns:create'))}
                   style={{ flex: 1, background: 'var(--color-primary-100)', color: 'var(--color-primary-700)', border: 'none' }}
                 >
                   Devolver

@@ -4,11 +4,22 @@ import type { PosApiClient } from '../../types';
 import { Button } from '../../components/ui/button';
 import { AlertTriangle, Info, XCircle, CheckCircle2 } from 'lucide-react';
 
+interface AlertItem {
+  id: string;
+  severity: string;
+  title: string;
+  message: string;
+  created_at: string;
+  type: string;
+  branch_id?: string;
+  status: string;
+}
+
 export function AlertsScreen({ api }: { api: PosApiClient }) {
   const { alerts, resolveAlert } = useAlerts(api);
   // Realistically we would fetch historical alerts from /alerts endpoint,
   // but for simplicity we rely on the in-memory array provided by useAlerts for active ones.
-  const [history, setHistory] = useState<any[]>([]);
+  const [history, setHistory] = useState<AlertItem[]>([]);
 
   useEffect(() => {
     async function loadHistory() {
@@ -50,7 +61,7 @@ export function AlertsScreen({ api }: { api: PosApiClient }) {
               No hay alertas registradas.
             </div>
           )}
-          {history.map((alert: any) => (
+          {history.map((alert: AlertItem) => (
             <div key={alert.id} className={`p-4 flex gap-4 ${alert.status === 'UNREAD' ? 'bg-blue-50/30' : ''}`}>
               <div className="mt-1">{renderIcon(alert.severity)}</div>
               <div className="flex-1">

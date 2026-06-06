@@ -21,10 +21,12 @@ Este proyecto está construido como un monorepo administrado con `pnpm` workspac
 
 ## 🚀 Capacidades
 
-### Core Operativo
+### Core Operativo & SaaS
+- **SaaS Billing & Subscriptions:** Control de planes prepago, integración con pasarelas de pago (Wompi, MercadoPago) vía webhooks y suspensión automática.
 - **Multi-Tenant & Roles Granulares:** Cada negocio opera aislado lógicamente (PostgreSQL RLS). Roles: `ADMIN`, `MANAGER`, `CASHIER`, `AUDITOR`.
+- **Fuerte Consistencia de Inventario:** Mix de *Optimistic Locking* (para ajustes manuales) y *Pessimistic Locking* (para ventas de alta frecuencia) garantizando que no haya sobreventas.
+- **Carga Masiva Enterprise:** Importación asíncrona de hasta 50k productos usando `BullMQ`, procesamiento en batch multipart y feedback en vivo.
 - **Control de Efectivo Avanzado:** Apertura/cierre de caja, arqueos intermedios (ciegos para cajeros), cierres Z y reportes por turno.
-- **Inventario Enterprise:** Catálogo con variantes, promociones avanzadas (`PERCENTAGE`, `FIXED_AMOUNT`, `BUY_X_GET_Y`) y alertas de stock mínimo.
 
 ### Emisión Fiscal
 - **Emisión Asíncrona Robusta:** La venta se persiste atómicamente (PostgreSQL) junto al evento Outbox. El Worker reintenta contra el provider DIAN sin bloquear al cajero.
@@ -114,10 +116,20 @@ pnpm dev
 
 ## 🔑 Credenciales Demo
 
-| Rol | Email | Contraseña |
-|---|---|---|
-| `ADMIN` | `admin@demo.posdian.local` | `Admin123*` |
-| `CASHIER` | `cashier@demo.posdian.local` | `Cashier123*` |
+El script de inicialización (`pnpm db:seed`) crea un entorno multi-tenant para pruebas. La contraseña por defecto para todas las cuentas es **`Password123*`**.
+
+### Tenant 1: Restaurante Multi-Sede (Plan Pro)
+| Rol | Email |
+|---|---|
+| `ADMIN` | `admin@demo.posdian.local` |
+| `MANAGER`| `manager@demo.posdian.local` |
+| `CASHIER`| `cashier@demo.posdian.local` |
+
+### Tenant 2: Retail Básico (Plan Básico)
+| Rol | Email |
+|---|---|
+| `ADMIN` | `admin2@demo.posdian.local` |
+| `CASHIER`| `cashier2@demo.posdian.local` |
 
 ---
 

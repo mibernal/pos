@@ -59,7 +59,7 @@ export function BranchSetupScreen({
       const response = await api.listBranches();
 
       let availableBranches = response.items;
-      if (session?.user?.role !== 'ADMIN' && session?.user?.branchIds?.length) {
+      if (session?.user?.role !== 'ADMIN' && session?.user?.role !== 'TENANT_OWNER' && session?.user?.branchIds?.length) {
         availableBranches = response.items.filter(b => session.user.branchIds!.includes(b.id));
       }
 
@@ -234,7 +234,7 @@ export function BranchSetupScreen({
                 <label className="field" style={{ display: 'grid', gap: '0.5rem', marginTop: '1rem' }}>
                   <span style={{ fontSize: '0.8125rem', fontWeight: 600, color: 'var(--color-slate-700)', display: 'flex', justifyContent: 'space-between' }}>
                     Terminal / Caja
-                    {(session?.user?.role === 'ADMIN' || session?.user?.permissions?.includes('terminals:manage')) && (
+                    {(session?.user?.role === 'ADMIN' || session?.user?.role === 'TENANT_OWNER' || session?.user?.permissions?.includes('terminals:manage')) && (
                       <button type="button" className="ghost-button" style={{ padding: 0, color: 'var(--color-primary-600)' }} onClick={() => setIsCreatingTerminal(true)}>+ Nueva</button>
                     )}
                   </span>
@@ -256,7 +256,7 @@ export function BranchSetupScreen({
                 </label>
               )}
 
-              {(terminals.length === 0 || isCreatingTerminal) && (session?.user?.role === 'ADMIN' || session?.user?.permissions?.includes('terminals:manage')) && (
+              {(terminals.length === 0 || isCreatingTerminal) && (session?.user?.role === 'ADMIN' || session?.user?.role === 'TENANT_OWNER' || session?.user?.permissions?.includes('terminals:manage')) && (
                  <label className="field" style={{ display: 'grid', gap: '0.5rem', marginTop: '1rem' }}>
                  <span style={{ fontSize: '0.8125rem', fontWeight: 600, color: 'var(--color-slate-700)', display: 'flex', justifyContent: 'space-between' }}>
                    Crear Nueva Terminal

@@ -6,11 +6,11 @@ Esta documentación refleja el **estado actual real** de las APIs del Backend de
 
 1. [Arquitectura de Seguridad](#1-arquitectura-de-seguridad)
 2. [Módulo: Autenticación y Sesión](#2-módulo-autenticación-y-sesión)
-3. [Módulo: Identity & Users](#3-módulo-identity--users)
-4. [Módulo: Identity & Branches (Sucursales)](#4-módulo-identity--branches)
-5. [Módulo: Ventas (Sales)](#5-módulo-ventas)
-6. [Módulo: Cajas (Cash Sessions)](#6-módulo-cajas)
-7. [Módulo: Inventario y Productos](#7-módulo-inventario-y-productos)
+3. [Módulo: Identidad (Usuarios y Sucursales)](#3-módulo-identidad-usuarios-y-sucursales)
+4. [Módulo: Ventas (Sales)](#4-módulo-ventas)
+5. [Módulo: Cajas (Cash Sessions)](#5-módulo-cajas)
+6. [Módulo: Inventario y Carga Masiva](#6-módulo-inventario-y-carga-masiva)
+7. [Módulo: SaaS Billing & Webhooks](#7-módulo-saas-billing--webhooks)
 8. [Módulo: Dashboard y Reportes](#8-módulo-dashboard-y-reportes)
 9. [Módulo: Auditoría y Alertas](#9-módulo-auditoría-y-alertas)
 
@@ -121,8 +121,9 @@ Crea una nueva sucursal (locación física o lógica).
 
 ### `POST /api/v1/sales`
 Registra una nueva venta / orden.
+* **Cabecera Obligatoria:** `Idempotency-Key: <uuid>` (Evita cargos duplicados si hay reintentos de red).
 * **Permisos Requeridos:** `sales:create`
-* **Scope:** Valida que el `branch_id` enviado pertenezca al usuario en sesión. Valida que exista una Sesión de Caja abierta y activa vinculada al `branch_id` y al `cash_session_id`.
+* **Scope:** Valida que el `branch_id` enviado pertenezca al usuario en sesión. Valida que exista una Sesión de Caja abierta y activa.
 * **Request Schema (Contrato Crítico):**
   ```json
   {
@@ -185,32 +186,50 @@ Cierra la sesión de caja actualizando la conciliación (arqueo).
 
 ---
 
-## 7. Módulo: Inventario y Productos
+## 6. Módulo: Inventario y Carga Masiva
 
 ### `GET /api/v1/products`
 Catálogo de productos.
 * **Permisos Requeridos:** `products:view`
 
+### `POST /api/v1/inventory/bulk-import`
+Sube un archivo (CSV/Excel) para importar miles de productos en *background*.
+* **Content-Type:** `multipart/form-data`
+* **Permisos Requeridos:** `inventory:manage`
+* **Response:** `{ "jobId": "uuid", "status": "QUEUED" }`
+
 ### `GET /api/v1/inventory/balances`
 Obtiene el saldo disponible de productos por sucursal.
 * **Permisos Requeridos:** `inventory:view`
-* **Scope:** Solo devuelve inventario de las sucursales asignadas al usuario.
 
 ### `POST /api/v1/inventory/adjust`
-Ajuste de inventario (Suma o Resta por merma/daño).
+Ajuste de inventario (Suma o Resta por merma/daño). Implementa **Optimistic Locking**.
+* **Cabecera Obligatoria:** `Idempotency-Key: <uuid>`
 * **Permisos Requeridos:** `inventory:adjust`
-* **Request:** `{ "branch_id": "uuid", "product_id": "uuid", "quantity": -2, "reason": "DAMAGE", "notes": "Caja rota" }`
+* **Request:** `{ "branch_id": "uuid", "product_id": "uuid", "qty_change": -2, "reason": "DAMAGE", "expectedVersion": 1 }`
 
 ### `POST /api/v1/inventory/transfer`
 Movimiento de inventario entre dos sucursales.
+* **Cabecera Obligatoria:** `Idempotency-Key: <uuid>`
 * **Permisos Requeridos:** `inventory:transfer`
-* **Seguridad:** El usuario que ejecuta debe tener acceso a **ambas** sucursales (`from_branch_id` y `to_branch_id`). (Solo Managers/Admins suelen cumplir esto).
 
 ### `POST /api/v1/scanner/resolve`
-Endpoint optimizado para POS (Caja registradora) para buscar productos mediante lector de código de barras.
+Endpoint optimizado para buscar productos mediante código de barras en POS.
 * **Permisos Requeridos:** `sales:create`
 * **Request:** `{ "barcode": "770123456789", "branch_id": "uuid" }`
-* **Response:** Incluye el precio, nombre, ID y el saldo del inventario (`inventoryCount`) para validar stock en tiempo real al registrar.
+
+---
+
+## 7. Módulo: SaaS Billing & Webhooks
+
+### `GET /api/v1/billing/checkout/:gateway`
+Genera un enlace o sesión de pago para realizar el cobro del servicio SaaS al Tenant.
+* **Permisos Requeridos:** `PlatformOwner` o `TenantOwner`
+* **Gateway soportados:** `wompi`, `mercadopago`
+
+### `POST /api/v1/webhooks/:gateway`
+Webhook público asíncrono para recibir actualizaciones de las transacciones (aprobadas/rechazadas) y hacer *upgrade* del plan.
+* **Permisos Requeridos:** Ninguno (Valida firma de encriptación del Gateway).
 
 ---
 
@@ -246,9 +265,9 @@ Bandeja de alertas del sistema (Bajo Stock, Cierre con Descuadre, Error DIAN).
 La integración con facturación DIAN y otros servicios se realiza mediante inserciones a la tabla `outbox`.
 
 **Lista de Eventos Críticos:**
-1. `SaleCompleted`: Creado cuando `/api/v1/sales` responde `201`. Payload: Toda la orden con su subtotal, impuestos y pagos.
-2. `SaleVoided`: Creado cuando `/api/v1/sales/void` responde `200`. Payload: Referencia a la Venta y nota de crédito.
-3. `CashSessionClosed`: Creado en `POST /cash-sessions/:id/close`. Payload: Arqueo, diferencias y auditor que cerró.
+1. `SALE_CREATED`: Creado cuando `/api/v1/sales` responde `201`. Payload: Venta con uuid de cliente.
+2. `SALE_VOIDED`: Creado cuando `/api/v1/sales/void` responde `200`. Emite Nota Crédito.
+3. `SALE_RETURNED`: Devoluciones parciales que afectan factura electrónica.
 
 ## Recomendaciones para Mantener Documentación
 * Dado que el proyecto utiliza `@fastify/swagger` y `zod`, se recomienda **generar OpenAPI Specification V3** en formato JSON habilitando `/docs/json` e importando el archivo en herramientas como Postman, Stoplight o Swagger UI local.

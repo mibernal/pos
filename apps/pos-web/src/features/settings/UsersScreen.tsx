@@ -13,7 +13,10 @@ type UserItem = { id: string; tenantId: string; email: string; name: string; rol
 
 export function UsersScreen({ api }: UsersScreenProps) {
   const { session } = useSession();
-  const isAdmin = session?.user.role === 'ADMIN';
+  const currentRole = session?.user.role;
+  const canCreateAdmin = currentRole === 'PLATFORM_OWNER' || currentRole === 'TENANT_OWNER';
+  const isStarterPlan = session?.user.tenantPlan === 'STARTER';
+  const canCreateManager = (canCreateAdmin || currentRole === 'ADMIN') && !isStarterPlan;
   const queryClient = useQueryClient();
 
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
@@ -123,6 +126,12 @@ export function UsersScreen({ api }: UsersScreenProps) {
         </button>
       </div>
 
+      {isStarterPlan && (currentRole === 'TENANT_OWNER' || currentRole === 'ADMIN') && (
+        <Banner tone="info">
+          Tu plan actual (Básico) solo permite crear Cajeros. Actualiza a Pro para habilitar roles de Gerente y Auditor.
+        </Banner>
+      )}
+
       {errorMessage && !isCreateModalOpen && !isAssignModalOpen && <Banner tone="error">{errorMessage}</Banner>}
 
       {users.length === 0 ? (
@@ -151,7 +160,7 @@ export function UsersScreen({ api }: UsersScreenProps) {
                   <td style={{ padding: '0.75rem 1rem' }}><strong>{u.name}</strong></td>
                   <td style={{ padding: '0.75rem 1rem', color: 'var(--color-slate-400)' }}>{u.email}</td>
                   <td style={{ padding: '0.75rem 1rem' }}>
-                    <span className="tag">{u.role}</span>
+                    <span className={`tag ${u.role === 'PLATFORM_OWNER' ? 'tag-critical' : u.role === 'TENANT_OWNER' ? 'tag-warning' : 'tag-info'}`}>{u.role}</span>
                   </td>
                   <td style={{ padding: '0.75rem 1rem' }}>
                     <span className={`tag ${u.active ? 'tag-success' : 'tag-error'}`}>
@@ -219,9 +228,9 @@ export function UsersScreen({ api }: UsersScreenProps) {
                     required
                   >
                     <option value="CASHIER">Cajero</option>
-                    {isAdmin && <option value="MANAGER">Gerente</option>}
-                    {isAdmin && <option value="AUDITOR">Auditor</option>}
-                    {isAdmin && <option value="ADMIN">Administrador</option>}
+                    {canCreateManager && <option value="MANAGER">Gerente</option>}
+                    {canCreateManager && <option value="AUDITOR">Auditor</option>}
+                    {canCreateAdmin && <option value="ADMIN">Administrador</option>}
                   </select>
                 </label>
               </div>

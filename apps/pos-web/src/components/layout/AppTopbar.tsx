@@ -81,17 +81,17 @@ export function AppTopbar({
         </div>
 
         <div className="topbar-actions" style={{ display: 'flex', gap: '0.5rem' }}>
-          {['ADMIN', 'MANAGER'].includes(session.user.role) && (
-            <>
-              <button className="ghost-button" onClick={onOpenTicketTemplate} title="Configuración de negocio">
-                ⚙️
-              </button>
-              <button className="ghost-button" onClick={onOpenDianConfig} title="Configuración DIAN">
-                📄
-              </button>
-            </>
+          {['ADMIN', 'TENANT_OWNER', 'MANAGER'].includes(session.user.role) && (
+            <button className="ghost-button" onClick={onOpenTicketTemplate} title="Configuración de negocio">
+              ⚙️
+            </button>
           )}
-          {(session.user.role === 'ADMIN' || session.user.permissions?.includes('cash:reconcile') || session.user.permissions?.includes('cash:audit')) && (
+          {['ADMIN', 'TENANT_OWNER'].includes(session.user.role) && (
+            <button className="ghost-button" onClick={onOpenDianConfig} title="Configuración DIAN">
+              📄
+            </button>
+          )}
+          {(session.user.role === 'ADMIN' || session.user.role === 'TENANT_OWNER' || session.user.permissions?.includes('cash:reconcile') || session.user.permissions?.includes('cash:audit')) && (
             <button className="ghost-button" onClick={onOpenCashMovements} title="Ingreso/Egreso de Caja">
               💸
             </button>

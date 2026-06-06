@@ -18,7 +18,11 @@ const envSchema = z.object({
   AUTH_LOGIN_RATE_LIMIT_WINDOW_MS: z.coerce.number().int().positive().max(3_600_000).default(60_000),
   DIAN_PROVIDER: z.enum(['mock', 'http']).default('mock'),
   // C9: Ventana máxima configurable para anulación (default 24h en ms)
-  SALE_VOID_MAX_AGE_HOURS: z.coerce.number().int().positive().max(720).default(24)
+  SALE_VOID_MAX_AGE_HOURS: z.coerce.number().int().positive().max(720).default(24),
+  WOMPI_PUBLIC_KEY: z.string().optional(),
+  WOMPI_EVENTS_KEY: z.string().optional(),
+  MERCADOPAGO_ACCESS_TOKEN: z.string().optional(),
+  MERCADOPAGO_WEBHOOK_SECRET: z.string().optional()
 }).superRefine((value, ctx) => {
 
 

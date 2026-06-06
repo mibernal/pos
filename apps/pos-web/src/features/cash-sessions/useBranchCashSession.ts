@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import type { BranchItem, CashSession } from '../../lib/api';
+import type { CashSession } from '../../lib/api';
 import type { PosApiClient } from '../../types';
 
 export function useBranchCashSession({

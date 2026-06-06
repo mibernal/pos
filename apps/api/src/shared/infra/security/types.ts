@@ -1,4 +1,4 @@
-export type UserRole = 'ADMIN' | 'MANAGER' | 'CASHIER' | 'AUDITOR';
+export type UserRole = 'PLATFORM_OWNER' | 'TENANT_OWNER' | 'ADMIN' | 'MANAGER' | 'CASHIER' | 'AUDITOR';
 
 export type UserPermission =
   // Sales
@@ -40,30 +40,44 @@ export type UserPermission =
   | 'settings:manage'
   | 'users:manage'
   | 'branches:manage'
-  | 'branches:view';
+  | 'branches:view'
+  // Platform
+  | 'platform:tenants:create'
+  | 'platform:tenants:suspend'
+  | 'platform:tenants:activate'
+  | 'platform:plans:manage'
+  | 'platform:metrics:view'
+  | 'platform:impersonate'
+  // Tenant Owner
+  | 'tenant:settings:manage'
+  | 'tenant:owner:manage';
 
 
 export interface JwtClaims {
   sub: string;
   userId: string;
-  tenantId: string;
+  tenantId: string | null;
+  tenantPlan?: string | null;
   role: UserRole;
   email: string;
   name: string;
   branchIds: string[];
   permissions: UserPermission[];
+  isPlatformRole: boolean;
   iat?: number;
   exp?: number;
 }
 
 export interface AuthContext {
   userId: string;
-  tenantId: string;
+  tenantId: string | null;
+  tenantPlan?: string | null;
   role: UserRole;
   email: string;
   name: string;
   branchIds: string[];
   permissions: UserPermission[];
+  isPlatformRole: boolean;
   user_id: string;
-  tenant_id: string;
+  tenant_id: string | null;
 }

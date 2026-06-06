@@ -4,19 +4,36 @@ import { hashPassword } from '../../../contexts/identity/auth/password.js';
 import { Queue } from 'bullmq';
 import { OUTBOX_QUEUE_NAME } from '@pos-dian/shared';
 import { executeAsTenant } from './rls.js';
+import { randomUUID } from 'crypto';
 
 const demoIds = {
-  tenantId: '11111111-1111-4111-8111-111111111111',
-  branchId: '22222222-2222-4222-8222-222222222222',
-  adminUserId: '33333333-3333-4333-8333-333333333333',
-  cashierUserId: '44444444-4444-4444-8444-444444444444'
+  tenant1Id: '11111111-1111-4111-8111-111111111111',
+  tenant2Id: '11111111-2222-4222-8222-222222222222',
+
+  // Tenant 1
+  t1_branchMain: '22222222-2222-4222-8222-222222222222', // Was branchId
+  t1_branchNorth: '22222222-1111-4222-8222-222222222222',
+  t1_adminUser: '33333333-3333-4333-8333-333333333333', // Was adminUserId
+  t1_cashierUser: '44444444-4444-4444-8444-444444444444', // Was cashierUserId
+  t1_managerUser: '55555555-1111-4555-8555-555555555555',
+
+  // Tenant 2
+  t2_branchMain: '22222222-3333-4222-8222-333333333333',
+  t2_adminUser: '33333333-2222-4333-8333-444444444444',
+  t2_cashierUser: '44444444-2222-4444-8444-555555555555',
+
+  // Customers
+  t1_customer1: '77777777-1111-4777-8777-111111111111',
+  t1_customer2: '77777777-2222-4777-8777-222222222222',
 } as const;
 
 const demoCredentials = {
-  adminEmail: 'admin@demo.posdian.local',
-  adminPassword: 'Admin123*',
-  cashierEmail: 'cashier@demo.posdian.local',
-  cashierPassword: 'Cashier123*'
+  t1_admin: 'admin@demo.posdian.local',
+  t1_cashier: 'cashier@demo.posdian.local',
+  t1_manager: 'manager@demo.posdian.local',
+  t2_admin: 'admin2@demo.posdian.local',
+  t2_cashier: 'cashier2@demo.posdian.local',
+  defaultPassword: 'Password123*'
 } as const;
 
 async function runSeed(): Promise<void> {
@@ -25,130 +42,156 @@ async function runSeed(): Promise<void> {
   const queue = new Queue(OUTBOX_QUEUE_NAME, { connection: { url: redisUrl } });
 
   try {
-    // Drain BullMQ queue to remove stale jobs pointing to deleted sales
     await queue.obliterate({ force: true });
-    console.info('[seed] BullMQ queue drained — stale outbox jobs cleared');
+    console.info('[seed] BullMQ queue drained');
 
-    // Also clean up orphaned outbox_events and dian_documents in DB
     await sql`
-      DELETE FROM outbox_events
-      WHERE aggregate_id NOT IN (SELECT id FROM sales)
-        AND type IN ('sale.created', 'sale.voided', 'sale.returned', 'SALE_CREATED', 'SALE_VOIDED', 'SALE_RETURNED', 'sale_created', 'sale_voided', 'sale_returned')
+      DELETE FROM outbox_events WHERE aggregate_id NOT IN (SELECT id FROM sales) AND type ILIKE '%sale%';
+      DELETE FROM dian_documents WHERE sale_id NOT IN (SELECT id FROM sales);
     `.execute(db);
-    await sql`
-      DELETE FROM dian_documents
-      WHERE sale_id NOT IN (SELECT id FROM sales)
-    `.execute(db);
-    console.info('[seed] Orphaned outbox_events and dian_documents cleaned');
+    console.info('[seed] Orphaned records cleaned');
 
+    const pwHash = await hashPassword(demoCredentials.defaultPassword);
 
-    const adminPasswordHash = await hashPassword(demoCredentials.adminPassword);
-    const cashierPasswordHash = await hashPassword(demoCredentials.cashierPassword);
-
-    await executeAsTenant(db, demoIds.tenantId, async (trx) => {
+    // ==========================================
+    // TENANT 1: Restaurante multi-sede
+    // ==========================================
+    await executeAsTenant(db, demoIds.tenant1Id, async (trx) => {
       await sql`
-        INSERT INTO tenants (id, name, nit, business_name, address, phone, footer_message)
-        VALUES (
-          ${demoIds.tenantId},
-          'Demo Tenant',
-          '900999111',
-          'Demo Business S.A.S.',
-          'Calle 123 #45-67, Bogotá',
-          '6015550101',
-          'Gracias por comprar en Demo Business S.A.S.'
-        )
-        ON CONFLICT (id) DO UPDATE
-        SET
-          name = EXCLUDED.name,
-          nit = EXCLUDED.nit,
-          business_name = EXCLUDED.business_name,
-          address = EXCLUDED.address,
-          phone = EXCLUDED.phone,
-          footer_message = EXCLUDED.footer_message
+        INSERT INTO tenants (id, name, nit, business_name, address, phone, footer_message, plan, status)
+        VALUES (${demoIds.tenant1Id}, 'Demo Restaurant', '900111222', 'Demo Rest S.A.S.', 'Calle 100', '6011111', 'Gracias!', 'pro', 'ACTIVE')
+        ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, plan = EXCLUDED.plan, status = EXCLUDED.status
       `.execute(trx);
 
       await sql`
-        INSERT INTO branches (id, tenant_id, name, address)
-        VALUES (${demoIds.branchId}, ${demoIds.tenantId}, 'Sucursal Demo', 'Calle 123 #45-67, Bogotá')
-        ON CONFLICT (tenant_id, id) DO UPDATE
-        SET
-          name = EXCLUDED.name,
-          address = EXCLUDED.address
+        INSERT INTO branches (id, tenant_id, name, address) VALUES 
+        (${demoIds.t1_branchMain}, ${demoIds.tenant1Id}, 'Sede Centro', 'Centro 123'),
+        (${demoIds.t1_branchNorth}, ${demoIds.tenant1Id}, 'Sede Norte', 'Norte 456')
+        ON CONFLICT (tenant_id, id) DO NOTHING
       `.execute(trx);
 
       await sql`
-        INSERT INTO users (id, tenant_id, email, password_hash, name, role, active)
-        VALUES
-          (
-            ${demoIds.adminUserId},
-            ${demoIds.tenantId},
-            ${demoCredentials.adminEmail},
-            ${adminPasswordHash},
-            'Administrador Demo',
-            'ADMIN',
-            TRUE
-          ),
-          (
-            ${demoIds.cashierUserId},
-            ${demoIds.tenantId},
-            ${demoCredentials.cashierEmail},
-            ${cashierPasswordHash},
-            'Cajero Demo',
-            'CASHIER',
-            TRUE
-          )
-        ON CONFLICT (tenant_id, email) DO UPDATE
-        SET
-          password_hash = EXCLUDED.password_hash,
-          name = EXCLUDED.name,
-          role = EXCLUDED.role,
-          active = EXCLUDED.active
+        INSERT INTO users (id, tenant_id, email, password_hash, name, role, active) VALUES
+        (${demoIds.t1_adminUser}, ${demoIds.tenant1Id}, ${demoCredentials.t1_admin}, ${pwHash}, 'Admin T1', 'ADMIN', TRUE),
+        (${demoIds.t1_managerUser}, ${demoIds.tenant1Id}, ${demoCredentials.t1_manager}, ${pwHash}, 'Gerente T1', 'MANAGER', TRUE),
+        (${demoIds.t1_cashierUser}, ${demoIds.tenant1Id}, ${demoCredentials.t1_cashier}, ${pwHash}, 'Cajero T1', 'CASHIER', TRUE)
+        ON CONFLICT (tenant_id, email) DO UPDATE SET password_hash = EXCLUDED.password_hash
       `.execute(trx);
+
       await sql`
-        INSERT INTO user_branches (tenant_id, user_id, branch_id)
-        VALUES
-          (${demoIds.tenantId}, ${demoIds.adminUserId}, ${demoIds.branchId}),
-          (${demoIds.tenantId}, ${demoIds.cashierUserId}, ${demoIds.branchId})
+        INSERT INTO user_branches (tenant_id, user_id, branch_id) VALUES
+        (${demoIds.tenant1Id}, ${demoIds.t1_adminUser}, ${demoIds.t1_branchMain}),
+        (${demoIds.tenant1Id}, ${demoIds.t1_adminUser}, ${demoIds.t1_branchNorth}),
+        (${demoIds.tenant1Id}, ${demoIds.t1_managerUser}, ${demoIds.t1_branchMain}),
+        (${demoIds.tenant1Id}, ${demoIds.t1_cashierUser}, ${demoIds.t1_branchMain})
         ON CONFLICT DO NOTHING
       `.execute(trx);
 
-      const terminalId = '55555555-5555-4555-8555-555555555555';
       await sql`
-        INSERT INTO terminals (id, tenant_id, branch_id, name, is_active)
-        VALUES (${terminalId}, ${demoIds.tenantId}, ${demoIds.branchId}, 'Caja Principal', TRUE)
-        ON CONFLICT (tenant_id, branch_id, name) DO UPDATE SET is_active = EXCLUDED.is_active
+        INSERT INTO terminals (id, tenant_id, branch_id, name, is_active) VALUES 
+        (${randomUUID()}, ${demoIds.tenant1Id}, ${demoIds.t1_branchMain}, 'Caja 1 Centro', TRUE),
+        (${randomUUID()}, ${demoIds.tenant1Id}, ${demoIds.t1_branchNorth}, 'Caja 1 Norte', TRUE)
+        ON CONFLICT (tenant_id, branch_id, name) DO NOTHING
       `.execute(trx);
 
-      const products = [
-        { id: '66666666-1111-4666-8666-666666666666', name: 'Café Americano', cat: 'Bebidas', tax: 'IVA_19', price: 2500, cost: 800 },
-        { id: '66666666-2222-4666-8666-666666666666', name: 'Arepa de Queso', cat: 'Alimentos', tax: 'IVA_0', price: 3000, cost: 1200 },
-        { id: '66666666-3333-4666-8666-666666666666', name: 'Empanada de Carne', cat: 'Alimentos', tax: 'IVA_5', price: 1500, cost: 600 },
-        { id: '66666666-4444-4666-8666-666666666666', name: 'Gaseosa 500ml', cat: 'Bebidas', tax: 'IVA_19', price: 2000, cost: 1000 },
-        { id: '66666666-5555-4666-8666-666666666666', name: 'Menú Ejecutivo', cat: 'Restaurante', tax: 'INC_8', price: 15000, cost: 6000 }
+      await sql`
+        INSERT INTO customers (id, tenant_id, document_type, document_number, name, email, phone) VALUES 
+        (${demoIds.t1_customer1}, ${demoIds.tenant1Id}, 'CC', '1010101010', 'Juan Perez', 'juan@test.com', '3000000000'),
+        (${demoIds.t1_customer2}, ${demoIds.tenant1Id}, 'NIT', '900888777', 'Empresa Cliente SAS', 'pagos@empresa.com', '3111111111')
+        ON CONFLICT (tenant_id, document_type, document_number) DO NOTHING
+      `.execute(trx);
+
+      const t1Products = [
+        { id: randomUUID(), name: 'Café', cat: 'Bebidas', tax: 'IVA_19', price: 5000, cost: 1000 },
+        { id: randomUUID(), name: 'Hamburguesa', cat: 'Comida', tax: 'INC_8', price: 25000, cost: 8000 }
       ];
 
-      for (const p of products) {
+      for (const p of t1Products) {
         await sql`
-          INSERT INTO products (id, tenant_id, branch_id, name, category, tax_category, price_cents, cost_cents, active)
-          VALUES (${p.id}, ${demoIds.tenantId}, ${demoIds.branchId}, ${p.name}, ${p.cat}, ${p.tax}, ${p.price}, ${p.cost}, TRUE)
-          ON CONFLICT (id) DO UPDATE
-          SET name = EXCLUDED.name, price_cents = EXCLUDED.price_cents, cost_cents = EXCLUDED.cost_cents, tax_category = EXCLUDED.tax_category
+          INSERT INTO products (id, tenant_id, name, category, tax_category, price_cents, cost_cents, active)
+          VALUES (${p.id}, ${demoIds.tenant1Id}, ${p.name}, ${p.cat}, ${p.tax}, ${p.price}, ${p.cost}, TRUE)
+          ON CONFLICT (id) DO NOTHING
         `.execute(trx);
 
         await sql`
-          INSERT INTO inventory_balances (tenant_id, branch_id, product_id, variant_id, on_hand_qty)
-          SELECT ${demoIds.tenantId}, ${demoIds.branchId}, ${p.id}, NULL, '100'
-          WHERE NOT EXISTS (
-            SELECT 1 FROM inventory_balances 
-            WHERE tenant_id = ${demoIds.tenantId} AND branch_id = ${demoIds.branchId} AND product_id = ${p.id} AND variant_id IS NULL
-          )
+          INSERT INTO inventory_balances (tenant_id, branch_id, product_id, on_hand_qty, version)
+          VALUES 
+          (${demoIds.tenant1Id}, ${demoIds.t1_branchMain}, ${p.id}, 100, 1),
+          (${demoIds.tenant1Id}, ${demoIds.t1_branchNorth}, ${p.id}, 50, 1)
+          ON CONFLICT DO NOTHING
         `.execute(trx);
       }
     });
 
-    console.info('[seed] Demo tenant, branch y usuarios creados/actualizados');
-    console.info(`[seed] Admin: ${demoCredentials.adminEmail} / ${demoCredentials.adminPassword}`);
-    console.info(`[seed] Cashier: ${demoCredentials.cashierEmail} / ${demoCredentials.cashierPassword}`);
+    // ==========================================
+    // TENANT 2: Retailer pequeña
+    // ==========================================
+    await executeAsTenant(db, demoIds.tenant2Id, async (trx) => {
+      await sql`
+        INSERT INTO tenants (id, name, nit, business_name, address, phone, footer_message, plan, status)
+        VALUES (${demoIds.tenant2Id}, 'Demo Retail', '900333444', 'Demo Retail S.A.S.', 'Cra 50', '6012222', 'Vuelva pronto!', 'basic', 'ACTIVE')
+        ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, plan = EXCLUDED.plan, status = EXCLUDED.status
+      `.execute(trx);
+
+      await sql`
+        INSERT INTO branches (id, tenant_id, name, address) VALUES 
+        (${demoIds.t2_branchMain}, ${demoIds.tenant2Id}, 'Local Único', 'Cra 50 #10')
+        ON CONFLICT (tenant_id, id) DO NOTHING
+      `.execute(trx);
+
+      await sql`
+        INSERT INTO users (id, tenant_id, email, password_hash, name, role, active) VALUES
+        (${demoIds.t2_adminUser}, ${demoIds.tenant2Id}, ${demoCredentials.t2_admin}, ${pwHash}, 'Admin T2', 'ADMIN', TRUE),
+        (${demoIds.t2_cashierUser}, ${demoIds.tenant2Id}, ${demoCredentials.t2_cashier}, ${pwHash}, 'Cajero T2', 'CASHIER', TRUE)
+        ON CONFLICT (tenant_id, email) DO UPDATE SET password_hash = EXCLUDED.password_hash
+      `.execute(trx);
+
+      await sql`
+        INSERT INTO user_branches (tenant_id, user_id, branch_id) VALUES
+        (${demoIds.tenant2Id}, ${demoIds.t2_adminUser}, ${demoIds.t2_branchMain}),
+        (${demoIds.tenant2Id}, ${demoIds.t2_cashierUser}, ${demoIds.t2_branchMain})
+        ON CONFLICT DO NOTHING
+      `.execute(trx);
+
+      await sql`
+        INSERT INTO terminals (id, tenant_id, branch_id, name, is_active) VALUES 
+        (${randomUUID()}, ${demoIds.tenant2Id}, ${demoIds.t2_branchMain}, 'Caja Única', TRUE)
+        ON CONFLICT (tenant_id, branch_id, name) DO NOTHING
+      `.execute(trx);
+
+      const t2Products = [
+        { id: randomUUID(), name: 'Camiseta Blanca', cat: 'Ropa', tax: 'IVA_19', price: 45000, cost: 20000 },
+        { id: randomUUID(), name: 'Gorra Negra', cat: 'Accesorios', tax: 'IVA_19', price: 30000, cost: 10000 }
+      ];
+
+      for (const p of t2Products) {
+        await sql`
+          INSERT INTO products (id, tenant_id, name, category, tax_category, price_cents, cost_cents, active)
+          VALUES (${p.id}, ${demoIds.tenant2Id}, ${p.name}, ${p.cat}, ${p.tax}, ${p.price}, ${p.cost}, TRUE)
+          ON CONFLICT (id) DO NOTHING
+        `.execute(trx);
+
+        await sql`
+          INSERT INTO inventory_balances (tenant_id, branch_id, product_id, on_hand_qty, version)
+          VALUES (${demoIds.tenant2Id}, ${demoIds.t2_branchMain}, ${p.id}, 10, 1)
+          ON CONFLICT DO NOTHING
+        `.execute(trx);
+      }
+    });
+
+    console.info('==========================================');
+    console.info('[seed] SEED EXITOSO!');
+    console.info('==========================================');
+    console.info('TENANT 1 (Restaurante Multi-Sede):');
+    console.info(`- Admin:   ${demoCredentials.t1_admin} / ${demoCredentials.defaultPassword}`);
+    console.info(`- Manager: ${demoCredentials.t1_manager} / ${demoCredentials.defaultPassword}`);
+    console.info(`- Cashier: ${demoCredentials.t1_cashier} / ${demoCredentials.defaultPassword}`);
+    console.info('');
+    console.info('TENANT 2 (Retail Básico):');
+    console.info(`- Admin:   ${demoCredentials.t2_admin} / ${demoCredentials.defaultPassword}`);
+    console.info(`- Cashier: ${demoCredentials.t2_cashier} / ${demoCredentials.defaultPassword}`);
+    console.info('==========================================');
+
   } finally {
     await queue.close();
     await db.destroy();

@@ -36,8 +36,8 @@ export function useAlerts(api: PosApiClient) {
   }, [api.baseUrl, session?.accessToken]);
 
   useEffect(() => {
-    // Only connect if user is MANAGER or ADMIN
-    if (!session || !session.user || (session.user.role !== 'ADMIN' && session.user.role !== 'MANAGER')) {
+    // Only connect if user is MANAGER, ADMIN or TENANT_OWNER
+    if (!session || !session.user || (session.user.role !== 'ADMIN' && session.user.role !== 'TENANT_OWNER' && session.user.role !== 'MANAGER')) {
       return;
     }
 

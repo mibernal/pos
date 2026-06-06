@@ -32,7 +32,7 @@ export const reportsRoutes: FastifyPluginAsync = async (app) => {
 
       if (branch_id) {
         query = query.where('branch_id', '=', branch_id as string);
-      } else if (request.auth.role !== 'ADMIN') {
+      } else if (request.auth.role !== 'ADMIN' && request.auth.role !== 'TENANT_OWNER' && !request.auth.isPlatformRole) {
         query = query.where('branch_id', 'in', request.auth.branchIds);
       }
 
@@ -64,7 +64,7 @@ export const reportsRoutes: FastifyPluginAsync = async (app) => {
 
       if (branch_id) {
         salesFiltered = salesFiltered.where('branch_id', '=', branch_id as string);
-      } else if (request.auth.role !== 'ADMIN') {
+      } else if (request.auth.role !== 'ADMIN' && request.auth.role !== 'TENANT_OWNER' && !request.auth.isPlatformRole) {
         salesFiltered = salesFiltered.where('branch_id', 'in', request.auth.branchIds);
       }
       if (from) salesFiltered = salesFiltered.where('created_at', '>=', new Date(from));
@@ -134,7 +134,7 @@ export const reportsRoutes: FastifyPluginAsync = async (app) => {
 
       if (branch_id) {
         query = query.where('cash_sessions.branch_id', '=', branch_id as string);
-      } else if (request.auth.role !== 'ADMIN') {
+      } else if (request.auth.role !== 'ADMIN' && request.auth.role !== 'TENANT_OWNER' && !request.auth.isPlatformRole) {
         query = query.where('cash_sessions.branch_id', 'in', request.auth.branchIds);
       }
 

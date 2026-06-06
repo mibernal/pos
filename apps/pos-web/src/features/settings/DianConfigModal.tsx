@@ -28,7 +28,7 @@ export function DianConfigModal({
   const [message, setMessage] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!isOpen || role !== 'ADMIN') {
+    if (!isOpen || (role !== 'ADMIN' && role !== 'TENANT_OWNER')) {
       return;
     }
 
@@ -68,7 +68,7 @@ export function DianConfigModal({
     };
   }, [api, isOpen, role]);
 
-  if (!isOpen || role !== 'ADMIN' || !tenantId) {
+  if (!isOpen || (role !== 'ADMIN' && role !== 'TENANT_OWNER') || !tenantId) {
     return null;
   }
 
@@ -130,7 +130,7 @@ export function DianConfigModal({
             <label className="field" style={{ display: 'grid', gap: '0.5rem' }}>
               <span style={{ fontSize: '0.8125rem', fontWeight: 600, color: 'var(--color-slate-700)' }}>Régimen Tributario</span>
               <select
-                value={draftTaxMode}
+                value={draftTaxMode ?? ''}
                 onChange={(event) => setDraftTaxMode(event.target.value as TenantTaxMode)}
                 disabled={loading || saving}
                 style={{ padding: '0.75rem 1rem', borderRadius: 'var(--radius-lg)', border: '1px solid var(--color-slate-200)', fontSize: '0.875rem', background: '#ffffff' }}

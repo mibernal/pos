@@ -31,7 +31,7 @@ export const globalDashboardRoutes: FastifyPluginAsync = async (app) => {
         .where('tenant_id', '=', tenantId)
         .where('date', '=', todayStr as any);
 
-      if (request.auth!.role !== 'ADMIN') {
+      if (request.auth!.role !== 'ADMIN' && request.auth!.role !== 'TENANT_OWNER' && !request.auth!.isPlatformRole) {
         todaySalesQuery = todaySalesQuery.where('branch_id', 'in', request.auth!.branchIds);
       }
 
@@ -47,7 +47,7 @@ export const globalDashboardRoutes: FastifyPluginAsync = async (app) => {
         .selectFrom('inventory_valuation_snapshot')
         .where('tenant_id', '=', tenantId);
 
-      if (request.auth!.role !== 'ADMIN') {
+      if (request.auth!.role !== 'ADMIN' && request.auth!.role !== 'TENANT_OWNER' && !request.auth!.isPlatformRole) {
         valuationQuery = valuationQuery.where('branch_id', 'in', request.auth!.branchIds);
       }
 
@@ -67,7 +67,7 @@ export const globalDashboardRoutes: FastifyPluginAsync = async (app) => {
         .where('tenant_id', '=', tenantId)
         .where('status', '=', 'OPEN');
 
-      if (request.auth!.role !== 'ADMIN') {
+      if (request.auth!.role !== 'ADMIN' && request.auth!.role !== 'TENANT_OWNER' && !request.auth!.isPlatformRole) {
         openSessionsQuery = openSessionsQuery.where('branch_id', 'in', request.auth!.branchIds);
       }
 
@@ -81,7 +81,7 @@ export const globalDashboardRoutes: FastifyPluginAsync = async (app) => {
         .where('status', '=', 'CLOSED')
         .where('closed_at', '>=', todayStart);
 
-      if (request.auth!.role !== 'ADMIN') {
+      if (request.auth!.role !== 'ADMIN' && request.auth!.role !== 'TENANT_OWNER' && !request.auth!.isPlatformRole) {
         closedSessionsTodayQuery = closedSessionsTodayQuery.where('branch_id', 'in', request.auth!.branchIds);
       }
 
@@ -96,7 +96,7 @@ export const globalDashboardRoutes: FastifyPluginAsync = async (app) => {
         .where('r.tenant_id', '=', tenantId)
         .where('r.date', '=', todayStr as any);
 
-      if (request.auth!.role !== 'ADMIN') {
+      if (request.auth!.role !== 'ADMIN' && request.auth!.role !== 'TENANT_OWNER' && !request.auth!.isPlatformRole) {
         topBranchesQuery = topBranchesQuery.where('r.branch_id', 'in', request.auth!.branchIds);
       }
 
@@ -156,7 +156,7 @@ export const globalDashboardRoutes: FastifyPluginAsync = async (app) => {
             .where('tenant_id', '=', tenantId)
             .where('date', '=', todayStr as any);
 
-          if (request.auth!.role !== 'ADMIN') {
+          if (request.auth!.role !== 'ADMIN' && request.auth!.role !== 'TENANT_OWNER' && !request.auth!.isPlatformRole) {
             todaySalesQuery = todaySalesQuery.where('branch_id', 'in', request.auth!.branchIds);
           }
 
@@ -172,7 +172,7 @@ export const globalDashboardRoutes: FastifyPluginAsync = async (app) => {
             .selectFrom('inventory_valuation_snapshot')
             .where('tenant_id', '=', tenantId);
 
-          if (request.auth!.role !== 'ADMIN') {
+          if (request.auth!.role !== 'ADMIN' && request.auth!.role !== 'TENANT_OWNER' && !request.auth!.isPlatformRole) {
             valuationQuery = valuationQuery.where('branch_id', 'in', request.auth!.branchIds);
           }
 
@@ -192,7 +192,7 @@ export const globalDashboardRoutes: FastifyPluginAsync = async (app) => {
             .where('tenant_id', '=', tenantId)
             .where('status', '=', 'OPEN');
 
-          if (request.auth!.role !== 'ADMIN') {
+          if (request.auth!.role !== 'ADMIN' && request.auth!.role !== 'TENANT_OWNER' && !request.auth!.isPlatformRole) {
             openSessionsQuery = openSessionsQuery.where('branch_id', 'in', request.auth!.branchIds);
           }
 
@@ -206,7 +206,7 @@ export const globalDashboardRoutes: FastifyPluginAsync = async (app) => {
             .where('status', '=', 'CLOSED')
             .where('closed_at', '>=', todayStart);
 
-          if (request.auth!.role !== 'ADMIN') {
+          if (request.auth!.role !== 'ADMIN' && request.auth!.role !== 'TENANT_OWNER' && !request.auth!.isPlatformRole) {
             closedSessionsTodayQuery = closedSessionsTodayQuery.where('branch_id', 'in', request.auth!.branchIds);
           }
 
@@ -221,7 +221,7 @@ export const globalDashboardRoutes: FastifyPluginAsync = async (app) => {
             .where('r.tenant_id', '=', tenantId)
             .where('r.date', '=', todayStr as any);
 
-          if (request.auth!.role !== 'ADMIN') {
+          if (request.auth!.role !== 'ADMIN' && request.auth!.role !== 'TENANT_OWNER' && !request.auth!.isPlatformRole) {
             topBranchesQuery = topBranchesQuery.where('r.branch_id', 'in', request.auth!.branchIds);
           }
 

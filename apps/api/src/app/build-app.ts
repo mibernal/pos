@@ -12,7 +12,9 @@ import { Redis } from 'ioredis';
 import { authPlugin } from '../shared/plugins/auth.js';
 import { errorHandlerPlugin } from '../shared/plugins/error-handler.js';
 import { registerSwagger } from '../shared/plugins/swagger.js';
+import { idempotencyPlugin } from '../shared/infra/http/idempotency.plugin.js';
 import { authRoutes } from '../contexts/identity/http/auth.routes.js';
+import { platformRoutes } from '../contexts/identity/http/platform.routes.js';
 import { branchesRoutes } from '../contexts/identity/http/branches.routes.js';
 import { healthRoutes } from '../shared/http/health.routes.js';
 import { salesRoutes } from '../contexts/sales/http/sales.routes.js';
@@ -20,6 +22,7 @@ import { adminTenantsRoutes } from '../contexts/identity/http/admin-tenants.rout
 import { adminUsersRoutes } from '../contexts/identity/http/admin-users.routes.js';
 import { productsRoutes } from '../contexts/inventory/http/products.routes.js';
 import { bulkRoutes } from '../contexts/inventory/http/bulk.routes.js';
+import { enterpriseBulkRoutes } from '../contexts/inventory/http/enterprise-bulk.routes.js';
 
 import { promotionsRoutes } from '../contexts/inventory/http/promotions.routes.js';
 import { cashSessionsRoutes } from '../contexts/sales/http/cash-sessions.routes.js';
@@ -33,6 +36,8 @@ import { globalDashboardRoutes } from '../contexts/reporting/http/global-dashboa
 import { journalRoutes } from '../contexts/sales/http/journal.routes.js';
 import { auditRoutes } from '../contexts/admin/http/audit.routes.js';
 import { terminalsRoutes } from '../contexts/sales/http/terminals.routes.js';
+import { billingRoutes } from '../contexts/billing/http/billing.routes.js';
+import { webhooksRoutes } from '../contexts/billing/http/webhooks.routes.js';
 import { auditContextStorage } from '../shared/infra/audit/audit-context.js';
 import { createDb } from '../shared/infra/db/connection.js';
 import { env } from './env.js';
@@ -98,9 +103,10 @@ function buildRedisClient(): Redis {
 export async function buildApp() {
   const allowedOrigins = new Set(resolveCorsAllowedOrigins(env.NODE_ENV, env.CORS_ALLOWED_ORIGINS));
 
-  // C7: La API NO usa BullMQ directamente — el worker consume el outbox.
-  // Solo necesitamos Redis para rate-limit. dianQueue eliminado del API.
+  // C7: Eliminado dianQueue, pero agregamos bulkImportQueue para procesamiento asíncrono pesado.
   const redisClient = buildRedisClient();
+  const { Queue } = await import('bullmq');
+  const bulkImportQueue = new Queue('bulk-import-queue', { connection: redisClient as any });
 
   const app = Fastify({
     logger: {
@@ -180,9 +186,15 @@ export async function buildApp() {
   // Verify auth before running route handlers
   app.decorate('db', createDb());
 
-  // C7: Eliminado app.decorate('dianQueue', ...) — el API no publica en BullMQ,
   // el outbox en DB es el mecanismo de comunicación con el worker.
   app.decorate('redis', redisClient);
+  app.decorate('bulkImportQueue', bulkImportQueue);
+
+  await app.register(import('@fastify/multipart').then((m) => m.default), {
+    limits: {
+      fileSize: 50 * 1024 * 1024 // 50MB limit
+    }
+  });
 
   await app.register(import('@fastify/cookie').then((m) => m.default), {
     secret: env.JWT_SECRET // Use same secret for signed cookies if needed later
@@ -213,15 +225,18 @@ export async function buildApp() {
   });
 
   await app.register(errorHandlerPlugin);
+  await app.register(idempotencyPlugin);
   await app.register(registerSwagger);
   await app.register(authPlugin);
   await app.register(healthRoutes, { prefix: '/api/v1' });
+  await app.register(platformRoutes, { prefix: '/api/v1' });
   await app.register(authRoutes, { prefix: '/api/v1' });
   await app.register(branchesRoutes, { prefix: '/api/v1' });
   await app.register(adminTenantsRoutes, { prefix: '/api/v1' });
   await app.register(adminUsersRoutes, { prefix: '/api/v1' });
   await app.register(productsRoutes, { prefix: '/api/v1' });
   await app.register(bulkRoutes, { prefix: '/api/v1/inventory' });
+  await app.register(enterpriseBulkRoutes, { prefix: '/api/v1/inventory/enterprise-bulk' });
   await app.register(promotionsRoutes, { prefix: '/api/v1' });
   await app.register(cashSessionsRoutes, { prefix: '/api/v1' });
   await app.register(salesRoutes, { prefix: '/api/v1' });
@@ -235,9 +250,11 @@ export async function buildApp() {
   await app.register(auditRoutes, { prefix: '/api/v1' });
   await app.register(terminalsRoutes, { prefix: '/api/v1' });
   await app.register(journalRoutes, { prefix: '/api/v1' });
+  await app.register(billingRoutes, { prefix: '/api/v1' });
+  await app.register(webhooksRoutes, { prefix: '/api/v1' });
 
   app.addHook('onClose', async (instance) => {
-    // C7: sin dianQueue, solo cerramos DB y Redis
+    await instance.bulkImportQueue.close();
     await instance.redis.quit();
     await instance.db.destroy();
   });

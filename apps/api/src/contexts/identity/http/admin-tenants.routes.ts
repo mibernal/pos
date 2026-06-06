@@ -23,7 +23,7 @@ function mapTenantProfile(tenant: {
   address: string;
   phone: string | null;
   footer_message: string | null;
-  tax_mode: 'IVA' | 'INC_RESTAURANT';
+  tax_mode: 'IVA' | 'INC_RESTAURANT' | 'REGIMEN_SIMPLIFICADO';
   created_at: Date;
 }) {
   return {
@@ -83,7 +83,7 @@ export const adminTenantsRoutes: FastifyPluginAsync = async (app) => {
   typedApp.patch(
     '/admin/tenants/current',
     {
-      preHandler: [app.requirePermissions(['settings:manage'])],
+      preHandler: [app.requirePermissions(['tenant:settings:manage'])],
       schema: {
         tags: ['admin-tenants'],
         security: [{ bearerAuth: [] }],
@@ -148,7 +148,7 @@ export const adminTenantsRoutes: FastifyPluginAsync = async (app) => {
           .executeTakeFirstOrThrow();
 
         await writeAuditLog(trx, {
-          tenantId: request.auth!.tenantId,
+          tenantId: request.auth!.tenantId as string,
           userId: request.auth!.userId,
           entityType: 'TENANT',
           entityId: nextTenant.id,
@@ -187,7 +187,7 @@ export const adminTenantsRoutes: FastifyPluginAsync = async (app) => {
   typedApp.patch(
     '/admin/tenants/:id/tax-profile',
     {
-      preHandler: [app.requirePermissions(['settings:manage'])],
+      preHandler: [app.requirePermissions(['tenant:settings:manage'])],
       schema: {
         tags: ['admin-tenants'],
         security: [{ bearerAuth: [] }],
@@ -237,7 +237,7 @@ export const adminTenantsRoutes: FastifyPluginAsync = async (app) => {
           .executeTakeFirstOrThrow();
 
         await writeAuditLog(trx, {
-          tenantId: request.auth!.tenantId,
+          tenantId: request.auth!.tenantId as string,
           userId: request.auth!.userId,
           entityType: 'TENANT',
           entityId: nextTenant.id,

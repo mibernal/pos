@@ -31,7 +31,7 @@ export const branchesRoutes: FastifyPluginAsync = async (app) => {
         .where('tenant_id', '=', request.auth.tenantId)
         .orderBy('name', 'asc');
 
-      if (request.auth.role !== 'ADMIN') {
+      if (request.auth.role !== 'ADMIN' && request.auth.role !== 'TENANT_OWNER' && !request.auth.isPlatformRole) {
         const userBranchIds = request.auth.branchIds || [];
         if (userBranchIds.length === 0) {
           return { items: [] };
@@ -93,7 +93,7 @@ export const branchesRoutes: FastifyPluginAsync = async (app) => {
         .insertInto('branches')
         .values({
           id: randomUUID(),
-          tenant_id: request.auth.tenantId,
+          tenant_id: request.auth.tenantId!,
           name: payload.name,
           address: payload.address
         })

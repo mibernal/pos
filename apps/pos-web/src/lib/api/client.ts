@@ -99,6 +99,7 @@ interface CreateApiClientOptions {
   baseUrl: string;
   getSession: () => AuthSession | null;
   setSession: (session: AuthSession | null) => void;
+  onReauthRequired?: () => Promise<AuthSession | null>;
 }
 
 interface RequestOptions extends RequestInit {
@@ -119,7 +120,7 @@ function toQueryString(params: Record<string, string | number | undefined>): str
   return search.toString();
 }
 
-export function createApiClient({ baseUrl, getSession, setSession }: CreateApiClientOptions) {
+export function createApiClient({ baseUrl, getSession, setSession, onReauthRequired }: CreateApiClientOptions) {
   let refreshPromise: Promise<AuthSession | null> | null = null;
 
   async function refreshToken(): Promise<AuthSession | null> {
@@ -175,10 +176,15 @@ export function createApiClient({ baseUrl, getSession, setSession }: CreateApiCl
     }
 
     if (response.status === 401 && session?.accessToken && path !== '/auth/refresh' && path !== '/auth/login' && path !== '/auth/logout') {
-      const newSession = await refreshToken();
-      if (newSession) {
-        setSession(newSession);
-        headers.set('Authorization', `Bearer ${newSession.accessToken}`);
+      let resolvedSession = await refreshToken();
+      
+      if (!resolvedSession && onReauthRequired) {
+        resolvedSession = await onReauthRequired();
+      }
+
+      if (resolvedSession) {
+        setSession(resolvedSession);
+        headers.set('Authorization', `Bearer ${resolvedSession.accessToken}`);
         try {
           response = await fetch(`${baseUrl}${path}`, {
             credentials: 'include',
@@ -189,6 +195,7 @@ export function createApiClient({ baseUrl, getSession, setSession }: CreateApiCl
           const message = networkError instanceof Error ? networkError.message : 'No fue posible conectar con el API';
           throw new ApiClientError(message, { isNetworkError: true });
         }
+        
         if (response.status === 401) {
           setSession(null);
         }
@@ -342,6 +349,37 @@ export function createApiClient({ baseUrl, getSession, setSession }: CreateApiCl
         body: JSON.stringify(payload),
         headers: branchId ? { 'x-branch-id': branchId } : {}
       }),
+      
+    // ENTERPRISE BULK IMPORT
+    uploadEnterpriseBulk: (file: File) => {
+      const formData = new FormData();
+      formData.append('file', file);
+      const session = getSession();
+      const headers = new Headers();
+      if (session?.accessToken) headers.set('Authorization', `Bearer ${session.accessToken}`);
+      return fetch(`${baseUrl}/inventory/enterprise-bulk/upload`, {
+        method: 'POST',
+        body: formData,
+        headers
+      }).then(async res => {
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}));
+          throw new Error(body.message || `Upload failed ${res.status}`);
+        }
+        return res.json() as Promise<{
+          jobId: string; fileName: string; totalRows: number; validRows: number; invalidRows: number;
+          previewErrors: any[]; previewValid: any[];
+        }>;
+      });
+    },
+    confirmEnterpriseBulk: (jobId: string, branchId: string) =>
+      requestJson<{ success: boolean; status: string }>(`/inventory/enterprise-bulk/${jobId}/confirm`, {
+        method: 'POST',
+        body: JSON.stringify({ branchId })
+      }),
+    getEnterpriseBulkStatus: (jobId: string) =>
+      requestJson<{ id: string; status: string; fileName: string; totalRows: number; validRows: number; invalidRows: number; processedRows: number; errors: any[] }>(`/inventory/enterprise-bulk/${jobId}`),
+
     patchProduct: (productId: string, payload: SharedPatchProductBody, branchId?: string) =>
       requestJson<ProductItem>(`/products/${productId}`, {
         method: 'PATCH',
@@ -458,6 +496,36 @@ export function createApiClient({ baseUrl, getSession, setSession }: CreateApiCl
     deletePromotion: (id: string) =>
       requestJson<{ success: boolean }>(`/promotions/${id}`, {
         method: 'DELETE'
+      }),
+      
+    // PLATFORM ENDPOINTS
+    listTenants: (params?: { limit?: number; cursor?: string; status?: string }) =>
+      requestJson<any>(`/platform/tenants?${toQueryString(params as any)}`),
+      
+    getTenantMetrics: (tenantId: string) =>
+      requestJson<any>(`/platform/tenants/${tenantId}/metrics`),
+      
+    getGlobalMetrics: () =>
+      requestJson<any>(`/platform/metrics`),
+      
+    updateTenantStatus: (tenantId: string, status: 'ACTIVE' | 'SUSPENDED') =>
+      requestJson<any>(`/platform/tenants/${tenantId}/status`, {
+        method: 'PATCH',
+        body: JSON.stringify({ status })
+      }),
+      
+    impersonateTenant: (tenantId: string, targetUserId: string) =>
+      requestJson<{ accessToken: string }>(`/platform/impersonate`, {
+        method: 'POST',
+        body: JSON.stringify({ tenantId, targetUserId })
+      }),
+      
+    // BILLING ENDPOINTS
+    getBillingPlans: () => requestJson<{ plans: any[] }>('/billing/plans'),
+    createCheckoutSession: (payload: { planId: string; gateway: 'WOMPI' | 'MERCADOPAGO'; redirectUrl: string }) =>
+      requestJson<{ checkoutUrl: string; transactionId: string }>('/billing/checkout', {
+        method: 'POST',
+        body: JSON.stringify(payload)
       })
   };
 }

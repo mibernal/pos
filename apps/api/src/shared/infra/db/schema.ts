@@ -1,6 +1,6 @@
 import type { ColumnType, Generated } from 'kysely';
 
-export type UserRole = 'ADMIN' | 'MANAGER' | 'CASHIER' | 'AUDITOR';
+export type UserRole = 'PLATFORM_OWNER' | 'TENANT_OWNER' | 'ADMIN' | 'MANAGER' | 'CASHIER' | 'AUDITOR';
 export type SaleStatus = 'COMPLETED' | 'VOID';
 export type DianDocumentStatus = 'PENDING' | 'SENT' | 'ACCEPTED' | 'REJECTED';
 export type DianDocumentType = 'INVOICE' | 'CREDIT_NOTE' | 'SUPPORT_DOC';
@@ -13,7 +13,7 @@ export type TransferStatus = 'DRAFT' | 'IN_TRANSIT' | 'RECEIVED' | 'REJECTED';
 export type AdjustmentStatus = 'DRAFT' | 'COMPLETED' | 'CANCELED';
 export type CountStatus = 'DRAFT' | 'COUNTING' | 'RECONCILING' | 'COMPLETED' | 'CANCELED';
 export type ReceiptType = 'PO_LINKED' | 'BLIND';
-export type TenantTaxMode = 'IVA' | 'INC_RESTAURANT';
+export type TenantTaxMode = 'IVA' | 'INC_RESTAURANT' | 'REGIMEN_SIMPLIFICADO';
 export type ProductTaxCategory = 'IVA_0' | 'IVA_5' | 'IVA_19' | 'EXEMPT' | 'EXCLUDED' | 'INC_8';
 export type SalesLedgerOperation = 'SALE_CREATION' | 'SALE_VOID' | 'SALE_RETURN';
 export type InventoryLedgerOperation = 'SALE_DISCHARGE' | 'RESTOCK' | 'VOID_RESTOCK' | 'ADJUSTMENT';
@@ -40,6 +40,11 @@ export interface TenantsTable {
   /** C3: Si TRUE (default), las ventas pueden dejar el inventario en negativo.
    *  Si FALSE, la API bloquea ventas sin stock suficiente. Migration 010. */
   allow_negative_stock: Generated<boolean>;
+  status: Generated<string>;
+  plan: Generated<string>;
+  suspended_at: Date | null;
+  suspended_reason: string | null;
+  owner_user_id: string | null;
   created_at: Generated<Date>;
 }
 
@@ -63,7 +68,7 @@ export interface TerminalsTable {
 
 export interface UsersTable {
   id: string;
-  tenant_id: string;
+  tenant_id: string | null;
   email: string;
   password_hash: string;
   name: string;
@@ -74,7 +79,7 @@ export interface UsersTable {
 
 export interface RefreshTokensTable {
   id: string;
-  tenant_id: string;
+  tenant_id: string | null;
   user_id: string;
   token_hash: string;
   expires_at: Date;
@@ -82,6 +87,22 @@ export interface RefreshTokensTable {
   revoked_at: Date | null;
 }
 
+export interface PlatformSettingsTable {
+  key: string;
+  value: JsonColumn;
+  updated_at: Generated<Date>;
+}
+
+export interface ImpersonationSessionsTable {
+  id: string;
+  platform_user_id: string;
+  target_user_id: string;
+  target_tenant_id: string;
+  reason: string;
+  created_at: Generated<Date>;
+  expires_at: Date;
+  revoked_at: Date | null;
+}
 
 export interface ProductsTable {
   id: string;
@@ -291,6 +312,7 @@ export interface InventoryBalancesTable {
   on_hand_qty: string;
   reserved_qty: Generated<string>;
   in_transit_qty: Generated<string>;
+  version: Generated<number>;
   updated_at: Generated<Date>;
 }
 
@@ -537,6 +559,68 @@ export interface CashLedgerTable {
   created_at: Generated<Date>;
 }
 
+export interface BillingPlansTable {
+  id: string;
+  name: string;
+  price_cents: number;
+  billing_cycle: Generated<string>;
+  features_json: JsonColumn;
+  active: Generated<boolean>;
+  created_at: Generated<Date>;
+}
+
+export interface TenantSubscriptionsTable {
+  id: string;
+  tenant_id: string;
+  plan_id: string;
+  status: string;
+  current_period_start: Date;
+  current_period_end: Date;
+  created_at: Generated<Date>;
+  updated_at: Generated<Date>;
+}
+
+export interface PaymentTransactionsTable {
+  id: string;
+  tenant_id: string;
+  amount_cents: number;
+  currency: Generated<string>;
+  gateway: string;
+  gateway_transaction_id: string | null;
+  gateway_reference: string;
+  status: string;
+  metadata_json: NullableJsonColumn;
+  created_at: Generated<Date>;
+  updated_at: Generated<Date>;
+}
+
+export interface BulkImportJobsTable {
+  id: string;
+  tenant_id: string;
+  user_id: string;
+  file_name: string;
+  status: Generated<string>;
+  total_rows: Generated<number>;
+  valid_rows: Generated<number>;
+  invalid_rows: Generated<number>;
+  processed_rows: Generated<number>;
+  payload_json: NullableJsonColumn;
+  errors_json: NullableJsonColumn;
+  created_at: Generated<Date>;
+  completed_at: Date | null;
+}
+
+export interface IdempotencyRecordsTable {
+  key: string;
+  tenant_id: string;
+  user_id: string | null;
+  path: string;
+  status_code: number;
+  response_body_json: JsonColumn;
+  created_at: Generated<Date>;
+  expires_at: Date;
+}
+
 export interface Database {
   tenants: TenantsTable;
   branches: BranchesTable;
@@ -578,4 +662,11 @@ export interface Database {
   sales_ledger: SalesLedgerTable;
   inventory_ledger: InventoryLedgerTable;
   cash_ledger: CashLedgerTable;
+  platform_settings: PlatformSettingsTable;
+  impersonation_sessions: ImpersonationSessionsTable;
+  billing_plans: BillingPlansTable;
+  tenant_subscriptions: TenantSubscriptionsTable;
+  payment_transactions: PaymentTransactionsTable;
+  bulk_import_jobs: BulkImportJobsTable;
+  idempotency_records: IdempotencyRecordsTable;
 }

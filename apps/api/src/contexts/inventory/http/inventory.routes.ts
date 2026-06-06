@@ -26,10 +26,11 @@ export async function recordInventoryTransaction(
     qtyChange: number;
     inTransitChange?: number;
     reservedChange?: number;
+    expectedVersion?: number; // Optimistic locking
     notes: string | null;
     userId: string;
   }): Promise<void> {
-  const { tenantId, branchId, productId, variantId, operation, referenceId, qtyChange, inTransitChange = 0, reservedChange = 0, notes, userId } = params;
+  const { tenantId, branchId, productId, variantId, operation, referenceId, qtyChange, inTransitChange = 0, reservedChange = 0, expectedVersion, notes, userId } = params;
 
   let balanceQuery = trx
     .selectFrom('inventory_balances')
@@ -46,6 +47,14 @@ export async function recordInventoryTransaction(
   }
 
   const balance = await balanceQuery.executeTakeFirst();
+  
+  if (expectedVersion !== undefined) {
+    const currentVersion = balance ? Number(balance.version) : 1;
+    if (currentVersion !== expectedVersion) {
+      throw new AppError(409, 'OPTIMISTIC_LOCK_FAILED', `El inventario ha sido modificado por otro usuario. Por favor recarga e intenta nuevamente. (Esperado: ${expectedVersion}, Actual: ${currentVersion})`);
+    }
+  }
+
   const currentQty = balance ? Number(balance.on_hand_qty) : 0;
   const newQty = currentQty + qtyChange;
 
@@ -101,6 +110,7 @@ export async function recordInventoryTransaction(
         on_hand_qty: sql`inventory_balances.on_hand_qty + ${qtyChange}`,
         in_transit_qty: sql`inventory_balances.in_transit_qty + ${inTransitChange}`,
         reserved_qty: sql`inventory_balances.reserved_qty + ${reservedChange}`,
+        version: sql`inventory_balances.version + 1`,
         updated_at: sql`NOW()`
       })
       .where('tenant_id', '=', tenantId)
@@ -171,7 +181,7 @@ export const inventoryRoutes: FastifyPluginAsync = async (app) => {
     },
     async (request) => {
       const { branch_id, product_id, variant_id } = request.query as any;
-      await ensureBranchBelongsToTenant(request.auth!.tenantId, branch_id);
+      await ensureBranchBelongsToTenant(request.auth!.tenantId!, branch_id);
       ensureUserCanAccessBranch(request.auth, branch_id);
 
       let query = app.db
@@ -189,11 +199,12 @@ export const inventoryRoutes: FastifyPluginAsync = async (app) => {
           'b.on_hand_qty',
           'b.reserved_qty',
           'b.in_transit_qty',
+          'b.version',
           'b.updated_at',
           'p.name as product_name',
           'p.image_url'
         ])
-        .where('b.tenant_id', '=', request.auth!.tenantId)
+        .where('b.tenant_id', '=', request.auth!.tenantId!)
         .where('b.branch_id', '=', branch_id);
 
       if (product_id) {
@@ -213,6 +224,7 @@ export const inventoryRoutes: FastifyPluginAsync = async (app) => {
         on_hand_qty: Number(row.on_hand_qty),
         reserved_qty: Number(row.reserved_qty),
         in_transit_qty: Number(row.in_transit_qty),
+        version: Number(row.version),
         updated_at: row.updated_at.toISOString(),
         product_name: row.product_name,
         image_url: row.image_url
@@ -262,9 +274,9 @@ export const inventoryRoutes: FastifyPluginAsync = async (app) => {
             'in_transit_qty', b.in_transit_qty
           ))`.as('branches_breakdown')
         ])
-        .where('b.tenant_id', '=', request.auth!.tenantId);
+        .where('b.tenant_id', '=', request.auth!.tenantId!);
 
-      if (request.auth!.role !== 'ADMIN') {
+      if (request.auth!.role !== 'ADMIN' && request.auth!.role !== 'TENANT_OWNER' && request.auth!.role !== 'PLATFORM_OWNER') {
         query = query.where('b.branch_id', 'in', request.auth!.branchIds);
       }
 
@@ -299,13 +311,13 @@ export const inventoryRoutes: FastifyPluginAsync = async (app) => {
     },
     async (request, reply) => {
       const payload = request.body;
-      await ensureBranchBelongsToTenant(request.auth!.tenantId, payload.branch_id);
+      await ensureBranchBelongsToTenant(request.auth!.tenantId!, payload.branch_id);
       ensureUserCanAccessBranch(request.auth, payload.branch_id);
 
       const product = await app.db
         .selectFrom('products')
         .select(['id', 'branch_id'])
-        .where('tenant_id', '=', request.auth!.tenantId)
+        .where('tenant_id', '=', request.auth!.tenantId!)
         .where('id', '=', payload.product_id)
         .executeTakeFirst();
 
@@ -315,7 +327,7 @@ export const inventoryRoutes: FastifyPluginAsync = async (app) => {
 
       await app.db.transaction().execute(async (trx) => {
         await recordInventoryTransaction(trx, {
-          tenantId: request.auth!.tenantId,
+          tenantId: request.auth!.tenantId!,
           branchId: payload.branch_id,
           productId: payload.product_id,
           variantId: payload.variant_id ?? null,
@@ -338,7 +350,8 @@ export const inventoryRoutes: FastifyPluginAsync = async (app) => {
     items: z.array(z.object({
       product_id: z.string().uuid(),
       variant_id: z.string().uuid().optional().nullable(),
-      qty_change: z.coerce.number()
+      qty_change: z.coerce.number(),
+      version: z.number().int().positive()
     })).min(1)
   });
 
@@ -356,7 +369,7 @@ export const inventoryRoutes: FastifyPluginAsync = async (app) => {
       if (!request.auth) throw new AppError(401, 'AUTH_UNAUTHORIZED', 'No autorizado');
 
       const payload = createAdjustmentBodySchema.parse(request.body);
-      await ensureBranchBelongsToTenant(request.auth.tenantId, payload.branch_id);
+      await ensureBranchBelongsToTenant(request.auth!.tenantId!, payload.branch_id);
       ensureUserCanAccessBranch(request.auth, payload.branch_id);
 
       const adjustment = await app.db.transaction().execute(async (trx) => {
@@ -364,7 +377,7 @@ export const inventoryRoutes: FastifyPluginAsync = async (app) => {
           .insertInto('inventory_adjustments')
           .values({
             id: randomUUID(),
-            tenant_id: request.auth!.tenantId,
+            tenant_id: request.auth!.tenantId!,
             branch_id: payload.branch_id,
             reason: payload.reason,
             notes: payload.notes ?? null,
@@ -379,7 +392,7 @@ export const inventoryRoutes: FastifyPluginAsync = async (app) => {
             .insertInto('inventory_adjustment_items')
             .values({
               id: randomUUID(),
-              tenant_id: request.auth!.tenantId,
+              tenant_id: request.auth!.tenantId!,
               branch_id: payload.branch_id,
               adjustment_id: adj.id,
               product_id: item.product_id,
@@ -391,13 +404,14 @@ export const inventoryRoutes: FastifyPluginAsync = async (app) => {
           const operation = item.qty_change >= 0 ? 'ADJUSTMENT_IN' : 'ADJUSTMENT_OUT';
 
           await recordInventoryTransaction(trx, {
-            tenantId: request.auth!.tenantId,
+            tenantId: request.auth!.tenantId!,
             branchId: payload.branch_id,
             productId: item.product_id,
             variantId: item.variant_id ?? null,
             operation,
             referenceId: adj.id,
             qtyChange: item.qty_change,
+            expectedVersion: item.version,
             notes: payload.reason,
             userId: request.auth!.userId
           });
@@ -421,7 +435,7 @@ export const inventoryRoutes: FastifyPluginAsync = async (app) => {
     },
     async (request, reply) => {
       const payload = request.body;
-      await ensureBranchBelongsToTenant(request.auth!.tenantId, payload.from_branch_id);
+      await ensureBranchBelongsToTenant(request.auth!.tenantId!, payload.from_branch_id);
       ensureUserCanAccessBranch(request.auth, payload.from_branch_id);
 
       const transfer = await app.db.transaction().execute(async (trx) => {
@@ -430,7 +444,7 @@ export const inventoryRoutes: FastifyPluginAsync = async (app) => {
           .insertInto('inventory_transfers')
           .values({
             id: trId,
-            tenant_id: request.auth!.tenantId,
+            tenant_id: request.auth!.tenantId!,
             from_branch_id: payload.from_branch_id,
             to_branch_id: payload.to_branch_id,
             status: 'DRAFT',
@@ -445,7 +459,7 @@ export const inventoryRoutes: FastifyPluginAsync = async (app) => {
             .insertInto('inventory_transfer_items')
             .values({
               id: randomUUID(),
-              tenant_id: request.auth!.tenantId,
+              tenant_id: request.auth!.tenantId!,
               transfer_id: tr.id,
               product_id: item.product_id,
               variant_id: item.variant_id ?? null,
@@ -480,7 +494,7 @@ export const inventoryRoutes: FastifyPluginAsync = async (app) => {
           .selectFrom('inventory_transfers')
           .selectAll()
           .where('id', '=', id)
-          .where('tenant_id', '=', request.auth!.tenantId)
+          .where('tenant_id', '=', request.auth!.tenantId!)
           .forUpdate()
           .executeTakeFirst();
 
@@ -499,7 +513,7 @@ export const inventoryRoutes: FastifyPluginAsync = async (app) => {
           const qty = Number(item.shipped_qty);
           // 1. Reducir stock físico en from_branch
           await recordInventoryTransaction(trx, {
-            tenantId: request.auth!.tenantId,
+            tenantId: request.auth!.tenantId!,
             branchId: tr.from_branch_id,
             productId: item.product_id,
             variantId: item.variant_id,
@@ -512,7 +526,7 @@ export const inventoryRoutes: FastifyPluginAsync = async (app) => {
 
           // 2. Aumentar stock en tránsito en to_branch
           await recordInventoryTransaction(trx, {
-            tenantId: request.auth!.tenantId,
+            tenantId: request.auth!.tenantId!,
             branchId: tr.to_branch_id,
             productId: item.product_id,
             variantId: item.variant_id,
@@ -563,7 +577,7 @@ export const inventoryRoutes: FastifyPluginAsync = async (app) => {
           .selectFrom('inventory_transfers')
           .selectAll()
           .where('id', '=', id)
-          .where('tenant_id', '=', request.auth!.tenantId)
+          .where('tenant_id', '=', request.auth!.tenantId!)
           .forUpdate()
           .executeTakeFirst();
 
@@ -571,7 +585,7 @@ export const inventoryRoutes: FastifyPluginAsync = async (app) => {
         if (tr.status !== 'IN_TRANSIT') throw new AppError(400, 'INVALID_STATUS', 'La transferencia no está en tránsito');
 
         ensureUserCanAccessBranch(request.auth, tr.to_branch_id);
-        await ensureBranchBelongsToTenant(request.auth!.tenantId, tr.to_branch_id);
+        await ensureBranchBelongsToTenant(request.auth!.tenantId!, tr.to_branch_id);
 
         const items = await trx
           .selectFrom('inventory_transfer_items')
@@ -595,7 +609,7 @@ export const inventoryRoutes: FastifyPluginAsync = async (app) => {
 
           // Aumentar on_hand_qty y reducir in_transit_qty completo del original shipped_qty (la diferencia es pérdida/ajuste en tránsito)
           await recordInventoryTransaction(trx, {
-            tenantId: request.auth!.tenantId,
+            tenantId: request.auth!.tenantId!,
             branchId: tr.to_branch_id,
             productId: item.product_id,
             variantId: item.variant_id,
@@ -646,7 +660,7 @@ export const inventoryRoutes: FastifyPluginAsync = async (app) => {
           .selectFrom('inventory_transfers')
           .selectAll()
           .where('id', '=', id)
-          .where('tenant_id', '=', request.auth!.tenantId)
+          .where('tenant_id', '=', request.auth!.tenantId!)
           .forUpdate()
           .executeTakeFirst();
 
@@ -672,7 +686,7 @@ export const inventoryRoutes: FastifyPluginAsync = async (app) => {
 
           // Aumentar on_hand_qty de la branch de origen y reducir in_transit_qty de la destino
           await recordInventoryTransaction(trx, {
-            tenantId: request.auth!.tenantId,
+            tenantId: request.auth!.tenantId!,
             branchId: tr.to_branch_id,
             productId: item.product_id,
             variantId: item.variant_id,
@@ -685,7 +699,7 @@ export const inventoryRoutes: FastifyPluginAsync = async (app) => {
           });
 
           await recordInventoryTransaction(trx, {
-            tenantId: request.auth!.tenantId,
+            tenantId: request.auth!.tenantId!,
             branchId: tr.from_branch_id,
             productId: item.product_id,
             variantId: item.variant_id,

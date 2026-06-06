@@ -8,6 +8,7 @@ import { buildOutboxSaleCreatedProcessor } from './jobs/outbox-sale-created.proc
 import { buildOutboxSaleVoidedProcessor } from './jobs/outbox-sale-voided.processor.js';
 import { buildOutboxSaleReturnedProcessor } from './jobs/outbox-sale-returned.processor.js';
 import { buildOutboxLowStockAlertProcessor } from './jobs/outbox-low-stock-alert.processor.js';
+import { buildBulkImportProcessor, BulkImportJobData } from './jobs/bulk-import.processor.js';
 import type { AnyOutboxJobData, OutboxSaleCreatedJobData, OutboxSaleVoidedJobData, OutboxLowStockAlertJobData } from './jobs/types.js';
 import { enqueueDueOutboxEvents } from './scheduler/outbox-events.scheduler.js';
 import { recheckStuckDianDocuments } from './scheduler/dian-sent-recheck.scheduler.js';
@@ -60,6 +61,18 @@ const queueEvents = new QueueEvents(OUTBOX_QUEUE_NAME, {
     url: env.REDIS_URL
   }
 });
+
+const bulkImportProcessor = buildBulkImportProcessor(dbPool);
+const bulkImportWorker = new Worker<BulkImportJobData>(
+  'bulk-import-queue',
+  async (job) => {
+    return bulkImportProcessor(job);
+  },
+  {
+    connection: { url: env.REDIS_URL },
+    concurrency: 2 // Max 2 parallel enterprise imports to avoid overloading DB
+  }
+);
 
 worker.on('ready', () => {
   logWorkerInfo({
@@ -278,7 +291,7 @@ const shutdown = async () => {
   clearInterval(salesRollupTimer); // C7: cancelar rollups
   clearInterval(inventoryRollupTimer);
   clearInterval(housekeepingTimer); // C8: cancelar housekeeping
-  await Promise.all([worker.close(), queue.close(), queueEvents.close(), dbPool.end()]);
+  await Promise.all([worker.close(), bulkImportWorker.close(), queue.close(), queueEvents.close(), dbPool.end()]);
   process.exit(0);
 };
 

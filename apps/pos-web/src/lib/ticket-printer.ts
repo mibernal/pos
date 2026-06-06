@@ -25,7 +25,7 @@ export interface TicketPrintInput {
   discountCents: number;
   totalCents: number;
   payments: TicketPrintPayment[];
-  taxMode?: 'IVA' | 'INC_RESTAURANT' | null;
+  taxMode?: 'IVA' | 'INC_RESTAURANT' | 'REGIMEN_SIMPLIFICADO' | null;
   dianStatus: 'PENDING' | 'SENT' | 'ACCEPTED' | 'REJECTED' | string;
   cude?: string | null;
   voidReason?: string | null;

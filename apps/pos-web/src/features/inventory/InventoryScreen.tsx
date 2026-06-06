@@ -2,7 +2,6 @@ import { useState, useMemo, type FormEvent } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Banner, ShellMessage, PlaceholderImage } from '../../components/ui';
 import { PermissionGuard, useSession } from '../auth';
-import type { ProductItem } from '../../lib/api';
 
 interface InventoryScreenProps {
   api: ReturnType<typeof import('../../lib/api').createApiClient>;
@@ -11,17 +10,17 @@ interface InventoryScreenProps {
 
 export function InventoryScreen({ api, branchId }: InventoryScreenProps) {
   const { role } = useSession();
-  const isAdmin = role === 'ADMIN';
-  const canSeeConsolidated = isAdmin || role === 'MANAGER' || role === 'AUDITOR';
+  const isPlatformOwner = role === 'PLATFORM_OWNER';
+  const isTenantAdmin = role === 'ADMIN' || role === 'TENANT_OWNER';
+  const canSeeConsolidated = isPlatformOwner || isTenantAdmin || role === 'MANAGER' || role === 'AUDITOR';
   const queryClient = useQueryClient();
 
   const [viewMode, setViewMode] = useState<'LOCAL' | 'CONSOLIDATED'>('LOCAL');
   
   // Adjustment Modal State
   const [isAdjustmentModalOpen, setIsAdjustmentModalOpen] = useState(false);
-  const [selectedProductId, setSelectedProductId] = useState<string>('');
   const [operation, setOperation] = useState<'MANUAL_ENTRY' | 'MANUAL_EXIT'>('MANUAL_ENTRY');
-  const [qtyChange, setQtyChange] = useState<number>(1);
+
   const [reason, setReason] = useState('SOBRANTE');
   const [notes, setNotes] = useState('');
   const [isSavingAdjustment, setIsSavingAdjustment] = useState(false);
@@ -240,7 +239,7 @@ export function InventoryScreen({ api, branchId }: InventoryScreenProps) {
             Control de entrada y salida de mercancía
           </p>
         </div>
-        <PermissionGuard allowedPermissions={['inventory:manage']}>
+        <PermissionGuard allowedPermissions={['inventory:adjust']}>
           <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
             {viewMode === 'LOCAL' && (
               <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
@@ -340,7 +339,7 @@ export function InventoryScreen({ api, branchId }: InventoryScreenProps) {
                       </span>
                     </td>
                     <td style={{ padding: '0.75rem 1rem', textAlign: 'right' }}>
-                      <PermissionGuard allowedPermissions={['inventory:manage']}>
+                      <PermissionGuard allowedPermissions={['inventory:adjust']}>
                          <button 
                             className="ghost-button button-sm" 
                             onClick={() => openAdjustmentModal(p.id)}

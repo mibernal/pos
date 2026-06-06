@@ -84,7 +84,7 @@ export function DashboardScreen({
       active = false;
       controller.abort();
     };
-  }, [api.baseUrl, branchId]);
+  }, [api.baseUrl, branchId, session?.accessToken]);
 
   return (
     <div className="pos-screen" style={{ flexDirection: 'column', overflowY: 'auto' }}>

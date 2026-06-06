@@ -101,3 +101,23 @@
 - Los atajos `F1–F4` (métodos de pago), `Enter` (confirmar), `Ctrl+K` (búsqueda) y `F4` (abrir cobro) son funcionalidades de primera clase, no un add-on.
 - El multiplicador `QTY*BARCODE` es interpretado tanto por `useBarcodeScanner` (escáner físico) como por el campo de búsqueda del POS.
 - **Motivo:** En una operación real de caja, reducir el tiempo promedio de venta de 15–20 segundos a menos de 5 segundos (flujo teclado-only) es una ventaja competitiva directa. Un cajero que procesa 200 ventas/día ahorra ~30 minutos diarios solo con los atajos de teclado.
+
+## D-019 — Idempotencia estricta en base de datos
+- Se utiliza el middleware `idempotency.plugin.ts` que intercepta peticiones que tengan la cabecera `Idempotency-Key`.
+- El plugin guarda la petición original y la respuesta (`response_body_json`) en `idempotency_records` con un TTL de 24 horas.
+- **Motivo:** Evita cargos y movimientos de inventario duplicados en situaciones donde el frontend envía peticiones repetidas debido a fallas de red (retry storms) o doble clic de los usuarios.
+
+## D-020 — Fuerte consistencia de inventario (Locking mixto)
+- Las transacciones de venta (`create-sale.service.ts`) utilizan **Pessimistic Locking** (`SELECT ... FOR UPDATE`) sobre la tabla de saldos de inventario.
+- Los ajustes de inventario manuales (`inventory/adjust`) utilizan **Optimistic Locking** (`version` column) para que el front-end maneje posibles colisiones concurrentes.
+- **Motivo:** Las ventas automáticas por POS son de alta frecuencia y deben resolverse en el motor de DB bloqueando la fila. Los ajustes de inventario manuales provienen de humanos en el backoffice, por lo que fallar rápido con `HTTP 409` es preferible.
+
+## D-021 — Enterprise Bulk Import mediante BullMQ
+- La carga masiva de catálogos (hasta 50,000 productos) se recibe vía Multipart (`@fastify/multipart`) en API y se envía como *job* al Worker mediante `bulk-import-queue`.
+- El procesamiento se divide en *chunks* (baches), usando colas de Redis.
+- **Motivo:** Evitar timeouts del servidor web (Fastify) y el acaparamiento de memoria (OOM). Permite a la UI mostrar estado de la importación de manera no bloqueante.
+
+## D-022 — SaaS Billing y Webhooks centralizados
+- Se integra la tabla `payment_transactions` y el contexto `billing` para aislar los cobros del SaaS de las ventas propias del cliente.
+- Soporte agnóstico a múltiples pasarelas (Wompi, MercadoPago) a través de un único enrutador de webhooks `/api/v1/webhooks/:gateway`.
+- **Motivo:** Facilitar la comercialización escalable del sistema y dejar un molde extendible a otras pasarelas, con validación de firmas y cambio atómico del plan del Tenant.

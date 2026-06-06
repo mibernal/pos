@@ -2,8 +2,9 @@ import { randomBytes, createHash, randomUUID } from 'node:crypto';
 import type { FastifyPluginAsync } from 'fastify';
 import { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { loginBodySchema } from '@pos-dian/shared';
+import { z } from 'zod';
 import { env } from '../../../app/env.js';
-import { verifyPassword } from '../auth/password.js';
+import { hashPassword, verifyPassword } from '../auth/password.js';
 import { AppError } from '../../../shared/infra/errors/app-error.js';
 import {
   assertLoginRateLimitAllowed,
@@ -12,9 +13,82 @@ import {
   recordLoginRateLimitFailure
 } from '../../../shared/infra/security/login-rate-limit.js';
 import { getPermissionsForRole } from '../../../shared/infra/security/permissions.js';
+import { writeAuditLog } from '../../../shared/domain/audit/write-audit-log.js';
+
+const registerBodySchema = z.object({
+  email: z.string().email(),
+  password: z.string().min(8),
+  name: z.string().min(1),
+  tenant_name: z.string().min(1),
+  tenant_business_name: z.string().min(1),
+  tenant_document_type: z.enum(['NIT', 'CC', 'CE', 'PASSPORT']),
+  tenant_document_number: z.string().min(1),
+});
 
 export const authRoutes: FastifyPluginAsync = async (app) => {
   const typedApp = app.withTypeProvider<ZodTypeProvider>();
+
+  typedApp.post(
+    '/auth/register',
+    {
+      schema: {
+        tags: ['auth'],
+        body: registerBodySchema
+      }
+    },
+    async (request, reply) => {
+      const payload = registerBodySchema.parse(request.body);
+
+      const existingUser = await app.db.selectFrom('users').where('email', '=', payload.email).select('id').executeTakeFirst();
+      if (existingUser) {
+        throw new AppError(400, 'BAD_REQUEST', 'El correo electrónico ya está registrado');
+      }
+
+      const existingTenant = await app.db.selectFrom('tenants').where('nit', '=', payload.tenant_document_number).select('id').executeTakeFirst();
+      if (existingTenant) {
+        throw new AppError(400, 'BAD_REQUEST', 'El documento del negocio ya está registrado');
+      }
+
+      const passwordHash = await hashPassword(payload.password);
+      const tenantId = randomUUID();
+      const userId = randomUUID();
+
+      await app.db.transaction().execute(async (trx) => {
+        await trx.insertInto('tenants').values({
+          id: tenantId,
+          name: payload.tenant_name,
+          business_name: payload.tenant_business_name,
+          nit: payload.tenant_document_number,
+          address: '',
+          tax_mode: 'REGIMEN_SIMPLIFICADO', // Default
+          status: 'TRIAL',
+          plan: 'STARTER',
+          owner_user_id: userId
+        }).execute();
+
+        await trx.insertInto('users').values({
+          id: userId,
+          tenant_id: tenantId,
+          email: payload.email,
+          password_hash: passwordHash,
+          name: payload.name,
+          role: 'TENANT_OWNER',
+          active: true
+        }).execute();
+      });
+
+      await writeAuditLog(app.db, {
+        tenantId: tenantId,
+        userId: userId,
+        entityType: 'TENANT',
+        entityId: tenantId,
+        action: 'TENANT_CREATED',
+        payloadJson: { current: { plan: 'STARTER', status: 'TRIAL' } }
+      });
+
+      return reply.code(201).send({ success: true, message: 'Registro exitoso' });
+    }
+  );
 
   typedApp.post(
     '/auth/login',
@@ -28,26 +102,23 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
       const { email, password, tenantId } = loginBodySchema.parse(request.body);
       const rateLimitKey = buildLoginRateLimitKey(request.ip, email, tenantId);
 
-      // C2: Rate limit persistido en Redis — sobrevive restarts y escala horizontal
       try {
         await assertLoginRateLimitAllowed(app.redis, rateLimitKey);
       } catch {
-        throw new AppError(
-          429,
-          'AUTH_RATE_LIMITED',
-          'Demasiados intentos de inicio de sesión. Intenta de nuevo más tarde.'
-        );
+        throw new AppError(429, 'AUTH_RATE_LIMITED', 'Demasiados intentos de inicio de sesión. Intenta de nuevo más tarde.');
       }
 
       let candidatesQuery = app.db
         .selectFrom('users')
-        .innerJoin('tenants', 'tenants.id', 'users.tenant_id')
+        .leftJoin('tenants', 'tenants.id', 'users.tenant_id')
         .select([
           'users.id as id',
           'users.tenant_id as tenant_id',
           'tenants.name as tenant_name',
           'tenants.business_name as tenant_business_name',
           'tenants.tax_mode as tax_mode',
+          'tenants.status as tenant_status',
+          'tenants.plan as tenant_plan',
           'users.email as email',
           'users.password_hash as password_hash',
           'users.name as name',
@@ -87,34 +158,44 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
         return {
           requireTenantSelection: true,
           tenants: validCandidates.map(c => ({
-            id: c.tenant_id,
-            name: c.tenant_name,
-            business_name: c.tenant_business_name
+            id: c.tenant_id!,
+            name: c.tenant_name!,
+            business_name: c.tenant_business_name!
           }))
         };
       }
 
       const user = validCandidates[0]!;
 
-      const userBranches = await app.db
-        .selectFrom('user_branches')
-        .select('branch_id')
-        .where('user_id', '=', user.id)
-        .where('tenant_id', '=', user.tenant_id)
-        .execute();
+      if (user.tenant_status === 'SUSPENDED') {
+        throw new AppError(403, 'AUTH_FORBIDDEN', 'El negocio se encuentra suspendido. Contacta al administrador de la plataforma.');
+      }
 
-      const branchIds = userBranches.map(b => b.branch_id);
+      let branchIds: string[] = [];
+      if (user.tenant_id) {
+          const userBranches = await app.db
+            .selectFrom('user_branches')
+            .select('branch_id')
+            .where('user_id', '=', user.id)
+            .where('tenant_id', '=', user.tenant_id)
+            .execute();
+          branchIds = userBranches.map(b => b.branch_id);
+      }
+
+      const isPlatformRole = user.role === 'PLATFORM_OWNER';
       const permissions = getPermissionsForRole(user.role);
 
       const claims = {
         sub: user.id,
         userId: user.id,
         tenantId: user.tenant_id,
+        tenantPlan: user.tenant_plan,
         role: user.role,
         email: user.email,
         name: user.name,
         branchIds,
-        permissions
+        permissions,
+        isPlatformRole
       };
 
       const accessToken = await app.jwt.sign(claims, {
@@ -159,13 +240,15 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
         user: {
           id: user.id,
           tenantId: user.tenant_id,
+          tenantPlan: user.tenant_plan,
           taxMode: user.tax_mode,
           role: user.role,
           email: user.email,
           name: user.name,
           active: user.active,
           branchIds,
-          permissions
+          permissions,
+          isPlatformRole
         }
       };
     }
@@ -185,48 +268,64 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
         throw new AppError(401, 'AUTH_UNAUTHORIZED', 'No autorizado');
       }
 
-      const user = await app.db
+      let query = app.db
         .selectFrom('users')
-        .innerJoin('tenants', 'tenants.id', 'users.tenant_id')
+        .leftJoin('tenants', 'tenants.id', 'users.tenant_id')
         .select([
           'users.id as id',
           'users.tenant_id as tenant_id',
           'tenants.tax_mode as tax_mode',
+          'tenants.status as tenant_status',
+          'tenants.plan as tenant_plan',
           'users.email as email',
           'users.name as name',
           'users.role as role',
           'users.active as active'
         ])
-        .where('users.tenant_id', '=', request.auth.tenantId)
         .where('users.id', '=', request.auth.userId)
-        .where('users.active', '=', true)
-        .executeTakeFirst();
+        .where('users.active', '=', true);
+
+      if (!request.auth.isPlatformRole) {
+        query = query.where('users.tenant_id', '=', request.auth.tenantId!);
+      }
+
+      const user = await query.executeTakeFirst();
 
       if (!user) {
         throw new AppError(401, 'AUTH_UNAUTHORIZED', 'Usuario no encontrado o inactivo');
       }
 
-      const userBranches = await app.db
-        .selectFrom('user_branches')
-        .select('branch_id')
-        .where('user_id', '=', user.id)
-        .where('tenant_id', '=', user.tenant_id)
-        .execute();
+      if (user.tenant_status === 'SUSPENDED') {
+        throw new AppError(403, 'AUTH_FORBIDDEN', 'El negocio se encuentra suspendido. Contacta al administrador de la plataforma.');
+      }
 
-      const branchIds = userBranches.map(b => b.branch_id);
+      let branchIds: string[] = [];
+      if (user.tenant_id) {
+          const userBranches = await app.db
+            .selectFrom('user_branches')
+            .select('branch_id')
+            .where('user_id', '=', user.id)
+            .where('tenant_id', '=', user.tenant_id)
+            .execute();
+          branchIds = userBranches.map(b => b.branch_id);
+      }
+
       const permissions = getPermissionsForRole(user.role);
+      const isPlatformRole = user.role === 'PLATFORM_OWNER';
 
       return {
         user: {
           id: user.id,
           tenantId: user.tenant_id,
+          tenantPlan: user.tenant_plan,
           taxMode: user.tax_mode,
           role: user.role,
           email: user.email,
           name: user.name,
           active: user.active,
           branchIds,
-          permissions
+          permissions,
+          isPlatformRole
         }
       };
     }
@@ -282,17 +381,18 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
         throw new AppError(401, 'AUTH_UNAUTHORIZED', 'Invalid refresh token');
       }
 
-      // SEC: Reuse Detection — RFC 6749 / Auth0 Token Family Strategy.
-      // Si el token ya fue revocado, alguien lo está reutilizando (posible robo).
-      // Revocamos TODA la familia activa del usuario y forzamos re-login.
       if (tokenRecord.revoked_at !== null) {
-        await app.db
+        let q = app.db
           .updateTable('refresh_tokens')
           .set({ revoked_at: new Date() })
-          .where('tenant_id', '=', tokenRecord.tenant_id)
           .where('user_id', '=', tokenRecord.user_id)
-          .where('revoked_at', 'is', null)
-          .execute();
+          .where('revoked_at', 'is', null);
+
+        if (tokenRecord.tenant_id) {
+            q = q.where('tenant_id', '=', tokenRecord.tenant_id);
+        }
+
+        await q.execute();
 
         reply.clearCookie('pos_refresh_token', { path: '/' });
         throw new AppError(
@@ -309,11 +409,13 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
 
       const user = await app.db
         .selectFrom('users')
-        .innerJoin('tenants', 'tenants.id', 'users.tenant_id')
+        .leftJoin('tenants', 'tenants.id', 'users.tenant_id')
         .select([
           'users.id as id',
           'users.tenant_id as tenant_id',
           'tenants.tax_mode as tax_mode',
+          'tenants.status as tenant_status',
+          'tenants.plan as tenant_plan',
           'users.email as email',
           'users.name as name',
           'users.role as role',
@@ -328,7 +430,11 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
         throw new AppError(401, 'AUTH_UNAUTHORIZED', 'User not found or inactive');
       }
 
-      // Preparar el nuevo token antes de la transacción
+      if (user.tenant_status === 'SUSPENDED') {
+        reply.clearCookie('pos_refresh_token', { path: '/' });
+        throw new AppError(403, 'AUTH_FORBIDDEN', 'El negocio se encuentra suspendido. Contacta al administrador de la plataforma.');
+      }
+
       const refreshTokenRaw = randomBytes(32).toString('hex');
       const refreshTokenHash = createHash('sha256').update(refreshTokenRaw).digest('hex');
 
@@ -342,15 +448,16 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
       }
       const expiresAt = new Date(Date.now() + expMs);
 
-      // Revoke old + Insert new en una transacción atómica
-      // Evita el estado parcial donde el token viejo ya fue revocado pero el nuevo no existe aún
       await app.db.transaction().execute(async (trx) => {
-        await trx
+        let updateQ = trx
           .updateTable('refresh_tokens')
           .set({ revoked_at: new Date() })
-          .where('tenant_id', '=', tokenRecord.tenant_id)
-          .where('id', '=', tokenRecord.id)
-          .execute();
+          .where('id', '=', tokenRecord.id);
+        
+        if (tokenRecord.tenant_id) {
+            updateQ = updateQ.where('tenant_id', '=', tokenRecord.tenant_id);
+        }
+        await updateQ.execute();
 
         await trx.insertInto('refresh_tokens').values({
           id: randomUUID(),
@@ -371,25 +478,31 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
         maxAge: expMs / 1000
       });
 
-      const userBranches = await app.db
-        .selectFrom('user_branches')
-        .select('branch_id')
-        .where('user_id', '=', user.id)
-        .where('tenant_id', '=', user.tenant_id)
-        .execute();
+      let branchIds: string[] = [];
+      if (user.tenant_id) {
+          const userBranches = await app.db
+            .selectFrom('user_branches')
+            .select('branch_id')
+            .where('user_id', '=', user.id)
+            .where('tenant_id', '=', user.tenant_id)
+            .execute();
+          branchIds = userBranches.map(b => b.branch_id);
+      }
 
-      const branchIds = userBranches.map(b => b.branch_id);
       const permissions = getPermissionsForRole(user.role);
+      const isPlatformRole = user.role === 'PLATFORM_OWNER';
 
       const claims = {
         sub: user.id,
         userId: user.id,
         tenantId: user.tenant_id,
+        tenantPlan: user.tenant_plan,
         role: user.role,
         email: user.email,
         name: user.name,
         branchIds,
-        permissions
+        permissions,
+        isPlatformRole
       };
 
       const accessToken = await app.jwt.sign(claims, {
@@ -403,13 +516,15 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
         user: {
           id: user.id,
           tenantId: user.tenant_id,
+          tenantPlan: user.tenant_plan,
           taxMode: user.tax_mode,
           role: user.role,
           email: user.email,
           name: user.name,
           active: user.active,
           branchIds,
-          permissions
+          permissions,
+          isPlatformRole
         }
       };
     }

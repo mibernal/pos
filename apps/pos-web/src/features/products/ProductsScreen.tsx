@@ -32,7 +32,7 @@ export function ProductsScreen({
   const [imageUrl, setImageUrl] = useState('');
   const [description, setDescription] = useState('');
 
-  const isAdmin = role === 'ADMIN';
+  const isAdmin = role === 'ADMIN' || role === 'TENANT_OWNER';
   const [showForm, setShowForm] = useState(false);
 
   const loadProducts = useCallback(async () => {

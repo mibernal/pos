@@ -1,4 +1,4 @@
-import { useMemo, useState, useEffect } from 'react';
+import { useMemo, useState, useEffect, useCallback } from 'react';
 import { Banner, Modal } from '../../../components/ui';
 import { formatMoneyFromCents } from '../../../lib/format';
 import type { Customer, CreateSaleRequest } from '../../../lib/api';
@@ -79,43 +79,7 @@ export function CheckoutModal({
   );
   const totalUnits = useMemo(() => cartItems.reduce((sum, item) => sum + item.qty, 0), [cartItems]);
 
-  useEffect(() => {
-    if (!isOpen) return;
-
-    function onKeyDown(event: KeyboardEvent) {
-      if (event.key === 'F1') {
-        event.preventDefault();
-        setPaymentMethod('CASH');
-      } else if (event.key === 'F2') {
-        event.preventDefault();
-        setPaymentMethod('CARD');
-      } else if (event.key === 'F3') {
-        event.preventDefault();
-        setPaymentMethod('TRANSFER');
-      } else if (event.key === 'F4') {
-        event.preventDefault();
-        setPaymentMethod('MIXED');
-      } else if (event.key === 'Enter') {
-        // Only trigger confirm if not inside an input (unless it's the cash input, where enter is very useful)
-        const target = event.target as HTMLElement | null;
-        const isSelect = target?.tagName === 'SELECT';
-        const isTextArea = target?.tagName === 'TEXTAREA';
-        if (!isSelect && !isTextArea && canSubmit && !isSubmitting) {
-          event.preventDefault();
-          handleConfirm();
-        }
-      }
-    }
-
-    window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
-  }, [isOpen, canSubmit, isSubmitting, setPaymentMethod]);
-
-  if (!isOpen) {
-    return null;
-  }
-
-  function handleConfirm() {
+  const handleConfirm = useCallback(() => {
     if (!canSubmit) return;
 
     const payments: CreateSaleRequest['payments'] =
@@ -146,7 +110,54 @@ export function CheckoutModal({
           ];
 
     void onConfirm(payments, selectedCustomerId || null);
+  }, [
+    canSubmit,
+    paymentMethod,
+    positiveMixedLines,
+    mixedChangeCents,
+    totalCents,
+    cardApprovalCode,
+    selectedCustomerId,
+    onConfirm
+  ]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key === 'F1') {
+        event.preventDefault();
+        setPaymentMethod('CASH');
+      } else if (event.key === 'F2') {
+        event.preventDefault();
+        setPaymentMethod('CARD');
+      } else if (event.key === 'F3') {
+        event.preventDefault();
+        setPaymentMethod('TRANSFER');
+      } else if (event.key === 'F4') {
+        event.preventDefault();
+        setPaymentMethod('MIXED');
+      } else if (event.key === 'Enter') {
+        // Only trigger confirm if not inside an input (unless it's the cash input, where enter is very useful)
+        const target = event.target as HTMLElement | null;
+        const isSelect = target?.tagName === 'SELECT';
+        const isTextArea = target?.tagName === 'TEXTAREA';
+        if (!isSelect && !isTextArea && canSubmit && !isSubmitting) {
+          event.preventDefault();
+          handleConfirm();
+        }
+      }
+    }
+
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [isOpen, canSubmit, isSubmitting, setPaymentMethod, handleConfirm]);
+
+  if (!isOpen) {
+    return null;
   }
+
+
 
   return (
     <Modal ariaLabel="Cobrar venta" onClose={onClose} size="wide">

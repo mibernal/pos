@@ -22,7 +22,7 @@ export function useTenantTaxMode({
       return;
     }
 
-    if (session.user.role !== 'ADMIN') {
+    if (session.user.role !== 'ADMIN' && session.user.role !== 'TENANT_OWNER') {
       return;
     }
 

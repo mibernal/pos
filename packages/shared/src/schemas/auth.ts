@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
-export const userRoleSchema = z.enum(['ADMIN', 'MANAGER', 'CASHIER', 'AUDITOR']);
-export const tenantTaxModeSchema = z.enum(['IVA', 'INC_RESTAURANT']);
+export const userRoleSchema = z.enum(['PLATFORM_OWNER', 'TENANT_OWNER', 'ADMIN', 'MANAGER', 'CASHIER', 'AUDITOR']);
+export const tenantTaxModeSchema = z.enum(['IVA', 'INC_RESTAURANT', 'REGIMEN_SIMPLIFICADO']);
 
 export const loginBodySchema = z.object({
   email: z.string().trim().max(254).email().transform((value) => value.toLowerCase()),
@@ -11,14 +11,16 @@ export const loginBodySchema = z.object({
 
 export const authUserSchema = z.object({
   id: z.string().uuid(),
-  tenantId: z.string().uuid(),
-  taxMode: tenantTaxModeSchema.optional(),
+  tenantId: z.string().uuid().optional().nullable(),
+  tenantPlan: z.string().optional().nullable(),
+  taxMode: tenantTaxModeSchema.optional().nullable(),
   role: userRoleSchema,
   email: z.string().email(),
   name: z.string().min(1),
   active: z.boolean(),
   branchIds: z.array(z.string().uuid()).optional(),
-  permissions: z.array(z.string()).optional()
+  permissions: z.array(z.string()).optional(),
+  isPlatformRole: z.boolean().optional()
 });
 
 export const loginResponseSchema = z.object({
@@ -41,12 +43,14 @@ export const meResponseSchema = z.object({
 export const jwtClaimsSchema = z.object({
   sub: z.string(),
   userId: z.string(),
-  tenantId: z.string().uuid(),
+  tenantId: z.string().uuid().optional().nullable(),
+  tenantPlan: z.string().optional().nullable(),
   role: userRoleSchema,
   email: z.string().email(),
   name: z.string().min(1),
   branchIds: z.array(z.string().uuid()).optional(),
   permissions: z.array(z.string()).optional(),
+  isPlatformRole: z.boolean().optional(),
   iat: z.number().int().optional(),
   exp: z.number().int().optional()
 });

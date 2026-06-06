@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import type { PosApiClient } from '../../types';
 
 export function AuditCenterScreen({ api }: { api: PosApiClient }) {
@@ -13,7 +13,7 @@ export function AuditCenterScreen({ api }: { api: PosApiClient }) {
   const [userId, setUserId] = useState('');
   const [action, setAction] = useState('');
 
-  const loadLogs = async () => {
+  const loadLogs = useCallback(async () => {
     setLoading(true);
     try {
       const token = localStorage.getItem('access_token');
@@ -35,11 +35,11 @@ export function AuditCenterScreen({ api }: { api: PosApiClient }) {
     } finally {
       setLoading(false);
     }
-  };
+  }, [api.baseUrl, branchId, userId, action]);
 
   useEffect(() => {
     loadLogs();
-  }, [branchId, userId, action]);
+  }, [loadLogs]);
 
   const viewCorrelation = async (cid: string) => {
     setSelectedCorrelation(cid);

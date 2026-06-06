@@ -56,8 +56,8 @@ export function CloseCashSessionModal({
 
     try {
       const result = await api.closeCashSession(sessionId, rawVal * 100);
-      setSummary(result.summary as any);
-      setCashSession(result.cash_session as any);
+      setSummary(result.summary as NonNullable<typeof summary>);
+      setCashSession(result.cash_session as NonNullable<typeof cashSession>);
       setLoading(false);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'No fue posible cerrar la caja');

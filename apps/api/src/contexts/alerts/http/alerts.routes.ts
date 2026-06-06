@@ -41,7 +41,7 @@ export const alertsRoutes: FastifyPluginAsync = async (app) => {
             .where('created_at', '>', lastCheck);
             
           // If manager, filter by branches they can access
-          if (request.auth!.role !== 'ADMIN') {
+          if (request.auth!.role !== 'ADMIN' && request.auth!.role !== 'TENANT_OWNER' && !request.auth!.isPlatformRole) {
              query = query.where((eb) => 
                eb.or([
                  eb('branch_id', 'is', null),
@@ -93,11 +93,11 @@ export const alertsRoutes: FastifyPluginAsync = async (app) => {
       if (severity) query = query.where('severity', '=', severity);
       
       if (branch_id) {
-         if (!request.auth.branchIds.includes(branch_id as string) && request.auth.role !== 'ADMIN') {
+         if (!request.auth.branchIds.includes(branch_id as string) && request.auth.role !== 'ADMIN' && request.auth.role !== 'TENANT_OWNER' && !request.auth.isPlatformRole) {
             throw new AppError(403, 'FORBIDDEN', 'No autorizado para ver alertas de esta sucursal');
          }
          query = query.where('branch_id', '=', branch_id as string);
-      } else if (request.auth.role !== 'ADMIN') {
+      } else if (request.auth.role !== 'ADMIN' && request.auth.role !== 'TENANT_OWNER' && !request.auth.isPlatformRole) {
          query = query.where((eb) => 
            eb.or([
              eb('branch_id', 'is', null),
@@ -147,7 +147,7 @@ export const alertsRoutes: FastifyPluginAsync = async (app) => {
 
       if (!alert) throw new AppError(404, 'NOT_FOUND', 'Alerta no encontrada');
 
-      if (alert.branch_id && request.auth.role !== 'ADMIN' && !request.auth.branchIds.includes(alert.branch_id)) {
+      if (alert.branch_id && request.auth.role !== 'ADMIN' && request.auth.role !== 'TENANT_OWNER' && !request.auth.isPlatformRole && !request.auth.branchIds.includes(alert.branch_id)) {
          throw new AppError(403, 'FORBIDDEN', 'No tienes permiso para resolver esta alerta');
       }
 
