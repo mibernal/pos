@@ -12,9 +12,9 @@
 
 | Componente | Stack | Rol |
 |---|---|---|
-| `apps/api` | Fastify · TypeScript · Kysely · Zod · OpenTelemetry | Auth, sucursales, caja, catálogo, ventas, configuración fiscal, billing, importaciones masivas y trazas OTLP |
+| `apps/api` | Fastify · TypeScript · Kysely · Zod · OpenTelemetry | Auth, sucursales, caja, catálogo, ventas, configuración fiscal, billing, importaciones masivas, trazas OTLP y backoffice global SaaS |
 | `apps/worker` | BullMQ · TypeScript · PostgreSQL | Consumo del outbox, DIAN, importaciones masivas (Enterprise), Schedulers (Limpieza, Alertas, Rollups) |
-| `apps/pos-web` | React · Vite · Dexie.js · PWA (Workbox) | Shell POS offline-first, backoffice (Identity, Platform), historial y configuración |
+| `apps/pos-web` | React · Vite · Dexie.js · PWA (Workbox) | Shell POS offline-first, backoffice (Identity, Tenants), Control Center SuperAdmin, historial y configuración |
 | `packages/shared` | TypeScript · Zod | Contratos, tipos y esquemas compartidos entre API, worker y web |
 
 ---
@@ -222,8 +222,9 @@ El worker loguea por job: `outbox_event_id`, `sale_id`, `tenant_id`, `attempt`, 
 
 | Rol | Permisos clave |
 |---|---|
-| `ADMIN` | Todo: configurar negocio, sucursales, usuarios, productos, anular ventas, dashboard global, control total de caja |
-| `MANAGER` | Sus sucursales: administrar cajeros, reportes, movimientos de inventario. **Sin** dashboard global ni anulaciones |
+| `PLATFORM_OWNER` / `PLATFORM_ADMIN` | Control total del SaaS: Gestión de Tenants (crear, suspender, reactivar), cambio de planes de facturación, y CRUD transversal sobre los usuarios de cualquier Tenant. |
+| `ADMIN` | Todo en su Tenant: configurar negocio, sucursales, usuarios, productos, anular ventas, dashboard global, auto-gestión de suscripción, control total de caja |
+| `MANAGER` | Sus sucursales: administrar cajeros, reportes, movimientos de inventario. **Sin** dashboard global, anulaciones ni facturación |
 | `CASHIER` | Abrir/cerrar su caja, vender, ver historial de ventas, ver saldos de inventario |
 | `AUDITOR` | Solo lectura global: trazabilidad, alertas, audit logs |
 

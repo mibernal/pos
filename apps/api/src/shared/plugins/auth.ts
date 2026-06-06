@@ -34,6 +34,10 @@ const authPluginImpl: FastifyPluginAsync = async (app) => {
 
   app.decorate('authenticate', async (request) => {
     try {
+      // Allow token from query param for EventSource (SSE)
+      if (!request.headers.authorization && request.query && typeof request.query === 'object' && 'token' in request.query) {
+        request.headers.authorization = `Bearer ${(request.query as any).token}`;
+      }
       await request.jwtVerify<JwtClaims>();
       request.auth = mapClaimsToAuthContext(request.user);
     } catch {

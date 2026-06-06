@@ -258,6 +258,7 @@ export function createApiClient({ baseUrl, getSession, setSession, onReauthRequi
 
   return {
     baseUrl,
+    getAccessToken: () => getSession()?.accessToken,
     login,
     register,
     logout,
@@ -507,26 +508,95 @@ export function createApiClient({ baseUrl, getSession, setSession, onReauthRequi
       }),
       
     // PLATFORM ENDPOINTS
-    listTenants: (params?: { limit?: number; cursor?: string; status?: string }) =>
+    listTenants: (params?: { limit?: number; offset?: number; query?: string; status?: string; plan?: string; activity?: string }) =>
       requestJson<any>(`/platform/tenants?${toQueryString(params as any)}`),
       
-    getTenantMetrics: (tenantId: string) =>
-      requestJson<any>(`/platform/tenants/${tenantId}/metrics`),
+    getTenantDashboard: (tenantId: string) =>
+      requestJson<any>(`/platform/tenants/${tenantId}/dashboard`),
       
-    getGlobalMetrics: () =>
-      requestJson<any>(`/platform/metrics`),
+    getPlatformDashboard: () =>
+      requestJson<any>(`/platform/dashboard`),
+
+    getPlatformActivity: (params?: { limit?: number }) =>
+      requestJson<any>(`/platform/activity?${toQueryString(params as any)}`),
+
+    getPlatformHealth: () =>
+      requestJson<any>(`/platform/health`),
+
+    getPlatformGrowth: () =>
+      requestJson<any>(`/platform/growth`),
+
+    getPlatformTenantUsers: (id: string) =>
+      requestJson<{ users: Array<{ id: string; email: string; name: string; role: string; active: boolean; created_at: string }> }>(`/platform/tenants/${id}/users`),
       
-    updateTenantStatus: (tenantId: string, status: 'ACTIVE' | 'SUSPENDED') =>
-      requestJson<any>(`/platform/tenants/${tenantId}/status`, {
-        method: 'PATCH',
-        body: JSON.stringify({ status })
-      }),
-      
-    impersonateTenant: (tenantId: string, targetUserId: string) =>
-      requestJson<{ accessToken: string }>(`/platform/impersonate`, {
+    createPlatformTenantUser: (id: string, data: any) =>
+      requestJson<{ user: any }>(`/platform/tenants/${id}/users`, {
         method: 'POST',
-        body: JSON.stringify({ tenantId, targetUserId })
+        body: JSON.stringify(data)
       }),
+
+    updatePlatformTenantUser: (id: string, userId: string, data: any) =>
+      requestJson<{ success: boolean }>(`/platform/tenants/${id}/users/${userId}`, {
+        method: 'PATCH',
+        body: JSON.stringify(data)
+      }),
+
+    deletePlatformTenantUser: (id: string, userId: string) =>
+      requestJson<{ success: boolean }>(`/platform/tenants/${id}/users/${userId}`, {
+        method: 'DELETE'
+      }),
+      
+    suspendTenant: (tenantId: string, reason: string) =>
+      requestJson<any>(`/platform/tenants/${tenantId}/suspend`, {
+        method: 'POST',
+        body: JSON.stringify({ reason })
+      }),
+
+    reactivateTenant: (tenantId: string) =>
+      requestJson<any>(`/platform/tenants/${tenantId}/reactivate`, {
+        method: 'POST',
+        body: JSON.stringify({})
+      }),
+      
+    impersonateTenant: async (tenantId: string, reason: string) => {
+      const res = await requestJson<{ session_id: string }>(`/platform/tenants/${tenantId}/impersonate`, {
+        method: 'POST',
+        body: JSON.stringify({ reason })
+      });
+      const exchangeRes = await requestJson<AuthSession>('/auth/impersonate/exchange', {
+        method: 'POST',
+        body: JSON.stringify({ session_id: res.session_id })
+      });
+      setSession(exchangeRes);
+      return exchangeRes;
+    },
+      
+    getPlatformPlans: () =>
+      requestJson<any>(`/platform/plans`),
+      
+    createPlatformTenant: async (payload: any) => {
+      const res = await requestJson<{ success: boolean; tenant_id: string }>('/platform/tenants', {
+        method: 'POST',
+        body: JSON.stringify(payload)
+      });
+      return res;
+    },
+      
+    updatePlatformTenant: async (tenantId: string, payload: any) => {
+      const res = await requestJson<{ success: boolean }>(`/platform/tenants/${tenantId}`, {
+        method: 'PATCH',
+        body: JSON.stringify(payload)
+      });
+      return res.success;
+    },
+    
+    changeTenantPlan: async (tenantId: string, newPlan: string) => {
+      const res = await requestJson<{ success: boolean }>(`/platform/tenants/${tenantId}/plan`, {
+        method: 'POST',
+        body: JSON.stringify({ new_plan: newPlan })
+      });
+      return res.success;
+    },
       
     // BILLING ENDPOINTS
     getBillingPlans: () => requestJson<{ plans: any[] }>('/billing/plans'),

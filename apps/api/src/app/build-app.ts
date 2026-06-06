@@ -14,7 +14,7 @@ import { errorHandlerPlugin } from '../shared/plugins/error-handler.js';
 import { registerSwagger } from '../shared/plugins/swagger.js';
 import { idempotencyPlugin } from '../shared/infra/http/idempotency.plugin.js';
 import { authRoutes } from '../contexts/identity/http/auth.routes.js';
-import { platformRoutes } from '../contexts/identity/http/platform.routes.js';
+import { platformAdminRoutes } from '../contexts/platform-admin/http/platform-admin.routes.js';
 import { branchesRoutes } from '../contexts/identity/http/branches.routes.js';
 import { healthRoutes } from '../shared/http/health.routes.js';
 import { salesRoutes } from '../contexts/sales/http/sales.routes.js';
@@ -234,7 +234,7 @@ export async function buildApp() {
   await app.register(registerSwagger);
   await app.register(authPlugin);
   await app.register(healthRoutes, { prefix: '/api/v1' });
-  await app.register(platformRoutes, { prefix: '/api/v1' });
+  await app.register(platformAdminRoutes, { prefix: '/api/v1' });
   await app.register(authRoutes, { prefix: '/api/v1' });
   await app.register(branchesRoutes, { prefix: '/api/v1' });
   await app.register(adminTenantsRoutes, { prefix: '/api/v1' });
@@ -257,6 +257,14 @@ export async function buildApp() {
   await app.register(journalRoutes, { prefix: '/api/v1' });
   await app.register(billingRoutes, { prefix: '/api/v1' });
   await app.register(webhooksRoutes, { prefix: '/api/v1' });
+
+  // Add prometheus metrics
+  // @ts-ignore: This module is installed via package.json but might not be built yet
+  const fastifyMetrics = await import('fastify-metrics');
+  await app.register(fastifyMetrics.default || fastifyMetrics, {
+    endpoint: '/metrics',
+    defaultMetrics: { enabled: true }
+  });
 
   app.addHook('onClose', async (instance) => {
     await instance.bulkImportQueue.close();

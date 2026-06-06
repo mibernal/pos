@@ -121,3 +121,11 @@
 - Se integra la tabla `payment_transactions` y el contexto `billing` para aislar los cobros del SaaS de las ventas propias del cliente.
 - Soporte agnóstico a múltiples pasarelas (Wompi, MercadoPago) a través de un único enrutador de webhooks `/api/v1/webhooks/:gateway`.
 - **Motivo:** Facilitar la comercialización escalable del sistema y dejar un molde extendible a otras pasarelas, con validación de firmas y cambio atómico del plan del Tenant.
+
+## D-023 — Gestión de Usuarios Multi-Tenant por SuperAdmin
+- El `PLATFORM_OWNER` o `PLATFORM_ADMIN` tiene acceso a crear, modificar, y eliminar usuarios de cualquier tenant directamente desde el panel de SuperAdmin (Platform).
+- **Motivo:** Evita que el equipo de soporte de la plataforma necesite impersonar (login as) o pedir contraseñas a los tenants para ayudarles con la gestión básica de su personal o recuperación de cuentas críticas.
+
+## D-024 — Auto-gestión de suscripciones por el ADMIN
+- El rol `ADMIN` del tenant (y no solo los propietarios) tiene permisos para generar sesiones de checkout y cambiar el plan de suscripción (`PATCH /billing/checkout/:gateway`).
+- **Motivo:** Da autonomía al gerente/dueño del restaurante para pagar su factura o mejorar su plan sin necesidad de interactuar con el soporte de la plataforma.

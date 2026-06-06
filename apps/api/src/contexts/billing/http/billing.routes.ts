@@ -47,9 +47,9 @@ export const billingRoutes: FastifyPluginAsync = async (app) => {
     async (request, reply) => {
       if (!request.auth) throw new AppError(401, 'AUTH_UNAUTHORIZED', 'No autorizado');
       
-      // Solo el TENANT_OWNER puede pagar la suscripción
-      if (request.auth.role !== 'TENANT_OWNER' && !request.auth.isPlatformRole) {
-        throw new AppError(403, 'AUTH_FORBIDDEN', 'Solo el propietario puede actualizar la suscripción');
+      // Solo el TENANT_OWNER, ADMIN o un Super Admin (incluso suplantando) puede pagar la suscripción
+      if (request.auth.role !== 'TENANT_OWNER' && request.auth.role !== 'ADMIN' && !request.auth.isPlatformRole && !(request.auth as any).isImpersonating) {
+        throw new AppError(403, 'AUTH_FORBIDDEN', 'Solo el propietario o administrador puede actualizar la suscripción');
       }
 
       const payload = checkoutBodySchema.parse(request.body);

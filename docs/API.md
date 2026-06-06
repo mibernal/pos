@@ -224,7 +224,7 @@ Endpoint optimizado para buscar productos mediante código de barras en POS.
 
 ### `GET /api/v1/billing/checkout/:gateway`
 Genera un enlace o sesión de pago para realizar el cobro del servicio SaaS al Tenant.
-* **Permisos Requeridos:** `PlatformOwner` o `TenantOwner`
+* **Permisos Requeridos:** `PlatformOwner`, `TenantOwner`, o `ADMIN`.
 * **Gateway soportados:** `wompi`, `mercadopago`
 
 ### `POST /api/v1/webhooks/:gateway`
@@ -258,6 +258,26 @@ Registro de acciones inmutables del sistema.
 Bandeja de alertas del sistema (Bajo Stock, Cierre con Descuadre, Error DIAN).
 * **Permisos Requeridos:** `alerts:view`
 * **Scope:** Restringe las alertas a las sucursales donde el usuario tiene acceso.
+
+---
+
+## 10. Módulo: Platform (SuperAdmin)
+
+### `GET /api/v1/platform/tenants`
+Lista todos los tenants del sistema con sus estados, planes de suscripción y métricas de uso.
+* **Permisos Requeridos:** `PlatformOwner` o `PlatformAdmin`
+
+### `POST /api/v1/platform/tenants/:id/suspend` / `reactivate`
+Suspende o reactiva un tenant, bloqueando el acceso a todos sus usuarios si está suspendido.
+* **Permisos Requeridos:** `PlatformOwner` o `PlatformAdmin`
+
+### `PATCH /api/v1/platform/tenants/:id/plan`
+Cambia el plan de suscripción de un tenant desde el Backoffice Global.
+* **Permisos Requeridos:** `PlatformOwner` o `PlatformAdmin`
+
+### `GET / POST / PATCH / DELETE /api/v1/platform/tenants/:id/users`
+CRUD completo sobre los usuarios de un tenant específico. Permite al SuperAdmin crear nuevos usuarios, editar los existentes o resetear accesos dentro de la cuenta de un cliente.
+* **Permisos Requeridos:** `PlatformOwner` o `PlatformAdmin`
 
 ---
 

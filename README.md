@@ -22,8 +22,9 @@ Este proyecto está construido como un monorepo administrado con `pnpm` workspac
 ## 🚀 Capacidades
 
 ### Core Operativo & SaaS
-- **SaaS Billing & Subscriptions:** Control de planes prepago, integración con pasarelas de pago (Wompi, MercadoPago) vía webhooks y suspensión automática.
-- **Multi-Tenant & Roles Granulares:** Cada negocio opera aislado lógicamente (PostgreSQL RLS). Roles: `ADMIN`, `MANAGER`, `CASHIER`, `AUDITOR`.
+- **SuperAdmin Control Center:** Gestión transversal de todos los Tenants, con capacidad del `PLATFORM_OWNER` para suspender/reactivar cuentas, cambiar planes y gestionar el CRUD de usuarios de cualquier Tenant sin salir de la plataforma.
+- **SaaS Billing & Subscriptions:** Control de planes prepago, integración con pasarelas de pago (Wompi, MercadoPago) vía webhooks y suspensión automática. Auto-gestión habilitada para roles `ADMIN`.
+- **Multi-Tenant & Roles Granulares:** Cada negocio opera aislado lógicamente (PostgreSQL RLS). Roles: `PLATFORM_OWNER`, `PLATFORM_ADMIN`, `ADMIN`, `MANAGER`, `CASHIER`, `AUDITOR`.
 - **Fuerte Consistencia de Inventario:** Mix de *Optimistic Locking* (para ajustes manuales) y *Pessimistic Locking* (para ventas de alta frecuencia) garantizando que no haya sobreventas.
 - **Carga Masiva Enterprise:** Importación asíncrona de hasta 50k productos usando `BullMQ`, procesamiento en batch multipart y feedback en vivo.
 - **Control de Efectivo Avanzado:** Apertura/cierre de caja, arqueos intermedios (ciegos para cajeros), cierres Z y reportes por turno.

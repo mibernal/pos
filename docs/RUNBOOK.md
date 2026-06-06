@@ -117,6 +117,14 @@ VITE_API_URL=http://localhost:3000/api/v1
 
 ## Demo Operativa
 
+### Operación Platform / SuperAdmin
+
+1. Entrar como `PLATFORM_OWNER` (`superadmin@demo.posdian.local`).
+2. Ir a **Platform** (Dashboard de SuperAdmin).
+3. En la lista de Tenants, haz clic en **View** para abrir el *Tenant Detail Drawer*.
+4. **Configuración de Cuenta:** Usa el Drawer para suspender la cuenta temporalmente, reactivarla o cambiar su plan de suscripción (`STARTER`, `PRO`, `ENTERPRISE`).
+5. **Gestión de Usuarios (Pestaña USERS):** Visualiza los usuarios de ese tenant. Como SuperAdmin, puedes añadir usuarios nuevos o editar contraseñas en nombre del cliente si éste pierde el acceso.
+
 ### Configuración Inicial (ADMIN)
 
 1. Entrar como `ADMIN`.

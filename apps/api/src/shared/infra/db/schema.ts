@@ -576,8 +576,30 @@ export interface TenantSubscriptionsTable {
   status: string;
   current_period_start: Date;
   current_period_end: Date;
+  starts_at: Date | null;
+  expires_at: Date | null;
+  trial_ends_at: Date | null;
   created_at: Generated<Date>;
   updated_at: Generated<Date>;
+}
+
+export interface PlatformEventsTable {
+  id: Generated<string>;
+  tenant_id: string | null;
+  type: string;
+  severity: Generated<string>;
+  actor_id: string | null;
+  actor_email: string | null;
+  metadata: JsonColumn;
+  created_at: Generated<Date>;
+}
+
+export interface SubscriptionEventsTable {
+  id: Generated<string>;
+  subscription_id: string;
+  type: string;
+  metadata: JsonColumn;
+  created_at: Generated<Date>;
 }
 
 export interface PaymentTransactionsTable {
@@ -669,4 +691,6 @@ export interface Database {
   payment_transactions: PaymentTransactionsTable;
   bulk_import_jobs: BulkImportJobsTable;
   idempotency_records: IdempotencyRecordsTable;
+  platform_events: PlatformEventsTable;
+  subscription_events: SubscriptionEventsTable;
 }

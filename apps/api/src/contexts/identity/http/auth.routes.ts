@@ -392,6 +392,137 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
   );
 
   typedApp.post(
+    '/auth/impersonate/exchange',
+    {
+      schema: {
+        tags: ['auth'],
+        body: z.object({ session_id: z.string() })
+      }
+    },
+    async (request, reply) => {
+      const { session_id } = request.body;
+
+      const session = await app.db.selectFrom('impersonation_sessions')
+        .where('id', '=', session_id)
+        .where('expires_at', '>', new Date())
+        .selectAll()
+        .executeTakeFirst();
+
+      if (!session) {
+        throw new AppError(401, 'AUTH_UNAUTHORIZED', 'Sesión de suplantación inválida o expirada');
+      }
+
+      const user = await app.db
+        .selectFrom('users')
+        .leftJoin('tenants', 'tenants.id', 'users.tenant_id')
+        .select([
+          'users.id as id',
+          'users.tenant_id as tenant_id',
+          'tenants.tax_mode as tax_mode',
+          'tenants.status as tenant_status',
+          'tenants.plan as tenant_plan',
+          'users.email as email',
+          'users.name as name',
+          'users.role as role',
+          'users.active as active'
+        ])
+        .where('users.id', '=', session.target_user_id)
+        .where('users.active', '=', true)
+        .executeTakeFirst();
+
+      if (!user) {
+        throw new AppError(403, 'AUTH_FORBIDDEN', 'El usuario objetivo no está disponible');
+      }
+
+      const refreshTokenRaw = randomBytes(32).toString('hex');
+      const refreshTokenHash = createHash('sha256').update(refreshTokenRaw).digest('hex');
+
+      const match = env.REFRESH_TOKEN_EXPIRES_IN.match(/^(\d+)([dhms])$/);
+      let expMs = 7 * 24 * 60 * 60 * 1000;
+      if (match) {
+        const val = parseInt(match[1]!, 10);
+        if (match[2] === 'd') expMs = val * 24 * 60 * 60 * 1000;
+        if (match[2] === 'h') expMs = val * 60 * 60 * 1000;
+        if (match[2] === 'm') expMs = val * 60 * 1000;
+      }
+      const expiresAt = new Date(Date.now() + expMs);
+
+      await app.db.insertInto('refresh_tokens').values({
+        id: randomUUID(),
+        tenant_id: user.tenant_id,
+        user_id: user.id,
+        token_hash: refreshTokenHash,
+        expires_at: expiresAt,
+        created_at: new Date(),
+        revoked_at: null
+      }).execute();
+
+      reply.setCookie('pos_refresh_token', refreshTokenRaw, {
+        path: '/',
+        httpOnly: true,
+        secure: env.NODE_ENV === 'production',
+        sameSite: 'lax',
+        maxAge: expMs / 1000
+      });
+
+      let branchIds: string[] = [];
+      if (user.tenant_id) {
+          const userBranches = await app.db
+            .selectFrom('user_branches')
+            .select('branch_id')
+            .where('user_id', '=', user.id)
+            .where('tenant_id', '=', user.tenant_id)
+            .execute();
+          branchIds = userBranches.map(b => b.branch_id);
+      }
+
+      const permissions = getPermissionsForRole(user.role);
+      const isPlatformRole = user.role === 'PLATFORM_OWNER';
+
+      const claims = {
+        sub: user.id,
+        userId: user.id,
+        tenantId: user.tenant_id,
+        tenantPlan: user.tenant_plan,
+        role: user.role,
+        email: user.email,
+        name: user.name,
+        branchIds,
+        permissions,
+        isPlatformRole,
+        isImpersonating: true
+      };
+
+      const accessToken = await app.jwt.sign(claims, { expiresIn: env.JWT_EXPIRES_IN });
+
+      // Invalidate the impersonation session so it can't be used again
+      await app.db.updateTable('impersonation_sessions')
+        .set({ expires_at: new Date() })
+        .where('id', '=', session_id)
+        .execute();
+
+      return {
+        accessToken,
+        tokenType: 'Bearer' as const,
+        expiresIn: env.JWT_EXPIRES_IN,
+        user: {
+          id: user.id,
+          tenantId: user.tenant_id,
+          tenantPlan: user.tenant_plan,
+          taxMode: user.tax_mode,
+          role: user.role,
+          email: user.email,
+          name: user.name,
+          active: user.active,
+          branchIds,
+          permissions,
+          isPlatformRole
+        }
+      };
+    }
+  );
+
+  typedApp.post(
     '/auth/refresh',
     {
       schema: {
