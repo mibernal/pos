@@ -83,6 +83,18 @@ export type CreatePromotion = SharedCreatePromotion;
 export type UpdatePromotion = SharedUpdatePromotion;
 export type ListPromotionsQuery = SharedListPromotionsQuery;
 
+export interface ProductImageItem {
+  id: string;
+  productId: string;
+  filename: string;
+  isPrimary: boolean;
+  width: number | null;
+  height: number | null;
+  sizeBytes: number;
+  url: string;
+  createdAt: string;
+}
+
 export class ApiClientError extends Error {
   readonly status?: number;
   readonly isNetworkError: boolean;
@@ -401,6 +413,38 @@ export function createApiClient({ baseUrl, getSession, setSession, onReauthRequi
         body: JSON.stringify({}),
         branchId
       }),
+      
+    // PRODUCT IMAGES
+    getProductImages: (productId: string) =>
+      requestJson<ProductImageItem[]>(`/products/${productId}/images`),
+    uploadProductImage: (productId: string, file: File) => {
+      const formData = new FormData();
+      formData.append('file', file);
+      const session = getSession();
+      const headers = new Headers();
+      if (session?.accessToken) headers.set('Authorization', `Bearer ${session.accessToken}`);
+      return fetch(`${baseUrl}/products/${productId}/images`, {
+        method: 'POST',
+        body: formData,
+        headers
+      }).then(async res => {
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}));
+          throw new Error(body.message || `Upload failed ${res.status}`);
+        }
+        return res.json() as Promise<{ id: string; url: string; isPrimary: boolean; filename: string }>;
+      });
+    },
+    setProductImagePrimary: (productId: string, imageId: string) =>
+      requestJson<void>(`/products/${productId}/images/${imageId}/primary`, {
+        method: 'PATCH',
+        body: JSON.stringify({})
+      }),
+    deleteProductImage: (productId: string, imageId: string) =>
+      requestJson<void>(`/products/${productId}/images/${imageId}`, {
+        method: 'DELETE'
+      }),
+      
     createSale: (payload: CreateSaleRequest) =>
       requestJson<SharedCreatedSaleResponse>('/sales', {
         method: 'POST',

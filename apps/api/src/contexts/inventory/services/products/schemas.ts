@@ -32,3 +32,12 @@ export type BranchHeaders = z.infer<typeof branchHeaderSchema>;
 export type ProductsQueryInput = z.infer<typeof productsQuerySchema>;
 export type CreateProductInput = z.infer<typeof createProductBodySchema>;
 export type PatchProductInput = z.infer<typeof patchProductBodySchema>;
+
+export const productImageParamsSchema = z.object({
+  id: z.string().uuid(),
+  imageId: z.string().uuid()
+});
+
+export const getProductImageParamsSchema = z.object({
+  imageId: z.string().uuid()
+});

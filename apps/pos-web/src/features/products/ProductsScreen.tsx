@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useState, type FormEvent, useRef } from 'react';
 import { Banner, PlaceholderImage } from '../../components/ui';
 import { formatMoneyFromCents, pesosToCents, centsToPesos } from '../../lib/format';
 import type { ProductItem } from '../../lib/api';
 import type { PosApiClient } from '../../types';
+import type { ProductImageItem } from '../../lib/api/client';
 import { PermissionGuard, useSession } from '../auth';
 import {
   getProductTaxCategoryLabel,
@@ -29,8 +30,12 @@ export function ProductsScreen({
   const [taxCategory, setTaxCategory] = useState<ProductTaxCategoryOption>('IVA_19');
   const [barcode, setBarcode] = useState('');
   const [pricePesos, setPricePesos] = useState(1000);
-  const [imageUrl, setImageUrl] = useState('');
   const [description, setDescription] = useState('');
+
+  // Image Management State
+  const [images, setImages] = useState<ProductImageItem[]>([]);
+  const [loadingImages, setLoadingImages] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const isAdmin = role === 'ADMIN' || role === 'TENANT_OWNER';
   const [showForm, setShowForm] = useState(false);
@@ -68,21 +73,20 @@ export function ProductsScreen({
     setTaxCategory('IVA_19');
     setBarcode('');
     setPricePesos(1000);
-    setImageUrl('');
     setDescription('');
+    setImages([]);
     setShowForm(false);
   }
 
   async function handleSaveProduct(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!isAdmin) {
-      return;
-    }
+    if (!isAdmin) return;
 
     setError(null);
     setMessage(null);
 
     try {
+      let currentEditingId = editingId;
       if (editingId) {
         await api.patchProduct(
           editingId,
@@ -92,14 +96,13 @@ export function ProductsScreen({
             taxCategory,
             barcode: barcode.trim() ? barcode : null,
             price_cents: pesosToCents(pricePesos),
-            imageUrl: imageUrl.trim() ? imageUrl : null,
             description: description.trim() ? description : null
           },
           branchId
         );
         setMessage('Producto actualizado');
       } else {
-        await api.createProduct(
+        const newProduct = await api.createProduct(
           {
             branchId,
             name,
@@ -108,12 +111,16 @@ export function ProductsScreen({
             barcode: barcode.trim() ? barcode : null,
             price_cents: pesosToCents(pricePesos),
             active: true,
-            imageUrl: imageUrl.trim() ? imageUrl : null,
             description: description.trim() ? description : null
           },
           branchId
         );
+        currentEditingId = newProduct.id;
         setMessage('Producto creado');
+        // Stay on form to upload images if needed
+        setEditingId(currentEditingId);
+        await loadProducts();
+        return; // Don't reset if they just created it, allow adding images
       }
 
       resetForm();
@@ -123,22 +130,33 @@ export function ProductsScreen({
     }
   }
 
-  function startEdit(product: ProductItem) {
+  async function loadProductImages(productId: string) {
+    setLoadingImages(true);
+    try {
+      const data = await api.getProductImages(productId);
+      setImages(data);
+    } catch (err) {
+      console.error(err);
+      setError('No se pudieron cargar las imágenes');
+    } finally {
+      setLoadingImages(false);
+    }
+  }
+
+  async function startEdit(product: ProductItem) {
     setEditingId(product.id);
     setName(product.name);
     setCategory(product.category);
     setTaxCategory(product.taxCategory);
     setBarcode(product.barcode ?? '');
     setPricePesos(centsToPesos(product.price_cents));
-    setImageUrl(product.imageUrl ?? '');
     setDescription(product.description ?? '');
     setShowForm(true);
+    await loadProductImages(product.id);
   }
 
   async function handleToggleActive(productId: string) {
-    if (!isAdmin) {
-      return;
-    }
+    if (!isAdmin) return;
 
     setError(null);
     setMessage(null);
@@ -148,9 +166,57 @@ export function ProductsScreen({
       setMessage('Estado del producto actualizado');
       await loadProducts();
     } catch (toggleError) {
-      setError(
-        toggleError instanceof Error ? toggleError.message : 'No fue posible cambiar el estado'
-      );
+      setError(toggleError instanceof Error ? toggleError.message : 'No fue posible cambiar el estado');
+    }
+  }
+
+  // --- Image Handlers ---
+
+  async function handleImageUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    if (!editingId || !e.target.files || e.target.files.length === 0) return;
+    
+    setLoadingImages(true);
+    try {
+      const file = e.target.files[0];
+      await api.uploadProductImage(editingId, file);
+      await loadProductImages(editingId);
+      await loadProducts(); // Refresh list to update primary image in catalog
+    } catch (err: any) {
+      setError(err.message || 'Error subiendo imagen');
+    } finally {
+      setLoadingImages(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  }
+
+  async function handleDeleteImage(imageId: string) {
+    if (!editingId) return;
+    if (!confirm('¿Seguro que deseas eliminar esta imagen?')) return;
+
+    setLoadingImages(true);
+    try {
+      await api.deleteProductImage(editingId, imageId);
+      await loadProductImages(editingId);
+      await loadProducts();
+    } catch (err: any) {
+      setError(err.message || 'Error eliminando imagen');
+    } finally {
+      setLoadingImages(false);
+    }
+  }
+
+  async function handleSetPrimaryImage(imageId: string) {
+    if (!editingId) return;
+
+    setLoadingImages(true);
+    try {
+      await api.setProductImagePrimary(editingId, imageId);
+      await loadProductImages(editingId);
+      await loadProducts();
+    } catch (err: any) {
+      setError(err.message || 'Error actualizando imagen principal');
+    } finally {
+      setLoadingImages(false);
     }
   }
 
@@ -170,7 +236,6 @@ export function ProductsScreen({
               >
                 <span className="mr-2">🔄</span> Sincronizar
               </button>
-              {/* Mobile toggle button */}
               <button
                 type="button"
                 className="lg:hidden inline-flex items-center justify-center h-9 px-4 rounded-md text-sm font-medium bg-primary text-primary-foreground shadow-sm"
@@ -228,7 +293,7 @@ export function ProductsScreen({
                 <div key={product.id} className="bg-card border border-border rounded-xl p-4 sm:p-5 shadow-sm hover:shadow-md transition-all duration-200 flex flex-col sm:flex-row gap-4 sm:gap-5">
                   <div className="w-16 h-16 sm:w-24 sm:h-24 rounded-xl overflow-hidden border border-border bg-muted flex-shrink-0">
                     {product.imageUrl ? (
-                      <img src={product.imageUrl} alt={product.name} className="w-full h-full object-cover" />
+                      <img src={product.imageUrl} loading="lazy" alt={product.name} className="w-full h-full object-cover" />
                     ) : (
                       <PlaceholderImage name={product.name} category={product.category} size="sm" />
                     )}
@@ -309,16 +374,16 @@ export function ProductsScreen({
         />
       )}
 
-      <aside className={`fixed inset-y-0 right-0 z-50 w-full sm:w-[400px] bg-card border-l border-border shadow-2xl transform transition-transform duration-300 ease-in-out lg:relative lg:transform-none lg:w-96 flex flex-col h-full ${showForm ? 'translate-x-0' : 'translate-x-full lg:hidden'}`}>
+      <aside className={`fixed inset-y-0 right-0 z-50 w-full sm:w-[450px] bg-card border-l border-border shadow-2xl transform transition-transform duration-300 ease-in-out lg:relative lg:transform-none lg:w-[450px] flex flex-col h-full ${showForm ? 'translate-x-0' : 'translate-x-full lg:hidden'}`}>
         <header className="flex-shrink-0 px-6 py-4 border-b border-border bg-muted/30 flex items-center justify-between sticky top-0 z-10">
           <div>
             <h3 className="text-lg font-bold text-foreground">{editingId ? 'Editar Producto' : 'Nuevo Producto'}</h3>
-            <p className="text-xs text-muted-foreground mt-0.5">{editingId ? 'Modifica los detalles' : 'Ingresa los datos del artículo'}</p>
+            <p className="text-xs text-muted-foreground mt-0.5">{editingId ? 'Modifica los detalles e imágenes' : 'Ingresa los datos del artículo'}</p>
           </div>
           <button
             type="button"
-            className="lg:hidden p-2 text-muted-foreground hover:text-foreground hover:bg-muted rounded-md transition-colors"
-            onClick={() => setShowForm(false)}
+            className="p-2 text-muted-foreground hover:text-foreground hover:bg-muted rounded-md transition-colors"
+            onClick={resetForm}
           >
             <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" /></svg>
           </button>
@@ -347,86 +412,60 @@ export function ProductsScreen({
                 />
               </div>
 
-              <div className="flex flex-col gap-1.5">
-                <label className="text-sm font-semibold text-foreground">Categoría</label>
-                <input 
-                  placeholder="Ej. Bebidas, Granos..." 
-                  value={category} 
-                  onChange={(event) => setCategory(event.target.value)} 
-                  required 
-                  className="h-10 px-3 rounded-md border border-input bg-background text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                />
-              </div>
-
-              <div className="flex flex-col gap-1.5">
-                <label className="text-sm font-semibold text-foreground">Categoría Fiscal (Impuesto)</label>
-                <select
-                  value={taxCategory}
-                  onChange={(event) => setTaxCategory(event.target.value as ProductTaxCategoryOption)}
-                  required
-                  className="h-10 px-3 rounded-md border border-input bg-background text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                >
-                  {PRODUCT_TAX_CATEGORY_OPTIONS.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div className="flex flex-col gap-1.5">
-                <label className="text-sm font-semibold text-foreground">Código de Barras</label>
-                <input 
-                  placeholder="Opcional" 
-                  value={barcode} 
-                  onChange={(event) => setBarcode(event.target.value)} 
-                  className="h-10 px-3 rounded-md border border-input bg-background text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring font-mono"
-                />
-              </div>
-
-              <div className="flex flex-col gap-1.5">
-                <label className="text-sm font-semibold text-foreground">Precio Unitario</label>
-                <div className="relative">
-                  <input
-                    type="number"
-                    min={0}
-                    step={100}
-                    placeholder="1000"
-                    value={pricePesos}
-                    onChange={(event) => setPricePesos(Number(event.target.value))}
-                    required
-                    className="w-full h-10 pl-3 pr-12 rounded-md border border-input bg-background text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                  />
-                  <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-bold text-muted-foreground pointer-events-none">COP</span>
-                </div>
-              </div>
-
-              <div className="flex flex-col gap-1.5">
-                <label className="text-sm font-semibold text-foreground">URL de Imagen</label>
-                <div className="flex flex-col gap-2">
+              <div className="grid grid-cols-2 gap-4">
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-sm font-semibold text-foreground">Categoría</label>
                   <input 
-                    type="url"
-                    placeholder="https://ejemplo.com/imagen.jpg" 
-                    value={imageUrl} 
-                    onChange={(event) => setImageUrl(event.target.value)} 
+                    placeholder="Ej. Bebidas..." 
+                    value={category} 
+                    onChange={(event) => setCategory(event.target.value)} 
+                    required 
                     className="h-10 px-3 rounded-md border border-input bg-background text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                   />
-                  <p className="text-[11px] text-muted-foreground">Pega aquí el enlace (URL) de la imagen del producto.</p>
                 </div>
-                {imageUrl.trim() && (
-                  <div className="mt-3 w-full h-40 rounded-lg border border-border overflow-hidden bg-muted flex items-center justify-center relative group shadow-inner">
-                    <img
-                      src={imageUrl}
-                      alt="Vista previa"
-                      className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
-                      onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
-                      onLoad={(e) => { (e.target as HTMLImageElement).style.display = 'block'; }}
+
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-sm font-semibold text-foreground">Impuesto</label>
+                  <select
+                    value={taxCategory}
+                    onChange={(event) => setTaxCategory(event.target.value as ProductTaxCategoryOption)}
+                    required
+                    className="h-10 px-3 rounded-md border border-input bg-background text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  >
+                    {PRODUCT_TAX_CATEGORY_OPTIONS.map((option) => (
+                      <option key={option.value} value={option.value}>{option.label}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-sm font-semibold text-foreground">Código de Barras</label>
+                  <input 
+                    placeholder="Opcional" 
+                    value={barcode} 
+                    onChange={(event) => setBarcode(event.target.value)} 
+                    className="h-10 px-3 rounded-md border border-input bg-background text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring font-mono"
+                  />
+                </div>
+
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-sm font-semibold text-foreground">Precio Unitario</label>
+                  <div className="relative">
+                    <input
+                      type="number"
+                      min={0}
+                      step={100}
+                      placeholder="1000"
+                      value={pricePesos}
+                      onChange={(event) => setPricePesos(Number(event.target.value))}
+                      required
+                      className="w-full h-10 pl-3 pr-12 rounded-md border border-input bg-background text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                     />
-                    <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                      <span className="text-white text-xs font-semibold bg-black/60 px-2 py-1 rounded">Vista previa</span>
-                    </div>
+                    <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-bold text-muted-foreground pointer-events-none">COP</span>
                   </div>
-                )}
+                </div>
               </div>
 
               <div className="flex flex-col gap-1.5">
@@ -435,10 +474,83 @@ export function ProductsScreen({
                   placeholder="Detalles adicionales del producto..." 
                   value={description} 
                   onChange={(event) => setDescription(event.target.value)}
-                  rows={4}
+                  rows={3}
                   className="w-full p-3 rounded-md border border-input bg-background text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring resize-y"
                 />
               </div>
+
+              {/* IMAGES SECTION */}
+              {editingId ? (
+                <div className="flex flex-col gap-3 pt-4 border-t border-border">
+                  <div className="flex items-center justify-between">
+                    <label className="text-sm font-semibold text-foreground">Galería de Imágenes</label>
+                    <button
+                      type="button"
+                      onClick={() => fileInputRef.current?.click()}
+                      disabled={loadingImages}
+                      className="text-xs font-medium bg-primary text-primary-foreground px-2 py-1 rounded hover:bg-primary/90 disabled:opacity-50"
+                    >
+                      + Agregar Imagen
+                    </button>
+                    <input 
+                      type="file" 
+                      ref={fileInputRef}
+                      className="hidden" 
+                      accept="image/jpeg,image/png,image/webp" 
+                      onChange={handleImageUpload}
+                    />
+                  </div>
+
+                  {loadingImages ? (
+                    <div className="text-xs text-muted-foreground text-center py-4">Actualizando imágenes...</div>
+                  ) : images.length > 0 ? (
+                    <div className="grid grid-cols-2 gap-3 mt-1">
+                      {images.map(img => (
+                        <div key={img.id} className={`relative group rounded-lg overflow-hidden border-2 transition-colors ${img.isPrimary ? 'border-primary' : 'border-border'}`}>
+                          <div className="aspect-square bg-muted">
+                            <img src={img.url} alt="Producto" loading="lazy" className="w-full h-full object-cover" />
+                          </div>
+                          
+                          <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center gap-2 p-2">
+                            {!img.isPrimary && (
+                              <button
+                                type="button"
+                                onClick={() => handleSetPrimaryImage(img.id)}
+                                className="w-full text-xs font-medium text-white bg-primary/80 hover:bg-primary rounded py-1"
+                              >
+                                Hacer Principal
+                              </button>
+                            )}
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteImage(img.id)}
+                              className="w-full text-xs font-medium text-white bg-destructive/80 hover:bg-destructive rounded py-1"
+                            >
+                              Eliminar
+                            </button>
+                          </div>
+                          
+                          {img.isPrimary && (
+                            <span className="absolute top-1 right-1 bg-primary text-primary-foreground text-[9px] font-bold px-1.5 py-0.5 rounded uppercase tracking-wider">
+                              Principal
+                            </span>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="text-xs text-muted-foreground text-center py-6 border border-dashed border-border rounded-lg bg-muted/20">
+                      Aún no hay imágenes.
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div className="pt-4 border-t border-border">
+                  <div className="text-xs text-muted-foreground text-center py-4 border border-dashed border-border rounded-lg bg-muted/20">
+                    Crea el producto primero para poder subir imágenes.
+                  </div>
+                </div>
+              )}
 
               <div className="flex flex-col gap-3 mt-4 pt-4 border-t border-border">
                 <button 
@@ -447,15 +559,6 @@ export function ProductsScreen({
                 >
                   {editingId ? 'Guardar Cambios' : 'Crear Producto'}
                 </button>
-                {editingId && (
-                  <button 
-                    type="button" 
-                    onClick={resetForm}
-                    className="w-full h-10 px-4 inline-flex items-center justify-center rounded-md text-sm font-medium border border-border bg-background hover:bg-muted text-foreground transition-colors"
-                  >
-                    Cancelar Edición
-                  </button>
-                )}
               </div>
             </form>
           </div>

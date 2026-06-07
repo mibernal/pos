@@ -134,6 +134,22 @@ export interface ProductVariantsTable {
   updated_at: Generated<Date>;
 }
 
+export interface ProductImagesTable {
+  id: string;
+  tenant_id: string;
+  product_id: string;
+  storage_provider: string;
+  storage_key: string;
+  filename: string;
+  mime_type: string;
+  size_bytes: string; // bigint comes as string in pg
+  width: number | null;
+  height: number | null;
+  is_primary: Generated<boolean>;
+  created_at: Generated<Date>;
+  updated_at: Generated<Date>;
+}
+
 export interface PromotionsTable {
   id: string;
   tenant_id: string;
@@ -693,4 +709,5 @@ export interface Database {
   idempotency_records: IdempotencyRecordsTable;
   platform_events: PlatformEventsTable;
   subscription_events: SubscriptionEventsTable;
+  product_images: ProductImagesTable;
 }

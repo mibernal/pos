@@ -17,8 +17,15 @@ import {
   resolveBranchIdForCreate,
   resolveBranchIdForPatch
 } from '../services/products/scope.js';
+import {
+  processAndUploadProductImage,
+  deleteProductImage,
+  setPrimaryProductImage,
+  getProductImageStream
+} from '../services/products/images.service.js';
 import { writeAuditLog } from '../../../shared/domain/audit/write-audit-log.js';
 import { ensureUserCanAccessBranch } from '../../../shared/infra/security/permissions.js';
+import { productImageParamsSchema, getProductImageParamsSchema } from '../services/products/schemas.js';
 
 async function ensureBranchBelongsToTenant(
   db: FastifyInstance['db'],
@@ -63,22 +70,28 @@ export const productsRoutes: FastifyPluginAsync = async (app) => {
 
       let queryBuilder = app.db
         .selectFrom('products')
+        .leftJoin('product_images', (join) =>
+          join
+            .onRef('product_images.product_id', '=', 'products.id')
+            .on('product_images.is_primary', '=', true)
+        )
         .select([
-          'id',
-          'tenant_id',
-          'branch_id',
-          'name',
-          'category',
-          'tax_category',
-          'barcode',
-          'price_cents',
-          'active',
-          'image_url',
-          'description',
-          'created_at',
-          'updated_at'
+          'products.id',
+          'products.tenant_id',
+          'products.branch_id',
+          'products.name',
+          'products.category',
+          'products.tax_category',
+          'products.barcode',
+          'products.price_cents',
+          'products.active',
+          'products.image_url',
+          'products.description',
+          'products.created_at',
+          'products.updated_at',
+          'product_images.id as primary_image_id'
         ])
-        .where('tenant_id', '=', request.auth.tenantId);
+        .where('products.tenant_id', '=', request.auth.tenantId);
 
       if (branchId) {
         queryBuilder = queryBuilder.where(
@@ -92,7 +105,7 @@ export const productsRoutes: FastifyPluginAsync = async (app) => {
         );
       }
 
-      const rows = await queryBuilder.orderBy('name', 'asc').orderBy('id', 'asc').limit(limit + 1).execute();
+      const rows = await queryBuilder.orderBy('products.name', 'asc').orderBy('products.id', 'asc').limit(limit + 1).execute();
 
       const hasMore = rows.length > limit;
       const productRows = rows.slice(0, limit);
@@ -154,7 +167,7 @@ export const productsRoutes: FastifyPluginAsync = async (app) => {
         barcode: row.barcode,
         price_cents: row.price_cents,
         active: row.active,
-        imageUrl: row.image_url,
+        imageUrl: row.primary_image_id ? `/api/v1/products/images/${row.primary_image_id}` : row.image_url,
         description: row.description,
         variants: variantsByProductId[row.id] || [],
         promotion: promotionsByProductId[row.id] || null,
@@ -196,7 +209,7 @@ export const productsRoutes: FastifyPluginAsync = async (app) => {
       const resolvedBranchId = resolveBranchIdForCreate(branchIdFromHeader, payload.branchId);
 
       if (resolvedBranchId) {
-        await ensureBranchBelongsToTenant(app.db, request.auth.tenantId, resolvedBranchId);
+        await ensureBranchBelongsToTenant(app.db, request.auth.tenantId!, resolvedBranchId);
         ensureUserCanAccessBranch(request.auth, resolvedBranchId);
       }
 
@@ -204,7 +217,7 @@ export const productsRoutes: FastifyPluginAsync = async (app) => {
         .insertInto('products')
         .values({
           id: randomUUID(),
-          tenant_id: request.auth.tenantId,
+          tenant_id: request.auth.tenantId!,
           branch_id: resolvedBranchId,
           name: payload.name,
           category: payload.category,
@@ -313,7 +326,7 @@ export const productsRoutes: FastifyPluginAsync = async (app) => {
         );
 
         if (resolvedBranchId) {
-          await ensureBranchBelongsToTenant(trx, request.auth!.tenantId, resolvedBranchId);
+          await ensureBranchBelongsToTenant(trx, request.auth!.tenantId!, resolvedBranchId);
           ensureUserCanAccessBranch(request.auth, resolvedBranchId);
         }
 
@@ -349,7 +362,7 @@ export const productsRoutes: FastifyPluginAsync = async (app) => {
           .executeTakeFirstOrThrow();
 
         await writeAuditLog(trx, {
-          tenantId: request.auth!.tenantId,
+          tenantId: request.auth!.tenantId!,
           branchId: nextProduct.branch_id,
           userId: request.auth!.userId,
           entityType: 'PRODUCT',
@@ -382,7 +395,7 @@ export const productsRoutes: FastifyPluginAsync = async (app) => {
 
         if (currentProduct.tax_category !== nextProduct.tax_category) {
           await writeAuditLog(trx, {
-            tenantId: request.auth!.tenantId,
+            tenantId: request.auth!.tenantId!,
             branchId: nextProduct.branch_id,
             userId: request.auth!.userId,
             entityType: 'PRODUCT',
@@ -490,6 +503,168 @@ export const productsRoutes: FastifyPluginAsync = async (app) => {
         createdAt: updatedProduct.created_at.toISOString(),
         updatedAt: updatedProduct.updated_at.toISOString()
       };
+    }
+  );
+
+  // === IMAGE ENDPOINTS ===
+
+  typedApp.get(
+    '/products/:id/images',
+    {
+      preHandler: [app.requirePermissions(['products:view'])],
+      schema: {
+        tags: ['products', 'images'],
+        security: [{ bearerAuth: [] }],
+        params: patchProductParamsSchema
+      }
+    },
+    async (request) => {
+      if (!request.auth) throw new AppError(401, 'AUTH_UNAUTHORIZED', 'No autorizado');
+
+      const images = await app.db
+        .selectFrom('product_images')
+        .select(['id', 'product_id', 'filename', 'is_primary', 'created_at', 'width', 'height', 'size_bytes'])
+        .where('tenant_id', '=', request.auth.tenantId)
+        .where('product_id', '=', request.params.id)
+        .orderBy('is_primary', 'desc')
+        .orderBy('created_at', 'asc')
+        .execute();
+
+      return images.map(img => ({
+        id: img.id,
+        productId: img.product_id,
+        filename: img.filename,
+        isPrimary: img.is_primary,
+        width: img.width,
+        height: img.height,
+        sizeBytes: parseInt(img.size_bytes, 10),
+        url: `/api/v1/products/images/${img.id}`,
+        createdAt: img.created_at.toISOString()
+      }));
+    }
+  );
+
+  typedApp.post(
+    '/products/:id/images',
+    {
+      preHandler: [app.requirePermissions(['products:manage'])],
+      schema: {
+        tags: ['products', 'images'],
+        security: [{ bearerAuth: [] }],
+        params: patchProductParamsSchema
+      }
+    },
+    async (request, reply) => {
+      if (!request.auth) throw new AppError(401, 'AUTH_UNAUTHORIZED', 'No autorizado');
+
+      const data = await request.file();
+      if (!data) {
+        throw new AppError(400, 'BAD_REQUEST', 'No se subió ningún archivo');
+      }
+
+      const buffer = await data.toBuffer();
+      const image = await processAndUploadProductImage(
+        app.db,
+        request.auth.tenantId!,
+        request.params.id,
+        request.auth.userId,
+        buffer,
+        data.filename
+      );
+
+      return reply.code(201).send({
+        id: image.id,
+        productId: image.product_id,
+        filename: image.filename,
+        isPrimary: image.is_primary,
+        url: `/api/v1/products/images/${image.id}`
+      });
+    }
+  );
+
+  // Notice we don't require authorization to view the image if they know the ID, 
+  // but we enforce tenant_id implicitly via the auth if they are logged in.
+  // Wait, the client's <img src="..."> usually doesn't have the Bearer token.
+  // We can either rely on cookies, or allow public read if they have the UUID (unguessable).
+  // I will make it public, but they need to know the UUID. Actually, better yet, no auth required for GET /images/:imageId.
+  typedApp.get(
+    '/products/images/:imageId',
+    {
+      schema: {
+        tags: ['products', 'images'],
+        params: getProductImageParamsSchema
+      }
+    },
+    async (request, reply) => {
+      // Find the image to ensure it exists and get tenant ID
+      const image = await app.db
+        .selectFrom('product_images')
+        .select(['tenant_id'])
+        .where('id', '=', request.params.imageId)
+        .executeTakeFirst();
+        
+      if (!image) throw new AppError(404, 'IMAGE_NOT_FOUND', 'Imagen no encontrada');
+
+      const { stream, mimeType, sizeBytes } = await getProductImageStream(
+        app.db,
+        image.tenant_id,
+        request.params.imageId
+      );
+
+      reply.header('Content-Type', mimeType);
+      reply.header('Content-Length', sizeBytes);
+      reply.header('Cache-Control', 'public, max-age=31536000, immutable');
+      return reply.send(stream);
+    }
+  );
+
+  typedApp.delete(
+    '/products/:id/images/:imageId',
+    {
+      preHandler: [app.requirePermissions(['products:manage'])],
+      schema: {
+        tags: ['products', 'images'],
+        security: [{ bearerAuth: [] }],
+        params: productImageParamsSchema
+      }
+    },
+    async (request, reply) => {
+      if (!request.auth) throw new AppError(401, 'AUTH_UNAUTHORIZED', 'No autorizado');
+
+      await deleteProductImage(
+        app.db,
+        request.auth.tenantId!,
+        request.params.id,
+        request.params.imageId,
+        request.auth.userId
+      );
+
+      return reply.code(204).send();
+    }
+  );
+
+  typedApp.patch(
+    '/products/:id/images/:imageId/primary',
+    {
+      preHandler: [app.requirePermissions(['products:manage'])],
+      schema: {
+        tags: ['products', 'images'],
+        security: [{ bearerAuth: [] }],
+        params: productImageParamsSchema
+      }
+    },
+    async (request, reply) => {
+      if (!request.auth) throw new AppError(401, 'AUTH_UNAUTHORIZED', 'No autorizado');
+
+      await setPrimaryProductImage(
+        app.db,
+        request.auth.tenantId!,
+        request.params.id,
+        request.params.imageId,
+        request.auth.userId
+      );
+
+      return reply.code(204).send();
     }
   );
 };
