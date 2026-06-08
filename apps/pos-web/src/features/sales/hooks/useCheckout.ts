@@ -89,7 +89,7 @@ export function useCheckout({
           setSaleMessage(
             'Venta guardada como pendiente por falta de conexión. Sincroniza cuando vuelva internet.'
           );
-        } catch (queueError) {
+        } catch (queueError) { // eslint-disable-line @typescript-eslint/no-unused-vars
           setSaleError('Error al guardar la venta como pendiente localmente. Por favor, revisa el almacenamiento.');
         }
       } else {

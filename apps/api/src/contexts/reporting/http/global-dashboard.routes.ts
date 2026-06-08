@@ -29,7 +29,7 @@ export const globalDashboardRoutes: FastifyPluginAsync = async (app) => {
       let todaySalesQuery = app.db
         .selectFrom('daily_branch_sales_rollup')
         .where('tenant_id', '=', tenantId)
-        .where('date', '=', todayStr as any);
+        .where('date', '=', todayStr as any); // eslint-disable-line @typescript-eslint/no-explicit-any
 
       if (request.auth!.role !== 'ADMIN' && request.auth!.role !== 'TENANT_OWNER' && !request.auth!.isPlatformRole) {
         todaySalesQuery = todaySalesQuery.where('branch_id', 'in', request.auth!.branchIds);
@@ -94,7 +94,7 @@ export const globalDashboardRoutes: FastifyPluginAsync = async (app) => {
         .selectFrom('daily_branch_sales_rollup as r')
         .innerJoin('branches as b', 'b.id', 'r.branch_id')
         .where('r.tenant_id', '=', tenantId)
-        .where('r.date', '=', todayStr as any);
+        .where('r.date', '=', todayStr as any); // eslint-disable-line @typescript-eslint/no-explicit-any
 
       if (request.auth!.role !== 'ADMIN' && request.auth!.role !== 'TENANT_OWNER' && !request.auth!.isPlatformRole) {
         topBranchesQuery = topBranchesQuery.where('r.branch_id', 'in', request.auth!.branchIds);
@@ -154,7 +154,7 @@ export const globalDashboardRoutes: FastifyPluginAsync = async (app) => {
           let todaySalesQuery = app.db
             .selectFrom('daily_branch_sales_rollup')
             .where('tenant_id', '=', tenantId)
-            .where('date', '=', todayStr as any);
+            .where('date', '=', todayStr as any); // eslint-disable-line @typescript-eslint/no-explicit-any
 
           if (request.auth!.role !== 'ADMIN' && request.auth!.role !== 'TENANT_OWNER' && !request.auth!.isPlatformRole) {
             todaySalesQuery = todaySalesQuery.where('branch_id', 'in', request.auth!.branchIds);
@@ -219,7 +219,7 @@ export const globalDashboardRoutes: FastifyPluginAsync = async (app) => {
             .selectFrom('daily_branch_sales_rollup as r')
             .innerJoin('branches as b', 'b.id', 'r.branch_id')
             .where('r.tenant_id', '=', tenantId)
-            .where('r.date', '=', todayStr as any);
+            .where('r.date', '=', todayStr as any); // eslint-disable-line @typescript-eslint/no-explicit-any
 
           if (request.auth!.role !== 'ADMIN' && request.auth!.role !== 'TENANT_OWNER' && !request.auth!.isPlatformRole) {
             topBranchesQuery = topBranchesQuery.where('r.branch_id', 'in', request.auth!.branchIds);

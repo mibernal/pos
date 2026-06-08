@@ -43,7 +43,7 @@ export class MercadoPagoGateway implements IPaymentGateway {
       throw new Error(`Error en MercadoPago: ${await response.text()}`);
     }
 
-    const data = await response.json() as any;
+    const data = await response.json() as any; // eslint-disable-line @typescript-eslint/no-explicit-any
     // data.init_point es la URL a redirigir al usuario para pagar (Checkout Pro)
     return { 
       checkoutUrl: data.init_point,
@@ -67,7 +67,7 @@ export class MercadoPagoGateway implements IPaymentGateway {
         if (p.startsWith('v1=')) v1 = p.substring(3);
       }
 
-      const urlParams = new URLSearchParams();
+      const urlParams = new URLSearchParams(); // eslint-disable-line @typescript-eslint/no-unused-vars
       // MercadoPago webhooks usualmente vienen con data.id en el payload de query params
       const payloadObj = JSON.parse(rawBody);
       const dataId = payloadObj?.data?.id || '';
@@ -83,12 +83,12 @@ export class MercadoPagoGateway implements IPaymentGateway {
     }
   }
 
-  parseWebhook(payload: any): PaymentWebhookResult {
+  parseWebhook(payload: any): PaymentWebhookResult { // eslint-disable-line @typescript-eslint/no-explicit-any
     // Nota: MP normalmente envía solo notificaciones del ID de evento.
     // Aquí asumimos que obtenemos el status consultando o parseando un evento directo tipo 'payment'
     // En una implementación real más robusta, el Webhook solo informa ID, y se debe hacer un fetch() a la API de MP para ver el estado real de payment.
-    const action = payload?.action;
-    const type = payload?.type;
+    const action = payload?.action; // eslint-disable-line @typescript-eslint/no-unused-vars
+    const type = payload?.type; // eslint-disable-line @typescript-eslint/no-unused-vars
     
     // Si la arquitectura requiere ir por el payment:
     // (Asumido que para el MVP tomaremos el id y luego el caso de uso tendría que pedir la info real de MP, o que MP lo envíe)

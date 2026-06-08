@@ -1,6 +1,6 @@
 import { Kysely, sql } from 'kysely';
 
-export async function up(db: Kysely<any>): Promise<void> {
+export async function up(db: Kysely<any>): Promise<void> { // eslint-disable-line @typescript-eslint/no-explicit-any
   // Add new columns for the Event Envelope
   await db.schema
     .alterTable('outbox_events')
@@ -24,7 +24,7 @@ export async function up(db: Kysely<any>): Promise<void> {
   `.execute(db);
 }
 
-export async function down(db: Kysely<any>): Promise<void> {
+export async function down(db: Kysely<any>): Promise<void> { // eslint-disable-line @typescript-eslint/no-explicit-any
   await db.schema
     .alterTable('outbox_events')
     .dropColumn('metadata_json')

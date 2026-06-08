@@ -69,7 +69,7 @@ export const adminTenantsRoutes: FastifyPluginAsync = async (app) => {
           'tax_mode',
           'created_at'
         ])
-        .where('id', '=', request.auth.tenantId)
+        .where('id', '=', request.auth!.tenantId!)
         .executeTakeFirst();
 
       if (!tenant) {
@@ -111,7 +111,7 @@ export const adminTenantsRoutes: FastifyPluginAsync = async (app) => {
             'tax_mode',
             'created_at'
           ])
-          .where('id', '=', request.auth!.tenantId)
+          .where('id', '=', request.auth!.tenantId!)
           .forUpdate()
           .executeTakeFirst();
 
@@ -133,7 +133,7 @@ export const adminTenantsRoutes: FastifyPluginAsync = async (app) => {
               ? { footer_message: payload.footerMessage ?? null }
               : {})
           })
-          .where('id', '=', request.auth!.tenantId)
+          .where('id', '=', request.auth!.tenantId!)
           .returning([
             'id',
             'name',
@@ -148,7 +148,7 @@ export const adminTenantsRoutes: FastifyPluginAsync = async (app) => {
           .executeTakeFirstOrThrow();
 
         await writeAuditLog(trx, {
-          tenantId: request.auth!.tenantId as string,
+          tenantId: request.auth!.tenantId! as string,
           userId: request.auth!.userId,
           entityType: 'TENANT',
           entityId: nextTenant.id,
@@ -207,7 +207,7 @@ export const adminTenantsRoutes: FastifyPluginAsync = async (app) => {
         const currentTenant = await trx
           .selectFrom('tenants')
           .select(['id', 'tax_mode'])
-          .where('id', '=', request.auth!.tenantId)
+          .where('id', '=', request.auth!.tenantId!)
           .where('id', '=', params.id)
           .forUpdate()
           .executeTakeFirst();
@@ -221,7 +221,7 @@ export const adminTenantsRoutes: FastifyPluginAsync = async (app) => {
           .set({
             tax_mode: payload.taxMode
           })
-          .where('id', '=', request.auth!.tenantId)
+          .where('id', '=', request.auth!.tenantId!)
           .where('id', '=', params.id)
           .returning([
             'id',
@@ -237,7 +237,7 @@ export const adminTenantsRoutes: FastifyPluginAsync = async (app) => {
           .executeTakeFirstOrThrow();
 
         await writeAuditLog(trx, {
-          tenantId: request.auth!.tenantId as string,
+          tenantId: request.auth!.tenantId! as string,
           userId: request.auth!.userId,
           entityType: 'TENANT',
           entityId: nextTenant.id,

@@ -21,7 +21,7 @@ export function ReauthModal() {
         throw new Error('Credenciales inválidas');
       }
       resolveReauth({ accessToken: response.accessToken, user: response.user });
-    } catch (err: any) {
+    } catch (err: any) { // eslint-disable-line @typescript-eslint/no-explicit-any
       setError(err.message || 'Error de autenticación');
     } finally {
       setLoading(false);

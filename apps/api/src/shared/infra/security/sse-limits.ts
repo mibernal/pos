@@ -32,7 +32,7 @@ export function setupSseStream(request: FastifyRequest, reply: FastifyReply, pin
 
   try {
     registerSseConnection(userId);
-  } catch (err) {
+  } catch (err) { // eslint-disable-line @typescript-eslint/no-unused-vars
     reply.status(429).send({ message: 'Demasiadas conexiones activas.' });
     return null;
   }
@@ -62,7 +62,7 @@ export function setupSseStream(request: FastifyRequest, reply: FastifyReply, pin
 
   return {
     isActive: () => active,
-    writeEvent: (data: any) => {
+    writeEvent: (data: any) => { // eslint-disable-line @typescript-eslint/no-explicit-any
       if (!active) return;
       reply.raw.write(`data: ${JSON.stringify(data)}\n\n`);
     },

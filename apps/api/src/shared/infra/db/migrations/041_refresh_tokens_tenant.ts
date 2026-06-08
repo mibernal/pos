@@ -1,6 +1,6 @@
 import { sql, Kysely } from 'kysely';
 
-export async function up(db: Kysely<any>): Promise<void> {
+export async function up(db: Kysely<any>): Promise<void> { // eslint-disable-line @typescript-eslint/no-explicit-any
   // Add tenant_id to refresh_tokens
   await sql`ALTER TABLE refresh_tokens ADD COLUMN tenant_id UUID`.execute(db);
 
@@ -33,7 +33,7 @@ export async function up(db: Kysely<any>): Promise<void> {
   await sql`CREATE INDEX refresh_tokens_tenant_id_idx ON refresh_tokens(tenant_id)`.execute(db);
 }
 
-export async function down(db: Kysely<any>): Promise<void> {
+export async function down(db: Kysely<any>): Promise<void> { // eslint-disable-line @typescript-eslint/no-explicit-any
   await sql`DROP INDEX IF EXISTS refresh_tokens_tenant_id_idx`.execute(db);
   await sql`DROP POLICY IF EXISTS tenant_isolation_policy ON refresh_tokens`.execute(db);
   await sql`ALTER TABLE refresh_tokens DROP CONSTRAINT IF EXISTS refresh_tokens_tenant_id_fkey`.execute(db);

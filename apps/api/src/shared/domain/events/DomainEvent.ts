@@ -1,4 +1,4 @@
-export interface DomainEvent<TPayload = any> {
+export interface DomainEvent<TPayload = any> { // eslint-disable-line @typescript-eslint/no-explicit-any
   id: string;
   type: string;
   version: number;
@@ -9,7 +9,7 @@ export interface DomainEvent<TPayload = any> {
   payload: TPayload;
 }
 
-export abstract class BaseDomainEvent<TPayload = any> implements DomainEvent<TPayload> {
+export abstract class BaseDomainEvent<TPayload = any> implements DomainEvent<TPayload> { // eslint-disable-line @typescript-eslint/no-explicit-any
   public readonly id: string;
   public readonly occurredAt: Date;
 

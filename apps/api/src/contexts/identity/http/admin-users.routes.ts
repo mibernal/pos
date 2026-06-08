@@ -38,7 +38,7 @@ export const adminUsersRoutes: FastifyPluginAsync = async (app) => {
         .select(['users.id', 'users.tenant_id', 'users.email', 'users.name', 'users.role', 'users.active', 'users.created_at']);
 
       if (!request.auth.isPlatformRole) {
-        query = query.where('users.tenant_id', '=', request.auth.tenantId);
+        query = query.where('users.tenant_id', '=', request.auth!.tenantId!);
       }
 
       // Managers can only see CASHIERS in their own branches
@@ -103,7 +103,7 @@ export const adminUsersRoutes: FastifyPluginAsync = async (app) => {
 
       const passwordHash = await hashPassword(payload.password);
       const newUserId = randomUUID();
-      const targetTenantId = request.auth.isPlatformRole && payload.role === 'PLATFORM_OWNER' ? null : request.auth.tenantId;
+      const targetTenantId = request.auth.isPlatformRole && payload.role === 'PLATFORM_OWNER' ? null : request.auth!.tenantId!;
 
       if (targetTenantId && (payload.role === 'MANAGER' || payload.role === 'AUDITOR')) {
         const tenant = await app.db.selectFrom('tenants').select('plan').where('id', '=', targetTenantId).executeTakeFirst();
@@ -189,7 +189,7 @@ export const adminUsersRoutes: FastifyPluginAsync = async (app) => {
         .where('id', '=', targetUserId);
 
       if (!request.auth.isPlatformRole) {
-        query = query.where('tenant_id', '=', request.auth.tenantId);
+        query = query.where('tenant_id', '=', request.auth!.tenantId!);
       }
 
       const targetUser = await query.executeTakeFirst();
@@ -254,7 +254,7 @@ export const adminUsersRoutes: FastifyPluginAsync = async (app) => {
         .where('id', '=', targetUserId);
 
       if (!request.auth.isPlatformRole) {
-        query = query.where('tenant_id', '=', request.auth.tenantId);
+        query = query.where('tenant_id', '=', request.auth!.tenantId!);
       }
 
       const targetUser = await query.executeTakeFirst();
@@ -316,7 +316,7 @@ export const adminUsersRoutes: FastifyPluginAsync = async (app) => {
         .where('id', '=', targetUserId);
 
       if (!request.auth.isPlatformRole) {
-        query = query.where('tenant_id', '=', request.auth.tenantId);
+        query = query.where('tenant_id', '=', request.auth!.tenantId!);
       }
 
       const targetUserValidation = await query.executeTakeFirst();

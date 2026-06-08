@@ -2,6 +2,7 @@ import { formatMoneyFromCents } from '../../../lib/format';
 import type { CartItem } from '../../../types';
 import { readScaleWeight } from '../../../lib/hardware';
 import { useState } from 'react';
+import { PlaceholderImage } from '../../../components/ui';
 
 export interface CartPanelProps {
   cartItems: CartItem[];
@@ -68,11 +69,20 @@ export function CartPanel({
               tabIndex={0}
             >
               <div className="cart-row-main">
-                <div className="cart-row-name">
-                  <strong>{item.name} {item.variantName ? `(${item.variantName})` : ''}</strong>
-                  <div className="cart-row-submeta">
-                    <span>{formatMoneyFromCents(item.priceCents)} c/u</span>
-                    {item.barcode && <span className="tag-muted">{item.barcode}</span>}
+                <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
+                  <div style={{ width: '40px', height: '40px', borderRadius: '8px', overflow: 'hidden', flexShrink: 0, boxShadow: 'var(--shadow-sm)' }}>
+                    {item.imageUrl ? (
+                      <img src={item.imageUrl} alt={item.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                    ) : (
+                      <PlaceholderImage name={item.name} category={item.category} size="sm" style={{ width: '100%', height: '100%', borderRadius: 0 }} />
+                    )}
+                  </div>
+                  <div className="cart-row-name">
+                    <strong>{item.name} {item.variantName ? `(${item.variantName})` : ''}</strong>
+                    <div className="cart-row-submeta">
+                      <span>{formatMoneyFromCents(item.priceCents)} c/u</span>
+                      {item.barcode && <span className="tag-muted">{item.barcode}</span>}
+                    </div>
                   </div>
                 </div>
                 <strong style={{ color: 'var(--color-slate-900)' }}>{formatMoneyFromCents(item.priceCents * item.qty)}</strong>

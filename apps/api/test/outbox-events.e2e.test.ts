@@ -63,7 +63,7 @@ describe('Outbox Events E2E', () => {
         cash_session_id: sessionId,
         items: [{ product_id: fixture.productId, qty: 1, price_cents: fixture.productPriceCents }],
         discount_cents: 0,
-        payments: [{ method: 'CASH', amount_cents: Math.round(fixture.productPriceCents * 1.19) }]
+        payments: [{ method: 'CASH', amount_cents: fixture.productPriceCents }]
       }
     });
     expect(saleRes.statusCode).toBe(201);
@@ -111,7 +111,7 @@ describe('Outbox Events E2E', () => {
         cash_session_id: sessionId,
         items: [{ product_id: fixture.productId, qty: 1, price_cents: fixture.productPriceCents }],
         discount_cents: 0,
-        payments: [{ method: 'CASH', amount_cents: Math.round(fixture.productPriceCents * 1.19) }]
+        payments: [{ method: 'CASH', amount_cents: fixture.productPriceCents }]
       }
     });
     const saleId = (saleRes.json() as any).sale.id;
@@ -182,7 +182,7 @@ describe('Outbox Events E2E', () => {
         cash_session_id: sessionId,
         items: [{ product_id: fixture.productId, qty: 2, price_cents: fixture.productPriceCents }],
         discount_cents: 0,
-        payments: [{ method: 'CASH', amount_cents: Math.round(fixture.productPriceCents * 1.19) * 2 }]
+        payments: [{ method: 'CASH', amount_cents: fixture.productPriceCents * 2 }]
       }
     });
     expect(saleRes.statusCode).toBe(201);

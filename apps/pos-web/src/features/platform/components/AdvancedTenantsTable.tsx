@@ -8,7 +8,7 @@ export function AdvancedTenantsTable({
   onCreate,
   onSearch, 
   onFilterStatus 
-}: any) {
+}: any) { // eslint-disable-line @typescript-eslint/no-explicit-any
   const [searchTerm, setSearchTerm] = useState('');
 
   const handleSearch = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -55,7 +55,7 @@ export function AdvancedTenantsTable({
             </tr>
           </thead>
           <tbody>
-            {tenants.map((t: any) => (
+            {tenants.map((t: any) => ( // eslint-disable-line @typescript-eslint/no-explicit-any
               <tr key={t.id} className="border-b border-slate-100 transition-colors hover:bg-slate-50">
                 <td className="p-4">
                   <div className="flex items-center gap-4">

@@ -150,7 +150,7 @@ export function PosScreen({
     setSaleMessage(null);
   }, [resetCartState, setSaleError, setSaleMessage]);
 
-  function handlePrintLastSale() {
+  function handlePrintLastSale() { // eslint-disable-line react-hooks/exhaustive-deps
     if (!lastPrintedSaleSnapshot) return;
 
     printSaleTicket({
@@ -421,42 +421,84 @@ export function PosScreen({
 
         <div className="quick-product-card">
           {highlightedProduct ? (
-            <div className="quick-product-main">
-              <div style={{ width: '100px', height: '100px', borderRadius: '12px', overflow: 'hidden', flexShrink: 0, boxShadow: 'var(--shadow-sm)' }}>
+            <div className="quick-product-main" style={{ 
+              position: 'relative', 
+              borderRadius: '16px', 
+              overflow: 'hidden', 
+              minHeight: '160px',
+              display: 'flex',
+              alignItems: 'stretch',
+              padding: 0
+            }}>
+              {/* Full background image/placeholder */}
+              <div style={{ position: 'absolute', inset: 0, zIndex: 1 }}>
                 {highlightedProduct.imageUrl ? (
                   <img src={highlightedProduct.imageUrl} alt={highlightedProduct.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                 ) : (
-                  <PlaceholderImage name={highlightedProduct.name} category={highlightedProduct.category} size="lg" />
+                  <PlaceholderImage name={highlightedProduct.name} category={highlightedProduct.category} size="xl" style={{ width: '100%', height: '100%', borderRadius: 0 }} />
                 )}
               </div>
-              <div className="quick-product-copy" style={{ flex: 1 }}>
-                <span className="tag tag-info" style={{ marginBottom: '0.5rem' }}>Destacado</span>
-                <h3>{highlightedProduct.name}</h3>
-                <div className="quick-product-meta">
-                  <span>{highlightedProduct.category}</span>
-                  {highlightedProduct.barcode && <span className="tag-muted">Cod. {highlightedProduct.barcode}</span>}
+              
+              {/* Dark overlay for contrast */}
+              <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(to right, rgba(15,23,42,0.95) 0%, rgba(15,23,42,0.8) 40%, rgba(15,23,42,0.4) 100%)', zIndex: 2 }} />
+
+              <div style={{ position: 'relative', zIndex: 3, display: 'flex', flex: 1, padding: '1.5rem', alignItems: 'center', gap: '1.5rem' }}>
+                <div className="quick-product-copy" style={{ flex: 1, color: '#ffffff' }}>
+                  <span style={{ 
+                    display: 'inline-block', 
+                    background: 'var(--color-primary-600)', 
+                    color: '#ffffff', 
+                    padding: '0.2rem 0.6rem', 
+                    borderRadius: '1rem', 
+                    fontSize: '0.7rem', 
+                    fontWeight: 700, 
+                    textTransform: 'uppercase', 
+                    letterSpacing: '0.05em',
+                    marginBottom: '0.5rem',
+                    boxShadow: '0 2px 4px rgba(0,0,0,0.2)'
+                  }}>
+                    Destacado
+                  </span>
+                  <h3 style={{ margin: 0, fontSize: '1.75rem', fontWeight: 800, textShadow: '0 2px 4px rgba(0,0,0,0.5)' }}>{highlightedProduct.name}</h3>
+                  <div style={{ display: 'flex', gap: '0.75rem', marginTop: '0.25rem', opacity: 0.9, fontSize: '0.875rem' }}>
+                    <span>{highlightedProduct.category || 'S/C'}</span>
+                    {highlightedProduct.barcode && <span style={{ opacity: 0.7 }}>Cod. {highlightedProduct.barcode}</span>}
+                  </div>
+                  {highlightedProduct.description && (
+                    <p style={{ marginTop: '0.75rem', fontSize: '0.875rem', color: '#cbd5e1', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
+                      {highlightedProduct.description}
+                    </p>
+                  )}
                 </div>
-                {highlightedProduct.description && (
-                  <p style={{ marginTop: '0.75rem', fontSize: '0.8125rem', color: 'var(--color-slate-500)', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
-                    {highlightedProduct.description}
-                  </p>
-                )}
-              </div>
-              <div className="quick-product-actions">
-                <strong>{formatMoneyFromCents(highlightedProduct.price_cents)}</strong>
-                <button
-                  aria-label="Agregar destacado"
-                  type="button"
-                  className="quick-product-button"
-                  style={{ background: 'var(--color-primary-600)', padding: '0.75rem 2rem' }}
-                  onClick={() => {
-                    addProduct(highlightedProduct);
-                    setQuery('');
-                    searchInputRef.current?.focus();
-                  }}
-                >
-                  Agregar (Enter)
-                </button>
+                <div className="quick-product-actions" style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '0.75rem' }}>
+                  <strong style={{ fontSize: '2rem', color: '#4ade80', textShadow: '0 2px 4px rgba(0,0,0,0.5)', lineHeight: 1 }}>
+                    {formatMoneyFromCents(highlightedProduct.price_cents)}
+                  </strong>
+                  <button
+                    aria-label="Agregar destacado"
+                    type="button"
+                    style={{ 
+                      background: '#ffffff', 
+                      color: '#0f172a',
+                      fontWeight: 700,
+                      padding: '0.75rem 2rem',
+                      borderRadius: '12px',
+                      border: 'none',
+                      cursor: 'pointer',
+                      fontSize: '1rem',
+                      boxShadow: '0 4px 6px rgba(0,0,0,0.1)'
+                    }}
+                    onMouseEnter={(e) => { e.currentTarget.style.background = '#f8fafc'; e.currentTarget.style.transform = 'translateY(-1px)'; }}
+                    onMouseLeave={(e) => { e.currentTarget.style.background = '#ffffff'; e.currentTarget.style.transform = 'none'; }}
+                    onClick={() => {
+                      addProduct(highlightedProduct);
+                      setQuery('');
+                      searchInputRef.current?.focus();
+                    }}
+                  >
+                    Agregar (Enter)
+                  </button>
+                </div>
               </div>
             </div>
           ) : (

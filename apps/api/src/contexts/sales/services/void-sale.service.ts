@@ -133,7 +133,7 @@ export async function voidSaleService(input: VoidSaleServiceInput) {
         .insertInto('inventory_transactions')
         .values({
           id: txId,
-          tenant_id: tenantId,
+          tenant_id: tenantId!,
           branch_id: updatedSale.branch_id,
           product_id: item.product_id,
           variant_id: item.variant_id ?? null,
@@ -147,7 +147,7 @@ export async function voidSaleService(input: VoidSaleServiceInput) {
 
       const result = await trx.insertInto('inventory_balances')
         .values({
-          tenant_id: tenantId,
+          tenant_id: tenantId!,
           branch_id: updatedSale.branch_id,
           product_id: item.product_id,
           variant_id: item.variant_id ?? null,
@@ -198,7 +198,7 @@ export async function voidSaleService(input: VoidSaleServiceInput) {
         .insertInto('outbox_events')
         .values({
           id: randomUUID(),
-          tenant_id: tenantId,
+          tenant_id: tenantId!,
           type: 'sale.voided',
           event_version: 1,
           aggregate_type: 'SALE',
@@ -206,7 +206,7 @@ export async function voidSaleService(input: VoidSaleServiceInput) {
           branch_id: updatedSale.branch_id,
           payload_json: {
             sale_id: updatedSale.id,
-            tenant_id: tenantId,
+            tenant_id: tenantId!,
             branch_id: updatedSale.branch_id,
             invoice_dian_document_id: dianDocument.id,
             sale_number: updatedSale.sale_number,

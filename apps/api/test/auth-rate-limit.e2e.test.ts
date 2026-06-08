@@ -21,10 +21,10 @@ describe('auth hardening e2e', () => {
   });
 
   afterEach(async () => {
-    if (app.redis) {
+    if (app.redis && typeof app.redis.flushall === 'function') {
       await app.redis.flushall();
     }
-    
+    resetLoginRateLimitStore();
     for (const fixture of fixturesToCleanup.reverse()) {
       await cleanupE2eFixture(app, fixture);
     }

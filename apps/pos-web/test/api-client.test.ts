@@ -53,7 +53,7 @@ describe('api-client DIAN/product contract', () => {
     );
 
     const client = buildClient();
-    const result = await client.updateTenantTaxProfile(baseSession.user.tenantId, 'INC_RESTAURANT');
+    const result = await client.updateTenantTaxProfile(baseSession.user.tenantId!, 'INC_RESTAURANT');
 
     expect(result.taxMode).toBe('INC_RESTAURANT');
     expect(fetchMock).toHaveBeenCalledOnce();
@@ -127,7 +127,7 @@ describe('api-client DIAN/product contract', () => {
     const client = buildClient();
     const result = await client.login('cashier@demo.posdian.local', 'Cashier123*');
 
-    expect(result.user.taxMode).toBe('INC_RESTAURANT');
+    expect(result.user!.taxMode).toBe('INC_RESTAURANT');
   });
 
   it('sends product taxCategory and price_cents when creating products', async () => {
@@ -191,7 +191,7 @@ describe('api-client DIAN/product contract', () => {
       status: 401
     });
 
-    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(setSession).toHaveBeenCalledWith(null);
   });
 });

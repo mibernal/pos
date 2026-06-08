@@ -59,7 +59,7 @@ export async function processPaymentWebhook(db: Kysely<Database>, input: Webhook
 
   // 4. Actualizar el plan si fue Aprobado
   if (newStatus === 'APPROVED') {
-    const meta = tx.metadata_json as any;
+    const meta = tx.metadata_json as any; // eslint-disable-line @typescript-eslint/no-explicit-any
     const planId = meta?.planId;
 
     if (planId) {

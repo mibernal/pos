@@ -15,7 +15,8 @@ describe('ticket printer', () => {
         address: 'Calle 10 # 20-30',
         phone: '6011234567',
         footerMessage: 'Gracias por preferirnos',
-        logoUrl: ''
+        logoUrl: '',
+        printerWidth: '80mm'
       },
       branchName: 'Sucursal Norte',
       branchAddress: 'Cra 15 # 40-20',
@@ -66,7 +67,8 @@ describe('ticket printer', () => {
         address: 'Calle 1 # 2-3',
         phone: '',
         footerMessage: '',
-        logoUrl: ''
+        logoUrl: '',
+        printerWidth: '80mm'
       },
       branchName: 'Sucursal Centro',
       saleNumber: 99,

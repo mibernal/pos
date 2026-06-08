@@ -129,3 +129,9 @@
 ## D-024 — Auto-gestión de suscripciones por el ADMIN
 - El rol `ADMIN` del tenant (y no solo los propietarios) tiene permisos para generar sesiones de checkout y cambiar el plan de suscripción (`PATCH /billing/checkout/:gateway`).
 - **Motivo:** Da autonomía al gerente/dueño del restaurante para pagar su factura o mejorar su plan sin necesidad de interactuar con el soporte de la plataforma.
+
+## D-025 — Despliegue Docker con pnpm v10 y workspaces inyectados
+- Se fija `pnpm` a la versión `v10` a través de `packageManager` en el `package.json` raíz.
+- Se adopta la configuración `inject-workspace-packages=true` globalmente a través del archivo `.npmrc`.
+- Las dependencias locales (como `@pos-dian/shared`) son inyectadas en lugar de enlazadas por symlinks durante la compilación.
+- **Motivo:** A partir de pnpm v10, el comando `pnpm deploy` exige que los workspaces estén inyectados para asegurar el aislamiento estricto y la inmutabilidad de los contenedores Docker en producción, eliminando el uso de hacks como la bandera `--legacy`.

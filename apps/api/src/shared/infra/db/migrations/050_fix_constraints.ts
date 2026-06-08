@@ -1,6 +1,6 @@
 import { Kysely, sql } from 'kysely';
 
-export async function up(db: Kysely<any>): Promise<void> {
+export async function up(db: Kysely<any>): Promise<void> { // eslint-disable-line @typescript-eslint/no-explicit-any
   // Normalize data first to prevent constraint violations
   await sql`
     UPDATE tenants
@@ -27,7 +27,7 @@ export async function up(db: Kysely<any>): Promise<void> {
   `.execute(db);
 }
 
-export async function down(db: Kysely<any>): Promise<void> {
+export async function down(db: Kysely<any>): Promise<void> { // eslint-disable-line @typescript-eslint/no-explicit-any
   await sql`
     ALTER TABLE tenants DROP CONSTRAINT IF EXISTS ck_tenants_tax_mode;
   `.execute(db);

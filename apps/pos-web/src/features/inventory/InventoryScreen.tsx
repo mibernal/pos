@@ -162,7 +162,7 @@ export function InventoryScreen({ api, branchId }: InventoryScreenProps) {
       const text = await file.text();
       const lines = text.split('\n').filter(l => l.trim().length > 0);
       
-      const itemsToImport: Array<any> = [];
+      const itemsToImport: Array<any> = []; // eslint-disable-line @typescript-eslint/no-explicit-any
       
       // Parse header to find column indices
       const headerLine = lines[0]?.toLowerCase().split(',') || [];

@@ -27,7 +27,7 @@ export const reportsRoutes: FastifyPluginAsync = async (app) => {
 
       let query = app.db
         .selectFrom('sales')
-        .where('tenant_id', '=', request.auth!.tenantId)
+        .where('tenant_id', '=', request.auth!.tenantId!)
         .where('status', '=', 'COMPLETED'); // Only count completed sales
 
       if (branch_id) {
@@ -59,7 +59,7 @@ export const reportsRoutes: FastifyPluginAsync = async (app) => {
       let salesFiltered = app.db
         .selectFrom('sales')
         .select(['payment_json'])
-        .where('tenant_id', '=', request.auth!.tenantId)
+        .where('tenant_id', '=', request.auth!.tenantId!)
         .where('status', '=', 'COMPLETED');
 
       if (branch_id) {
@@ -130,7 +130,7 @@ export const reportsRoutes: FastifyPluginAsync = async (app) => {
       let query = app.db
         .selectFrom('cash_sessions')
         .leftJoin('users', 'users.id', 'cash_sessions.opened_by_user_id')
-        .where('cash_sessions.tenant_id', '=', request.auth!.tenantId);
+        .where('cash_sessions.tenant_id', '=', request.auth!.tenantId!);
 
       if (branch_id) {
         query = query.where('cash_sessions.branch_id', '=', branch_id as string);
@@ -198,7 +198,7 @@ export const reportsRoutes: FastifyPluginAsync = async (app) => {
       let query = app.db
         .selectFrom('inventory_transactions')
         .leftJoin('users', 'users.id', 'inventory_transactions.created_by_user_id')
-        .where('inventory_transactions.tenant_id', '=', request.auth!.tenantId)
+        .where('inventory_transactions.tenant_id', '=', request.auth!.tenantId!)
         .where('inventory_transactions.branch_id', '=', branch_id)
         .where('inventory_transactions.product_id', '=', product_id);
 

@@ -297,9 +297,9 @@ export interface AuditLogsTable {
   entity_type: string;
   entity_id: string;
   action: string;
-  legacy_payload: any; // JSONB
-  old_values: any | null; // JSONB
-  new_values: any | null; // JSONB
+  legacy_payload: unknown; // JSONB
+  old_values: unknown | null; // JSONB
+  new_values: unknown | null; // JSONB
   ip_address: string | null;
   user_agent: string | null;
   correlation_id: string | null; // UUID
@@ -506,7 +506,7 @@ export interface TenantAlertsTable {
   severity: string;
   title: string;
   message: string;
-  metadata: any | null;
+  metadata: unknown | null;
   status: Generated<string>;
   created_at: Generated<Date>;
   resolved_at: Date | null;

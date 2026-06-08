@@ -60,12 +60,12 @@ describe('outbox sale voided processor', () => {
         return {
           rows: [
             {
-              id: 'outbox-voided',
-              tenant_id: 'tenant-voided',
-              aggregate_id: 'sale-voided',
+              id: '44444444-4444-4444-a444-444444444444',
+              tenant_id: '11111111-1111-4111-a111-111111111111',
+              aggregate_id: '22222222-2222-4222-a222-222222222222',
               status: 'PENDING',
               attempts: 0,
-              payload_json: { idempotency_key: 'void-idem-1', sale_id: 'sale-voided', tenant_id: 'tenant-voided', branch_id: 'branch-voided' }
+              payload_json: { idempotency_key: 'void-55555555-5555-4555-a555-555555555555', sale_id: '22222222-2222-4222-a222-222222222222', tenant_id: '11111111-1111-4111-a111-111111111111', branch_id: '33333333-3333-4333-a333-333333333333' }
             }
           ]
         };
@@ -112,7 +112,7 @@ describe('outbox sale voided processor', () => {
         return {
           rows: [
             {
-              sale_id: 'sale-voided',
+              sale_id: '22222222-2222-4222-a222-222222222222',
               sale_number: '42',
               created_at: new Date('2026-05-01T13:00:00.000Z'),
               subtotal_cents: 10000,
@@ -134,11 +134,11 @@ describe('outbox sale voided processor', () => {
                 payments: [{ method: 'CARD', amount_cents: 11900 }]
               },
               tax_mode: 'IVA',
-              tenant_id: 'tenant-voided',
+              tenant_id: '11111111-1111-4111-a111-111111111111',
               tenant_name: 'Tenant Voided',
               tenant_nit: '900000042',
               tenant_business_name: 'Tenant Voided SAS',
-              branch_id: 'branch-voided',
+              branch_id: '33333333-3333-4333-a333-333333333333',
               branch_name: 'Sucursal Centro',
               branch_address: 'Cra 1 # 2-3',
               void_reason: 'Error de digitación'
@@ -178,13 +178,13 @@ describe('outbox sale voided processor', () => {
     });
 
     const processor = buildOutboxSaleVoidedProcessor({ pool, provider });
-    const job = createJob('outbox-voided');
+    const job = createJob('44444444-4444-4444-a444-444444444444');
 
     await processor(job);
 
     expect(creditNoteInserts).toHaveLength(1);
-    expect(creditNoteInserts[0]?.[1]).toBe('tenant-voided');
-    expect(creditNoteInserts[0]?.[2]).toBe('sale-voided');
+    expect(creditNoteInserts[0]?.[1]).toBe('11111111-1111-4111-a111-111111111111');
+    expect(creditNoteInserts[0]?.[2]).toBe('22222222-2222-4222-a222-222222222222');
     expect(creditNoteInserts[0]?.[3]).toBe('invoice-doc-1');
 
     expect(provider.emitSale).toHaveBeenCalledOnce();
@@ -193,12 +193,12 @@ describe('outbox sale voided processor', () => {
       | undefined;
 
     expect(providerPayload).toMatchObject({
-      sale_id: 'sale-voided',
-      tenant_id: 'tenant-voided',
-      branch_id: 'branch-voided',
+      sale_id: '22222222-2222-4222-a222-222222222222',
+      tenant_id: '11111111-1111-4111-a111-111111111111',
+      branch_id: '33333333-3333-4333-a333-333333333333',
       document_type: 'CREDIT_NOTE',
       void_reason: 'Error de digitación',
-      idempotency_key: 'void-idem-1'
+      idempotency_key: 'void-55555555-5555-4555-a555-555555555555'
     });
 
     expect(dianDocumentUpdates).toHaveLength(1);
@@ -211,7 +211,7 @@ describe('outbox sale voided processor', () => {
       void_reason: 'Error de digitación'
     });
 
-    expect(outboxSentUpdates[0]).toEqual(['outbox-voided', 1]);
+    expect(outboxSentUpdates[0]).toEqual(['44444444-4444-4444-a444-444444444444', 1]);
     expect((job.log as ReturnType<typeof vi.fn>).mock.calls[0]?.[0]).toContain(
       'credit_note_document=credit-note-doc-1'
     );
@@ -231,12 +231,12 @@ describe('outbox sale voided processor', () => {
         return {
           rows: [
             {
-              id: 'outbox-waiting',
-              tenant_id: 'tenant-waiting',
-              aggregate_id: 'sale-waiting',
+              id: '44444444-4444-4444-a444-444444444444',
+              tenant_id: '11111111-1111-4111-a111-111111111111',
+              aggregate_id: '22222222-2222-4222-a222-222222222222',
               status: 'PENDING',
               attempts: 1,
-              payload_json: { sale_id: 'sale-waiting', tenant_id: 'tenant-waiting', branch_id: 'branch-waiting' }
+              payload_json: { sale_id: '22222222-2222-4222-a222-222222222222', tenant_id: '11111111-1111-4111-a111-111111111111', branch_id: '33333333-3333-4333-a333-333333333333' }
             }
           ]
         };
@@ -267,13 +267,13 @@ describe('outbox sale voided processor', () => {
     });
 
     const processor = buildOutboxSaleVoidedProcessor({ pool, provider });
-    const job = createJob('outbox-waiting');
+    const job = createJob('44444444-4444-4444-a444-444444444444');
 
     await expect(processor(job)).rejects.toThrow('Dian invoice document not yet ACCEPTED');
 
     expect(provider.emitSale).not.toHaveBeenCalled();
     expect(outboxFailedUpdates).toHaveLength(1);
-    expect(outboxFailedUpdates[0]?.[0]).toBe('outbox-waiting');
+    expect(outboxFailedUpdates[0]?.[0]).toBe('44444444-4444-4444-a444-444444444444');
     expect(outboxFailedUpdates[0]?.[1]).toBe(2);
     expect(outboxFailedUpdates[0]?.[2]).toBeInstanceOf(Date);
     expect((job.log as ReturnType<typeof vi.fn>).mock.calls[0]?.[0]).toContain(

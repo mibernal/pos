@@ -65,12 +65,12 @@ describe('outbox sale created processor', () => {
         return {
           rows: [
             {
-              id: 'outbox-1',
-              tenant_id: 'tenant-1',
-              aggregate_id: 'sale-1',
+              id: '44444444-4444-4444-a444-444444444444',
+              tenant_id: '11111111-1111-4111-a111-111111111111',
+              aggregate_id: '22222222-2222-4222-a222-222222222222',
               status: 'PENDING',
               attempts: 2,
-              payload_json: { idempotency_key: 'idem-1', sale_id: 'sale-1', tenant_id: 'tenant-1', branch_id: 'branch-1' }
+              payload_json: { idempotency_key: '55555555-5555-4555-a555-555555555555', sale_id: '22222222-2222-4222-a222-222222222222', tenant_id: '11111111-1111-4111-a111-111111111111', branch_id: '33333333-3333-4333-a333-333333333333' }
             }
           ]
         };
@@ -102,7 +102,7 @@ describe('outbox sale created processor', () => {
     };
 
     const processor = buildOutboxSaleCreatedProcessor({ pool, provider });
-    const job = createJob('outbox-1');
+    const job = createJob('44444444-4444-4444-a444-444444444444');
 
     await processor(job);
 
@@ -113,9 +113,9 @@ describe('outbox sale created processor', () => {
       expect.arrayContaining([
         expect.objectContaining({
           event: 'dian_outbox_job_skipped',
-          outbox_event_id: 'outbox-1',
-          sale_id: 'sale-1',
-          tenant_id: 'tenant-1',
+          outbox_event_id: '44444444-4444-4444-a444-444444444444',
+          sale_id: '22222222-2222-4222-a222-222222222222',
+          tenant_id: '11111111-1111-4111-a111-111111111111',
           attempt: 3,
           provider_result: 'SKIPPED',
           reason: 'document already accepted'
@@ -138,12 +138,12 @@ describe('outbox sale created processor', () => {
         return {
           rows: [
             {
-              id: 'outbox-2',
-              tenant_id: 'tenant-2',
-              aggregate_id: 'sale-2',
+              id: '44444444-4444-4444-a444-444444444444',
+              tenant_id: '11111111-1111-4111-a111-111111111111',
+              aggregate_id: '22222222-2222-4222-a222-222222222222',
               status: 'PENDING',
               attempts: 0,
-              payload_json: { idempotency_key: 'idem-2', sale_id: 'sale-2', tenant_id: 'tenant-2', branch_id: 'branch-2' }
+              payload_json: { idempotency_key: '55555555-5555-4555-a555-555555555555', sale_id: '22222222-2222-4222-a222-222222222222', tenant_id: '11111111-1111-4111-a111-111111111111', branch_id: '33333333-3333-4333-a333-333333333333' }
             }
           ]
         };
@@ -165,7 +165,7 @@ describe('outbox sale created processor', () => {
         return {
           rows: [
             {
-              sale_id: 'sale-2',
+              sale_id: '22222222-2222-4222-a222-222222222222',
               sale_number: '27',
               created_at: new Date('2026-03-05T12:00:00.000Z'),
               subtotal_cents: 10800,
@@ -187,11 +187,11 @@ describe('outbox sale created processor', () => {
                 payments: [{ method: 'CASH', amount_cents: 10800 }]
               },
               tax_mode: 'INC_RESTAURANT',
-              tenant_id: 'tenant-2',
+              tenant_id: '11111111-1111-4111-a111-111111111111',
               tenant_name: 'Tenant 2',
               tenant_nit: '900000002',
               tenant_business_name: 'Tenant 2 SAS',
-              branch_id: 'branch-2',
+              branch_id: '33333333-3333-4333-a333-333333333333',
               branch_name: 'Sucursal Norte',
               branch_address: 'Cra 7 # 12-34'
             }
@@ -228,7 +228,7 @@ describe('outbox sale created processor', () => {
     });
 
     const processor = buildOutboxSaleCreatedProcessor({ pool, provider });
-    await processor(createJob('outbox-2'));
+    await processor(createJob('44444444-4444-4444-a444-444444444444'));
 
     expect(provider.emitSale).toHaveBeenCalledOnce();
 
@@ -276,12 +276,12 @@ describe('outbox sale created processor', () => {
         return {
           rows: [
             {
-              id: 'outbox-accepted',
-              tenant_id: 'tenant-accepted',
-              aggregate_id: 'sale-accepted',
+              id: '44444444-4444-4444-a444-444444444444',
+              tenant_id: '11111111-1111-4111-a111-111111111111',
+              aggregate_id: '22222222-2222-4222-a222-222222222222',
               status: 'PENDING',
               attempts: 0,
-              payload_json: { idempotency_key: 'idem-accepted', sale_id: 'sale-accepted', tenant_id: 'tenant-accepted', branch_id: 'branch-accepted' }
+              payload_json: { idempotency_key: '55555555-5555-4555-a555-555555555555', sale_id: '22222222-2222-4222-a222-222222222222', tenant_id: '11111111-1111-4111-a111-111111111111', branch_id: '33333333-3333-4333-a333-333333333333' }
             }
           ]
         };
@@ -303,7 +303,7 @@ describe('outbox sale created processor', () => {
         return {
           rows: [
             {
-              sale_id: 'sale-accepted',
+              sale_id: '22222222-2222-4222-a222-222222222222',
               sale_number: '101',
               created_at: new Date('2026-03-07T10:00:00.000Z'),
               subtotal_cents: 10000,
@@ -325,11 +325,11 @@ describe('outbox sale created processor', () => {
                 payments: [{ method: 'CARD', amount_cents: 11900 }]
               },
               tax_mode: 'IVA',
-              tenant_id: 'tenant-accepted',
+              tenant_id: '11111111-1111-4111-a111-111111111111',
               tenant_name: 'Tenant Accepted',
               tenant_nit: '900000101',
               tenant_business_name: 'Tenant Accepted SAS',
-              branch_id: 'branch-accepted',
+              branch_id: '33333333-3333-4333-a333-333333333333',
               branch_name: 'Sucursal Centro',
               branch_address: 'Cra 10 # 20-30'
             }
@@ -368,7 +368,7 @@ describe('outbox sale created processor', () => {
     });
 
     const processor = buildOutboxSaleCreatedProcessor({ pool, provider });
-    const job = createJob('outbox-accepted');
+    const job = createJob('44444444-4444-4444-a444-444444444444');
 
     await processor(job);
 
@@ -382,7 +382,7 @@ describe('outbox sale created processor', () => {
     expect(finalStatus).toBe('ACCEPTED');
     expect(cude).toMatch(/^CUDE-/);
     expect(JSON.parse(providerPayloadJson as string)).toMatchObject({
-      sale_id: 'sale-accepted',
+      sale_id: '22222222-2222-4222-a222-222222222222',
       taxMode: 'IVA',
       sale: {
         tax_total_cents: 1900,
@@ -403,7 +403,7 @@ describe('outbox sale created processor', () => {
       tax_total_cents: 1900
     });
 
-    expect(outboxSentUpdates[0]).toEqual(['outbox-accepted', 1]);
+    expect(outboxSentUpdates[0]).toEqual(['44444444-4444-4444-a444-444444444444', 1]);
     expect(job.log).toHaveBeenCalledOnce();
     expect((job.log as ReturnType<typeof vi.fn>).mock.calls[0]?.[0]).toContain(
       'transitions=PENDING->SENT, SENT->ACCEPTED'
@@ -412,16 +412,16 @@ describe('outbox sale created processor', () => {
       expect.arrayContaining([
         expect.objectContaining({
           event: 'dian_outbox_job_started',
-          outbox_event_id: 'outbox-accepted',
-          sale_id: 'sale-accepted',
-          tenant_id: 'tenant-accepted',
+          outbox_event_id: '44444444-4444-4444-a444-444444444444',
+          sale_id: '22222222-2222-4222-a222-222222222222',
+          tenant_id: '11111111-1111-4111-a111-111111111111',
           attempt: 1
         }),
         expect.objectContaining({
           event: 'dian_outbox_job_succeeded',
-          outbox_event_id: 'outbox-accepted',
-          sale_id: 'sale-accepted',
-          tenant_id: 'tenant-accepted',
+          outbox_event_id: '44444444-4444-4444-a444-444444444444',
+          sale_id: '22222222-2222-4222-a222-222222222222',
+          tenant_id: '11111111-1111-4111-a111-111111111111',
           attempt: 1,
           dian_transition: 'PENDING->SENT, SENT->ACCEPTED',
           provider_result: 'ACCEPTED'
@@ -436,12 +436,12 @@ describe('outbox sale created processor', () => {
         return {
           rows: [
             {
-              id: 'outbox-3',
-              tenant_id: 'tenant-3',
-              aggregate_id: 'sale-3',
+              id: '44444444-4444-4444-a444-444444444444',
+              tenant_id: '11111111-1111-4111-a111-111111111111',
+              aggregate_id: '22222222-2222-4222-a222-222222222222',
               status: 'FAILED',
               attempts: 1,
-              payload_json: { idempotency_key: 'idem-3', sale_id: 'sale-3', tenant_id: 'tenant-3', branch_id: 'branch-3' }
+              payload_json: { idempotency_key: '55555555-5555-4555-a555-555555555555', sale_id: '22222222-2222-4222-a222-222222222222', tenant_id: '11111111-1111-4111-a111-111111111111', branch_id: '33333333-3333-4333-a333-333333333333' }
             }
           ]
         };
@@ -473,7 +473,7 @@ describe('outbox sale created processor', () => {
     };
 
     const processor = buildOutboxSaleCreatedProcessor({ pool, provider });
-    const job = createJob('outbox-3');
+    const job = createJob('44444444-4444-4444-a444-444444444444');
 
     await processor(job);
 
@@ -496,12 +496,12 @@ describe('outbox sale created processor', () => {
         return {
           rows: [
             {
-              id: 'outbox-4',
-              tenant_id: 'tenant-4',
-              aggregate_id: 'sale-4',
+              id: '44444444-4444-4444-a444-444444444444',
+              tenant_id: '11111111-1111-4111-a111-111111111111',
+              aggregate_id: '22222222-2222-4222-a222-222222222222',
               status: 'PENDING',
               attempts: 0,
-              payload_json: { idempotency_key: 'idem-4', sale_id: 'sale-4', tenant_id: 'tenant-4', branch_id: 'branch-4' }
+              payload_json: { idempotency_key: '55555555-5555-4555-a555-555555555555', sale_id: '22222222-2222-4222-a222-222222222222', tenant_id: '11111111-1111-4111-a111-111111111111', branch_id: '33333333-3333-4333-a333-333333333333' }
             }
           ]
         };
@@ -523,7 +523,7 @@ describe('outbox sale created processor', () => {
         return {
           rows: [
             {
-              sale_id: 'sale-4',
+              sale_id: '22222222-2222-4222-a222-222222222222',
               sale_number: '33',
               created_at: new Date('2026-03-07T12:00:00.000Z'),
               subtotal_cents: 10000,
@@ -537,11 +537,11 @@ describe('outbox sale created processor', () => {
                 payments: [{ method: 'CASH', amount_cents: 10000 }]
               },
               tax_mode: 'IVA',
-              tenant_id: 'tenant-4',
+              tenant_id: '11111111-1111-4111-a111-111111111111',
               tenant_name: 'Tenant 4',
               tenant_nit: '900000004',
               tenant_business_name: 'Tenant 4 SAS',
-              branch_id: 'branch-4',
+              branch_id: '33333333-3333-4333-a333-333333333333',
               branch_name: 'Sucursal Sur',
               branch_address: 'Calle 8 # 10-20'
             }
@@ -582,7 +582,7 @@ describe('outbox sale created processor', () => {
     });
 
     const processor = buildOutboxSaleCreatedProcessor({ pool, provider });
-    const job = createJob('outbox-4');
+    const job = createJob('44444444-4444-4444-a444-444444444444');
 
     await processor(job);
 
@@ -608,12 +608,12 @@ describe('outbox sale created processor', () => {
         return {
           rows: [
             {
-              id: 'outbox-failed',
-              tenant_id: 'tenant-failed',
-              aggregate_id: 'sale-failed',
+              id: '44444444-4444-4444-a444-444444444444',
+              tenant_id: '11111111-1111-4111-a111-111111111111',
+              aggregate_id: '22222222-2222-4222-a222-222222222222',
               status: 'PENDING',
               attempts: 0,
-              payload_json: { idempotency_key: 'idem-failed', sale_id: 'sale-failed', tenant_id: 'tenant-failed', branch_id: 'branch-failed' }
+              payload_json: { idempotency_key: '55555555-5555-4555-a555-555555555555', sale_id: '22222222-2222-4222-a222-222222222222', tenant_id: '11111111-1111-4111-a111-111111111111', branch_id: '33333333-3333-4333-a333-333333333333' }
             }
           ]
         };
@@ -635,7 +635,7 @@ describe('outbox sale created processor', () => {
         return {
           rows: [
             {
-              sale_id: 'sale-failed',
+              sale_id: '22222222-2222-4222-a222-222222222222',
               sale_number: '202',
               created_at: new Date('2026-03-07T12:30:00.000Z'),
               subtotal_cents: 9000,
@@ -649,11 +649,11 @@ describe('outbox sale created processor', () => {
                 payments: [{ method: 'CASH', amount_cents: 9000 }]
               },
               tax_mode: 'IVA',
-              tenant_id: 'tenant-failed',
+              tenant_id: '11111111-1111-4111-a111-111111111111',
               tenant_name: 'Tenant Failed',
               tenant_nit: '900000202',
               tenant_business_name: 'Tenant Failed SAS',
-              branch_id: 'branch-failed',
+              branch_id: '33333333-3333-4333-a333-333333333333',
               branch_name: 'Sucursal Occidente',
               branch_address: 'Calle 20 # 30-40'
             }
@@ -692,7 +692,7 @@ describe('outbox sale created processor', () => {
     });
 
     const processor = buildOutboxSaleCreatedProcessor({ pool, provider });
-    const job = createJob('outbox-failed');
+    const job = createJob('44444444-4444-4444-a444-444444444444');
 
     await expect(processor(job)).rejects.toThrow('network timeout');
 
@@ -706,7 +706,7 @@ describe('outbox sale created processor', () => {
     expect(status).toBeUndefined();
     expect(cude).toBeUndefined();
     expect(JSON.parse(providerPayloadJson as string)).toMatchObject({
-      sale_id: 'sale-failed',
+      sale_id: '22222222-2222-4222-a222-222222222222',
       taxMode: 'IVA'
     });
     expect(JSON.parse(providerResponseJson as string)).toEqual({
@@ -715,7 +715,7 @@ describe('outbox sale created processor', () => {
     });
 
     const [outboxId, attempts, nextRetryAt] = outboxFailedUpdates[0]!;
-    expect(outboxId).toBe('outbox-failed');
+    expect(outboxId).toBe('44444444-4444-4444-a444-444444444444');
     expect(attempts).toBe(1);
     expect(nextRetryAt).toBeInstanceOf(Date);
     expect((nextRetryAt as Date).getTime()).toBeGreaterThan(Date.now());
@@ -731,9 +731,9 @@ describe('outbox sale created processor', () => {
       expect.arrayContaining([
         expect.objectContaining({
           event: 'dian_outbox_job_failed',
-          outbox_event_id: 'outbox-failed',
-          sale_id: 'sale-failed',
-          tenant_id: 'tenant-failed',
+          outbox_event_id: '44444444-4444-4444-a444-444444444444',
+          sale_id: '22222222-2222-4222-a222-222222222222',
+          tenant_id: '11111111-1111-4111-a111-111111111111',
           attempt: 1,
           provider_result: 'ERROR',
           dian_transition: 'PENDING->PENDING'

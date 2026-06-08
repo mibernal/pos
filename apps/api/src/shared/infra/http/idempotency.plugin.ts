@@ -11,7 +11,7 @@ export const idempotencyPlugin: FastifyPluginAsync = fp(async (fastify) => {
       return;
     }
 
-    const tenantId = (request.user as any)?.tenantId;
+    const tenantId = (request.user as any)?.tenantId; // eslint-disable-line @typescript-eslint/no-explicit-any
     if (!tenantId) {
       return;
     }
@@ -39,13 +39,13 @@ export const idempotencyPlugin: FastifyPluginAsync = fp(async (fastify) => {
       return payload;
     }
 
-    const tenantId = (request.user as any)?.tenantId;
-    const userId = (request.user as any)?.userId || null;
+    const tenantId = (request.user as any)?.tenantId; // eslint-disable-line @typescript-eslint/no-explicit-any
+    const userId = (request.user as any)?.userId || null; // eslint-disable-line @typescript-eslint/no-explicit-any
     if (!tenantId) {
       return payload;
     }
 
-    let parsedPayload: any = null;
+    let parsedPayload: any = null; // eslint-disable-line @typescript-eslint/no-explicit-any
     try {
       if (typeof payload === 'string') {
         parsedPayload = JSON.parse(payload);
@@ -69,9 +69,9 @@ export const idempotencyPlugin: FastifyPluginAsync = fp(async (fastify) => {
         response_body_json: parsedPayload,
         expires_at: expiresAt
       })
-      .onConflict((oc: any) => oc.column('key').doNothing())
+      .onConflict((oc: any) => oc.column('key').doNothing()) // eslint-disable-line @typescript-eslint/no-explicit-any
       .execute()
-      .catch((err: any) => {
+      .catch((err: any) => { // eslint-disable-line @typescript-eslint/no-explicit-any
         request.log.error({ err, idempotencyKey }, 'Failed to save idempotency record');
       });
 

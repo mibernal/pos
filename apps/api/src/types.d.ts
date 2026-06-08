@@ -1,7 +1,7 @@
 import type { Kysely } from 'kysely';
 import type { Redis } from 'ioredis';
 import type { FastifyReply } from 'fastify';
-import type { AuthContext, JwtClaims, UserRole, UserPermission } from './shared/infra/security/types.js';
+import type { AuthContext, JwtClaims, UserRole, UserPermission } from './shared/infra/security/types.js'; // eslint-disable-line @typescript-eslint/no-unused-vars
 import type { Database } from './shared/infra/db/schema.js';
 
 declare module 'fastify' {

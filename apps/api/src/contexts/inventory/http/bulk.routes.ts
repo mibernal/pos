@@ -56,7 +56,7 @@ export const bulkRoutes: FastifyPluginAsync = async (app) => {
         return reply.code(200).send({ success: true, imported: 0 });
       }
 
-      const tenantId = request.auth.tenantId;
+      const tenantId = request.auth!.tenantId!;
 
       await app.db.transaction().execute(async (trx) => {
         for (const item of payload.items) {
@@ -84,7 +84,7 @@ export const bulkRoutes: FastifyPluginAsync = async (app) => {
               .insertInto('products')
               .values({
                 id: productId,
-                tenant_id: tenantId,
+                tenant_id: tenantId!,
                 branch_id: branchIdFromHeader,
                 name: item.name,
                 category: item.category,
@@ -118,7 +118,7 @@ export const bulkRoutes: FastifyPluginAsync = async (app) => {
               .insertInto('inventory_transactions')
               .values({
                 id: txId,
-                tenant_id: tenantId,
+                tenant_id: tenantId!,
                 branch_id: branchIdFromHeader,
                 product_id: productId,
                 variant_id: null,
@@ -150,7 +150,7 @@ export const bulkRoutes: FastifyPluginAsync = async (app) => {
             } else {
                await trx.insertInto('inventory_balances')
                   .values({
-                     tenant_id: tenantId,
+                     tenant_id: tenantId!,
                      branch_id: branchIdFromHeader,
                      product_id: productId,
                      variant_id: null,

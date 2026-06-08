@@ -55,7 +55,7 @@ export const journalRoutes: FastifyPluginAsync = async (app) => {
             event: 'journal_replay',
             operation_id: op.id,
             operation_type: op.type,
-            tenant_id: request.auth.tenantId
+            tenant_id: request.auth!.tenantId!
           }, `Replaying offline operation ${op.type}`);
 
           // e.g. if (op.type === 'CREATE_SALE') {
@@ -64,7 +64,7 @@ export const journalRoutes: FastifyPluginAsync = async (app) => {
           // }
 
           synced_ids.push(op.id);
-        } catch (err: any) {
+        } catch (err: any) { // eslint-disable-line @typescript-eslint/no-explicit-any
           request.log.error(err, `Failed to replay operation ${op.id}`);
           failed_ids.push({ id: op.id, error: err.message });
         }

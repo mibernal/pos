@@ -11,7 +11,8 @@ import {
 import { useQueryClient } from '@tanstack/react-query';
 import { ApiClientError, createApiClient, type AuthSession, type UserRole } from '../../../lib/api';
 import { API_BASE_URL } from '../../../lib/env';
-import { readAuthUser, writeAuthUser, writePosContext } from '../../../lib/session';
+import { readAuthUser, writeAuthUser } from '../../../lib/session';
+import { usePosStore } from '../../../hooks/usePosStore';
 
 const SESSION_EXPIRED_MESSAGE = 'Tu sesión expiró o ya no es válida. Inicia sesión de nuevo.';
 
@@ -38,7 +39,6 @@ interface SessionContextValue {
 const SessionContext = createContext<SessionContextValue | null>(null);
 
 export function SessionProvider({ children }: { children: ReactNode }) {
-  const queryClient = useQueryClient();
   const initialUserRef = useRef<AuthSession['user'] | null>(readAuthUser());
   const [session, setSession] = useState<AuthSession | null>(null);
   const [user, setUser] = useState<AuthSession['user'] | null>(initialUserRef.current);
@@ -50,6 +50,9 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const reauthResolverRef = useRef<((session: AuthSession | null) => void) | null>(null);
 
   const commitSession = useCallback((nextSession: AuthSession | null) => {
+    if (!nextSession?.user || (sessionRef.current?.user && sessionRef.current.user.id !== nextSession.user.id)) {
+      usePosStore.getState().commitPosContext(null);
+    }
     sessionRef.current = nextSession;
     setSession(nextSession);
     if (nextSession?.user) {
@@ -62,18 +65,20 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const clearSession = useCallback(
-    (reason?: string) => {
+    (reason?: string, skipReload: boolean = false) => {
       sessionRef.current = null;
       setSession(null);
       setUser(null);
       writeAuthUser(null);
-      writePosContext(null);
+      usePosStore.getState().commitPosContext(null);
       setAuthMessage(reason ?? null);
       setAuthState('unauthenticated');
-      // Clean query cache securely
-      queryClient.clear();
+      // Clear react query cache and memory by reloading the application
+      if (typeof window !== 'undefined' && !skipReload) {
+        window.location.reload();
+      }
     },
-    [queryClient]
+    []
   );
 
   const onReauthRequired = useCallback(() => {
@@ -184,9 +189,9 @@ export function SessionProvider({ children }: { children: ReactNode }) {
           setAuthState('authenticated');
         } else {
           if (user) {
-            clearSession(SESSION_EXPIRED_MESSAGE);
+            clearSession(SESSION_EXPIRED_MESSAGE, true);
           } else {
-            clearSession();
+            clearSession(undefined, true);
           }
         }
       } catch (error) {
@@ -196,17 +201,17 @@ export function SessionProvider({ children }: { children: ReactNode }) {
 
         if (error instanceof ApiClientError && error.isNetworkError) {
           if (user) {
-            clearSession('Error de conexión. Revisa tu internet e intenta de nuevo.');
+            clearSession('Error de conexión. Revisa tu internet e intenta de nuevo.', true);
           } else {
-            clearSession();
+            clearSession(undefined, true);
           }
           return;
         }
 
         if (user) {
-          clearSession(SESSION_EXPIRED_MESSAGE);
+          clearSession(SESSION_EXPIRED_MESSAGE, true);
         } else {
-          clearSession();
+          clearSession(undefined, true);
         }
       }
     }
@@ -216,6 +221,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     return () => {
       cancelled = true;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [api, clearSession, commitSession]); // Note: running this once initially. We only re-run if api or clearSession change.
 
   const value = useMemo<SessionContextValue>(

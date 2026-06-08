@@ -28,7 +28,7 @@ export const branchesRoutes: FastifyPluginAsync = async (app) => {
       let branchesQuery = app.db
         .selectFrom('branches')
         .select(['id', 'tenant_id', 'name', 'address', 'created_at'])
-        .where('tenant_id', '=', request.auth.tenantId)
+        .where('tenant_id', '=', request.auth!.tenantId!)
         .orderBy('name', 'asc');
 
       if (request.auth.role !== 'ADMIN' && request.auth.role !== 'TENANT_OWNER' && !request.auth.isPlatformRole) {
@@ -44,7 +44,7 @@ export const branchesRoutes: FastifyPluginAsync = async (app) => {
       const openCashSessions = await app.db
         .selectFrom('cash_sessions')
         .select(['id', 'branch_id', 'opened_at', 'opening_amount_cents'])
-        .where('tenant_id', '=', request.auth.tenantId)
+        .where('tenant_id', '=', request.auth!.tenantId!)
         .where('closed_at', 'is', null)
         .execute();
 
@@ -135,7 +135,7 @@ export const branchesRoutes: FastifyPluginAsync = async (app) => {
         .updateTable('branches')
         .set(request.body)
         .where('id', '=', request.params.id)
-        .where('tenant_id', '=', request.auth.tenantId)
+        .where('tenant_id', '=', request.auth!.tenantId!)
         .returning(['id', 'tenant_id', 'name', 'address', 'created_at'])
         .executeTakeFirst();
 

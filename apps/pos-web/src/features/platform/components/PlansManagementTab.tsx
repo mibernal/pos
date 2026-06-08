@@ -2,24 +2,24 @@ import React, { useState, useEffect } from 'react';
 import { Card, Button } from '../../../components/ui';
 
 interface PlansManagementTabProps {
-  api: any;
+  api: any; // eslint-disable-line @typescript-eslint/no-explicit-any
 }
 
 export function PlansManagementTab({ api }: PlansManagementTabProps) {
-  const [plans, setPlans] = useState<any[]>([]);
+  const [plans, setPlans] = useState<any[]>([]); // eslint-disable-line @typescript-eslint/no-explicit-any
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     loadPlans();
-  }, []);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function loadPlans() {
     try {
       setLoading(true);
       const res = await api.getPlatformPlans();
       setPlans(res.plans || []);
-    } catch (err: any) {
+    } catch (err: any) { // eslint-disable-line @typescript-eslint/no-explicit-any
       setError(err.message || 'Error al cargar los planes');
     } finally {
       setLoading(false);

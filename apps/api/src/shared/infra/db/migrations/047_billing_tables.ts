@@ -1,6 +1,6 @@
 import { Kysely, sql } from 'kysely';
 
-export async function up(db: Kysely<any>): Promise<void> {
+export async function up(db: Kysely<any>): Promise<void> { // eslint-disable-line @typescript-eslint/no-explicit-any
   await db.schema
     .createTable('billing_plans')
     .addColumn('id', 'varchar(50)', (col) => col.primaryKey()) // e.g., 'STARTER', 'PRO', 'ENTERPRISE'
@@ -47,7 +47,7 @@ export async function up(db: Kysely<any>): Promise<void> {
   ]).execute();
 }
 
-export async function down(db: Kysely<any>): Promise<void> {
+export async function down(db: Kysely<any>): Promise<void> { // eslint-disable-line @typescript-eslint/no-explicit-any
   await db.schema.dropTable('payment_transactions').execute();
   await db.schema.dropTable('tenant_subscriptions').execute();
   await db.schema.dropTable('billing_plans').execute();

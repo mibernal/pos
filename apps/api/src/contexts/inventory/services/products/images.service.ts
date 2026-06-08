@@ -68,7 +68,7 @@ export async function processAndUploadProductImage(
     .insertInto('product_images')
     .values({
       id: imageId,
-      tenant_id: tenantId,
+      tenant_id: tenantId!,
       product_id: productId,
       storage_provider: providerType,
       storage_key: storageKey,

@@ -4,11 +4,12 @@
   "private": true,
   "type": "module",
   "engines": {
-    "node": ">=20 <=22"
+    "node": ">=22 <=24"
   },
   "scripts": {
     "dev": "vite",
     "build": "tsc -p tsconfig.app.json && vite build",
+    "typecheck": "tsc --noEmit -p tsconfig.app.json",
     "lint": "eslint src --ext .ts,.tsx",
     "test": "NODE_ENV=test vitest run"
   },

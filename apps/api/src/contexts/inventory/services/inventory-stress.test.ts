@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import { createDb } from '../../../shared/infra/db/connection.js';
 import { recordInventoryTransaction } from '../http/inventory.routes.js';
-import { sql } from 'kysely';
+import { sql } from 'kysely'; // eslint-disable-line @typescript-eslint/no-unused-vars
 
 const db = createDb();
 
@@ -25,15 +25,24 @@ describe('Inventory Concurrency Stress Test', () => {
 
     await db.insertInto('branches').values({
       id: branchId,
-      tenant_id: tenantId,
+      tenant_id: tenantId!,
       name: 'Main Branch',
       address: 'Test'
     }).execute();
 
+    await db.insertInto('users').values({
+      id: userId,
+      tenant_id: tenantId!,
+      email: `stress.${randomUUID()}@test.com`,
+      password_hash: '123',
+      name: 'Stress',
+      role: 'ADMIN'
+    }).execute();
+
     await db.insertInto('products').values({
       id: productId,
-      tenant_id: tenantId,
-      branch_id: branchId,
+      tenant_id: tenantId!,
+      branch_id: branchId!,
       name: 'Stress Test Product',
       category: 'TEST',
       price_cents: 1000,
@@ -43,8 +52,8 @@ describe('Inventory Concurrency Stress Test', () => {
 
     // Initial stock: 50
     await db.insertInto('inventory_balances').values({
-      tenant_id: tenantId,
-      branch_id: branchId,
+      tenant_id: tenantId!,
+      branch_id: branchId!,
       product_id: productId,
       on_hand_qty: '50',
       in_transit_qty: '0',
@@ -58,13 +67,14 @@ describe('Inventory Concurrency Stress Test', () => {
     await db.deleteFrom('inventory_transactions').where('tenant_id', '=', tenantId).execute();
     await db.deleteFrom('inventory_balances').where('tenant_id', '=', tenantId).execute();
     await db.deleteFrom('products').where('tenant_id', '=', tenantId).execute();
+    await db.deleteFrom('users').where('id', '=', userId).execute();
     await db.deleteFrom('branches').where('tenant_id', '=', tenantId).execute();
     await db.deleteFrom('tenants').where('id', '=', tenantId).execute();
   });
 
   it('should handle 100 concurrent sales attempts without dropping below 0', async () => {
     const promises = Array.from({ length: 100 }).map(() => {
-      return db.transaction().execute(async (trx: any) => {
+      return db.transaction().execute(async (trx: any) => { // eslint-disable-line @typescript-eslint/no-explicit-any
         await recordInventoryTransaction(trx, {
           tenantId,
           branchId,
@@ -76,12 +86,12 @@ describe('Inventory Concurrency Stress Test', () => {
           notes: 'Stress test sale',
           userId
         });
-      }).catch((err: any) => err);
+      }).catch((err: any) => err); // eslint-disable-line @typescript-eslint/no-explicit-any
     });
 
     const results = await Promise.all(promises);
-    const successes = results.filter((r: any) => !(r instanceof Error));
-    const failures = results.filter((r: any) => r instanceof Error);
+    const successes = results.filter((r: any) => !(r instanceof Error)); // eslint-disable-line @typescript-eslint/no-explicit-any
+    const failures = results.filter((r: any) => r instanceof Error); // eslint-disable-line @typescript-eslint/no-explicit-any
 
     // Initial stock is 50, each sale is -1. So exactly 50 should succeed.
     expect(successes.length).toBe(50);
@@ -106,7 +116,7 @@ describe('Inventory Concurrency Stress Test', () => {
     const expectedVersion = Number(balance.version);
 
     // Try two concurrent adjustments expecting the same version
-    const promise1 = db.transaction().execute(async (trx: any) => {
+    const promise1 = db.transaction().execute(async (trx: any) => { // eslint-disable-line @typescript-eslint/no-explicit-any
       await recordInventoryTransaction(trx, {
         tenantId,
         branchId,
@@ -125,7 +135,7 @@ describe('Inventory Concurrency Stress Test', () => {
     // Espera, recordInventoryTransaction usa select ... forUpdate(), así que P2 se quedará esperando el lock de P1. 
     // Al liberarse, P2 reevaluará y el "balance.version" en mem ya será expectedVersion+1, y lanzará OPTIMISTIC_LOCK_FAILED.
 
-    const promise2 = db.transaction().execute(async (trx: any) => {
+    const promise2 = db.transaction().execute(async (trx: any) => { // eslint-disable-line @typescript-eslint/no-explicit-any
       await recordInventoryTransaction(trx, {
         tenantId,
         branchId,
@@ -150,7 +160,7 @@ describe('Inventory Concurrency Stress Test', () => {
     expect(failed.length).toBe(1);
 
     if (failed[0] && 'reason' in failed[0]) {
-      expect((failed[0] as any).reason.message).toContain('El inventario ha sido modificado por otro usuario');
+      expect((failed[0] as any).reason.message).toContain('El inventario ha sido modificado por otro usuario'); // eslint-disable-line @typescript-eslint/no-explicit-any
     }
   });
 });

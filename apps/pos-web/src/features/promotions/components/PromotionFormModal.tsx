@@ -65,7 +65,7 @@ export function PromotionFormModal({ api, isOpen, onClose, onSuccess, promotion,
   const originalPrice = selectedProduct?.price_cents || 0;
   
   let projectedPrice = originalPrice;
-  let numericValue = Number(value);
+  const numericValue = Number(value);
   if (isPercentage && numericValue > 0) {
     projectedPrice = originalPrice - (originalPrice * numericValue / 100);
   } else if (isFixed && numericValue > 0) {
@@ -158,7 +158,7 @@ export function PromotionFormModal({ api, isOpen, onClose, onSuccess, promotion,
 
         <label className="field">
           <span>Tipo de Promoción</span>
-          <select value={type} onChange={e => setType(e.target.value as any)}>
+          <select value={type} onChange={e => setType(e.target.value as 'PERCENTAGE' | 'FIXED_AMOUNT' | 'BUY_X_GET_Y')}>
             <option value="PERCENTAGE">Descuento Porcentual (%)</option>
             <option value="FIXED_AMOUNT">Descuento Fijo ($)</option>
             <option value="BUY_X_GET_Y">Pague X Lleve Y</option>

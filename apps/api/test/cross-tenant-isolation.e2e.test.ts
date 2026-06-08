@@ -63,7 +63,7 @@ describe('Cross-Tenant Isolation E2E', () => {
         cash_session_id: sessionAId,
         items: [{ product_id: fixtureA.productId, qty: 1, price_cents: fixtureA.productPriceCents }],
         discount_cents: 0,
-        payments: [{ method: 'CASH', amount_cents: Math.round(fixtureA.productPriceCents * 1.19) }]
+        payments: [{ method: 'CASH', amount_cents: fixtureA.productPriceCents }]
       }
     });
     expect(saleRes.statusCode).toBe(201);

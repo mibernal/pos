@@ -40,7 +40,7 @@ export const customersRoutes: FastifyPluginAsync = async (app) => {
       const existing = await app.db
         .selectFrom('customers')
         .select('id')
-        .where('tenant_id', '=', request.auth!.tenantId)
+        .where('tenant_id', '=', request.auth!.tenantId!)
         .where('document_type', '=', payload.document_type)
         .where('document_number', '=', payload.document_number)
         .executeTakeFirst();
@@ -53,7 +53,7 @@ export const customersRoutes: FastifyPluginAsync = async (app) => {
         .insertInto('customers')
         .values({
           id: randomUUID(),
-          tenant_id: request.auth!.tenantId,
+          tenant_id: request.auth!.tenantId!,
           document_type: payload.document_type,
           document_number: payload.document_number,
           name: payload.name,
@@ -85,7 +85,7 @@ export const customersRoutes: FastifyPluginAsync = async (app) => {
       const rows = await app.db
         .selectFrom('customers')
         .select([...customerColumnList])
-        .where('tenant_id', '=', request.auth!.tenantId)
+        .where('tenant_id', '=', request.auth!.tenantId!)
         .orderBy('created_at', 'desc')
         .execute();
 
@@ -115,7 +115,7 @@ export const customersRoutes: FastifyPluginAsync = async (app) => {
       const existing = await app.db
         .selectFrom('customers')
         .select(['id', 'document_type', 'document_number'])
-        .where('tenant_id', '=', request.auth!.tenantId)
+        .where('tenant_id', '=', request.auth!.tenantId!)
         .where('id', '=', id)
         .executeTakeFirst();
 
@@ -133,7 +133,7 @@ export const customersRoutes: FastifyPluginAsync = async (app) => {
         const duplicatedCustomer = await app.db
           .selectFrom('customers')
           .select('id')
-          .where('tenant_id', '=', request.auth!.tenantId)
+          .where('tenant_id', '=', request.auth!.tenantId!)
           .where('document_type', '=', nextDocumentType)
           .where('document_number', '=', nextDocumentNumber)
           .where('id', '!=', id)
@@ -156,7 +156,7 @@ export const customersRoutes: FastifyPluginAsync = async (app) => {
       const updated = await app.db
         .updateTable('customers')
         .set(toUpdate)
-        .where('tenant_id', '=', request.auth!.tenantId)
+        .where('tenant_id', '=', request.auth!.tenantId!)
         .where('id', '=', id)
         .returning([...customerColumnList])
         .executeTakeFirstOrThrow();

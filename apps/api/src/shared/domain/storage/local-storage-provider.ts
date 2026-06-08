@@ -22,7 +22,7 @@ export class LocalStorageProvider implements StorageProvider {
     const fullPath = path.join(this.storageBasePath, key);
     try {
       await fs.unlink(fullPath);
-    } catch (error: any) {
+    } catch (error: any) { // eslint-disable-line @typescript-eslint/no-explicit-any
       if (error.code !== 'ENOENT') {
         throw error;
       }

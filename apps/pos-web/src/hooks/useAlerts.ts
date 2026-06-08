@@ -84,14 +84,14 @@ export function useAlerts(api: PosApiClient) {
 
                     return [data, ...prev].slice(0, 50); // Keep last 50 in memory
                   });
-                } catch (e) {
+                } catch (e) { // eslint-disable-line @typescript-eslint/no-unused-vars
                   // ignore
                 }
               }
             }
           }
         }
-      } catch (err) {
+      } catch (err) { // eslint-disable-line @typescript-eslint/no-unused-vars
         setConnected(false);
       }
     }

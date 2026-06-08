@@ -1,8 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { useBarcodeScanner } from '../../../hooks/useBarcodeScanner';
 // Fallback icons
-const ScanBarcode = (props: any) => <span>[Scanner]</span>;
-const AlertCircle = (props: any) => <span>[!]</span>;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const ScanBarcode = (props: any) => <span>[Scanner]</span>; // eslint-disable-line @typescript-eslint/no-unused-vars
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const AlertCircle = (props: any) => <span>[!]</span>; // eslint-disable-line @typescript-eslint/no-unused-vars
 
 interface ScannerViewProps {
   onScan: (barcode: string) => void;
@@ -11,7 +13,7 @@ interface ScannerViewProps {
 
 const playBeep = (type: 'success' | 'error') => {
   try {
-    const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
+    const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)(); // eslint-disable-line @typescript-eslint/no-explicit-any
     const oscillator = audioCtx.createOscillator();
     const gainNode = audioCtx.createGain();
 
@@ -56,8 +58,8 @@ export const ScannerView: React.FC<ScannerViewProps> = ({ onScan, isActive = tru
     const handleTriggerBeep = (e: CustomEvent) => {
       playBeep(e.detail.type);
     };
-    window.addEventListener('scanner-beep' as any, handleTriggerBeep);
-    return () => window.removeEventListener('scanner-beep' as any, handleTriggerBeep);
+    window.addEventListener('scanner-beep' as any, handleTriggerBeep); // eslint-disable-line @typescript-eslint/no-explicit-any
+    return () => window.removeEventListener('scanner-beep' as any, handleTriggerBeep); // eslint-disable-line @typescript-eslint/no-explicit-any
   }, []);
 
   return (

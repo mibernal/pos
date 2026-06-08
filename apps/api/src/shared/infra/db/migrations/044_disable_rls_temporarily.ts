@@ -38,6 +38,7 @@ const TABLES_TO_DISABLE_RLS = [
   'cash_ledger'
 ] as const;
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 export async function up(db: Kysely<any>): Promise<void> {
   for (const table of TABLES_TO_DISABLE_RLS) {
     await sql`DROP POLICY IF EXISTS tenant_isolation_policy ON ${sql.table(table)}`.execute(db);
@@ -46,6 +47,7 @@ export async function up(db: Kysely<any>): Promise<void> {
   }
 }
 
-export async function down(db: Kysely<any>): Promise<void> {
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export async function down(_db: Kysely<any>): Promise<void> {
   // Para restaurar RLS en un futuro cuando las rutas soporten set_config()
 }

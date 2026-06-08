@@ -1,6 +1,6 @@
 import { sql, type Kysely } from 'kysely';
 
-export async function up(db: Kysely<any>): Promise<void> {
+export async function up(db: Kysely<any>): Promise<void> { // eslint-disable-line @typescript-eslint/no-explicit-any
   await db.schema
     .createTable('refresh_tokens')
     .addColumn('id', 'uuid', (col) => col.primaryKey().notNull())
@@ -24,6 +24,6 @@ export async function up(db: Kysely<any>): Promise<void> {
     .execute();
 }
 
-export async function down(db: Kysely<any>): Promise<void> {
+export async function down(db: Kysely<any>): Promise<void> { // eslint-disable-line @typescript-eslint/no-explicit-any
   await db.schema.dropTable('refresh_tokens').execute();
 }

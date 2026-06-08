@@ -1,6 +1,6 @@
 import { Kysely, sql } from 'kysely';
 
-export async function up(db: Kysely<any>): Promise<void> {
+export async function up(db: Kysely<any>): Promise<void> { // eslint-disable-line @typescript-eslint/no-explicit-any
   // 1. Tabla de llaves de idempotencia
   await db.schema
     .createTable('idempotency_records')
@@ -25,7 +25,7 @@ export async function up(db: Kysely<any>): Promise<void> {
   await sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_sales_tenant_client_uuid ON sales (tenant_id, client_uuid)`.execute(db);
 }
 
-export async function down(db: Kysely<any>): Promise<void> {
+export async function down(db: Kysely<any>): Promise<void> { // eslint-disable-line @typescript-eslint/no-explicit-any
   await sql`DROP INDEX IF EXISTS idx_sales_tenant_client_uuid`.execute(db);
   
   await db.schema

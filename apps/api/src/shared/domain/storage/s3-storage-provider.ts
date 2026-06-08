@@ -57,7 +57,7 @@ export class S3StorageProvider implements StorageProvider {
         Key: key,
       }));
       return true;
-    } catch (error: any) {
+    } catch (error: any) { // eslint-disable-line @typescript-eslint/no-explicit-any
       if (error.name === 'NotFound') {
         return false;
       }

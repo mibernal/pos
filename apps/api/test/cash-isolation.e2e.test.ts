@@ -46,7 +46,7 @@ describe('cash isolation e2e', () => {
     const tokenA = await loginE2eUser(app, { email: cashierAEmail, password: cashierAPassword });
 
     const cashierBId = randomUUID();
-    const cashierBEmail = 'b@iso.com';
+    const cashierBEmail = `b.${randomUUID()}@iso.com`;
     const cashierBPassword = 'Password123!';
     const hash = await hashPassword(cashierBPassword);
 
@@ -56,7 +56,8 @@ describe('cash isolation e2e', () => {
       email: cashierBEmail,
       name: 'Cashier B',
       role: 'CASHIER',
-      password_hash: hash
+      password_hash: hash,
+      active: true
     }).execute();
 
     await app.db.insertInto('user_branches').values({

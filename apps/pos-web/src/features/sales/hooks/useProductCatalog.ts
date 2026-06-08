@@ -47,8 +47,10 @@ export function useProductCatalog({ api, branchId }: UseProductCatalogOptions) {
       setProductsError(null);
 
       try {
+        let usedCache = false;
         if (!forceRefresh) {
           const lastSync = await getLastSyncTime('products', branchId);
+          // Increase freshness validation, but still do background sync (stale-while-revalidate)
           const isFresh = lastSync && Date.now() - lastSync < 12 * 60 * 60 * 1000;
           if (isFresh) {
             const cachedP = await getCachedProducts();
@@ -56,10 +58,15 @@ export function useProductCatalog({ api, branchId }: UseProductCatalogOptions) {
             if (cachedP && cachedC) {
               setCachedProducts(cachedP);
               setCustomers(cachedC);
+              usedCache = true;
               setProductsLoading(false);
-              return;
+              // We do NOT return here; we continue to fetch in the background to keep data fresh
             }
           }
+        }
+
+        if (!usedCache) {
+          setProductsLoading(true);
         }
 
         try {
@@ -68,7 +75,7 @@ export function useProductCatalog({ api, branchId }: UseProductCatalogOptions) {
             branchId
           });
           const activeProducts = response.items.filter((item) => item.active);
-          setCachedProducts(activeProducts);
+          setCachedProducts(activeProducts); // Update UI with fresh data
           
           const custs = await api.listCustomers();
           setCustomers(custs);
@@ -82,20 +89,26 @@ export function useProductCatalog({ api, branchId }: UseProductCatalogOptions) {
           });
           
         } catch (apiError) {
-          // Fallback a caché si la red falla (Offline First)
-          try {
-            const cachedP = await getCachedProducts();
-            const cachedC = await getCachedCustomers();
-            if (cachedP && cachedC) {
-              setCachedProducts(cachedP);
-              setCustomers(cachedC);
-              console.warn('Cargando catálogo desde caché (Modo Offline)');
-            } else {
-              throw apiError; // Re-throw si no hay caché
+          // Si la red falla, y NO teníamos caché previo, intentamos leer la caché ahora.
+          // Si ya teníamos caché previo (usedCache = true), simplemente ignoramos el error de red
+          // y seguimos trabajando offline sin interrumpir al usuario.
+          if (!usedCache) {
+            try {
+              const cachedP = await getCachedProducts();
+              const cachedC = await getCachedCustomers();
+              if (cachedP && cachedC) {
+                setCachedProducts(cachedP);
+                setCustomers(cachedC);
+                console.warn('Cargando catálogo desde caché (Modo Offline) tras fallo de red');
+              } else {
+                throw apiError;
+              }
+            } catch (cacheError) {
+              console.error('Error al intentar leer caché local tras fallo de red:', cacheError);
+              throw apiError;
             }
-          } catch (cacheError) {
-            console.error('Error al intentar leer caché local:', cacheError);
-            throw apiError;
+          } else {
+            console.warn('Sincronización en segundo plano falló, pero se mantiene la caché existente.', apiError);
           }
         }
       } catch (loadError) {

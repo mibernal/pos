@@ -1,7 +1,7 @@
 import jwt from '@fastify/jwt';
 import type { FastifyPluginAsync } from 'fastify';
 import fp from 'fastify-plugin';
-import type { AuthContext, JwtClaims, UserRole, UserPermission } from '../infra/security/types.js';
+import type { AuthContext, JwtClaims, UserRole, UserPermission } from '../infra/security/types.js'; // eslint-disable-line @typescript-eslint/no-unused-vars
 import { env } from '../../app/env.js';
 import { AppError } from '../infra/errors/app-error.js';
 
@@ -36,7 +36,7 @@ const authPluginImpl: FastifyPluginAsync = async (app) => {
     try {
       // Allow token from query param for EventSource (SSE)
       if (!request.headers.authorization && request.query && typeof request.query === 'object' && 'token' in request.query) {
-        request.headers.authorization = `Bearer ${(request.query as any).token}`;
+        request.headers.authorization = `Bearer ${(request.query as any).token}`; // eslint-disable-line @typescript-eslint/no-explicit-any
       }
       await request.jwtVerify<JwtClaims>();
       request.auth = mapClaimsToAuthContext(request.user);

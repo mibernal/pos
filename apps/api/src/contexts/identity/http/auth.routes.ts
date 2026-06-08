@@ -7,10 +7,9 @@ import { env } from '../../../app/env.js';
 import { hashPassword, verifyPassword } from '../auth/password.js';
 import { AppError } from '../../../shared/infra/errors/app-error.js';
 import {
-  assertLoginRateLimitAllowed,
-  buildLoginRateLimitKey,
+  assertAndRecordLoginAttempt,
   clearLoginRateLimit,
-  recordLoginRateLimitFailure
+  buildLoginRateLimitKey
 } from '../../../shared/infra/security/login-rate-limit.js';
 import { getPermissionsForRole } from '../../../shared/infra/security/permissions.js';
 import { writeAuditLog } from '../../../shared/domain/audit/write-audit-log.js';
@@ -70,7 +69,7 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
 
         await trx.insertInto('users').values({
           id: userId,
-          tenant_id: tenantId,
+          tenant_id: tenantId!,
           email: payload.email,
           password_hash: passwordHash,
           name: payload.name,
@@ -81,16 +80,15 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
         const branchId = randomUUID();
         await trx.insertInto('branches').values({
           id: branchId,
-          tenant_id: tenantId,
+          tenant_id: tenantId!,
           name: 'Sucursal Principal',
           address: 'No especificada'
         }).execute();
 
         await trx.insertInto('user_branches').values({
-          tenant_id: tenantId,
+          tenant_id: tenantId!,
           user_id: userId,
-          branch_id: branchId
-        }).execute();
+          branch_id: branchId!}).execute();
       });
 
       await writeAuditLog(app.db, {
@@ -127,7 +125,7 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
       const rateLimitKey = buildLoginRateLimitKey(request.ip, email, tenantId);
 
       try {
-        await assertLoginRateLimitAllowed(app.redis, rateLimitKey);
+        await assertAndRecordLoginAttempt(app.redis, rateLimitKey);
       } catch {
         throw new AppError(429, 'AUTH_RATE_LIMITED', 'Demasiados intentos de inicio de sesión. Intenta de nuevo más tarde.');
       }
@@ -159,7 +157,6 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
       const candidates = await candidatesQuery.execute();
 
       if (candidates.length === 0) {
-        await recordLoginRateLimitFailure(app.redis, rateLimitKey);
         throw new AppError(401, 'AUTH_INVALID_CREDENTIALS', 'Credenciales inválidas');
       }
 
@@ -172,7 +169,6 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
       }
 
       if (validCandidates.length === 0) {
-        await recordLoginRateLimitFailure(app.redis, rateLimitKey);
         throw new AppError(401, 'AUTH_INVALID_CREDENTIALS', 'Credenciales inválidas');
       }
 

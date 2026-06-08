@@ -41,7 +41,7 @@ export const salesRoutes: FastifyPluginAsync = async (app) => {
 
       const command = new CreateSaleCommand(
         payload,
-        request.auth.tenantId,
+        request.auth!.tenantId!,
         request.auth.userId,
         request.auth.role,
         request.log,
@@ -99,7 +99,7 @@ export const salesRoutes: FastifyPluginAsync = async (app) => {
 
       ensureUserCanAccessBranch(request.auth, branchId);
 
-      const rows = await executeAsTenant(app.db, request.auth.tenantId, async (trx) => {
+      const rows = await executeAsTenant(app.db, request.auth!.tenantId!, async (trx) => {
         let queryBuilder = trx
           .selectFrom('sales')
           .leftJoin('dian_documents', (join) =>
@@ -111,7 +111,7 @@ export const salesRoutes: FastifyPluginAsync = async (app) => {
           .selectAll('sales')
           .select('dian_documents.status as dian_status')
           // Optional now, but kept for clarity and explicit filtering
-          .where('sales.tenant_id', '=', request.auth!.tenantId)
+          .where('sales.tenant_id', '=', request.auth!.tenantId!)
           .where('sales.branch_id', '=', branchId);
 
         if (from) {
@@ -161,11 +161,11 @@ export const salesRoutes: FastifyPluginAsync = async (app) => {
 
       const params = saleIdParamsSchema.parse(request.params);
 
-      const result = await executeAsTenant(app.db, request.auth.tenantId, async (trx) => {
+      const result = await executeAsTenant(app.db, request.auth!.tenantId!, async (trx) => {
         const sale = await trx
           .selectFrom('sales')
           .select([...saleColumnList])
-          .where('tenant_id', '=', request.auth!.tenantId)
+          .where('tenant_id', '=', request.auth!.tenantId!)
           .where('id', '=', params.id)
           .executeTakeFirst();
 
@@ -199,7 +199,7 @@ export const salesRoutes: FastifyPluginAsync = async (app) => {
             'products.image_url as product_image_url',
             'products.description as product_description'
           ])
-          .where('sale_items.tenant_id', '=', request.auth!.tenantId)
+          .where('sale_items.tenant_id', '=', request.auth!.tenantId!)
           .where('sale_items.sale_id', '=', sale.id)
           .orderBy('sale_items.id', 'asc')
           .execute();
@@ -216,7 +216,7 @@ export const salesRoutes: FastifyPluginAsync = async (app) => {
             'created_at',
             'updated_at'
           ])
-          .where('tenant_id', '=', request.auth!.tenantId)
+          .where('tenant_id', '=', request.auth!.tenantId!)
           .where('sale_id', '=', sale.id)
           .where('document_type', '=', 'INVOICE')
           .executeTakeFirst();
@@ -278,7 +278,7 @@ export const salesRoutes: FastifyPluginAsync = async (app) => {
 
       const voidedSale = await voidSaleService({
         db: app.db,
-        tenantId: request.auth.tenantId,
+        tenantId: request.auth!.tenantId!,
         auth: request.auth,
         saleId: params.id,
         payload
@@ -326,7 +326,7 @@ export const salesRoutes: FastifyPluginAsync = async (app) => {
       const result = await processPartialReturn(
         {
           db: app.db,
-          tenantId: request.auth.tenantId,
+          tenantId: request.auth!.tenantId!,
           auth: request.auth
         },
         params.id,

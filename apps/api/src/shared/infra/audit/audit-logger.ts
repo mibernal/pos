@@ -11,8 +11,8 @@ export interface AuditLogOptions {
   entityType: string;
   entityId: string;
   action: string;
-  oldValues?: any;
-  newValues?: any;
+  oldValues?: any; // eslint-disable-line @typescript-eslint/no-explicit-any
+  newValues?: any; // eslint-disable-line @typescript-eslint/no-explicit-any
 }
 
 export async function logAudit(options: AuditLogOptions): Promise<void> {

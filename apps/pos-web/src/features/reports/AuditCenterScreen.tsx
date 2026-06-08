@@ -2,11 +2,11 @@ import React, { useCallback, useEffect, useState } from 'react';
 import type { PosApiClient } from '../../types';
 
 export function AuditCenterScreen({ api }: { api: PosApiClient }) {
-  const [logs, setLogs] = useState<any[]>([]);
+  const [logs, setLogs] = useState<any[]>([]); // eslint-disable-line @typescript-eslint/no-explicit-any
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [selectedCorrelation, setSelectedCorrelation] = useState<string | null>(null);
-  const [correlationLogs, setCorrelationLogs] = useState<any[]>([]);
+  const [correlationLogs, setCorrelationLogs] = useState<any[]>([]); // eslint-disable-line @typescript-eslint/no-explicit-any
 
   // Filters
   const [branchId, setBranchId] = useState('');

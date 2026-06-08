@@ -1,6 +1,7 @@
 import React from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { SessionProvider } from '../src/features/auth';
 import { HistoryScreen } from '../src/features/history';
 import { writeAuthSession } from '../src/lib/session';
@@ -25,9 +26,10 @@ function mockSessionFetch(role: 'ADMIN' | 'CASHIER' = 'ADMIN') {
   return vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
     const url = String(input);
 
-    if (url.endsWith('/auth/me')) {
+    if (url.endsWith('/auth/refresh') || url.endsWith('/auth/me')) {
       return new Response(
         JSON.stringify({
+          accessToken: 'token-admin',
           user: {
             id: '11111111-1111-4111-8111-111111111111',
             tenantId: '22222222-2222-4222-8222-222222222222',
@@ -205,7 +207,8 @@ describe('HistoryScreen', () => {
     } as unknown as Window);
 
     render(
-      <SessionProvider>
+      <QueryClientProvider client={new QueryClient()}>
+        <SessionProvider>
         <HistoryScreen
           api={api}
           branchId="branch-1"
@@ -217,11 +220,13 @@ describe('HistoryScreen', () => {
             address: 'Calle 1',
             phone: '',
             footerMessage: '',
-            logoUrl: ''
+            logoUrl: '',
+            printerWidth: '80mm'
           }}
           tenantTaxMode="IVA"
         />
-      </SessionProvider>
+        </SessionProvider>
+      </QueryClientProvider>
     );
 
     expect((await screen.findAllByText('Venta #42')).length).toBeGreaterThan(0);
@@ -253,7 +258,8 @@ describe('HistoryScreen', () => {
     } as unknown as Window);
 
     render(
-      <SessionProvider>
+      <QueryClientProvider client={new QueryClient()}>
+        <SessionProvider>
         <HistoryScreen
           api={api}
           branchId="branch-1"
@@ -265,11 +271,13 @@ describe('HistoryScreen', () => {
             address: 'Calle 1',
             phone: '',
             footerMessage: '',
-            logoUrl: ''
+            logoUrl: '',
+            printerWidth: '80mm'
           }}
           tenantTaxMode="IVA"
         />
-      </SessionProvider>
+        </SessionProvider>
+      </QueryClientProvider>
     );
 
     fireEvent.click(await screen.findByRole('button', { name: /anular/i }));
@@ -308,7 +316,8 @@ describe('HistoryScreen', () => {
     const api = buildApiMock();
 
     render(
-      <SessionProvider>
+      <QueryClientProvider client={new QueryClient()}>
+        <SessionProvider>
         <HistoryScreen
           api={api}
           branchId="branch-1"
@@ -320,11 +329,13 @@ describe('HistoryScreen', () => {
             address: 'Calle 1',
             phone: '',
             footerMessage: '',
-            logoUrl: ''
+            logoUrl: '',
+            printerWidth: '80mm'
           }}
           tenantTaxMode="IVA"
         />
-      </SessionProvider>
+        </SessionProvider>
+      </QueryClientProvider>
     );
 
     await screen.findByText('Combo ejecutivo');

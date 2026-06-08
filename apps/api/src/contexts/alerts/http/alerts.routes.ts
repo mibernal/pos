@@ -20,7 +20,7 @@ export const alertsRoutes: FastifyPluginAsync = async (app) => {
       const stream = setupSseStream(request, reply);
       if (!stream) return;
 
-      const pushAlert = (alertData: any) => {
+      const pushAlert = (alertData: any) => { // eslint-disable-line @typescript-eslint/no-explicit-any
         stream.writeEvent(alertData);
       };
 
@@ -36,7 +36,7 @@ export const alertsRoutes: FastifyPluginAsync = async (app) => {
           // Find alerts created after lastCheck
           let query = app.db
             .selectFrom('tenant_alerts')
-            .where('tenant_id', '=', request.auth!.tenantId)
+            .where('tenant_id', '=', request.auth!.tenantId!)
             .where('status', '=', 'UNREAD')
             .where('created_at', '>', lastCheck);
             
@@ -87,7 +87,7 @@ export const alertsRoutes: FastifyPluginAsync = async (app) => {
 
       let query = app.db
         .selectFrom('tenant_alerts')
-        .where('tenant_id', '=', request.auth.tenantId);
+        .where('tenant_id', '=', request.auth!.tenantId!);
 
       if (status) query = query.where('status', '=', status);
       if (severity) query = query.where('severity', '=', severity);
@@ -134,14 +134,14 @@ export const alertsRoutes: FastifyPluginAsync = async (app) => {
         body: resolveAlertSchema
       }
     },
-    async (request, reply) => {
+    async (request, reply) => { // eslint-disable-line @typescript-eslint/no-unused-vars
       if (!request.auth) throw new AppError(401, 'UNAUTHORIZED', 'No autorizado');
       const alertId = (request.params as { id: string }).id;
       
       const alert = await app.db
         .selectFrom('tenant_alerts')
         .where('id', '=', alertId)
-        .where('tenant_id', '=', request.auth.tenantId)
+        .where('tenant_id', '=', request.auth!.tenantId!)
         .selectAll()
         .executeTakeFirst();
 

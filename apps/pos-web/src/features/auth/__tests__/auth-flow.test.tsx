@@ -34,8 +34,8 @@ function TestComponent() {
   const handleFetch = async () => {
     try {
       // Usamos any para bypassear tipado ya que es un mock
-      await (api as any).getSecureData();
-    } catch (e) {
+      await (api as any).getSecureData(); // eslint-disable-line @typescript-eslint/no-explicit-any
+    } catch (e) { // eslint-disable-line @typescript-eslint/no-unused-vars
       // Handle error
     }
   };

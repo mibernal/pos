@@ -1,7 +1,7 @@
 import React from 'react';
 import { Card } from '../../../components/ui';
 
-export function RecentActivityWidget({ activity }: { activity: any[] }) {
+export function RecentActivityWidget({ activity }: { activity: any[] }) { // eslint-disable-line @typescript-eslint/no-explicit-any
   if (!activity || !activity.length) return null;
 
   return (

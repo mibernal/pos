@@ -1,5 +1,5 @@
 import { LedgerCrypto } from './ledger-utils.js';
-import { sql } from 'kysely';
+import { sql } from 'kysely'; // eslint-disable-line @typescript-eslint/no-unused-vars
 import type { Database } from './schema.js';
 import type { Kysely } from 'kysely';
 

@@ -17,11 +17,11 @@ export function BulkImportScreen() {
     totalRows: number;
     validRows: number;
     invalidRows: number;
-    previewValid: any[];
-    previewErrors: any[];
+    previewValid: any[]; // eslint-disable-line @typescript-eslint/no-explicit-any
+    previewErrors: any[]; // eslint-disable-line @typescript-eslint/no-explicit-any
   } | null>(null);
   
-  const [jobStatus, setJobStatus] = useState<any>(null);
+  const [jobStatus, setJobStatus] = useState<any>(null); // eslint-disable-line @typescript-eslint/no-explicit-any
   const [polling, setPolling] = useState(false);
   
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -44,7 +44,7 @@ export function BulkImportScreen() {
     try {
       const data = await api.uploadEnterpriseBulk(file);
       setJobData(data);
-    } catch (err: any) {
+    } catch (err: any) { // eslint-disable-line @typescript-eslint/no-explicit-any
       setError(err.message || 'Error al procesar el archivo');
     } finally {
       setUploading(false);
@@ -58,7 +58,7 @@ export function BulkImportScreen() {
     try {
       await api.confirmEnterpriseBulk(jobData.jobId, selectedBranchId);
       setPolling(true);
-    } catch (err: any) {
+    } catch (err: any) { // eslint-disable-line @typescript-eslint/no-explicit-any
       setError(err.message || 'Error al encolar el trabajo');
     } finally {
       setUploading(false);

@@ -48,11 +48,11 @@ export const enterpriseBulkRoutes: FastifyPluginAsync = async (app) => {
         throw new AppError(400, 'NO_FILE', 'No se ha subido ningún archivo');
       }
 
-      const tenantId = request.auth.tenantId;
+      const tenantId = request.auth!.tenantId!;
       const userId = request.auth.userId;
       const fileName = data.filename;
       
-      let rawRows: any[] = [];
+      let rawRows: any[] = []; // eslint-disable-line @typescript-eslint/no-explicit-any
       const buffer = await data.toBuffer();
 
       try {
@@ -67,13 +67,13 @@ export const enterpriseBulkRoutes: FastifyPluginAsync = async (app) => {
           fileName.endsWith('.xls')
         ) {
           const workbook = xlsx.read(buffer, { type: 'buffer' });
-          const firstSheetName = workbook.SheetNames[0];
-          const worksheet = workbook.Sheets[firstSheetName];
+          const firstSheetName = workbook.SheetNames[0] as string;
+          const worksheet = workbook.Sheets[firstSheetName]!;
           rawRows = xlsx.utils.sheet_to_json(worksheet);
         } else {
           throw new AppError(400, 'INVALID_FILE_TYPE', 'Solo se permiten archivos CSV o Excel (XLSX)');
         }
-      } catch (err: any) {
+      } catch (err: any) { // eslint-disable-line @typescript-eslint/no-explicit-any
         throw new AppError(400, 'PARSE_ERROR', `Error parseando archivo: ${err.message}`);
       }
 
@@ -85,8 +85,8 @@ export const enterpriseBulkRoutes: FastifyPluginAsync = async (app) => {
         throw new AppError(400, 'FILE_TOO_LARGE', 'El límite máximo es de 50.000 filas por importación');
       }
 
-      const validRows: any[] = [];
-      const errors: any[] = [];
+      const validRows: any[] = []; // eslint-disable-line @typescript-eslint/no-explicit-any
+      const errors: any[] = []; // eslint-disable-line @typescript-eslint/no-explicit-any
 
       for (let i = 0; i < rawRows.length; i++) {
         const row = rawRows[i];
@@ -97,7 +97,7 @@ export const enterpriseBulkRoutes: FastifyPluginAsync = async (app) => {
           errors.push({
             rowNumber: i + 2, // +1 for 1-index, +1 for header
             rowData: row,
-            error: parsed.error.errors.map(e => e.message).join(', ')
+            error: parsed.error.issues.map((e: any) => e.message).join(', ') // eslint-disable-line @typescript-eslint/no-explicit-any
           });
         }
       }
@@ -108,7 +108,7 @@ export const enterpriseBulkRoutes: FastifyPluginAsync = async (app) => {
         .insertInto('bulk_import_jobs')
         .values({
           id: jobId,
-          tenant_id: tenantId,
+          tenant_id: tenantId!,
           user_id: userId,
           file_name: fileName,
           status: 'PENDING',
@@ -116,8 +116,9 @@ export const enterpriseBulkRoutes: FastifyPluginAsync = async (app) => {
           valid_rows: validRows.length,
           invalid_rows: errors.length,
           processed_rows: 0,
-          payload_json: JSON.stringify(validRows),
-          errors_json: JSON.stringify(errors.slice(0, 100)) // Store max 100 errors to save space
+          payload_json: JSON.stringify(validRows) as any, // eslint-disable-line @typescript-eslint/no-explicit-any
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          errors_json: JSON.stringify(errors.slice(0, 100)) as any // Store max 100 errors to save space
         })
         .execute();
 
@@ -152,7 +153,7 @@ export const enterpriseBulkRoutes: FastifyPluginAsync = async (app) => {
     async (request, reply) => {
       const { jobId } = request.params;
       const { branchId } = request.body;
-      const tenantId = request.auth!.tenantId;
+      const tenantId = request.auth!.tenantId!;
 
       const job = await app.db
         .selectFrom('bulk_import_jobs')
@@ -201,7 +202,7 @@ export const enterpriseBulkRoutes: FastifyPluginAsync = async (app) => {
     },
     async (request, reply) => {
       const { jobId } = request.params;
-      const tenantId = request.auth!.tenantId;
+      const tenantId = request.auth!.tenantId!;
 
       const job = await app.db
         .selectFrom('bulk_import_jobs')

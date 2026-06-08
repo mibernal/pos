@@ -1,6 +1,6 @@
 import { sql, type Kysely } from 'kysely';
 
-export async function up(db: Kysely<any>): Promise<void> {
+export async function up(db: Kysely<any>): Promise<void> { // eslint-disable-line @typescript-eslint/no-explicit-any
   // C1: Add client_uuid to sale_returns
   await sql`
     ALTER TABLE sale_returns
@@ -33,7 +33,7 @@ export async function up(db: Kysely<any>): Promise<void> {
   `.execute(db);
 }
 
-export async function down(db: Kysely<any>): Promise<void> {
+export async function down(db: Kysely<any>): Promise<void> { // eslint-disable-line @typescript-eslint/no-explicit-any
   await sql`DROP INDEX IF EXISTS idx_sale_returns_tenant_client_uuid`.execute(db);
   await sql`ALTER TABLE sale_returns DROP CONSTRAINT IF EXISTS uq_sale_returns_tenant_client_uuid`.execute(db);
   await sql`ALTER TABLE sale_returns DROP COLUMN IF EXISTS client_uuid`.execute(db);

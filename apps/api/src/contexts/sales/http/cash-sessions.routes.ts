@@ -121,12 +121,12 @@ export const cashSessionsRoutes: FastifyPluginAsync = async (app) => {
       const payload = openCashSessionBodySchema.parse(request.body);
 
       ensureUserCanAccessBranch(request.auth, payload.branch_id);
-      await assertTerminalBelongsToTenant(app, request.auth.tenantId, payload.terminal_id);
+      await assertTerminalBelongsToTenant(app, request.auth!.tenantId!, payload.terminal_id);
 
       const existingOpenSession = await app.db
         .selectFrom('cash_sessions')
         .select('id')
-        .where('tenant_id', '=', request.auth.tenantId)
+        .where('tenant_id', '=', request.auth!.tenantId!)
         .where('terminal_id', '=', payload.terminal_id)
         .where('closed_at', 'is', null)
         .executeTakeFirst();
@@ -146,7 +146,7 @@ export const cashSessionsRoutes: FastifyPluginAsync = async (app) => {
             .insertInto('cash_sessions')
             .values({
               id: randomUUID(),
-              tenant_id: request.auth!.tenantId,
+              tenant_id: request.auth!.tenantId!,
               branch_id: payload.branch_id,
               terminal_id: payload.terminal_id,
               opened_by_user_id: request.auth!.userId,
@@ -170,7 +170,7 @@ export const cashSessionsRoutes: FastifyPluginAsync = async (app) => {
             .executeTakeFirstOrThrow();
 
           await LedgerService.appendCashLedger(trx, {
-            tenantId: request.auth!.tenantId,
+            tenantId: request.auth!.tenantId!,
             cashSessionId: insertedSession.id,
             terminalId: insertedSession.terminal_id,
             type: 'OPENING',
@@ -179,7 +179,7 @@ export const cashSessionsRoutes: FastifyPluginAsync = async (app) => {
           });
 
           await writeAuditLog(trx, {
-            tenantId: request.auth!.tenantId,
+            tenantId: request.auth!.tenantId!,
             branchId: insertedSession.branch_id,
             userId: request.auth!.userId,
             entityType: 'CASH_SESSION',
@@ -256,7 +256,7 @@ export const cashSessionsRoutes: FastifyPluginAsync = async (app) => {
             'opening_amount_cents',
             'closed_at'
           ])
-          .where('tenant_id', '=', request.auth!.tenantId)
+          .where('tenant_id', '=', request.auth!.tenantId!)
           .where('id', '=', params.id)
           .executeTakeFirst();
 
@@ -273,7 +273,7 @@ export const cashSessionsRoutes: FastifyPluginAsync = async (app) => {
         const salePayments = await trx
           .selectFrom('sales')
           .select(['payment_json', 'total_cents'])
-          .where('tenant_id', '=', request.auth!.tenantId)
+          .where('tenant_id', '=', request.auth!.tenantId!)
           .where('branch_id', '=', currentSession.branch_id)
           .where('cash_session_id', '=', currentSession.id)
           .where('status', '=', 'COMPLETED')
@@ -282,7 +282,7 @@ export const cashSessionsRoutes: FastifyPluginAsync = async (app) => {
         const cashMovements = await trx
           .selectFrom('cash_movements')
           .select(['type', 'amount_cents'])
-          .where('tenant_id', '=', request.auth!.tenantId)
+          .where('tenant_id', '=', request.auth!.tenantId!)
           .where('cash_session_id', '=', currentSession.id)
           .execute();
 
@@ -297,7 +297,7 @@ export const cashSessionsRoutes: FastifyPluginAsync = async (app) => {
           .insertInto('cash_session_audits')
           .values({
             id: randomUUID(),
-            tenant_id: request.auth!.tenantId,
+            tenant_id: request.auth!.tenantId!,
             cash_session_id: currentSession.id,
             user_id: request.auth!.userId,
             observed_cash_cents: payload.observed_cash_cents,
@@ -309,7 +309,7 @@ export const cashSessionsRoutes: FastifyPluginAsync = async (app) => {
           .executeTakeFirstOrThrow();
 
         await writeAuditLog(trx, {
-          tenantId: request.auth!.tenantId,
+          tenantId: request.auth!.tenantId!,
           branchId: currentSession.branch_id,
           userId: request.auth!.userId,
           entityType: 'CASH_SESSION_AUDIT',
@@ -381,7 +381,7 @@ export const cashSessionsRoutes: FastifyPluginAsync = async (app) => {
             'diff_cents',
             'status'
           ])
-          .where('tenant_id', '=', request.auth!.tenantId)
+          .where('tenant_id', '=', request.auth!.tenantId!)
           .where('id', '=', params.id)
           .forUpdate()
           .executeTakeFirst();
@@ -404,7 +404,7 @@ export const cashSessionsRoutes: FastifyPluginAsync = async (app) => {
         const salePayments = await trx
           .selectFrom('sales')
           .select(['payment_json', 'total_cents'])
-          .where('tenant_id', '=', request.auth!.tenantId)
+          .where('tenant_id', '=', request.auth!.tenantId!)
           .where('branch_id', '=', currentSession.branch_id)
           .where('cash_session_id', '=', currentSession.id)
           .where('status', '=', 'COMPLETED')
@@ -413,7 +413,7 @@ export const cashSessionsRoutes: FastifyPluginAsync = async (app) => {
         const cashMovements = await trx
           .selectFrom('cash_movements')
           .select(['type', 'amount_cents'])
-          .where('tenant_id', '=', request.auth!.tenantId)
+          .where('tenant_id', '=', request.auth!.tenantId!)
           .where('cash_session_id', '=', currentSession.id)
           .execute();
 
@@ -433,7 +433,7 @@ export const cashSessionsRoutes: FastifyPluginAsync = async (app) => {
             diff_cents: diffCents,
             status: 'CLOSED'
           })
-          .where('tenant_id', '=', request.auth!.tenantId)
+          .where('tenant_id', '=', request.auth!.tenantId!)
           .where('id', '=', currentSession.id)
           .returning([
             'id',
@@ -453,7 +453,7 @@ export const cashSessionsRoutes: FastifyPluginAsync = async (app) => {
 
         if (diffCents !== 0) {
           await LedgerService.appendCashLedger(trx, {
-            tenantId: request.auth!.tenantId,
+            tenantId: request.auth!.tenantId!,
             cashSessionId: updatedSession.id,
             terminalId: updatedSession.terminal_id,
             type: 'CLOSING_DISCREPANCY',
@@ -467,7 +467,7 @@ export const cashSessionsRoutes: FastifyPluginAsync = async (app) => {
           await trx
             .insertInto('tenant_alerts')
             .values({
-              tenant_id: request.auth!.tenantId,
+              tenant_id: request.auth!.tenantId!,
               branch_id: updatedSession.branch_id,
               type: 'CASH_SESSION_MISMATCH',
               severity: 'CRITICAL',
@@ -486,7 +486,7 @@ export const cashSessionsRoutes: FastifyPluginAsync = async (app) => {
         }
 
         await writeAuditLog(trx, {
-          tenantId: request.auth!.tenantId,
+          tenantId: request.auth!.tenantId!,
           branchId: updatedSession.branch_id,
           userId: request.auth!.userId,
           entityType: 'CASH_SESSION',
@@ -586,7 +586,7 @@ export const cashSessionsRoutes: FastifyPluginAsync = async (app) => {
       }
 
       const query = currentCashSessionQuerySchema.parse(request.query);
-      await assertTerminalBelongsToTenant(app, request.auth.tenantId, query.terminal_id);
+      await assertTerminalBelongsToTenant(app, request.auth!.tenantId!, query.terminal_id);
 
       const currentSession = await app.db
         .selectFrom('cash_sessions')
@@ -604,7 +604,7 @@ export const cashSessionsRoutes: FastifyPluginAsync = async (app) => {
           'diff_cents',
           'status'
         ])
-        .where('tenant_id', '=', request.auth.tenantId)
+        .where('tenant_id', '=', request.auth!.tenantId!)
         .where('terminal_id', '=', query.terminal_id)
         .where('status', '=', 'OPEN')
         .orderBy('opened_at', 'desc')
@@ -639,7 +639,7 @@ export const cashSessionsRoutes: FastifyPluginAsync = async (app) => {
         const session = await trx
           .selectFrom('cash_sessions')
           .select(['id', 'closed_at', 'branch_id', 'opened_by_user_id', 'terminal_id'])
-          .where('tenant_id', '=', request.auth!.tenantId)
+          .where('tenant_id', '=', request.auth!.tenantId!)
           .where('id', '=', params.id)
           .executeTakeFirst();
 
@@ -664,7 +664,7 @@ export const cashSessionsRoutes: FastifyPluginAsync = async (app) => {
           .insertInto('cash_movements')
           .values({
             id: randomUUID(),
-            tenant_id: request.auth!.tenantId,
+            tenant_id: request.auth!.tenantId!,
             cash_session_id: session.id,
             user_id: request.auth!.userId,
             type: payload.type,
@@ -675,7 +675,7 @@ export const cashSessionsRoutes: FastifyPluginAsync = async (app) => {
           .executeTakeFirstOrThrow();
 
         await LedgerService.appendCashLedger(trx, {
-          tenantId: request.auth!.tenantId,
+          tenantId: request.auth!.tenantId!,
           cashSessionId: session.id,
           terminalId: session.terminal_id,
           type: payload.type === 'IN' ? 'MANUAL_IN' : 'MANUAL_OUT',
@@ -684,7 +684,7 @@ export const cashSessionsRoutes: FastifyPluginAsync = async (app) => {
         });
 
         await writeAuditLog(trx, {
-          tenantId: request.auth!.tenantId,
+          tenantId: request.auth!.tenantId!,
           branchId: session.branch_id,
           userId: request.auth!.userId,
           entityType: 'CASH_SESSION',
@@ -734,7 +734,7 @@ export const cashSessionsRoutes: FastifyPluginAsync = async (app) => {
             'expected_cash_cents',
             'diff_cents'
           ])
-          .where('tenant_id', '=', request.auth!.tenantId)
+          .where('tenant_id', '=', request.auth!.tenantId!)
           .where('id', '=', params.id)
           .forUpdate()
           .executeTakeFirst();
@@ -753,7 +753,7 @@ export const cashSessionsRoutes: FastifyPluginAsync = async (app) => {
           .insertInto('cash_reconciliations')
           .values({
             id: randomUUID(),
-            tenant_id: request.auth!.tenantId,
+            tenant_id: request.auth!.tenantId!,
             cash_session_id: currentSession.id,
             reconciled_by_user_id: request.auth!.userId,
             final_cash_cents: currentSession.closing_cash_real_cents ?? 0,
@@ -800,7 +800,7 @@ export const cashSessionsRoutes: FastifyPluginAsync = async (app) => {
           'opened_at', 'opening_amount_cents', 'closed_at', 'closing_cash_real_cents',
           'expected_cash_cents', 'diff_cents', 'status'
         ])
-        .where('tenant_id', '=', request.auth.tenantId)
+        .where('tenant_id', '=', request.auth!.tenantId!)
         .where('id', '=', params.id)
         .executeTakeFirst();
 
@@ -813,7 +813,7 @@ export const cashSessionsRoutes: FastifyPluginAsync = async (app) => {
       const salePayments = await app.db
         .selectFrom('sales')
         .select(['payment_json', 'total_cents'])
-        .where('tenant_id', '=', request.auth.tenantId)
+        .where('tenant_id', '=', request.auth!.tenantId!)
         .where('branch_id', '=', session.branch_id)
         .where('cash_session_id', '=', session.id)
         .where('status', '=', 'COMPLETED')
@@ -822,7 +822,7 @@ export const cashSessionsRoutes: FastifyPluginAsync = async (app) => {
       const cashMovements = await app.db
         .selectFrom('cash_movements')
         .select(['type', 'amount_cents'])
-        .where('tenant_id', '=', request.auth.tenantId)
+        .where('tenant_id', '=', request.auth!.tenantId!)
         .where('cash_session_id', '=', session.id)
         .execute();
 

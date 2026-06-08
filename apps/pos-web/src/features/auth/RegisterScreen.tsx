@@ -54,7 +54,7 @@ export function RegisterScreen({ api, login, onBack }: RegisterScreenProps) {
         await login({ email: formData.email, password: formData.password });
       }, 1000);
       
-    } catch (err: any) {
+    } catch (err: any) { // eslint-disable-line @typescript-eslint/no-explicit-any
       setError(err.message || 'Error al crear la cuenta. Por favor verifica los datos.');
       setSimulationState(0);
       setLoading(false);

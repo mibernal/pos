@@ -28,6 +28,7 @@ export class LedgerCrypto {
     const orderedPayload: Record<string, string> = {};
 
     for (const key of keys) {
+      if (key === 'hash') continue;
       const value = payload[key];
       // Convertimos todo a string. Si es null o undefined, lo representamos como vacio
       orderedPayload[key] = value === null || value === undefined ? '' : String(value);

@@ -91,7 +91,7 @@ export const productsRoutes: FastifyPluginAsync = async (app) => {
           'products.updated_at',
           'product_images.id as primary_image_id'
         ])
-        .where('products.tenant_id', '=', request.auth.tenantId);
+        .where('products.tenant_id', '=', request.auth!.tenantId!);
 
       if (branchId) {
         queryBuilder = queryBuilder.where(
@@ -139,7 +139,7 @@ export const productsRoutes: FastifyPluginAsync = async (app) => {
           .selectFrom('promotions')
           .selectAll()
           .where('product_id', 'in', productIds)
-          .where('tenant_id', '=', request.auth.tenantId)
+          .where('tenant_id', '=', request.auth!.tenantId!)
           .where('active', '=', true)
           .where('start_date', '<=', sql<Date>`CURRENT_TIMESTAMP`)
           .where(sql<boolean>`(end_date IS NULL OR end_date >= CURRENT_TIMESTAMP)`)
@@ -307,7 +307,7 @@ export const productsRoutes: FastifyPluginAsync = async (app) => {
             'created_at',
             'updated_at'
           ])
-          .where('tenant_id', '=', request.auth!.tenantId)
+          .where('tenant_id', '=', request.auth!.tenantId!)
           .where('id', '=', params.id)
           .forUpdate()
           .executeTakeFirst();
@@ -342,7 +342,7 @@ export const productsRoutes: FastifyPluginAsync = async (app) => {
             ...(payload.description !== undefined ? { description: payload.description } : {}),
             branch_id: resolvedBranchId
           })
-          .where('tenant_id', '=', request.auth!.tenantId)
+          .where('tenant_id', '=', request.auth!.tenantId!)
           .where('id', '=', params.id)
           .returning([
             'id',
@@ -452,7 +452,7 @@ export const productsRoutes: FastifyPluginAsync = async (app) => {
       const currentProduct = await app.db
         .selectFrom('products')
         .select(['id', 'tenant_id', 'branch_id', 'active'])
-        .where('tenant_id', '=', request.auth.tenantId)
+        .where('tenant_id', '=', request.auth!.tenantId!)
         .where('id', '=', params.id)
         .executeTakeFirst();
 
@@ -469,7 +469,7 @@ export const productsRoutes: FastifyPluginAsync = async (app) => {
         .set({
           active: !currentProduct.active
         })
-        .where('tenant_id', '=', request.auth.tenantId)
+        .where('tenant_id', '=', request.auth!.tenantId!)
         .where('id', '=', params.id)
         .returning([
           'id',
@@ -524,7 +524,7 @@ export const productsRoutes: FastifyPluginAsync = async (app) => {
       const images = await app.db
         .selectFrom('product_images')
         .select(['id', 'product_id', 'filename', 'is_primary', 'created_at', 'width', 'height', 'size_bytes'])
-        .where('tenant_id', '=', request.auth.tenantId)
+        .where('tenant_id', '=', request.auth!.tenantId!)
         .where('product_id', '=', request.params.id)
         .orderBy('is_primary', 'desc')
         .orderBy('created_at', 'asc')

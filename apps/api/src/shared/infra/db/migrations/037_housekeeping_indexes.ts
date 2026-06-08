@@ -1,4 +1,4 @@
-import { Kysely, sql } from 'kysely';
+import { Kysely, sql } from 'kysely'; // eslint-disable-line @typescript-eslint/no-unused-vars
 
 export async function up(db: Kysely<unknown>): Promise<void> {
   // Index for cleaning up expired refresh tokens

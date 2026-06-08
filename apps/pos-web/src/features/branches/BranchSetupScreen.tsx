@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Banner, ShellMessage, Button, Card, Input } from '../../components/ui';
+import { Banner, ShellMessage, Button, Card, Input } from '../../components/ui'; // eslint-disable-line @typescript-eslint/no-unused-vars
 import { useBranchCashSession } from '../cash-sessions';
 import { formatMoneyFromCents } from '../../lib/format';
 import type { BranchItem, TerminalItem, AuthSession } from '../../lib/api';
@@ -128,7 +128,7 @@ export function BranchSetupScreen({
     } finally {
       setLoading(false);
     }
-  }, [api, session]);
+  }, [api, session]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     void loadBranches();
@@ -361,12 +361,18 @@ export function BranchSetupScreen({
                   <p className="text-base text-green-700 dark:text-green-500 mb-8">
                     Iniciada el {new Date(currentSession.opened_at).toLocaleString('es-CO')}
                   </p>
-                  <Button
-                    onClick={handleContinue}
-                    className="w-full text-lg py-7 shadow-xl shadow-green-600/10 bg-green-600 hover:bg-green-700 text-white border-0"
-                  >
-                    Continuar al Punto de Venta
-                  </Button>
+                  {session?.user?.role === 'CASHIER' && currentSession.opened_by_user_id !== session?.user?.id ? (
+                    <div className="bg-red-50 text-red-700 p-4 rounded-xl border border-red-200 text-sm mb-4">
+                      <strong>Caja bloqueada:</strong> Esta caja fue abierta por otro cajero. Pídele al administrador que la cierre, o inicia sesión con el usuario original.
+                    </div>
+                  ) : (
+                    <Button
+                      onClick={handleContinue}
+                      className="w-full text-lg py-7 shadow-xl shadow-green-600/10 bg-green-600 hover:bg-green-700 text-white border-0"
+                    >
+                      Continuar al Punto de Venta
+                    </Button>
+                  )}
                 </div>
               ) : (
                 <div className="bg-background border border-border rounded-2xl p-6 sm:p-8 shadow-sm relative overflow-hidden">

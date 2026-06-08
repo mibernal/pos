@@ -55,6 +55,7 @@ describe('sales routes access', () => {
       userId: 'cashier-user-id',
       tenantId: '11111111-1111-4111-8111-111111111111',
       role: 'CASHIER',
+    isPlatformRole: false,
       email: 'cashier@demo.posdian.local',
       name: 'Cajero Demo'
     , branchIds: ['00000000-0000-0000-0000-000000000000'], permissions: ['sales:create']});

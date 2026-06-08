@@ -1,6 +1,6 @@
 import { sql, Kysely } from 'kysely';
 
-export async function up(db: Kysely<any>): Promise<void> {
+export async function up(db: Kysely<any>): Promise<void> { // eslint-disable-line @typescript-eslint/no-explicit-any
   // We need to add branch_id to inventory_valuation_snapshot
   // Since it's a snapshot table, we truncate it first to avoid PK issues
   await sql`TRUNCATE TABLE inventory_valuation_snapshot`.execute(db);
@@ -21,7 +21,7 @@ export async function up(db: Kysely<any>): Promise<void> {
   `.execute(db);
 }
 
-export async function down(db: Kysely<any>): Promise<void> {
+export async function down(db: Kysely<any>): Promise<void> { // eslint-disable-line @typescript-eslint/no-explicit-any
   await sql`TRUNCATE TABLE inventory_valuation_snapshot`.execute(db);
   
   await sql`

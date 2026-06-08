@@ -1,7 +1,7 @@
 import React from 'react';
 import { Card } from '../../../components/ui';
 
-export function ExecutiveMetricsWidget({ metrics }: { metrics: any }) {
+export function ExecutiveMetricsWidget({ metrics }: { metrics: any }) { // eslint-disable-line @typescript-eslint/no-explicit-any
   if (!metrics) return null;
 
   const formatCurrency = (cents: number) => {
@@ -20,7 +20,7 @@ export function ExecutiveMetricsWidget({ metrics }: { metrics: any }) {
   );
 }
 
-function MetricCard({ title, value, subtitle, icon, colorClass }: any) {
+function MetricCard({ title, value, subtitle, icon, colorClass }: any) { // eslint-disable-line @typescript-eslint/no-explicit-any
   return (
     <Card className="p-6">
       <div className="flex items-center gap-3 mb-3">

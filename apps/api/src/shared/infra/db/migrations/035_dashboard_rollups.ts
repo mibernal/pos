@@ -1,6 +1,6 @@
 import { Kysely, sql } from 'kysely';
 
-export async function up(db: Kysely<any>): Promise<void> {
+export async function up(db: Kysely<any>): Promise<void> { // eslint-disable-line @typescript-eslint/no-explicit-any
   // Rollup de ventas diarias por sucursal
   await db.schema
     .createTable('daily_branch_sales_rollup')
@@ -26,7 +26,7 @@ export async function up(db: Kysely<any>): Promise<void> {
     .execute();
 }
 
-export async function down(db: Kysely<any>): Promise<void> {
+export async function down(db: Kysely<any>): Promise<void> { // eslint-disable-line @typescript-eslint/no-explicit-any
   await db.schema.dropTable('inventory_valuation_snapshot').execute();
   await db.schema.dropTable('daily_branch_sales_rollup').execute();
 }

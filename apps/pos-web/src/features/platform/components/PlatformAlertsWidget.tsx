@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Card, CardHeader, CardTitle, CardContent } from '../../../components/ui';
 
 export function PlatformAlertsWidget({ baseUrl, sessionToken }: { baseUrl: string, sessionToken: string }) {
-  const [alerts, setAlerts] = useState<any[]>([]);
+  const [alerts, setAlerts] = useState<any[]>([]); // eslint-disable-line @typescript-eslint/no-explicit-any
   const [connected, setConnected] = useState(false);
 
   useEffect(() => {
@@ -34,7 +34,7 @@ export function PlatformAlertsWidget({ baseUrl, sessionToken }: { baseUrl: strin
         es.close();
       }
     };
-  }, [baseUrl]);
+  }, [baseUrl]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!alerts.length) return null;
 

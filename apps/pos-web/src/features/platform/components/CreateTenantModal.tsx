@@ -2,14 +2,14 @@ import { useState, useEffect } from 'react';
 import { Button, Input, Label } from '../../../components/ui';
 
 interface CreateTenantModalProps {
-  api: any;
+  api: any; // eslint-disable-line @typescript-eslint/no-explicit-any
   onClose: () => void;
   onSuccess: () => void;
 }
 
 export function CreateTenantModal({ api, onClose, onSuccess }: CreateTenantModalProps) {
   const [loading, setLoading] = useState(false);
-  const [plans, setPlans] = useState<any[]>([]);
+  const [plans, setPlans] = useState<any[]>([]); // eslint-disable-line @typescript-eslint/no-explicit-any
   const [formData, setFormData] = useState({
     tenant_name: '',
     tenant_business_name: '',
@@ -24,8 +24,8 @@ export function CreateTenantModal({ api, onClose, onSuccess }: CreateTenantModal
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    api.getPlatformPlans().then((res: any) => setPlans(res.plans || []));
-  }, []);
+    api.getPlatformPlans().then((res: any) => setPlans(res.plans || [])); // eslint-disable-line @typescript-eslint/no-explicit-any
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -34,7 +34,7 @@ export function CreateTenantModal({ api, onClose, onSuccess }: CreateTenantModal
     try {
       await api.createPlatformTenant(formData);
       onSuccess();
-    } catch (err: any) {
+    } catch (err: any) { // eslint-disable-line @typescript-eslint/no-explicit-any
       setError(err.message || 'Error al crear la organización');
     } finally {
       setLoading(false);

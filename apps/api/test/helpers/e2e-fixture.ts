@@ -475,6 +475,14 @@ export async function cleanupE2eFixture(
   fixture: Pick<E2eFixture, 'tenantId'>
 ): Promise<void> {
   await app.db.transaction().execute(async (trx) => {
+    await sql`ALTER TABLE inventory_ledger DISABLE TRIGGER USER`.execute(trx);
+    await sql`ALTER TABLE sales_ledger DISABLE TRIGGER USER`.execute(trx);
+    await sql`ALTER TABLE cash_ledger DISABLE TRIGGER USER`.execute(trx);
+
+    await trx.deleteFrom('inventory_ledger').where('tenant_id', '=', fixture.tenantId).execute();
+    await trx.deleteFrom('sales_ledger').where('tenant_id', '=', fixture.tenantId).execute();
+    await trx.deleteFrom('cash_ledger').where('tenant_id', '=', fixture.tenantId).execute();
+
     await trx.deleteFrom('audit_logs').where('tenant_id', '=', fixture.tenantId).execute();
     await trx.deleteFrom('outbox_events').where('tenant_id', '=', fixture.tenantId).execute();
     await trx.deleteFrom('dian_documents').where('tenant_id', '=', fixture.tenantId).execute();
@@ -482,6 +490,10 @@ export async function cleanupE2eFixture(
     await trx.deleteFrom('sale_returns').where('tenant_id', '=', fixture.tenantId).execute();
     await trx.deleteFrom('sale_items').where('tenant_id', '=', fixture.tenantId).execute();
     await trx.deleteFrom('sales').where('tenant_id', '=', fixture.tenantId).execute();
+
+    await sql`ALTER TABLE inventory_ledger ENABLE TRIGGER USER`.execute(trx);
+    await sql`ALTER TABLE sales_ledger ENABLE TRIGGER USER`.execute(trx);
+    await sql`ALTER TABLE cash_ledger ENABLE TRIGGER USER`.execute(trx);
     await trx.deleteFrom('cash_movements').where('tenant_id', '=', fixture.tenantId).execute();
     await trx.deleteFrom('cash_session_audits').where('tenant_id', '=', fixture.tenantId).execute();
     await trx.deleteFrom('cash_sessions').where('tenant_id', '=', fixture.tenantId).execute();

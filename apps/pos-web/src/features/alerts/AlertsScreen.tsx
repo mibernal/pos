@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useAlerts } from '../../hooks/useAlerts';
 import type { PosApiClient } from '../../types';
-import { Button } from '../../components/ui/button';
+import { Button } from '../../components/ui';
 import { AlertTriangle, Info, XCircle, CheckCircle2 } from 'lucide-react';
 
 interface AlertItem {

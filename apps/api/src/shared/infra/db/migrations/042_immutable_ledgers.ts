@@ -1,6 +1,6 @@
 import { Kysely, sql } from 'kysely';
 
-export async function up(db: Kysely<any>): Promise<void> {
+export async function up(db: Kysely<any>): Promise<void> { // eslint-disable-line @typescript-eslint/no-explicit-any
   // 1. Triggers de protección global (Append-Only)
   await sql`
     CREATE OR REPLACE FUNCTION prevent_ledger_mutation()
@@ -104,7 +104,7 @@ export async function up(db: Kysely<any>): Promise<void> {
   }
 }
 
-export async function down(db: Kysely<any>): Promise<void> {
+export async function down(db: Kysely<any>): Promise<void> { // eslint-disable-line @typescript-eslint/no-explicit-any
   const tables = ['cash_ledger', 'inventory_ledger', 'sales_ledger'];
   for (const table of tables) {
     await db.schema.dropTable(table).execute();

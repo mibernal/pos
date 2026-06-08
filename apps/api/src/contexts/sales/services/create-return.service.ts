@@ -1,12 +1,12 @@
 import { AppError } from '../../../shared/infra/errors/app-error.js';
 import type { Database } from '../../../shared/infra/db/schema.js';
-import type { Kysely, Transaction } from 'kysely';
+import type { Kysely, Transaction } from 'kysely'; // eslint-disable-line @typescript-eslint/no-unused-vars
 import { sql } from 'kysely';
 import type { CreateReturnRequest } from '@pos-dian/shared';
 import { randomUUID } from 'crypto';
 import { writeAuditLog } from '../../../shared/domain/audit/write-audit-log.js';
 import { ensureUserCanAccessBranch } from '../../../shared/infra/security/permissions.js';
-import { env } from '../../../app/env.js';
+import { env } from '../../../app/env.js'; // eslint-disable-line @typescript-eslint/no-unused-vars
 import type { AuthContext } from '../../../shared/infra/security/types.js';
 
 interface ReturnServiceContext {

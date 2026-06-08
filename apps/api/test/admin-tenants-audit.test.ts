@@ -263,6 +263,7 @@ describe('tenant tax mode audit logs', () => {
       userId,
       tenantId,
       role: 'ADMIN',
+    isPlatformRole: false,
       email: 'admin@test.local',
       name: 'Admin Test'
     , branchIds: ['00000000-0000-0000-0000-000000000000'], permissions: ['sales:create', 'sales:void', 'returns:create', 'inventory:adjust', 'inventory:transfer', 'inventory:receive', 'reports:view', 'cash:reconcile', 'cash:audit', 'settings:manage']});
@@ -325,6 +326,7 @@ describe('tenant tax mode audit logs', () => {
       userId,
       tenantId,
       role: 'ADMIN',
+    isPlatformRole: false,
       email: 'admin@test.local',
       name: 'Admin Test'
     , branchIds: ['00000000-0000-0000-0000-000000000000'], permissions: ['sales:create', 'sales:void', 'returns:create', 'inventory:adjust', 'inventory:transfer', 'inventory:receive', 'reports:view', 'cash:reconcile', 'cash:audit', 'settings:manage']});

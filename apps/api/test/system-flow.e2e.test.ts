@@ -45,8 +45,11 @@ async function createSale(
   app: FastifyInstance,
   token: string,
   fixture: E2eFixture,
-  cashSessionId: string
+  cashSessionId: string,
+  paymentAmountCents?: number
 ) {
+  const amountToPay = paymentAmountCents ?? fixture.productPriceCents;
+  
   const response = await app.inject({
     method: 'POST',
     url: '/api/v1/sales',
@@ -65,7 +68,7 @@ async function createSale(
       payments: [
         {
           method: 'CASH',
-          amount_cents: Math.round(fixture.productPriceCents * 1.19)
+          amount_cents: amountToPay
         }
       ]
     }

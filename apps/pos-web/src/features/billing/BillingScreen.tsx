@@ -7,21 +7,21 @@ interface BillingScreenProps {
 }
 
 export function BillingScreen({ api }: BillingScreenProps) {
-  const [plans, setPlans] = useState<any[]>([]);
+  const [plans, setPlans] = useState<any[]>([]); // eslint-disable-line @typescript-eslint/no-explicit-any
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [gateway, setGateway] = useState<'WOMPI' | 'MERCADOPAGO' | 'MOCK'>('MOCK');
 
   useEffect(() => {
     loadPlans();
-  }, []);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function loadPlans() {
     try {
       setLoading(true);
       const data = await api.getBillingPlans();
       setPlans(data.plans || []);
-    } catch (err: any) {
+    } catch (err: any) { // eslint-disable-line @typescript-eslint/no-explicit-any
       setError(err.message);
     } finally {
       setLoading(false);
@@ -38,7 +38,7 @@ export function BillingScreen({ api }: BillingScreenProps) {
 
       // Redirigir al usuario al checkout de la pasarela
       window.location.href = result.checkoutUrl;
-    } catch (err: any) {
+    } catch (err: any) { // eslint-disable-line @typescript-eslint/no-explicit-any
       alert(err.message);
     }
   }
@@ -88,7 +88,7 @@ export function BillingScreen({ api }: BillingScreenProps) {
           ].map(opt => (
             <button
               key={opt.id}
-              onClick={() => setGateway(opt.id as any)}
+              onClick={() => setGateway(opt.id as any)} // eslint-disable-line @typescript-eslint/no-explicit-any
               className={`
                 px-5 py-2.5 rounded-lg text-sm font-semibold transition-all duration-200
                 ${gateway === opt.id 

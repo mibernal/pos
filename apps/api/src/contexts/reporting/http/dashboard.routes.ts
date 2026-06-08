@@ -26,7 +26,7 @@ export const dashboardRoutes: FastifyPluginAsync = async (app) => {
 
       try {
         ensureUserCanAccessBranch(request.auth, branch_id);
-      } catch (err: any) {
+      } catch (err: any) { // eslint-disable-line @typescript-eslint/no-explicit-any
         return reply.code(err.statusCode || 403).send({ message: err.message || 'No tienes acceso a esta sucursal' });
       }
 

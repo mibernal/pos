@@ -32,7 +32,7 @@ describe('Cash Reconciliation Flow E2E', () => {
   });
 
   it('allows a cashier to declare cash and an admin to reconcile the session', async () => {
-    const fixture = await seedE2eFixture(app);
+    const fixture = await seedE2eFixture(app, { productPriceCents: 11900 });
     fixturesToCleanup.push(fixture);
 
     const cashierToken = await loginE2eUser(app, {
@@ -79,7 +79,7 @@ describe('Cash Reconciliation Flow E2E', () => {
         payments: [
           {
             method: 'CASH',
-            amount_cents: 14161
+            amount_cents: 11900
           }
         ]
       }
@@ -89,25 +89,25 @@ describe('Cash Reconciliation Flow E2E', () => {
     }
     expect(saleRes.statusCode).toBe(201);
 
-    // Expected cash is now 64.161. 
-    // 3. Cashier declares 63.161 (missing 1.000)
+    // Expected cash is now 61.900 (50.000 + 11.900). 
+    // 3. Cashier declares 60.900 (missing 1.000)
     const declareRes = await app.inject({
       method: 'POST',
-      url: `/api/v1/cash-sessions/${sessionId}/declare`,
+      url: `/api/v1/cash-sessions/${sessionId}/close`,
       headers: bearerHeaders(cashierToken),
       payload: {
-        declared_amount_cents: 63161
+        closing_cash_real_cents: 60900
       }
     });
     expect(declareRes.statusCode).toBe(200);
 
     const checkDeclaredRes = await app.inject({
       method: 'GET',
-      url: '/api/v1/cash-sessions/active',
+      url: '/api/v1/cash-sessions/current?terminal_id=' + fixture.terminalId,
       headers: bearerHeaders(cashierToken)
     });
     const declaredData = checkDeclaredRes.json() as any;
-    expect(declaredData.status).toBe('COUNTED'); // Changed status locally? Usually active endpoint returns it
+    expect(declaredData.cash_session).toBeNull(); // Because it is closed
 
     // 4. Admin reconciles the session
     const reconcileRes = await app.inject({
@@ -120,7 +120,7 @@ describe('Cash Reconciliation Flow E2E', () => {
     });
     expect(reconcileRes.statusCode).toBe(200);
     const sessionClosed = reconcileRes.json() as any;
-    expect(sessionClosed.cash_session.status).toBe('CLOSED');
-    expect(sessionClosed.audit.diff_cents).toBe(-1000); // 59000 - 60000 = -1000
+    expect(sessionClosed.cash_session.status).toBe('RECONCILED');
+    expect(sessionClosed.audit.diff_cents).toBe(-1000); // 60900 - 61900 = -1000
   });
 });

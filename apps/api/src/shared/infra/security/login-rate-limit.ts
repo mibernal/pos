@@ -16,11 +16,9 @@ import { env } from '../../../app/env.js';
 
 const RATE_LIMIT_KEY_PREFIX = 'ratelimit';
 
-// SEC: Script Lua para INCR atómico con EXPIRE condicional.
-// El INCR y el EXPIRE se ejecutan en una sola operación en Redis,
-// eliminando la race condition donde dos requests concurrentes podían
-// superar el límite antes de que ninguno incrementara el contador.
-const ATOMIC_INCR_LUA = `
+// SEC: Script Lua para INCR atómico condicional.
+// Si no existe, lo crea con expiración. Luego verifica si excede el límite.
+const ATOMIC_RATE_LIMIT_LUA = `
 local current = redis.call('INCR', KEYS[1])
 if current == 1 then
   redis.call('EXPIRE', KEYS[1], tonumber(ARGV[1]))
@@ -33,26 +31,16 @@ export function buildLoginRateLimitKey(ipAddress: string, normalizedEmail: strin
 }
 
 /**
- * Lanza 'LOGIN_RATE_LIMIT_EXCEEDED' si se supera el límite configurado.
- * Lee el contador actual sin incrementarlo (solo lectura, sin race condition).
+ * Incrementa atómicamente el contador y lanza error si se supera el límite configurado.
+ * Elimina la condición de carrera entre chequeo e incremento.
  */
-export async function assertLoginRateLimitAllowed(redis: Redis, key: string): Promise<void> {
-  const current = await redis.get(key);
-  const attempts = current ? parseInt(current, 10) : 0;
-
-  if (attempts >= env.AUTH_LOGIN_RATE_LIMIT_MAX) {
+export async function assertAndRecordLoginAttempt(redis: Redis, key: string): Promise<void> {
+  const windowSeconds = Math.ceil(env.AUTH_LOGIN_RATE_LIMIT_WINDOW_MS / 1000);
+  const current = await redis.eval(ATOMIC_RATE_LIMIT_LUA, 1, key, String(windowSeconds));
+  
+  if (Number(current) > env.AUTH_LOGIN_RATE_LIMIT_MAX) {
     throw new Error('LOGIN_RATE_LIMIT_EXCEEDED');
   }
-}
-
-/**
- * Incrementa el contador de intentos fallidos de forma atómica.
- * Usa un script Lua para hacer INCR + EXPIRE en una sola operación,
- * eliminando la condición de carrera entre los dos comandos separados.
- */
-export async function recordLoginRateLimitFailure(redis: Redis, key: string): Promise<void> {
-  const windowSeconds = Math.ceil(env.AUTH_LOGIN_RATE_LIMIT_WINDOW_MS / 1000);
-  await redis.eval(ATOMIC_INCR_LUA, 1, key, String(windowSeconds));
 }
 
 /**
@@ -67,17 +55,7 @@ export async function clearLoginRateLimit(redis: Redis, key: string): Promise<vo
 
 const memoryStore = new Map<string, { attempts: number; resetAtMs: number }>();
 
-export function assertLoginRateLimitAllowedSync(key: string, now = Date.now()): void {
-  const entry = memoryStore.get(key);
-  if (!entry || entry.resetAtMs <= now) {
-    return;
-  }
-  if (entry.attempts >= env.AUTH_LOGIN_RATE_LIMIT_MAX) {
-    throw new Error('LOGIN_RATE_LIMIT_EXCEEDED');
-  }
-}
-
-export function recordLoginRateLimitFailureSync(key: string, now = Date.now()): void {
+export function assertAndRecordLoginAttemptSync(key: string, now = Date.now()): void {
   const existing = memoryStore.get(key);
   if (!existing || existing.resetAtMs <= now) {
     memoryStore.set(key, {
@@ -86,7 +64,12 @@ export function recordLoginRateLimitFailureSync(key: string, now = Date.now()): 
     });
     return;
   }
+  
   existing.attempts += 1;
+
+  if (existing.attempts > env.AUTH_LOGIN_RATE_LIMIT_MAX) {
+    throw new Error('LOGIN_RATE_LIMIT_EXCEEDED');
+  }
 }
 
 export function clearLoginRateLimitSync(key: string): void {

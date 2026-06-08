@@ -32,7 +32,7 @@ export const platformRoutes: FastifyPluginAsync = async (app) => {
         })
       }
     }
-  }, async (request, reply) => {
+  }, async (request, reply) => { // eslint-disable-line @typescript-eslint/no-unused-vars
     const tenants = await app.db.selectFrom('tenants')
       .leftJoin('users', 'users.id', 'tenants.owner_user_id')
       .select([
@@ -60,7 +60,7 @@ export const platformRoutes: FastifyPluginAsync = async (app) => {
         reason: z.string().optional()
       })
     }
-  }, async (request, reply) => {
+  }, async (request, reply) => { // eslint-disable-line @typescript-eslint/no-unused-vars
     const { id } = request.params;
     const { status, reason } = request.body;
 
@@ -97,7 +97,7 @@ export const platformRoutes: FastifyPluginAsync = async (app) => {
       tags: ['Platform'],
       summary: 'Global metrics across all tenants'
     }
-  }, async (request, reply) => {
+  }, async (request, reply) => { // eslint-disable-line @typescript-eslint/no-unused-vars
     const tenantsCount = await app.db.selectFrom('tenants')
       .select(({ fn }) => fn.count<number>('id').as('count'))
       .executeTakeFirst();
@@ -133,7 +133,7 @@ export const platformRoutes: FastifyPluginAsync = async (app) => {
         reason: z.string()
       })
     }
-  }, async (request, reply) => {
+  }, async (request, reply) => { // eslint-disable-line @typescript-eslint/no-unused-vars
     const { id } = request.params;
     const { reason } = request.body;
 

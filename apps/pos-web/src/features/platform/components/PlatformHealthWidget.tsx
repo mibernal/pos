@@ -1,7 +1,7 @@
 import React from 'react';
 import { Card } from '../../../components/ui';
 
-export function PlatformHealthWidget({ health }: { health: any }) {
+export function PlatformHealthWidget({ health }: { health: any }) { // eslint-disable-line @typescript-eslint/no-explicit-any
   if (!health) return null;
 
   return (
@@ -15,7 +15,7 @@ export function PlatformHealthWidget({ health }: { health: any }) {
         </span>
       </div>
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        {health.services?.map((svc: any, i: number) => (
+        {health.services?.map((svc: any, i: number) => ( // eslint-disable-line @typescript-eslint/no-explicit-any
           <div key={i} className="flex items-center justify-between p-4 bg-slate-50 rounded-xl">
             <span className="text-sm font-semibold text-slate-700">{svc.name}</span>
             <span className="flex items-center gap-1.5 text-xs text-slate-500">

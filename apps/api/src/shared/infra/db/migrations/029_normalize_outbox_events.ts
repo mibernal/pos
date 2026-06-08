@@ -1,6 +1,6 @@
 import { Kysely, sql } from 'kysely';
 
-export async function up(db: Kysely<any>): Promise<void> {
+export async function up(db: Kysely<any>): Promise<void> { // eslint-disable-line @typescript-eslint/no-explicit-any
   // Normalize historical SCREAMING_SNAKE_CASE outbox events to dot.case
   await sql`
     UPDATE outbox_events
@@ -21,7 +21,7 @@ export async function up(db: Kysely<any>): Promise<void> {
   `.execute(db);
 }
 
-export async function down(db: Kysely<any>): Promise<void> {
+export async function down(db: Kysely<any>): Promise<void> { // eslint-disable-line @typescript-eslint/no-explicit-any
   // Irreversible since we don't know the original case of updated records
   await sql`SELECT 1`.execute(db);
 }

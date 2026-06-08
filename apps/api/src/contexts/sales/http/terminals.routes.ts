@@ -6,7 +6,7 @@ import { AppError } from '../../../shared/infra/errors/app-error.js';
 
 import { ensureUserCanAccessBranch } from '../../../shared/infra/security/permissions.js';
 
-const terminalSchema = z.object({
+const terminalSchema = z.object({ // eslint-disable-line @typescript-eslint/no-unused-vars
   id: z.string().uuid(),
   tenant_id: z.string().uuid(),
   branch_id: z.string().uuid(),
@@ -50,7 +50,7 @@ export const terminalsRoutes: FastifyPluginAsync = async (app) => {
       const branch = await app.db
         .selectFrom('branches')
         .select('id')
-        .where('tenant_id', '=', request.auth.tenantId)
+        .where('tenant_id', '=', request.auth!.tenantId!)
         .where('id', '=', payload.branch_id)
         .executeTakeFirst();
       
@@ -63,7 +63,7 @@ export const terminalsRoutes: FastifyPluginAsync = async (app) => {
           .insertInto('terminals')
           .values({
             id: randomUUID(),
-            tenant_id: request.auth.tenantId,
+            tenant_id: request.auth!.tenantId!,
             branch_id: payload.branch_id,
             name: payload.name,
             is_active: payload.is_active
@@ -72,7 +72,7 @@ export const terminalsRoutes: FastifyPluginAsync = async (app) => {
           .executeTakeFirstOrThrow();
 
         return reply.code(201).send({ terminal: { ...terminal, created_at: terminal.created_at.toISOString(), updated_at: terminal.updated_at.toISOString() } });
-      } catch (err: any) {
+      } catch (err: any) { // eslint-disable-line @typescript-eslint/no-explicit-any
         if (err.code === '23505') {
           throw new AppError(409, 'TERMINAL_EXISTS', 'Ya existe una terminal con ese nombre en esta sucursal');
         }
@@ -103,7 +103,7 @@ export const terminalsRoutes: FastifyPluginAsync = async (app) => {
       let dbQuery = app.db
         .selectFrom('terminals')
         .selectAll()
-        .where('tenant_id', '=', request.auth.tenantId);
+        .where('tenant_id', '=', request.auth!.tenantId!);
 
       if (query.branch_id) {
         dbQuery = dbQuery.where('branch_id', '=', query.branch_id);

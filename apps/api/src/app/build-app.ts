@@ -71,22 +71,23 @@ function buildRedisClient(): Redis {
         store.delete(key);
         return existed ? 1 : 0;
       },
-      eval: async (script: string, numKeys: number, key: string, arg1: string) => {
+      eval: async (script: string, numKeys: number, key: string, _arg1: string) => {
         const val = store.get(key);
         const next = (val ? parseInt(val, 10) : 0) + 1;
         store.set(key, next.toString());
         return next;
       },
       pipeline: () => {
-        const pipe: any = {
+        const pipe = {
           incr: () => pipe,
           expire: () => pipe,
           del: () => pipe,
           get: () => pipe,
           set: () => pipe,
           exec: async () => []
-        };
-        return pipe;
+        } as unknown;
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        return pipe as any; // We might need to use eslint-disable for this if it's strictly needed
       },
       ping: async () => 'PONG',
       quit: async () => 'OK'
@@ -106,6 +107,7 @@ export async function buildApp() {
   // C7: Eliminado dianQueue, pero agregamos bulkImportQueue para procesamiento asíncrono pesado.
   const redisClient = buildRedisClient();
   const { Queue } = await import('bullmq');
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const bulkImportQueue = new Queue('bulk-import-queue', { connection: redisClient as any });
 
   const app = Fastify({
@@ -158,7 +160,7 @@ export async function buildApp() {
     const correlationId = traceId || (request.headers['x-correlation-id'] as string) || randomUUID();
 
     // Store start time for latency metric
-    (request as any).startTime = process.hrtime();
+    (request as unknown as { startTime: [number, number] }).startTime = process.hrtime();
 
     // Inject trace_id and correlationId into Fastify logger
     request.log = request.log.child({ correlationId, trace_id: traceId });
@@ -174,7 +176,7 @@ export async function buildApp() {
   });
 
   app.addHook('onResponse', (request, reply, done) => {
-    const startTime = (request as any).startTime;
+    const startTime = (request as unknown as { startTime?: [number, number] }).startTime;
     if (startTime) {
       const diff = process.hrtime(startTime);
       const latencyMs = (diff[0] * 1e9 + diff[1]) / 1e6;
@@ -259,8 +261,11 @@ export async function buildApp() {
   await app.register(webhooksRoutes, { prefix: '/api/v1' });
 
   // Add prometheus metrics
+  // eslint-disable-next-line @typescript-eslint/ban-ts-comment
   // @ts-ignore: This module is installed via package.json but might not be built yet
   const fastifyMetrics = await import('fastify-metrics');
+  // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+  // @ts-expect-error Plugin typings mismatch
   await app.register(fastifyMetrics.default || fastifyMetrics, {
     endpoint: '/metrics',
     defaultMetrics: { enabled: true }

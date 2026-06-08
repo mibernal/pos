@@ -141,7 +141,7 @@ export const platformAdminRoutes: FastifyPluginAsync = async (app) => {
       severity: 'WARNING',
       actor_id: request.auth!.userId,
       actor_email: request.auth!.email,
-      metadata: { reason } as any
+      metadata: { reason } as any // eslint-disable-line @typescript-eslint/no-explicit-any
     }).execute();
 
     return { success: true };
@@ -234,7 +234,7 @@ export const platformAdminRoutes: FastifyPluginAsync = async (app) => {
         reason: z.string()
       })
     }
-  }, async (request, reply) => {
+  }, async (request, reply) => { // eslint-disable-line @typescript-eslint/no-unused-vars
     const { id } = request.params;
     const { reason } = request.body;
 
@@ -323,7 +323,7 @@ export const platformAdminRoutes: FastifyPluginAsync = async (app) => {
 
       await trx.insertInto('users').values({
         id: userId,
-        tenant_id: tenantId,
+        tenant_id: tenantId!,
         email: payload.email,
         password_hash: passwordHash,
         name: payload.name,
@@ -334,22 +334,21 @@ export const platformAdminRoutes: FastifyPluginAsync = async (app) => {
       const branchId = randomUUID();
       await trx.insertInto('branches').values({
         id: branchId,
-        tenant_id: tenantId,
+        tenant_id: tenantId!,
         name: 'Sucursal Principal',
         address: 'No especificada'
       }).execute();
 
       await trx.insertInto('user_branches').values({
-        tenant_id: tenantId,
+        tenant_id: tenantId!,
         user_id: userId,
-        branch_id: branchId
-      }).execute();
+        branch_id: branchId!}).execute();
       
       const planRow = await trx.selectFrom('billing_plans').where('name', '=', payload.plan).selectAll().executeTakeFirst();
       if (planRow) {
         await trx.insertInto('tenant_subscriptions').values({
           id: randomUUID(),
-          tenant_id: tenantId,
+          tenant_id: tenantId!,
           plan_id: planRow.id,
           status: 'ACTIVE',
           current_period_start: new Date(),
@@ -361,15 +360,15 @@ export const platformAdminRoutes: FastifyPluginAsync = async (app) => {
     });
 
     await app.db.insertInto('platform_events').values({
-      tenant_id: tenantId,
+      tenant_id: tenantId!,
       type: 'TENANT_CREATED_ADMIN',
       severity: 'INFO',
       actor_id: request.auth!.userId,
       actor_email: request.auth!.email,
-      metadata: { plan: payload.plan, tax_mode: payload.tax_mode } as any
+      metadata: { plan: payload.plan, tax_mode: payload.tax_mode } as any // eslint-disable-line @typescript-eslint/no-explicit-any
     }).execute();
 
-    return { success: true, tenant_id: tenantId };
+    return { success: true, tenant_id: tenantId!};
   });
 
   typedApp.patch('/platform/tenants/:id', {
@@ -393,7 +392,7 @@ export const platformAdminRoutes: FastifyPluginAsync = async (app) => {
     if (owner_name || owner_email) {
       const tenant = await app.db.selectFrom('tenants').where('id', '=', id).selectAll().executeTakeFirst();
       if (tenant?.owner_user_id) {
-        let updateData: any = {};
+        const updateData: any = {}; // eslint-disable-line @typescript-eslint/no-explicit-any
         if (owner_name) updateData.name = owner_name;
         if (owner_email) updateData.email = owner_email;
         
@@ -410,7 +409,7 @@ export const platformAdminRoutes: FastifyPluginAsync = async (app) => {
       severity: 'INFO',
       actor_id: request.auth!.userId,
       actor_email: request.auth!.email,
-      metadata: request.body as any
+      metadata: request.body as any // eslint-disable-line @typescript-eslint/no-explicit-any
     }).execute();
 
     return { success: true };
@@ -455,7 +454,7 @@ export const platformAdminRoutes: FastifyPluginAsync = async (app) => {
         await trx.insertInto('subscription_events').values({
           subscription_id: sub.id,
           type: 'PLAN_CHANGED',
-          metadata: { old_plan: tenant.plan, new_plan } as any
+          metadata: { old_plan: tenant.plan, new_plan } as any // eslint-disable-line @typescript-eslint/no-explicit-any
         }).execute();
       } else {
         const newSubId = randomUUID();
@@ -473,7 +472,7 @@ export const platformAdminRoutes: FastifyPluginAsync = async (app) => {
         await trx.insertInto('subscription_events').values({
           subscription_id: newSubId,
           type: 'PLAN_CREATED',
-          metadata: { plan: new_plan } as any
+          metadata: { plan: new_plan } as any // eslint-disable-line @typescript-eslint/no-explicit-any
         }).execute();
       }
     });
@@ -484,7 +483,7 @@ export const platformAdminRoutes: FastifyPluginAsync = async (app) => {
       severity: 'INFO',
       actor_id: request.auth!.userId,
       actor_email: request.auth!.email,
-      metadata: { old_plan: tenant.plan, new_plan } as any
+      metadata: { old_plan: tenant.plan, new_plan } as any // eslint-disable-line @typescript-eslint/no-explicit-any
     }).execute();
 
     return { success: true };
@@ -549,7 +548,7 @@ export const platformAdminRoutes: FastifyPluginAsync = async (app) => {
 
     await app.db.insertInto('platform_events').values({
       tenant_id: id,
-      type: 'TENANT_USER_CREATED' as any,
+      type: 'TENANT_USER_CREATED' as any, // eslint-disable-line @typescript-eslint/no-explicit-any
       severity: 'INFO',
       actor_id: request.auth!.userId,
       actor_email: request.auth!.email,
@@ -580,7 +579,7 @@ export const platformAdminRoutes: FastifyPluginAsync = async (app) => {
 
     await app.db.insertInto('platform_events').values({
       tenant_id: id,
-      type: 'TENANT_USER_UPDATED' as any,
+      type: 'TENANT_USER_UPDATED' as any, // eslint-disable-line @typescript-eslint/no-explicit-any
       severity: 'INFO',
       actor_id: request.auth!.userId,
       actor_email: request.auth!.email,
@@ -614,7 +613,7 @@ export const platformAdminRoutes: FastifyPluginAsync = async (app) => {
 
     await app.db.insertInto('platform_events').values({
       tenant_id: id,
-      type: 'TENANT_USER_DELETED' as any,
+      type: 'TENANT_USER_DELETED' as any, // eslint-disable-line @typescript-eslint/no-explicit-any
       severity: 'WARNING',
       actor_id: request.auth!.userId,
       actor_email: request.auth!.email,

@@ -1,6 +1,6 @@
 import { sql, Kysely } from 'kysely';
 
-export async function up(db: Kysely<any>): Promise<void> {
+export async function up(db: Kysely<any>): Promise<void> { // eslint-disable-line @typescript-eslint/no-explicit-any
   // Activar Row Level Security explícitamente en la tabla sales
   await sql`ALTER TABLE sales ENABLE ROW LEVEL SECURITY;`.execute(db);
 
@@ -19,7 +19,7 @@ export async function up(db: Kysely<any>): Promise<void> {
   await sql`ALTER TABLE sales FORCE ROW LEVEL SECURITY;`.execute(db);
 }
 
-export async function down(db: Kysely<any>): Promise<void> {
+export async function down(db: Kysely<any>): Promise<void> { // eslint-disable-line @typescript-eslint/no-explicit-any
   await sql`DROP POLICY IF EXISTS tenant_isolation_policy ON sales;`.execute(db);
   await sql`ALTER TABLE sales DISABLE ROW LEVEL SECURITY;`.execute(db);
   await sql`ALTER TABLE sales NO FORCE ROW LEVEL SECURITY;`.execute(db);

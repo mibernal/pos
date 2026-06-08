@@ -109,10 +109,11 @@ export function buildBulkImportProcessor(pool: Pool) {
       
       await pool.query('UPDATE bulk_import_jobs SET status = $1, completed_at = NOW() WHERE id = $2', ['COMPLETED', jobId]);
       logWorkerInfo({ event: 'bulk_import_completed', message: `Job ${jobId} completed`, details: { processed } });
-    } catch (err: any) {
+    } catch (err: unknown) {
+      const error = err instanceof Error ? err : new Error(String(err));
       await pool.query('UPDATE bulk_import_jobs SET status = $1, completed_at = NOW() WHERE id = $2', ['FAILED', jobId]);
-      logWorkerError({ event: 'bulk_import_failed', message: `Job ${jobId} failed`, error: err });
-      throw err;
+      logWorkerError({ event: 'bulk_import_failed', message: `Job ${jobId} failed`, error });
+      throw error;
     }
   }
 }

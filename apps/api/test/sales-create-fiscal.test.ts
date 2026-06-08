@@ -376,12 +376,15 @@ class FakeUpdateBuilder {
 class FakeDb {
   constructor(readonly state: FakeDbState) { }
 
-  get executorProvider() {
+  getExecutor() {
     return {
-      getExecutor: () => ({
-        executeQuery: async () => ({ rows: [] })
-      })
+      executeQuery: async () => ({ rows: [] }),
+      compileQuery: () => ({ sql: '', parameters: [] })
     };
+  }
+
+  async executeQuery() {
+    return { rows: [] };
   }
 
   selectFrom(tableName: TableName): FakeSelectBuilder {
@@ -511,6 +514,7 @@ describe('POST /sales fiscal persistence', () => {
       userId: fixture.userId,
       tenantId: fixture.tenantId,
       role: 'ADMIN',
+    isPlatformRole: false,
       email: 'admin@test.local',
       name: 'Admin Test'
     , branchIds: ['00000000-0000-0000-0000-000000000000'], permissions: ['sales:create', 'sales:void', 'returns:create', 'inventory:adjust', 'inventory:transfer', 'inventory:receive', 'reports:view', 'cash:reconcile', 'cash:audit', 'settings:manage']});
@@ -600,6 +604,7 @@ describe('POST /sales fiscal persistence', () => {
       userId: fixture.userId,
       tenantId: fixture.tenantId,
       role: 'ADMIN',
+    isPlatformRole: false,
       email: 'admin@test.local',
       name: 'Admin Test'
     , branchIds: ['00000000-0000-0000-0000-000000000000'], permissions: ['sales:create', 'sales:void', 'returns:create', 'inventory:adjust', 'inventory:transfer', 'inventory:receive', 'reports:view', 'cash:reconcile', 'cash:audit', 'settings:manage']});
@@ -672,6 +677,7 @@ describe('POST /sales fiscal persistence', () => {
       userId: fixture.userId,
       tenantId: fixture.tenantId,
       role: 'ADMIN',
+    isPlatformRole: false,
       email: 'admin@test.local',
       name: 'Admin Test'
     , branchIds: ['00000000-0000-0000-0000-000000000000'], permissions: ['sales:create', 'sales:void', 'returns:create', 'inventory:adjust', 'inventory:transfer', 'inventory:receive', 'reports:view', 'cash:reconcile', 'cash:audit', 'settings:manage']});
@@ -774,6 +780,7 @@ describe('POST /sales fiscal persistence', () => {
       userId: fixture.userId,
       tenantId: fixture.tenantId,
       role: 'ADMIN',
+    isPlatformRole: false,
       email: 'admin@test.local',
       name: 'Admin Test'
     , branchIds: ['00000000-0000-0000-0000-000000000000'], permissions: ['sales:create', 'sales:void', 'returns:create', 'inventory:adjust', 'inventory:transfer', 'inventory:receive', 'reports:view', 'cash:reconcile', 'cash:audit', 'settings:manage']});
@@ -826,6 +833,7 @@ describe('POST /sales fiscal persistence', () => {
       userId: fixture.userId,
       tenantId: fixture.tenantId,
       role: 'ADMIN',
+    isPlatformRole: false,
       email: 'admin@test.local',
       name: 'Admin Test'
     , branchIds: ['00000000-0000-0000-0000-000000000000'], permissions: ['sales:create', 'sales:void', 'returns:create', 'inventory:adjust', 'inventory:transfer', 'inventory:receive', 'reports:view', 'cash:reconcile', 'cash:audit', 'settings:manage']});
@@ -903,6 +911,7 @@ describe('POST /sales fiscal persistence', () => {
       userId: fixture.userId,
       tenantId: fixture.tenantId,
       role: 'ADMIN',
+    isPlatformRole: false,
       email: 'admin@test.local',
       name: 'Admin Test'
     , branchIds: ['00000000-0000-0000-0000-000000000000'], permissions: ['sales:create', 'sales:void', 'returns:create', 'inventory:adjust', 'inventory:transfer', 'inventory:receive', 'reports:view', 'cash:reconcile', 'cash:audit', 'settings:manage']});

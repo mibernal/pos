@@ -28,7 +28,7 @@ export const promotionsRoutes: FastifyPluginAsync = async (app) => {
 
       let query = app.db
         .selectFrom('promotions')
-        .where('tenant_id', '=', request.auth!.tenantId);
+        .where('tenant_id', '=', request.auth!.tenantId!);
 
       if (product_id) {
         query = query.where('product_id', '=', product_id);
@@ -75,7 +75,7 @@ export const promotionsRoutes: FastifyPluginAsync = async (app) => {
         .selectFrom('products')
         .select('id')
         .where('id', '=', payload.product_id)
-        .where('tenant_id', '=', request.auth!.tenantId)
+        .where('tenant_id', '=', request.auth!.tenantId!)
         .executeTakeFirst();
         
       if (!product) {
@@ -88,7 +88,7 @@ export const promotionsRoutes: FastifyPluginAsync = async (app) => {
         .insertInto('promotions')
         .values({
           id,
-          tenant_id: request.auth!.tenantId,
+          tenant_id: request.auth!.tenantId!,
           product_id: payload.product_id,
           type: payload.type,
           value_cents: payload.value_cents,
@@ -131,7 +131,7 @@ export const promotionsRoutes: FastifyPluginAsync = async (app) => {
         throw new AppError(400, 'BAD_REQUEST', 'Nada para actualizar');
       }
 
-      const values: any = { ...payload, updated_at: new Date() };
+      const values: any = { ...payload, updated_at: new Date() }; // eslint-disable-line @typescript-eslint/no-explicit-any
       if (payload.start_date) values.start_date = new Date(payload.start_date);
       if (payload.end_date !== undefined) values.end_date = payload.end_date ? new Date(payload.end_date) : null;
 
@@ -139,7 +139,7 @@ export const promotionsRoutes: FastifyPluginAsync = async (app) => {
         .updateTable('promotions')
         .set(values)
         .where('id', '=', id)
-        .where('tenant_id', '=', request.auth!.tenantId)
+        .where('tenant_id', '=', request.auth!.tenantId!)
         .returningAll()
         .executeTakeFirst();
 
@@ -176,7 +176,7 @@ export const promotionsRoutes: FastifyPluginAsync = async (app) => {
         .updateTable('promotions')
         .set({ active: false, updated_at: new Date() })
         .where('id', '=', id)
-        .where('tenant_id', '=', request.auth!.tenantId)
+        .where('tenant_id', '=', request.auth!.tenantId!)
         .returningAll()
         .executeTakeFirst();
 

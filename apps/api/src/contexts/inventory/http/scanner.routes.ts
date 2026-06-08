@@ -1,3 +1,4 @@
+import { sql } from 'kysely';
 import type { FastifyPluginAsync } from 'fastify';
 import { z } from 'zod';
 import { randomUUID } from 'crypto';
@@ -37,7 +38,7 @@ export const scannerRoutes: FastifyPluginAsync = async (app) => {
           .selectFrom('inventory_receipts')
           .selectAll()
           .where('id', '=', id)
-          .where('tenant_id', '=', request.auth!.tenantId)
+          .where('tenant_id', '=', request.auth!.tenantId!)
           .executeTakeFirst();
 
         if (!receipt) throw new AppError(404, 'NOT_FOUND', 'Recepción no encontrada');
@@ -49,7 +50,7 @@ export const scannerRoutes: FastifyPluginAsync = async (app) => {
 
         for (const item of items) {
           // Check if item exists in receipt
-          let existing = await trx
+          const existing = await trx
             .selectFrom('inventory_receipt_items')
             .selectAll()
             .where('receipt_id', '=', receipt.id)
@@ -66,7 +67,7 @@ export const scannerRoutes: FastifyPluginAsync = async (app) => {
             await trx
               .updateTable('inventory_receipt_items')
               .set((eb) => ({
-                received_qty: eb.sql`${eb.ref('received_qty')} + ${item.scanned_qty_delta}`
+                received_qty: sql`${eb.ref('received_qty')} + ${item.scanned_qty_delta}`
               }))
               .where('id', '=', existing.id)
               .execute();
@@ -75,7 +76,7 @@ export const scannerRoutes: FastifyPluginAsync = async (app) => {
               .insertInto('inventory_receipt_items')
               .values({
                 id: randomUUID(),
-                tenant_id: request.auth!.tenantId,
+                tenant_id: request.auth!.tenantId!,
                 branch_id: receipt.branch_id,
                 receipt_id: receipt.id,
                 product_id: item.product_id,
@@ -105,14 +106,14 @@ export const scannerRoutes: FastifyPluginAsync = async (app) => {
     },
     async (request, reply) => {
       const { id } = request.params;
-      const { discrepancy_approved_by_pin, notes } = request.body;
+      const { discrepancy_approved_by_pin, notes } = request.body; // eslint-disable-line @typescript-eslint/no-unused-vars
 
       const receipt = await app.db.transaction().execute(async (trx) => {
         const rcpt = await trx
           .selectFrom('inventory_receipts')
           .selectAll()
           .where('id', '=', id)
-          .where('tenant_id', '=', request.auth!.tenantId)
+          .where('tenant_id', '=', request.auth!.tenantId!)
           .forUpdate()
           .executeTakeFirst();
 
@@ -134,7 +135,7 @@ export const scannerRoutes: FastifyPluginAsync = async (app) => {
           const qty = Number(item.received_qty);
           if (qty > 0) {
             await recordInventoryTransaction(trx, {
-              tenantId: request.auth!.tenantId,
+              tenantId: request.auth!.tenantId!,
               branchId: rcpt.branch_id!,
               productId: item.product_id,
               variantId: item.variant_id,
@@ -186,7 +187,7 @@ export const scannerRoutes: FastifyPluginAsync = async (app) => {
           .insertInto('inventory_counts')
           .values({
             id: randomUUID(),
-            tenant_id: request.auth!.tenantId,
+            tenant_id: request.auth!.tenantId!,
             branch_id: payload.branch_id,
             name: payload.name,
             status: 'DRAFT',
@@ -221,7 +222,7 @@ export const scannerRoutes: FastifyPluginAsync = async (app) => {
           .selectFrom('inventory_counts')
           .selectAll()
           .where('id', '=', id)
-          .where('tenant_id', '=', request.auth!.tenantId)
+          .where('tenant_id', '=', request.auth!.tenantId!)
           .executeTakeFirst();
 
         if (!count) throw new AppError(404, 'NOT_FOUND', 'Conteo no encontrado');
@@ -230,7 +231,7 @@ export const scannerRoutes: FastifyPluginAsync = async (app) => {
         ensureUserCanAccessBranch(request.auth, count.branch_id);
 
         for (const item of items) {
-          let existing = await trx
+          const existing = await trx
             .selectFrom('inventory_count_items')
             .selectAll()
             .where('count_id', '=', count.id)
@@ -250,8 +251,8 @@ export const scannerRoutes: FastifyPluginAsync = async (app) => {
             await trx
               .updateTable('inventory_count_items')
               .set({
-                counted_qty: newCounted.toString(),
-                diff_qty: diff.toString()
+                counted_qty: newCounted,
+                diff_qty: diff
               })
               .where('id', '=', existing.id)
               .execute();
@@ -260,7 +261,7 @@ export const scannerRoutes: FastifyPluginAsync = async (app) => {
             const bal = await trx
               .selectFrom('inventory_balances')
               .select(['on_hand_qty'])
-              .where('tenant_id', '=', request.auth!.tenantId)
+              .where('tenant_id', '=', request.auth!.tenantId!)
               .where('branch_id', '=', count.branch_id)
               .where('product_id', '=', item.product_id)
               .where((eb) => 
@@ -278,13 +279,13 @@ export const scannerRoutes: FastifyPluginAsync = async (app) => {
               .insertInto('inventory_count_items')
               .values({
                 id: randomUUID(),
-                tenant_id: request.auth!.tenantId,
+                tenant_id: request.auth!.tenantId!,
                 count_id: count.id,
                 product_id: item.product_id,
                 variant_id: item.variant_id ?? null,
-                system_qty: systemQty.toString(),
-                counted_qty: newCounted.toString(),
-                diff_qty: diff.toString()
+                system_qty: systemQty,
+                counted_qty: newCounted,
+                diff_qty: diff
               })
               .execute();
           }
@@ -315,14 +316,14 @@ export const scannerRoutes: FastifyPluginAsync = async (app) => {
     },
     async (request, reply) => {
       const { id } = request.params;
-      const { discrepancy_approved_by_pin, notes } = request.body;
+      const { discrepancy_approved_by_pin, notes } = request.body; // eslint-disable-line @typescript-eslint/no-unused-vars
 
       const count = await app.db.transaction().execute(async (trx) => {
         const cnt = await trx
           .selectFrom('inventory_counts')
           .selectAll()
           .where('id', '=', id)
-          .where('tenant_id', '=', request.auth!.tenantId)
+          .where('tenant_id', '=', request.auth!.tenantId!)
           .forUpdate()
           .executeTakeFirst();
 
@@ -335,7 +336,7 @@ export const scannerRoutes: FastifyPluginAsync = async (app) => {
           .selectFrom('inventory_count_items')
           .selectAll()
           .where('count_id', '=', cnt.id)
-          .where('diff_qty', '!=', '0')
+          .where('diff_qty', '!=', 0)
           .execute();
 
         // TODO: Require PIN verification for discrepancy_approved_by_pin if items.length > 0
@@ -344,7 +345,7 @@ export const scannerRoutes: FastifyPluginAsync = async (app) => {
           const diff = Number(item.diff_qty);
           if (diff !== 0) {
             await recordInventoryTransaction(trx, {
-              tenantId: request.auth!.tenantId,
+              tenantId: request.auth!.tenantId!,
               branchId: cnt.branch_id,
               productId: item.product_id,
               variantId: item.variant_id,

@@ -63,8 +63,8 @@ Este proyecto está construido como un monorepo administrado con `pnpm` workspac
 ## 💻 Quickstart (Ambiente Local)
 
 ### 1. Requisitos
-- Node.js `20.x`
-- pnpm `10.x` (`npm install -g pnpm@latest`)
+- Node.js `20.x` o superior
+- pnpm `10.x` (Fijado globalmente vía `packageManager` en el `package.json`. Se instalará automáticamente si usas `corepack enable`).
 - Docker Desktop
 
 ### 2. Variables de Entorno
@@ -164,7 +164,9 @@ El script de inicialización (`pnpm db:seed`) crea un entorno multi-tenant para 
 
 ## 🚢 Despliegue en Producción
 
-El proyecto incluye Dockerfiles multi-etapa optimizados usando `pnpm deploy`:
+El proyecto incluye Dockerfiles multi-etapa listos para Producción. 
+
+> **Aviso pnpm v10+**: Los Dockerfiles utilizan `pnpm deploy` bajo la arquitectura moderna de v10+. Para garantizar que los microservicios se empaqueten de manera aislada e inmutable, el proyecto requiere de la directiva global `inject-workspace-packages=true` definida en `.npmrc`. Si actualizas el archivo `.npmrc` en un futuro, recuerda correr `pnpm install` para que tu lockfile refleje siempre el esquema de workspaces inyectados antes de intentar compilar imágenes de Docker.
 
 ### API
 ```bash

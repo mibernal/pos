@@ -36,7 +36,7 @@ export function CloseCashSessionModal({
   const [cashSession, setCashSession] = useState<{
     opened_at: string;
     closed_at: string | null;
-    status: string;
+    status?: string;
   } | null>(null);
   const { role } = useSession();
 
@@ -124,7 +124,7 @@ export function CloseCashSessionModal({
                       expectedCashCents: summary.expected_cash_cents,
                       realCashCents: summary.expected_cash_cents + summary.diff_cents,
                       diffCents: summary.diff_cents,
-                      status: cashSession.status
+                      status: cashSession.status || 'CLOSED'
                     });
                   }
                 }}

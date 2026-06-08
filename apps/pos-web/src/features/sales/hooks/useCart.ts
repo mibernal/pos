@@ -58,6 +58,7 @@ export function useCart() {
             barcode: product.barcode,
             priceCents: variant?.price_cents ?? product.price_cents,
             promotion: product.promotion as CartItem['promotion'],
+            imageUrl: product.imageUrl,
             qty
           }
         ];

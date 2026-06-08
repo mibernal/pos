@@ -8,7 +8,7 @@ export type OperationType =
   | 'CREATE_PRODUCT'
   | 'UPDATE_PRODUCT';
 
-export interface JournalEntry<TPayload = any> {
+export interface JournalEntry<TPayload = any> { // eslint-disable-line @typescript-eslint/no-explicit-any
   id: string;
   type: OperationType;
   timestamp: string;
@@ -39,7 +39,7 @@ function getJournalDB(): JournalDB | null {
   if (!db) {
     try {
       db = new JournalDB();
-    } catch (err: any) {
+    } catch (err: any) { // eslint-disable-line @typescript-eslint/no-explicit-any
       console.warn('[OperationJournal] Dexie initialization failed, switching to memory Map:', err);
       forceMemoryFallback = true;
       return null;
@@ -67,7 +67,7 @@ export async function appendToJournal<TPayload>(
   if (journal) {
     try {
       await journal.journal_entries.put(entry);
-    } catch (err: any) {
+    } catch (err: any) { // eslint-disable-line @typescript-eslint/no-explicit-any
       console.warn('[OperationJournal] DB put failed, using memory', err);
       forceMemoryFallback = true;
       memoryJournal.set(entry.id, entry);
@@ -84,7 +84,7 @@ export async function getPendingJournalEntries(): Promise<JournalEntry[]> {
   if (journal) {
     try {
       return await journal.journal_entries.where('status').equals('PENDING').toArray();
-    } catch (err: any) {
+    } catch (err: any) { // eslint-disable-line @typescript-eslint/no-explicit-any
       forceMemoryFallback = true;
       console.warn('[OperationJournal] DB get failed, using memory', err);
     }
@@ -98,7 +98,7 @@ export async function markJournalEntrySynced(id: string): Promise<void> {
   if (journal) {
     try {
       await journal.journal_entries.update(id, { status: 'SYNCED' });
-    } catch (err: any) {
+    } catch (err: unknown) { // eslint-disable-line @typescript-eslint/no-unused-vars
       forceMemoryFallback = true;
     }
   }

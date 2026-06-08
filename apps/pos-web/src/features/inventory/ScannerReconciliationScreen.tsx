@@ -1,27 +1,36 @@
-// @ts-nocheck
+
 import React, { useState, useMemo } from 'react';
 import { ScannerView } from './components/ScannerView';
 // Fallback components until ui library is installed
-const Button = (props: any) => <button className="px-4 py-2 bg-blue-600 text-white rounded" {...props} />;
-const Table = (props: any) => <table className="w-full text-sm text-left" {...props} />;
-const TableHeader = (props: any) => <thead className="text-xs uppercase bg-gray-50" {...props} />;
-const TableRow = (props: any) => <tr className="border-b" {...props} />;
-const TableHead = (props: any) => <th className="px-6 py-3" {...props} />;
-const TableBody = (props: any) => <tbody {...props} />;
-const TableCell = (props: any) => <td className="px-6 py-4" {...props} />;
-const Tabs = (props: any) => <div {...props} />;
-const TabsList = (props: any) => <div className="flex border-b mb-4" {...props} />;
-const TabsTrigger = ({ value, children }: any) => <button className="px-4 py-2 border-b-2 border-transparent hover:border-gray-300">{children}</button>;
-const TabsContent = ({ value, children }: any) => <div>{children}</div>;
+const Button = (props: any) => <button className="px-4 py-2 bg-blue-600 text-white rounded" {...props} />; // eslint-disable-line @typescript-eslint/no-explicit-any
+const Table = (props: any) => <table className="w-full text-sm text-left" {...props} />; // eslint-disable-line @typescript-eslint/no-explicit-any
+const TableHeader = (props: any) => <thead className="text-xs uppercase bg-gray-50" {...props} />; // eslint-disable-line @typescript-eslint/no-explicit-any
+const TableRow = (props: any) => <tr className="border-b" {...props} />; // eslint-disable-line @typescript-eslint/no-explicit-any
+const TableHead = (props: any) => <th className="px-6 py-3" {...props} />; // eslint-disable-line @typescript-eslint/no-explicit-any
+const TableBody = (props: any) => <tbody {...props} />; // eslint-disable-line @typescript-eslint/no-explicit-any
+const TableCell = (props: any) => <td className="px-6 py-4" {...props} />; // eslint-disable-line @typescript-eslint/no-explicit-any
+const Tabs = (props: any) => <div {...props} />; // eslint-disable-line @typescript-eslint/no-explicit-any
+const TabsList = (props: any) => <div className="flex border-b mb-4" {...props} />; // eslint-disable-line @typescript-eslint/no-explicit-any
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const TabsTrigger = ({ value, children }: any) => <button className="px-4 py-2 border-b-2 border-transparent hover:border-gray-300">{children}</button>; // eslint-disable-line @typescript-eslint/no-unused-vars
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const TabsContent = ({ value, children }: any) => <div>{children}</div>; // eslint-disable-line @typescript-eslint/no-unused-vars
 
-const AlertCircle = () => <span>[!]</span>;
-const CheckCircle2 = () => <span>[V]</span>;
-const AlertTriangle = () => <span>[W]</span>;
-const Save = () => <span>[S]</span>;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const AlertCircle = (props: any) => <span {...props}>[!]</span>;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const CheckCircle2 = (props: any) => <span {...props}>[V]</span>;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const AlertTriangle = (props: any) => <span {...props}>[W]</span>;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const Save = (props: any) => <span {...props}>[S]</span>;
 // Mock react-query
-const useQuery = (args: any) => ({ data: [], isPending: false });
-const useMutation = (args: any) => ({ mutate: () => { }, isPending: false });
-const apiClient = { get: async () => ({ data: [] }), post: async () => ({ data: {} }) };
+// eslint-disable-next-line @typescript-eslint/no-explicit-any, @typescript-eslint/no-unused-vars
+const useQuery = (...args: any[]) => ({ data: [] as any[], isPending: false });
+// eslint-disable-next-line @typescript-eslint/no-explicit-any, @typescript-eslint/no-unused-vars
+const useMutation = (...args: any[]) => ({ mutate: (...mArgs: any[]) => { }, isPending: false });
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const apiClient = { get: async (..._args: any[]) => ({ data: [] as any[] }), post: async (..._args: any[]) => ({ data: {} }) };
 
 // Mocks or props, normally this screen receives an ID for the receipt or count
 interface ScannerReconciliationScreenProps {
@@ -59,13 +68,13 @@ export const ScannerReconciliationScreen: React.FC<ScannerReconciliationScreenPr
   });
 
   const scanBatchMutation = useMutation({
-    mutationFn: async (items: any[]) => {
+    mutationFn: async (items: any[]) => { // eslint-disable-line @typescript-eslint/no-explicit-any
       return apiClient.post(`/inventory/${entityType}s/${entityId}/scan-batch`, { items });
     }
   });
 
   const commitMutation = useMutation({
-    mutationFn: async (data: any) => {
+    mutationFn: async (data: any) => { // eslint-disable-line @typescript-eslint/no-explicit-any
       return apiClient.post(`/inventory/${entityType}s/${entityId}/commit`, data);
     },
     onSuccess: () => {
@@ -75,7 +84,7 @@ export const ScannerReconciliationScreen: React.FC<ScannerReconciliationScreenPr
 
   const handleScan = (barcode: string) => {
     // 1. Find product in master list
-    const product = products?.find((p: any) => p.barcode === barcode);
+    const product = products?.find((p: any) => p.barcode === barcode); // eslint-disable-line @typescript-eslint/no-explicit-any
 
     if (product) {
       // It's a known product
@@ -117,7 +126,7 @@ export const ScannerReconciliationScreen: React.FC<ScannerReconciliationScreenPr
 
   const reconciliationData = useMemo(() => {
     if (!expectedItems) return [];
-    return expectedItems.map((item: any) => {
+    return expectedItems.map((item: any) => { // eslint-disable-line @typescript-eslint/no-explicit-any
       const scanned = scannedItems[item.product_id] || 0;
       const diff = scanned - item.expected_qty;
       return { ...item, scanned_qty: scanned, diff };
@@ -174,7 +183,7 @@ export const ScannerReconciliationScreen: React.FC<ScannerReconciliationScreenPr
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {reconciliationData.map((row: any) => (
+                    {reconciliationData.map((row: any) => ( // eslint-disable-line @typescript-eslint/no-explicit-any
                       <TableRow key={row.product_id}>
                         <TableCell>
                           <div className="font-medium">{row.name}</div>

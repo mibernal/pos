@@ -31,7 +31,7 @@ export function useTicketTemplate({
     }
 
     let cancelled = false;
-    const storedTemplate = readTicketTemplate(session.user.tenantId, {
+    const storedTemplate = readTicketTemplate(session.user.tenantId!, {
       branchName: posContext.branchName,
       branchAddress: posContext.branchAddress
     });
@@ -45,7 +45,7 @@ export function useTicketTemplate({
           return;
         }
 
-        const mergedTemplate = writeTicketTemplate(session.user.tenantId, {
+        const mergedTemplate = writeTicketTemplate(session.user.tenantId!, {
           businessName: profile.businessName,
           nit: profile.nit,
           address: profile.address,
@@ -74,7 +74,7 @@ export function useTicketTemplate({
         return;
       }
 
-      const savedTemplate = writeTicketTemplate(session.user.tenantId, template);
+      const savedTemplate = writeTicketTemplate(session.user.tenantId!, template);
       setTicketTemplate(savedTemplate);
     },
     [session]

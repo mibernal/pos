@@ -8,6 +8,7 @@
   "scripts": {
     "dev": "tsc -w -p tsconfig.build.json",
     "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit -p tsconfig.build.json",
     "lint": "eslint src --ext .ts",
     "test": "NODE_ENV=test vitest run"
   },

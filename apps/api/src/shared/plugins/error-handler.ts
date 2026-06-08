@@ -51,15 +51,15 @@ export const errorHandlerPlugin: FastifyPluginAsync = async (app) => {
         request,
         error.statusCode >= 500 ? 'error' : 'warn',
         error,
-        (error as any).code,
+        (error as any).code, // eslint-disable-line @typescript-eslint/no-explicit-any
         error.details ?? null,
         'Request failed with application error'
       );
 
       return reply.status(error.statusCode).send({
         error: {
-          code: (error as any).code,
-          message: error.statusCode >= 500 ? 'Ocurrió un error interno' : (error as any).message,
+          code: (error as any).code, // eslint-disable-line @typescript-eslint/no-explicit-any
+          message: error.statusCode >= 500 ? 'Ocurrió un error interno' : (error as any).message, // eslint-disable-line @typescript-eslint/no-explicit-any
           details: error.statusCode >= 500 ? null : error.details ?? null
         }
       });

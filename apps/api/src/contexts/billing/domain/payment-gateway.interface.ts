@@ -10,7 +10,7 @@ export interface PaymentWebhookResult {
   reference: string;
   gatewayTransactionId: string;
   status: 'PENDING' | 'APPROVED' | 'DECLINED' | 'ERROR';
-  rawPayload: any;
+  rawPayload: any; // eslint-disable-line @typescript-eslint/no-explicit-any
 }
 
 export interface IPaymentGateway {
@@ -27,5 +27,5 @@ export interface IPaymentGateway {
   /**
    * Parsea el payload del webhook y lo estandariza
    */
-  parseWebhook(payload: any): PaymentWebhookResult;
+  parseWebhook(payload: any): PaymentWebhookResult; // eslint-disable-line @typescript-eslint/no-explicit-any
 }

@@ -287,7 +287,7 @@ describe('PosScreen', () => {
     fireEvent.click(screen.getByRole('button', { name: /cobrar/i }));
 
     const dialog = screen.getByRole('dialog', { name: 'Cobrar venta' });
-    fireEvent.click(within(dialog).getByRole('button', { name: 'Mixto' }));
+    fireEvent.click(within(dialog).getByRole('button', { name: /Mixto/i }));
 
     const confirmButton = within(dialog).getByRole('button', { name: /confirmar cobro/i });
     expect(confirmButton).toBeDisabled();

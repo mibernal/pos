@@ -17,6 +17,7 @@ describe('request log context', () => {
         tenantId: 'tenant-1',
         userId: 'user-1',
         role: 'ADMIN',
+    isPlatformRole: false,
         email: 'admin@example.com',
         name: 'Admin',
         tenant_id: 'tenant-1',

@@ -2,24 +2,24 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { DianProviderHttpGeneric } from '../src/providers/dian-provider-http-generic.js';
 
 const validPayload = {
-  sale_id: 'sale-1',
-  tenant_id: 'tenant-1',
-  branch_id: 'branch-1',
+  sale_id: '22222222-2222-4222-a222-222222222222',
+  tenant_id: '11111111-1111-4111-a111-111111111111',
+  branch_id: '33333333-3333-4333-a333-333333333333',
   taxMode: 'INC_RESTAURANT' as const,
   idempotency_key: 'idem-1',
   tenant: {
-    id: 'tenant-1',
+    id: '11111111-1111-4111-a111-111111111111',
     nit: '900123123',
     name: 'Tenant Demo',
     business_name: 'Comercio Demo SAS'
   },
   branch: {
-    id: 'branch-1',
+    id: '33333333-3333-4333-a333-333333333333',
     name: 'Sucursal Centro',
     address: 'Calle 1 # 2-3'
   },
   sale: {
-    id: 'sale-1',
+    id: '22222222-2222-4222-a222-222222222222',
     sale_number: 12,
     created_at: new Date().toISOString(),
     subtotal_cents: 10000,

@@ -2,6 +2,7 @@ import React from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import App from '../src/app/App';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { addPendingSale, clearPendingSales } from '../src/lib/offline-queue';
 import { writeAuthSession, writePosContext } from '../src/lib/session';
 
@@ -35,7 +36,9 @@ function seedSession(role: 'ADMIN' | 'CASHIER' = 'ADMIN') {
     branchId: '33333333-3333-4333-8333-333333333333',
     branchName: 'Sucursal Centro',
     branchAddress: 'Calle 1 # 2-3',
-    cashSessionId: '44444444-4444-4444-8444-444444444444'
+    cashSessionId: '44444444-4444-4444-8444-444444444444',
+    terminalId: '55555555-5555-4555-8555-555555555555',
+    terminalName: 'Caja 1'
   });
 }
 
@@ -46,6 +49,24 @@ function mockAuthenticatedAppFetch(role: 'ADMIN' | 'CASHIER' = 'ADMIN') {
     if (url.endsWith('/auth/me')) {
       return new Response(
           JSON.stringify({
+            user: {
+              id: '11111111-1111-4111-8111-111111111111',
+              tenantId: '22222222-2222-4222-8222-222222222222',
+              taxMode: role === 'ADMIN' ? 'INC_RESTAURANT' : 'IVA',
+              role,
+              email: 'admin@demo.posdian.local',
+              name: 'Admin Demo',
+              active: true
+          }
+        }),
+        { status: 200, headers: { 'content-type': 'application/json' } }
+      );
+    }
+
+    if (url.endsWith('/auth/refresh')) {
+      return new Response(
+          JSON.stringify({
+            accessToken: 'mock-token',
             user: {
               id: '11111111-1111-4111-8111-111111111111',
               tenantId: '22222222-2222-4222-8222-222222222222',
@@ -187,6 +208,24 @@ function mockAuthenticatedPosFetch(options?: {
       );
     }
 
+    if (url.endsWith('/auth/refresh')) {
+      return new Response(
+        JSON.stringify({
+          accessToken: 'mock-token',
+          user: {
+            id: '11111111-1111-4111-8111-111111111111',
+            tenantId: '22222222-2222-4222-8222-222222222222',
+            taxMode: 'IVA',
+            role: 'ADMIN',
+            email: 'admin@demo.posdian.local',
+            name: 'Admin Demo',
+            active: true
+          }
+        }),
+        { status: 200, headers: { 'content-type': 'application/json' } }
+      );
+    }
+
     if (url.includes('/products?')) {
       return new Response(
         JSON.stringify({
@@ -312,7 +351,7 @@ describe('App', () => {
   });
 
   it('renders POS title', () => {
-    render(<App />);
+    render(<QueryClientProvider client={new QueryClient()}><App /></QueryClientProvider>);
     expect(screen.getByRole('heading', { name: 'BIENVENIDO' })).toBeInTheDocument();
     expect(screen.getByLabelText('Correo Electrónico')).toBeInTheDocument();
   });
@@ -320,7 +359,7 @@ describe('App', () => {
   it('logs in and loads branch setup when credentials are valid', async () => {
     mockLoginFlowFetch();
 
-    render(<App />);
+    render(<QueryClientProvider client={new QueryClient()}><App /></QueryClientProvider>);
 
     fireEvent.change(screen.getByLabelText('Correo Electrónico'), {
       target: { value: 'cashier@demo.posdian.local' }
@@ -342,7 +381,7 @@ describe('App', () => {
       })
     );
 
-    render(<App />);
+    render(<QueryClientProvider client={new QueryClient()}><App /></QueryClientProvider>);
 
     expect(await screen.findByLabelText('Correo Electrónico')).toBeInTheDocument();
     expect(screen.getByText(/tu sesión expiró/i)).toBeInTheDocument();
@@ -352,7 +391,7 @@ describe('App', () => {
     seedSession('ADMIN');
     mockAuthenticatedAppFetch('ADMIN');
 
-    render(<App />);
+    render(<QueryClientProvider client={new QueryClient()}><App /></QueryClientProvider>);
 
     const openConfigButton = await screen.findByTitle('Configuración DIAN');
     fireEvent.click(openConfigButton);
@@ -372,7 +411,7 @@ describe('App', () => {
     seedSession('ADMIN');
     mockAuthenticatedAppFetch('ADMIN');
 
-    render(<App />);
+    render(<QueryClientProvider client={new QueryClient()}><App /></QueryClientProvider>);
 
     const productsTab = await screen.findByRole('button', { name: 'Productos' });
     fireEvent.click(productsTab);
@@ -384,7 +423,7 @@ describe('App', () => {
     seedSession('CASHIER');
     mockAuthenticatedAppFetch('CASHIER');
 
-    render(<App />);
+    render(<QueryClientProvider client={new QueryClient()}><App /></QueryClientProvider>);
 
     expect(screen.queryByRole('button', { name: 'Configuración DIAN' })).not.toBeInTheDocument();
 
@@ -402,11 +441,11 @@ describe('App', () => {
     const randomValues = ['11111111-2222-4333-8444-555555555555'];
     let randomIndex = 0;
 
-    vi.spyOn(globalThis.crypto, 'randomUUID').mockImplementation(() => {
+    vi.spyOn(globalThis.crypto, 'randomUUID').mockImplementation((() => {
       const nextValue = randomValues[randomIndex] ?? 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee';
       randomIndex += 1;
       return nextValue;
-    });
+    }) as any);
 
     mockAuthenticatedPosFetch({
       onCreateSale: async (callNumber) => {
@@ -425,7 +464,7 @@ describe('App', () => {
       }
     });
 
-    render(<App />);
+    render(<QueryClientProvider client={new QueryClient()}><App /></QueryClientProvider>);
 
     await screen.findByRole('button', { name: /agregar destacado/i });
     fireEvent.keyDown(await screen.findByLabelText('Búsqueda rápida'), { key: 'Enter' });
@@ -476,7 +515,7 @@ describe('App', () => {
       }
     });
 
-    render(<App />);
+    render(<QueryClientProvider client={new QueryClient()}><App /></QueryClientProvider>);
 
     await waitFor(() => {
       expectPendingCount(1);

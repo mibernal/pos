@@ -38,7 +38,7 @@ import { sql, Kysely } from 'kysely';
  *      DATABASE_URL=postgres://pos_worker:<password>@host:5432/pos_dian
  *    (o en dev puede seguir usando el mismo usuario `pos` al que se le otorga app_worker)
  */
-export async function up(db: Kysely<any>): Promise<void> {
+export async function up(db: Kysely<any>): Promise<void> { // eslint-disable-line @typescript-eslint/no-explicit-any
   // 1. Crear el rol app_worker con BYPASSRLS si no existe.
   //    NOLOGIN porque es un rol de grupo, no un usuario de conexión directa.
   await sql`
@@ -72,7 +72,7 @@ export async function up(db: Kysely<any>): Promise<void> {
   `.execute(db);
 }
 
-export async function down(db: Kysely<any>): Promise<void> {
+export async function down(db: Kysely<any>): Promise<void> { // eslint-disable-line @typescript-eslint/no-explicit-any
   // Revocar privilegios antes de eliminar el rol
   await sql`REVOKE ALL PRIVILEGES ON ALL TABLES IN SCHEMA public FROM app_worker`.execute(db);
   await sql`REVOKE ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public FROM app_worker`.execute(db);

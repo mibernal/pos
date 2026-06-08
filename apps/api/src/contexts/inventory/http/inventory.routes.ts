@@ -15,12 +15,14 @@ import {
 import { ensureUserCanAccessBranch } from '../../../shared/infra/security/permissions.js';
 
 export async function recordInventoryTransaction(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   trx: any, // Kysely Transaction type
   params: {
     tenantId: string;
     branchId: string;
     productId: string;
     variantId: string | null;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     operation: any; // InventoryOperation
     referenceId: string | null;
     qtyChange: number;
@@ -74,8 +76,8 @@ export async function recordInventoryTransaction(
         await trx
           .insertInto('tenant_alerts')
           .values({
-            tenant_id: tenantId,
-            branch_id: branchId,
+            tenant_id: tenantId!,
+            branch_id: branchId!,
             type: 'INVENTORY_LOW_STOCK',
             severity: 'WARNING',
             title: 'Stock Bajo Detectado',
@@ -122,8 +124,8 @@ export async function recordInventoryTransaction(
     await trx
       .insertInto('inventory_balances')
       .values({
-        tenant_id: tenantId,
-        branch_id: branchId,
+        tenant_id: tenantId!,
+        branch_id: branchId!,
         product_id: productId,
         variant_id: variantId,
         on_hand_qty: qtyChange.toString(),
@@ -138,8 +140,8 @@ export async function recordInventoryTransaction(
       .insertInto('inventory_transactions')
       .values({
         id: randomUUID(),
-        tenant_id: tenantId,
-        branch_id: branchId,
+        tenant_id: tenantId!,
+        branch_id: branchId!,
         product_id: productId,
         variant_id: variantId,
         operation,
@@ -180,7 +182,7 @@ export const inventoryRoutes: FastifyPluginAsync = async (app) => {
       }
     },
     async (request) => {
-      const { branch_id, product_id, variant_id } = request.query as any;
+      const { branch_id, product_id, variant_id } = request.query as any; // eslint-disable-line @typescript-eslint/no-explicit-any
       await ensureBranchBelongsToTenant(request.auth!.tenantId!, branch_id);
       ensureUserCanAccessBranch(request.auth, branch_id);
 

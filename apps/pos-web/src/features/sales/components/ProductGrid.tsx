@@ -47,7 +47,7 @@ export function ProductGrid({
   const rowVirtualizer = useVirtualizer({
     count: rowCount,
     getScrollElement: () => parentRef.current,
-    estimateSize: () => 180 + gap, // 180px card height + gap
+    estimateSize: () => 160 + gap, // 160px card height + gap
     overscan: 4,
   });
 
@@ -116,22 +116,46 @@ export function ProductGrid({
                       onTouchStart={() => setHighlightedProductId(product.id)}
                       onClick={() => addProduct(product, { clearSearch: true })}
                       type="button"
-                      style={{ minHeight: '100%', height: '100%', margin: 0 }}
+                      style={{ 
+                        minHeight: '100%', 
+                        height: '100%', 
+                        margin: 0,
+                        display: 'block'
+                      }}
                     >
-                      <div style={{ height: '95px', width: '100%', overflow: 'hidden', borderBottom: '1px solid var(--color-slate-100)', flexShrink: 0 }}>
+                      <div style={{ position: 'absolute', inset: 0, zIndex: 1 }}>
                         {product.imageUrl ? (
                           <img src={product.imageUrl} alt={product.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                         ) : (
-                          <PlaceholderImage name={product.name} category={product.category} size="md" />
+                          <PlaceholderImage name={product.name} category={product.category} size="lg" style={{ width: '100%', height: '100%', borderRadius: 0 }} />
                         )}
                       </div>
-                      <div style={{ padding: '0.625rem 0.75rem', flex: 1, display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
-                        <span className="product-name">{product.name}</span>
-                        <span className="product-meta">{product.category}</span>
-                      </div>
-                      <div style={{ borderTop: '1px solid var(--color-slate-100)', padding: '0.4rem 0.75rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexShrink: 0 }}>
-                        <span style={{ fontSize: '0.6rem', color: 'var(--color-slate-400)', fontWeight: 500 }}>{product.barcode || 'S/C'}</span>
-                        <span className="product-price">{formatMoneyFromCents(product.price_cents)}</span>
+                      
+                      <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(to top, rgba(15,23,42,0.95) 0%, rgba(15,23,42,0.4) 60%, transparent 100%)', zIndex: 2 }} />
+
+                      <div style={{ 
+                        position: 'absolute', 
+                        bottom: 0, 
+                        left: 0, 
+                        right: 0, 
+                        padding: '1rem',
+                        display: 'flex', 
+                        flexDirection: 'column', 
+                        gap: '0.25rem',
+                        color: '#ffffff',
+                        zIndex: 3
+                      }}>
+                        <span style={{ fontSize: '0.9375rem', fontWeight: 700, lineHeight: 1.2, textShadow: '0 1px 3px rgba(0,0,0,0.8)', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
+                          {product.name}
+                        </span>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', marginTop: '0.25rem' }}>
+                          <span style={{ fontSize: '0.75rem', fontWeight: 500, color: '#cbd5e1', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', paddingRight: '0.5rem' }}>
+                            {product.category || 'S/C'}
+                          </span>
+                          <span style={{ fontSize: '1rem', fontWeight: 800, color: '#4ade80', textShadow: '0 1px 2px rgba(0,0,0,0.8)' }}>
+                            {formatMoneyFromCents(product.price_cents)}
+                          </span>
+                        </div>
                       </div>
                     </button>
                   ))}

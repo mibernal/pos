@@ -1,6 +1,6 @@
 import { Kysely, sql } from 'kysely';
 
-export async function up(db: Kysely<any>): Promise<void> {
+export async function up(db: Kysely<any>): Promise<void> { // eslint-disable-line @typescript-eslint/no-explicit-any
   // 1. platform_events table
   await db.schema
     .createTable('platform_events')
@@ -50,7 +50,7 @@ export async function up(db: Kysely<any>): Promise<void> {
   await sql`UPDATE tenant_subscriptions SET starts_at = current_period_start, expires_at = current_period_end`.execute(db);
 }
 
-export async function down(db: Kysely<any>): Promise<void> {
+export async function down(db: Kysely<any>): Promise<void> { // eslint-disable-line @typescript-eslint/no-explicit-any
   await db.schema
     .alterTable('tenant_subscriptions')
     .dropColumn('trial_ends_at')

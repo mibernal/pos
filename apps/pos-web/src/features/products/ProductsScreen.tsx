@@ -178,10 +178,11 @@ export function ProductsScreen({
     setLoadingImages(true);
     try {
       const file = e.target.files[0];
+      if (!file) return;
       await api.uploadProductImage(editingId, file);
       await loadProductImages(editingId);
       await loadProducts(); // Refresh list to update primary image in catalog
-    } catch (err: any) {
+    } catch (err: any) { // eslint-disable-line @typescript-eslint/no-explicit-any
       setError(err.message || 'Error subiendo imagen');
     } finally {
       setLoadingImages(false);
@@ -198,7 +199,7 @@ export function ProductsScreen({
       await api.deleteProductImage(editingId, imageId);
       await loadProductImages(editingId);
       await loadProducts();
-    } catch (err: any) {
+    } catch (err: any) { // eslint-disable-line @typescript-eslint/no-explicit-any
       setError(err.message || 'Error eliminando imagen');
     } finally {
       setLoadingImages(false);
@@ -213,7 +214,7 @@ export function ProductsScreen({
       await api.setProductImagePrimary(editingId, imageId);
       await loadProductImages(editingId);
       await loadProducts();
-    } catch (err: any) {
+    } catch (err: any) { // eslint-disable-line @typescript-eslint/no-explicit-any
       setError(err.message || 'Error actualizando imagen principal');
     } finally {
       setLoadingImages(false);

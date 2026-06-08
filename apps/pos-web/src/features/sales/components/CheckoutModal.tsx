@@ -64,7 +64,7 @@ export function CheckoutModal({
     setMixedLines,
     positiveMixedLines,
     mixedEnteredCents,
-    mixedCashEnteredCents,
+    mixedCashEnteredCents, // eslint-disable-line @typescript-eslint/no-unused-vars
     mixedNonCashEnteredCents,
     mixedDifferenceCents,
     mixedChangeCents,
