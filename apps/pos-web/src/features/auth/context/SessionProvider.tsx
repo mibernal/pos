@@ -38,6 +38,11 @@ interface SessionContextValue {
 
 const SessionContext = createContext<SessionContextValue | null>(null);
 
+const getAuthFingerprint = (user?: AuthSession['user'] | null) => {
+  if (!user) return null;
+  return `${user.id}:${user.tenantId}:${user.role}:${(user.permissions || []).join(',')}:${(user.branchIds || []).join(',')}`;
+};
+
 export function SessionProvider({ children }: { children: ReactNode }) {
   const initialUserRef = useRef<AuthSession['user'] | null>(readAuthUser());
   const [session, setSession] = useState<AuthSession | null>(null);
@@ -45,13 +50,19 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const [authMessage, setAuthMessage] = useState<string | null>(null);
   const [authState, setAuthState] = useState<AuthState>('refreshing');
 
+  const queryClient = useQueryClient();
+
   const sessionRef = useRef<AuthSession | null>(session);
   const pendingReauthRef = useRef<Promise<AuthSession | null> | null>(null);
   const reauthResolverRef = useRef<((session: AuthSession | null) => void) | null>(null);
 
   const commitSession = useCallback((nextSession: AuthSession | null) => {
-    if (!nextSession?.user || (sessionRef.current?.user && sessionRef.current.user.id !== nextSession.user.id)) {
+    const currentFingerprint = getAuthFingerprint(sessionRef.current?.user);
+    const nextFingerprint = getAuthFingerprint(nextSession?.user);
+
+    if (currentFingerprint !== nextFingerprint) {
       usePosStore.getState().commitPosContext(null);
+      queryClient.clear();
     }
     sessionRef.current = nextSession;
     setSession(nextSession);
@@ -62,10 +73,11 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       setUser(null);
       writeAuthUser(null);
     }
-  }, []);
+  }, [queryClient]);
 
   const clearSession = useCallback(
     (reason?: string, skipReload: boolean = false) => {
+      queryClient.clear();
       sessionRef.current = null;
       setSession(null);
       setUser(null);
@@ -78,7 +90,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         window.location.reload();
       }
     },
-    []
+    [queryClient]
   );
 
   const onReauthRequired = useCallback(() => {

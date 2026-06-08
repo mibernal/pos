@@ -1,5 +1,6 @@
 import { useState, useMemo, type FormEvent } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { queryKeys } from '../../shared/query-keys';
 import { Banner, ShellMessage, PlaceholderImage } from '../../components/ui';
 import { PermissionGuard, useSession } from '../auth';
 
@@ -9,7 +10,7 @@ interface InventoryScreenProps {
 }
 
 export function InventoryScreen({ api, branchId }: InventoryScreenProps) {
-  const { role } = useSession();
+  const { role, tenantId } = useSession();
   const isPlatformOwner = role === 'PLATFORM_OWNER';
   const isTenantAdmin = role === 'ADMIN' || role === 'TENANT_OWNER';
   const canSeeConsolidated = isPlatformOwner || isTenantAdmin || role === 'MANAGER' || role === 'AUDITOR';
@@ -35,7 +36,7 @@ export function InventoryScreen({ api, branchId }: InventoryScreenProps) {
     isLoading: isLoadingProducts,
     error: productsError
   } = useQuery({
-    queryKey: ['products', branchId],
+    queryKey: queryKeys.inventory.products(tenantId, branchId),
     queryFn: () => api.listProducts({ limit: 500, branchId })
   });
 
@@ -44,7 +45,7 @@ export function InventoryScreen({ api, branchId }: InventoryScreenProps) {
     isLoading: isLoadingBalances,
     error: balancesError
   } = useQuery({
-    queryKey: ['balances', branchId],
+    queryKey: queryKeys.inventory.balances(tenantId, branchId),
     queryFn: () => api.listInventoryBalances(branchId)
   });
 
@@ -53,7 +54,7 @@ export function InventoryScreen({ api, branchId }: InventoryScreenProps) {
     isLoading: isLoadingConsolidated,
     error: consolidatedError
   } = useQuery({
-    queryKey: ['consolidatedInventory'],
+    queryKey: queryKeys.inventory.consolidatedInventory(tenantId),
     queryFn: () => api.listConsolidatedInventory(),
     enabled: canSeeConsolidated
   });
@@ -126,7 +127,7 @@ export function InventoryScreen({ api, branchId }: InventoryScreenProps) {
       setAdjustmentRows([]);
       setNotes('');
       // Refresh balances
-      await queryClient.invalidateQueries({ queryKey: ['balances', branchId] });
+      await queryClient.invalidateQueries({ queryKey: queryKeys.inventory.balances(tenantId, branchId) });
       
       setTimeout(() => {
         setIsAdjustmentModalOpen(false);
@@ -203,8 +204,8 @@ export function InventoryScreen({ api, branchId }: InventoryScreenProps) {
       if (itemsToImport.length > 0) {
         const res = await api.bulkImport({ items: itemsToImport }, branchId);
         setAdjustmentSuccess(`Se importaron/actualizaron ${res.imported} productos vía CSV.`);
-        await queryClient.invalidateQueries({ queryKey: ['products', branchId] });
-        await queryClient.invalidateQueries({ queryKey: ['balances', branchId] });
+        await queryClient.invalidateQueries({ queryKey: queryKeys.inventory.products(tenantId, branchId) });
+        await queryClient.invalidateQueries({ queryKey: queryKeys.inventory.balances(tenantId, branchId) });
       } else {
         setAdjustmentError('No se encontraron productos válidos en el archivo CSV.');
       }

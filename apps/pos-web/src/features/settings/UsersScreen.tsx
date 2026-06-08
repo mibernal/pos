@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { queryKeys } from '../../shared/query-keys';
 import type { PosApiClient } from '../../types';
 import { Banner, Modal, ShellMessage } from '../../components/ui';
 import type { UserRole } from '../../lib/api/client';
@@ -12,7 +13,7 @@ interface UsersScreenProps {
 type UserItem = { id: string; tenantId: string; email: string; name: string; role: UserRole; active: boolean; createdAt: string };
 
 export function UsersScreen({ api }: UsersScreenProps) {
-  const { session } = useSession();
+  const { session, tenantId } = useSession();
   const currentRole = session?.user.role;
   const canCreateAdmin = currentRole === 'PLATFORM_OWNER' || currentRole === 'TENANT_OWNER';
   const isStarterPlan = session?.user.tenantPlan === 'STARTER';
@@ -31,19 +32,19 @@ export function UsersScreen({ api }: UsersScreenProps) {
   const [selectedBranchIds, setSelectedBranchIds] = useState<string[]>([]);
 
   const { data: usersData, isLoading: isLoadingUsers, error: usersError } = useQuery({
-    queryKey: ['users'],
+    queryKey: queryKeys.user.all(tenantId),
     queryFn: () => api.listUsers()
   });
 
   const { data: branchesData, isLoading: isLoadingBranches } = useQuery({
-    queryKey: ['branches'],
+    queryKey: queryKeys.user.branches(tenantId),
     queryFn: () => api.listBranches()
   });
 
   const createUserMutation = useMutation({
     mutationFn: (newUser: Parameters<PosApiClient['createUser']>[0]) => api.createUser(newUser),
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['users'] });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.user.all(tenantId) });
       setIsCreateModalOpen(false);
     }
   });
@@ -51,6 +52,7 @@ export function UsersScreen({ api }: UsersScreenProps) {
   const assignBranchesMutation = useMutation({
     mutationFn: (params: { id: string; branchIds: string[] }) => api.updateUserBranches(params.id, params.branchIds),
     onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.user.all(tenantId) });
       setIsAssignModalOpen(false);
     }
   });

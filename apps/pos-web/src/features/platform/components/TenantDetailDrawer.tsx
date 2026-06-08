@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import { queryKeys } from '../../../shared/query-keys';
 import { Button, Input, Label } from '../../../components/ui';
 import { X, CheckCircle, AlertTriangle, AlertCircle, Eye, LogIn, Edit, Trash2, Plus } from 'lucide-react';
 
@@ -17,13 +18,13 @@ export function TenantDetailDrawer({ api, tenant, isOpen, onClose, onSuccess }: 
   const [error, setError] = useState<string | null>(null);
 
   const { data: plansData } = useQuery({
-    queryKey: ['platform-plans'],
+    queryKey: queryKeys.platform.plans(),
     queryFn: () => api.getPlatformPlans(),
     enabled: isOpen
   });
 
   const { data: usersData, refetch: refetchUsers } = useQuery({
-    queryKey: ['platform-tenant-users', tenant?.id],
+    queryKey: queryKeys.platform.tenantUsers(tenant?.id),
     queryFn: () => api.getPlatformTenantUsers(tenant.id),
     enabled: isOpen && !!tenant && activeTab === 'USERS'
   });

@@ -1,6 +1,8 @@
 
 import React, { useState, useMemo } from 'react';
 import { ScannerView } from './components/ScannerView';
+import { useSession } from '../auth';
+import { queryKeys } from '../../shared/query-keys';
 // Fallback components until ui library is installed
 const Button = (props: any) => <button className="px-4 py-2 bg-blue-600 text-white rounded" {...props} />; // eslint-disable-line @typescript-eslint/no-explicit-any
 const Table = (props: any) => <table className="w-full text-sm text-left" {...props} />; // eslint-disable-line @typescript-eslint/no-explicit-any
@@ -45,11 +47,12 @@ export const ScannerReconciliationScreen: React.FC<ScannerReconciliationScreenPr
   const [unknownBarcodes, setUnknownBarcodes] = useState<Record<string, number>>({});
   const [activeTab, setActiveTab] = useState('expected');
   const [isScannerActive, setIsScannerActive] = useState(true);
+  const { tenantId } = useSession();
 
   // In a real scenario, we would fetch the expected items from the PO or count
   // For the sake of UX implementation, we mock the master list of products
   const { data: products } = useQuery({
-    queryKey: ['products'],
+    queryKey: queryKeys.inventory.products(tenantId),
     queryFn: async () => {
       const res = await apiClient.get('/products');
       return res.data;
@@ -57,7 +60,7 @@ export const ScannerReconciliationScreen: React.FC<ScannerReconciliationScreenPr
   });
 
   const { data: expectedItems } = useQuery({
-    queryKey: ['expected', entityId, entityType],
+    queryKey: queryKeys.inventory.expectedReconciliation(tenantId, entityId, entityType),
     queryFn: async () => {
       // Mocked for UX demonstration: normally fetches the PO items
       return [
