@@ -5,6 +5,7 @@ import { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { AppError } from '../../../shared/infra/errors/app-error.js';
 import { hashPassword } from '../auth/password.js';
 import { assertCanManageRole, assertIsNotSelfRoleChange } from '../../../shared/infra/security/role-guard.js';
+import { QuotaGuard } from '../../../shared/infra/security/quota-guard.js';
 import { writeAuditLog } from '../../../shared/domain/audit/write-audit-log.js';
 
 const createUserBodySchema = z.object({
@@ -105,11 +106,8 @@ export const adminUsersRoutes: FastifyPluginAsync = async (app) => {
       const newUserId = randomUUID();
       const targetTenantId = request.auth.isPlatformRole && payload.role === 'PLATFORM_OWNER' ? null : request.auth!.tenantId!;
 
-      if (targetTenantId && (payload.role === 'MANAGER' || payload.role === 'AUDITOR')) {
-        const tenant = await app.db.selectFrom('tenants').select('plan').where('id', '=', targetTenantId).executeTakeFirst();
-        if (tenant?.plan === 'STARTER') {
-          throw new AppError(403, 'AUTH_FORBIDDEN', 'El plan actual de la cuenta no permite usar este rol. Mejora tu plan para continuar.');
-        }
+      if (targetTenantId) {
+        await QuotaGuard.assertCanCreateUser(app.db, targetTenantId);
       }
 
       const createdUser = await app.db.transaction().execute(async (trx) => {
@@ -200,12 +198,7 @@ export const adminUsersRoutes: FastifyPluginAsync = async (app) => {
       // Actor must also have power to assign the NEW role
       assertCanManageRole(request.auth.role, newRole);
 
-      if (targetUser.tenant_id && (newRole === 'MANAGER' || newRole === 'AUDITOR')) {
-        const tenant = await app.db.selectFrom('tenants').select('plan').where('id', '=', targetUser.tenant_id).executeTakeFirst();
-        if (tenant?.plan === 'STARTER') {
-          throw new AppError(403, 'AUTH_FORBIDDEN', 'El plan actual de la cuenta no permite usar este rol. Mejora tu plan para continuar.');
-        }
-      }
+
 
       await app.db.updateTable('users')
         .set({ role: newRole })
@@ -261,6 +254,11 @@ export const adminUsersRoutes: FastifyPluginAsync = async (app) => {
       if (!targetUser) throw new AppError(404, 'NOT_FOUND', 'Usuario no encontrado');
 
       assertCanManageRole(request.auth.role, targetUser.role);
+
+      // Si el usuario estaba inactivo y se va a activar, revisar la cuota de usuarios activos.
+      if (!targetUser.active && active && targetUser.tenant_id) {
+        await QuotaGuard.assertCanCreateUser(app.db, targetUser.tenant_id);
+      }
 
       await app.db.updateTable('users')
         .set({ active })

@@ -1,3 +1,4 @@
+export * from './types/platform.js';
 export * from './types/dian-provider.js';
 export * from './constants/queues.js';
 export * from './schemas/common.js';

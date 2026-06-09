@@ -10,7 +10,7 @@ export function BillingScreen({ api }: BillingScreenProps) {
   const [plans, setPlans] = useState<any[]>([]); // eslint-disable-line @typescript-eslint/no-explicit-any
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [gateway, setGateway] = useState<'WOMPI' | 'MERCADOPAGO' | 'MOCK'>('MOCK');
+  const [gateway, setGateway] = useState<'STRIPE' | 'WOMPI' | 'MERCADOPAGO' | 'MOCK'>('STRIPE');
 
   useEffect(() => {
     loadPlans();
@@ -82,9 +82,10 @@ export function BillingScreen({ api }: BillingScreenProps) {
       <div className="flex justify-center mb-16">
         <div className="bg-muted p-1.5 rounded-xl flex gap-1 shadow-sm">
           {[
-            { id: 'MOCK', label: 'Pruebas Locales' },
+            { id: 'STRIPE', label: 'Stripe (Recomendado)' },
             { id: 'WOMPI', label: 'Wompi (PSE/TC)' },
-            { id: 'MERCADOPAGO', label: 'MercadoPago' }
+            { id: 'MERCADOPAGO', label: 'MercadoPago' },
+            { id: 'MOCK', label: 'Pruebas Locales' }
           ].map(opt => (
             <button
               key={opt.id}

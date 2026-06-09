@@ -22,7 +22,9 @@ const envSchema = z.object({
   WOMPI_PUBLIC_KEY: z.string().optional(),
   WOMPI_EVENTS_KEY: z.string().optional(),
   MERCADOPAGO_ACCESS_TOKEN: z.string().optional(),
-  MERCADOPAGO_WEBHOOK_SECRET: z.string().optional()
+  MERCADOPAGO_WEBHOOK_SECRET: z.string().optional(),
+  STRIPE_SECRET_KEY: z.string().optional(),
+  STRIPE_WEBHOOK_SECRET: z.string().optional()
 }).superRefine((value, ctx) => {
 
 

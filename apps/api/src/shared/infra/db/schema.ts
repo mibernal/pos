@@ -583,6 +583,8 @@ export interface BillingPlansTable {
   features_json: JsonColumn;
   active: Generated<boolean>;
   created_at: Generated<Date>;
+  archived_at: Date | null;
+  metadata_json: NullableJsonColumn;
 }
 
 export interface TenantSubscriptionsTable {

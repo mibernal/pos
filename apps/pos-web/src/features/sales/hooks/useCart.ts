@@ -1,11 +1,16 @@
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useMemo } from 'react';
+import { useCartStore } from './useCartStore';
 import type { CartItem } from '../../../types';
 import type { ProductItem } from '../../../lib/api';
 
 export function useCart() {
-  const [cartItems, setCartItems] = useState<CartItem[]>([]);
-  const [selectedCartIndex, setSelectedCartIndex] = useState(-1);
-  const [parkedCarts, setParkedCarts] = useState<CartItem[][]>([]);
+  const cartItems = useCartStore((state) => state.cartItems);
+  const selectedCartIndex = useCartStore((state) => state.selectedCartIndex);
+  const parkedCarts = useCartStore((state) => state.parkedCarts);
+  const setCartItems = useCartStore((state) => state.setCartItems);
+  const setSelectedCartIndex = useCartStore((state) => state.setSelectedCartIndex);
+  const setParkedCarts = useCartStore((state) => state.setParkedCarts);
+  const resetCartStoreState = useCartStore((state) => state.resetCart);
 
   const subtotalCents = useMemo(
     () => cartItems.reduce((sum, item) => sum + item.qty * item.priceCents, 0),
@@ -106,9 +111,8 @@ export function useCart() {
   }, []);
 
   const resetCartState = useCallback(() => {
-    setCartItems([]);
-    setSelectedCartIndex(-1);
-  }, []);
+    resetCartStoreState();
+  }, [resetCartStoreState]);
 
   const parkCart = useCallback(() => {
     if (cartItems.length === 0) return;

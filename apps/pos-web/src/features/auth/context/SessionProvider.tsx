@@ -146,7 +146,10 @@ export function SessionProvider({ children }: { children: ReactNode }) {
           }
           clearSession(SESSION_EXPIRED_MESSAGE);
         },
-        onReauthRequired
+        onReauthRequired,
+        onQuotaExceeded: (message) => {
+          usePosStore.getState().openUpgradeModal(message);
+        }
       }),
     [clearSession, commitSession, onReauthRequired]
   );

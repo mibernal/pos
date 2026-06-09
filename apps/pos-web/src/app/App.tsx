@@ -7,6 +7,7 @@ import { BranchSetupScreen } from '../features/branches';
 import { PosScreen } from '../features/sales';
 import { DianConfigModal, TicketTemplateModal } from '../features/settings';
 import { BillingScreen } from '../features/billing/BillingScreen';
+import { UpgradePlanModal } from '../features/billing/components/UpgradePlanModal';
 
 // Lazy Loaded Screens
 const CustomersScreen = lazy(() => import('../features/customers').then(m => ({ default: m.CustomersScreen })));
@@ -271,6 +272,8 @@ function AppShell() {
                   }}
                 />
               )}
+
+              <UpgradePlanModal />
             </AppShellLayout>
           );
         })()

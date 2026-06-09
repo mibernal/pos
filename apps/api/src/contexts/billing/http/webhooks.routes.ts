@@ -57,4 +57,29 @@ export const webhooksRoutes: FastifyPluginAsync = async (app) => {
       return reply.code(200).send();
     }
   );
+
+  // STRIPE WEBHOOK
+  typedApp.post(
+    '/webhooks/payments/stripe',
+    {
+      schema: {
+        tags: ['webhooks']
+      }
+    },
+    async (request, reply) => {
+      const rawBody = typeof request.body === 'string' ? request.body : JSON.stringify(request.body);
+
+      try {
+        await processPaymentWebhook(app.db, {
+          gateway: 'STRIPE',
+          headers: request.headers as Record<string, string>,
+          rawBody
+        });
+      } catch (err) {
+        app.log.error(err);
+      }
+
+      return reply.code(200).send();
+    }
+  );
 };

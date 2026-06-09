@@ -25,7 +25,10 @@ import type {
   Promotion as SharedPromotion,
   CreatePromotion as SharedCreatePromotion,
   UpdatePromotion as SharedUpdatePromotion,
-  ListPromotionsQuery as SharedListPromotionsQuery
+  ListPromotionsQuery as SharedListPromotionsQuery,
+  BillingPlan as SharedBillingPlan,
+  CreateBillingPlanInput as SharedCreateBillingPlanInput,
+  UpdateBillingPlanInput as SharedUpdateBillingPlanInput
 } from '@pos-dian/shared';
 
 export type UserRole = SharedAuthUser['role'];
@@ -33,6 +36,9 @@ export type AuthUser = SharedAuthUser;
 export type TenantTaxMode = Exclude<SharedAuthUser['taxMode'], undefined>;
 export type AdminTenantProfile = SharedTenantProfile;
 export type UpdateTenantBusinessProfileBody = SharedUpdateTenantBusinessProfileBody;
+export type BillingPlan = SharedBillingPlan;
+export type CreateBillingPlanInput = SharedCreateBillingPlanInput;
+export type UpdateBillingPlanInput = SharedUpdateBillingPlanInput;
 
 export interface AuthSession {
   accessToken: string;
@@ -112,6 +118,7 @@ interface CreateApiClientOptions {
   getSession: () => AuthSession | null;
   setSession: (session: AuthSession | null) => void;
   onReauthRequired?: () => Promise<AuthSession | null>;
+  onQuotaExceeded?: (message: string) => void;
 }
 
 interface RequestOptions extends RequestInit {
@@ -132,7 +139,7 @@ function toQueryString(params: Record<string, string | number | undefined> = {})
   return search.toString();
 }
 
-export function createApiClient({ baseUrl, getSession, setSession, onReauthRequired }: CreateApiClientOptions) {
+export function createApiClient({ baseUrl, getSession, setSession, onReauthRequired, onQuotaExceeded }: CreateApiClientOptions) {
   let refreshPromise: Promise<AuthSession | null> | null = null;
 
   async function refreshToken(): Promise<AuthSession | null> {
@@ -220,10 +227,16 @@ export function createApiClient({ baseUrl, getSession, setSession, onReauthRequi
       let message = `Request failed (${response.status})`;
       try {
         const errorBody = (await response.json()) as {
-          error?: { message?: string };
+          error?: { message?: string; code?: string };
           message?: string;
         };
         message = errorBody.error?.message ?? errorBody.message ?? message;
+        
+        if (response.status === 403 && errorBody.error?.code === 'QUOTA_EXCEEDED') {
+          if (onQuotaExceeded) {
+            onQuotaExceeded(message);
+          }
+        }
       } catch {
         message = `${message}: ${await response.text()}`;
       }
@@ -616,8 +629,30 @@ export function createApiClient({ baseUrl, getSession, setSession, onReauthRequi
     },
       
     getPlatformPlans: () =>
-      requestJson<any>(`/platform/plans`), // eslint-disable-line @typescript-eslint/no-explicit-any
+      requestJson<{ plans: BillingPlan[] }>(`/platform/plans`),
       
+    createPlatformPlan: async (payload: CreateBillingPlanInput) => {
+      const res = await requestJson<{ success: boolean; id: string }>('/platform/plans', {
+        method: 'POST',
+        body: JSON.stringify(payload)
+      });
+      return res;
+    },
+
+    updatePlatformPlan: async (id: string, payload: UpdateBillingPlanInput) => {
+      const res = await requestJson<{ success: boolean }>(`/platform/plans/${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify(payload)
+      });
+      return res.success;
+    },
+
+    deletePlatformPlan: async (id: string) => {
+      const res = await requestJson<{ success: boolean }>(`/platform/plans/${id}`, {
+        method: 'DELETE'
+      });
+      return res.success;
+    },
     createPlatformTenant: async (payload: any) => { // eslint-disable-line @typescript-eslint/no-explicit-any
       const res = await requestJson<{ success: boolean; tenant_id: string }>('/platform/tenants', {
         method: 'POST',
@@ -644,7 +679,7 @@ export function createApiClient({ baseUrl, getSession, setSession, onReauthRequi
       
     // BILLING ENDPOINTS
     getBillingPlans: () => requestJson<{ plans: any[] }>('/billing/plans'), // eslint-disable-line @typescript-eslint/no-explicit-any
-    createCheckoutSession: (payload: { planId: string; gateway: 'WOMPI' | 'MERCADOPAGO' | 'MOCK'; redirectUrl: string }) =>
+    createCheckoutSession: (payload: { planId: string; gateway: 'WOMPI' | 'MERCADOPAGO' | 'STRIPE' | 'MOCK'; redirectUrl: string }) =>
       requestJson<{ checkoutUrl: string; transactionId: string }>('/billing/checkout', {
         method: 'POST',
         body: JSON.stringify(payload)

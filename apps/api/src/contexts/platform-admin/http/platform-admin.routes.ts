@@ -46,6 +46,31 @@ const updateTenantUserBodySchema = z.object({
   active: z.boolean().optional()
 });
 
+const planFeaturesSchema = z.object({
+  users: z.number(),
+  branches: z.number(),
+  support_level: z.enum(['STANDARD', 'PRIORITY', 'DEDICATED']).optional(),
+  allow_offline: z.boolean().optional(),
+  custom_domain: z.boolean().optional()
+});
+
+const createPlanBodySchema = z.object({
+  id: z.string().min(1),
+  name: z.string().min(1),
+  price_cents: z.number().min(0),
+  billing_cycle: z.enum(['MONTHLY', 'YEARLY']),
+  features_json: planFeaturesSchema
+});
+
+const updatePlanBodySchema = z.object({
+  name: z.string().min(1).optional(),
+  price_cents: z.number().min(0).optional(),
+  billing_cycle: z.enum(['MONTHLY', 'YEARLY']).optional(),
+  features_json: planFeaturesSchema.optional(),
+  active: z.boolean().optional(),
+  metadata_json: z.record(z.string(), z.unknown()).nullable().optional()
+});
+
 export const platformAdminRoutes: FastifyPluginAsync = async (app) => {
   const typedApp = app.withTypeProvider<ZodTypeProvider>();
   const repo = new PlatformAdminRepository(app.db);
@@ -285,8 +310,115 @@ export const platformAdminRoutes: FastifyPluginAsync = async (app) => {
       summary: 'Get available billing plans'
     }
   }, async () => {
-    const plans = await app.db.selectFrom('billing_plans').selectAll().execute();
+    const plans = await app.db.selectFrom('billing_plans')
+      .where('archived_at', 'is', null)
+      .selectAll()
+      .execute();
     return { plans };
+  });
+
+  typedApp.post('/platform/plans', {
+    schema: {
+      tags: ['Platform Admin'],
+      summary: 'Create a new billing plan',
+      body: createPlanBodySchema
+    }
+  }, async (request) => {
+    const payload = request.body;
+    const existing = await app.db.selectFrom('billing_plans').where('id', '=', payload.id).select('id').executeTakeFirst();
+    if (existing) throw new AppError(400, 'BAD_REQUEST', 'El ID del plan ya existe');
+
+    await app.db.insertInto('billing_plans').values({
+      id: payload.id,
+      name: payload.name,
+      price_cents: payload.price_cents,
+      billing_cycle: payload.billing_cycle,
+      features_json: payload.features_json,
+    }).execute();
+
+    await app.db.insertInto('platform_events').values({
+      tenant_id: null,
+      type: 'PLAN_CREATED',
+      severity: 'INFO',
+      actor_id: request.auth!.userId,
+      actor_email: request.auth!.email,
+      metadata: payload as any // eslint-disable-line @typescript-eslint/no-explicit-any
+    }).execute();
+
+    return { success: true, id: payload.id };
+  });
+
+  typedApp.patch('/platform/plans/:id', {
+    schema: {
+      tags: ['Platform Admin'],
+      summary: 'Update a billing plan',
+      params: z.object({ id: z.string() }),
+      body: updatePlanBodySchema
+    }
+  }, async (request) => {
+    const { id } = request.params;
+    const body = request.body;
+
+    const plan = await app.db.selectFrom('billing_plans').where('id', '=', id).selectAll().executeTakeFirst();
+    if (!plan) throw new AppError(404, 'NOT_FOUND', 'Plan no encontrado');
+
+    const updateData: any = {}; // eslint-disable-line @typescript-eslint/no-explicit-any
+    if (body.name !== undefined) updateData.name = body.name;
+    if (body.price_cents !== undefined) updateData.price_cents = body.price_cents;
+    if (body.billing_cycle !== undefined) updateData.billing_cycle = body.billing_cycle;
+    if (body.features_json !== undefined) updateData.features_json = body.features_json;
+    if (body.active !== undefined) updateData.active = body.active;
+    if (body.metadata_json !== undefined) updateData.metadata_json = body.metadata_json;
+
+    if (Object.keys(updateData).length > 0) {
+      await app.db.updateTable('billing_plans')
+        .set(updateData)
+        .where('id', '=', id)
+        .execute();
+    }
+
+    await app.db.insertInto('platform_events').values({
+      tenant_id: null,
+      type: 'PLAN_UPDATED',
+      severity: 'INFO',
+      actor_id: request.auth!.userId,
+      actor_email: request.auth!.email,
+      metadata: body as any // eslint-disable-line @typescript-eslint/no-explicit-any
+    }).execute();
+
+    return { success: true };
+  });
+
+  typedApp.delete('/platform/plans/:id', {
+    schema: {
+      tags: ['Platform Admin'],
+      summary: 'Soft-delete (archive) a billing plan',
+      params: z.object({ id: z.string() })
+    }
+  }, async (request) => {
+    const { id } = request.params;
+    
+    const plan = await app.db.selectFrom('billing_plans').where('id', '=', id).selectAll().executeTakeFirst();
+    if (!plan) throw new AppError(404, 'NOT_FOUND', 'Plan no encontrado');
+
+    await app.db.updateTable('billing_plans')
+      .set({ 
+        active: false, 
+        archived_at: new Date() 
+      })
+      .where('id', '=', id)
+      .execute();
+
+    await app.db.insertInto('platform_events').values({
+      tenant_id: null,
+      type: 'PLAN_ARCHIVED',
+      severity: 'WARNING',
+      actor_id: request.auth!.userId,
+      actor_email: request.auth!.email,
+      metadata: { plan_id: id } as any // eslint-disable-line @typescript-eslint/no-explicit-any
+    }).execute();
+
+    return { success: true };
   });
 
   typedApp.post('/platform/tenants', {

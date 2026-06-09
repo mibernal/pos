@@ -3,16 +3,17 @@ import type { Database } from '../../../shared/infra/db/schema.js';
 import { AppError } from '../../../shared/infra/errors/app-error.js';
 import { WompiGateway } from '../domain/wompi-gateway.js';
 import { MercadoPagoGateway } from '../domain/mercadopago-gateway.js';
+import { StripeGateway } from '../domain/stripe-gateway.js';
 import { writeAuditLog } from '../../../shared/domain/audit/write-audit-log.js';
 
 interface WebhookInput {
-  gateway: 'WOMPI' | 'MERCADOPAGO';
+  gateway: 'WOMPI' | 'MERCADOPAGO' | 'STRIPE';
   headers: Record<string, string>;
   rawBody: string;
 }
 
 export async function processPaymentWebhook(db: Kysely<Database>, input: WebhookInput) {
-  const adapter = input.gateway === 'WOMPI' ? new WompiGateway() : new MercadoPagoGateway();
+  const adapter = input.gateway === 'WOMPI' ? new WompiGateway() : input.gateway === 'STRIPE' ? new StripeGateway() : new MercadoPagoGateway();
 
   // 1. Validar firma criptográfica
   const isValid = adapter.verifyWebhookSignature(input.headers, input.rawBody);

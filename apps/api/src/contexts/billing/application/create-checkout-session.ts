@@ -4,12 +4,13 @@ import type { Database } from '../../../shared/infra/db/schema.js';
 import { AppError } from '../../../shared/infra/errors/app-error.js';
 import { WompiGateway } from '../domain/wompi-gateway.js';
 import { MercadoPagoGateway } from '../domain/mercadopago-gateway.js';
+import { StripeGateway } from '../domain/stripe-gateway.js';
 import type { IPaymentGateway } from '../domain/payment-gateway.interface.js';
 
 interface CreateCheckoutInput {
   tenantId: string;
   planId: string;
-  gateway: 'WOMPI' | 'MERCADOPAGO' | 'MOCK';
+  gateway: 'WOMPI' | 'MERCADOPAGO' | 'STRIPE' | 'MOCK';
   customerEmail: string;
   redirectUrl: string;
 }
@@ -35,6 +36,8 @@ export async function createCheckoutSession(db: Kysely<Database>, input: CreateC
     gatewayAdapter = new WompiGateway();
   } else if (input.gateway === 'MERCADOPAGO') {
     gatewayAdapter = new MercadoPagoGateway();
+  } else if (input.gateway === 'STRIPE') {
+    gatewayAdapter = new StripeGateway();
   } else {
     // MOCK import
     const { MockGateway } = await import('../domain/mock-gateway.js');

@@ -6,7 +6,7 @@ import { createCheckoutSession } from '../application/create-checkout-session.js
 
 const checkoutBodySchema = z.object({
   planId: z.string(),
-  gateway: z.enum(['WOMPI', 'MERCADOPAGO', 'MOCK']),
+  gateway: z.enum(['WOMPI', 'MERCADOPAGO', 'STRIPE', 'MOCK']),
   redirectUrl: z.string().url()
 });
 
