@@ -9,10 +9,22 @@ import { AppError } from '../../../shared/infra/errors/app-error.js';
 import {
   assertAndRecordLoginAttempt,
   clearLoginRateLimit,
-  buildLoginRateLimitKey
+  buildLoginRateLimitKey,
+  assertAndRecordIpRateLimit,
+  assertAndRecordIpRateLimitSync,
+  buildIpRateLimitKey
 } from '../../../shared/infra/security/login-rate-limit.js';
 import { getPermissionsForRole } from '../../../shared/infra/security/permissions.js';
 import { writeAuditLog } from '../../../shared/domain/audit/write-audit-log.js';
+import { SubscriptionService } from '../../billing/application/subscription.service.js';
+import {
+  getUserBranchIds,
+  generateRefreshToken,
+  setRefreshTokenCookie,
+  buildAuthResponse,
+  getUserForAuth,
+  buildUserDto
+} from './auth.utils.js';
 
 const registerBodySchema = z.object({
   email: z.string().trim().email().transform((value) => value.toLowerCase()),
@@ -63,9 +75,10 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
           address: 'No especificada',
           tax_mode: payload.tax_mode,
           status: 'TRIAL',
-          plan: payload.plan,
           owner_user_id: userId
         }).execute();
+
+        await SubscriptionService.createSubscription(trx, tenantId, payload.plan, 'TRIAL', 14);
 
         await trx.insertInto('users').values({
           id: userId,
@@ -133,6 +146,7 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
       let candidatesQuery = app.db
         .selectFrom('users')
         .leftJoin('tenants', 'tenants.id', 'users.tenant_id')
+        .leftJoin('tenant_subscriptions as ts', 'ts.tenant_id', 'tenants.id')
         .select([
           'users.id as id',
           'users.tenant_id as tenant_id',
@@ -140,7 +154,7 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
           'tenants.business_name as tenant_business_name',
           'tenants.tax_mode as tax_mode',
           'tenants.status as tenant_status',
-          'tenants.plan as tenant_plan',
+          'ts.plan_id as tenant_plan',
           'users.email as email',
           'users.password_hash as password_hash',
           'users.name as name',
@@ -177,10 +191,8 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
       if (validCandidates.length > 1) {
         const platformOwner = validCandidates.find(c => c.role === 'PLATFORM_OWNER');
         if (platformOwner) {
-          // If there's a platform owner account, default to it (ignoring duplicates or tenant accounts)
           validCandidates = [platformOwner];
         } else {
-          // Filter out any candidates without a tenant (safety check)
           const tenantCandidates = validCandidates.filter(c => c.tenant_id);
           if (tenantCandidates.length > 1) {
             return {
@@ -203,49 +215,11 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
         throw new AppError(403, 'AUTH_FORBIDDEN', 'El negocio se encuentra suspendido. Contacta al administrador de la plataforma.');
       }
 
-      let branchIds: string[] = [];
-      if (user.tenant_id) {
-          const userBranches = await app.db
-            .selectFrom('user_branches')
-            .select('branch_id')
-            .where('user_id', '=', user.id)
-            .where('tenant_id', '=', user.tenant_id)
-            .execute();
-          branchIds = userBranches.map(b => b.branch_id);
-      }
-
+      const branchIds = await getUserBranchIds(app.db, user.id, user.tenant_id);
       const isPlatformRole = user.role === 'PLATFORM_OWNER';
       const permissions = getPermissionsForRole(user.role);
 
-      const claims = {
-        sub: user.id,
-        userId: user.id,
-        tenantId: user.tenant_id,
-        tenantPlan: user.tenant_plan,
-        role: user.role,
-        email: user.email,
-        name: user.name,
-        branchIds,
-        permissions,
-        isPlatformRole
-      };
-
-      const accessToken = await app.jwt.sign(claims, {
-        expiresIn: env.JWT_EXPIRES_IN
-      });
-
-      const refreshTokenRaw = randomBytes(32).toString('hex');
-      const refreshTokenHash = createHash('sha256').update(refreshTokenRaw).digest('hex');
-      
-      const match = env.REFRESH_TOKEN_EXPIRES_IN.match(/^(\d+)([dhms])$/);
-      let expMs = 7 * 24 * 60 * 60 * 1000;
-      if (match) {
-        const val = parseInt(match[1]!, 10);
-        if (match[2] === 'd') expMs = val * 24 * 60 * 60 * 1000;
-        if (match[2] === 'h') expMs = val * 60 * 60 * 1000;
-        if (match[2] === 'm') expMs = val * 60 * 1000;
-      }
-      const expiresAt = new Date(Date.now() + expMs);
+      const { refreshTokenRaw, refreshTokenHash, expMs, expiresAt } = generateRefreshToken(env.REFRESH_TOKEN_EXPIRES_IN);
 
       await app.db.insertInto('refresh_tokens').values({
         id: randomUUID(),
@@ -257,32 +231,16 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
         revoked_at: null
       }).execute();
 
-      reply.setCookie('pos_refresh_token', refreshTokenRaw, {
-        path: '/',
-        httpOnly: true,
-        secure: env.NODE_ENV === 'production',
-        sameSite: 'lax',
-        maxAge: expMs / 1000
-      });
+      setRefreshTokenCookie(reply, refreshTokenRaw, expMs, env.NODE_ENV === 'production');
 
-      return {
-        accessToken,
-        tokenType: 'Bearer' as const,
-        expiresIn: env.JWT_EXPIRES_IN,
-        user: {
-          id: user.id,
-          tenantId: user.tenant_id,
-          tenantPlan: user.tenant_plan,
-          taxMode: user.tax_mode,
-          role: user.role,
-          email: user.email,
-          name: user.name,
-          active: user.active,
-          branchIds,
-          permissions,
-          isPlatformRole
-        }
-      };
+      return await buildAuthResponse(
+        app.jwt,
+        user,
+        branchIds,
+        permissions,
+        isPlatformRole,
+        env.JWT_EXPIRES_IN
+      );
     }
   );
 
@@ -300,28 +258,8 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
         throw new AppError(401, 'AUTH_UNAUTHORIZED', 'No autorizado');
       }
 
-      let query = app.db
-        .selectFrom('users')
-        .leftJoin('tenants', 'tenants.id', 'users.tenant_id')
-        .select([
-          'users.id as id',
-          'users.tenant_id as tenant_id',
-          'tenants.tax_mode as tax_mode',
-          'tenants.status as tenant_status',
-          'tenants.plan as tenant_plan',
-          'users.email as email',
-          'users.name as name',
-          'users.role as role',
-          'users.active as active'
-        ])
-        .where('users.id', '=', request.auth.userId)
-        .where('users.active', '=', true);
-
-      if (!request.auth.isPlatformRole) {
-        query = query.where('users.tenant_id', '=', request.auth.tenantId!);
-      }
-
-      const user = await query.executeTakeFirst();
+      const tenantIdParam = !request.auth.isPlatformRole ? request.auth.tenantId! : undefined;
+      const user = await getUserForAuth(app.db, request.auth.userId, tenantIdParam);
 
       if (!user) {
         throw new AppError(401, 'AUTH_UNAUTHORIZED', 'Usuario no encontrado o inactivo');
@@ -331,34 +269,12 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
         throw new AppError(403, 'AUTH_FORBIDDEN', 'El negocio se encuentra suspendido. Contacta al administrador de la plataforma.');
       }
 
-      let branchIds: string[] = [];
-      if (user.tenant_id) {
-          const userBranches = await app.db
-            .selectFrom('user_branches')
-            .select('branch_id')
-            .where('user_id', '=', user.id)
-            .where('tenant_id', '=', user.tenant_id)
-            .execute();
-          branchIds = userBranches.map(b => b.branch_id);
-      }
-
+      const branchIds = await getUserBranchIds(app.db, user.id, user.tenant_id);
       const permissions = getPermissionsForRole(user.role);
       const isPlatformRole = user.role === 'PLATFORM_OWNER';
 
       return {
-        user: {
-          id: user.id,
-          tenantId: user.tenant_id,
-          tenantPlan: user.tenant_plan,
-          taxMode: user.tax_mode,
-          role: user.role,
-          email: user.email,
-          name: user.name,
-          active: user.active,
-          branchIds,
-          permissions,
-          isPlatformRole
-        }
+        user: buildUserDto(user, branchIds, permissions, isPlatformRole, { isImpersonating: request.auth.isImpersonating })
       };
     }
   );
@@ -401,6 +317,7 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
       const session = await app.db.selectFrom('impersonation_sessions')
         .where('id', '=', session_id)
         .where('expires_at', '>', new Date())
+        .where('revoked_at', 'is', null)
         .selectAll()
         .executeTakeFirst();
 
@@ -408,113 +325,25 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
         throw new AppError(401, 'AUTH_UNAUTHORIZED', 'Sesión de suplantación inválida o expirada');
       }
 
-      const user = await app.db
-        .selectFrom('users')
-        .leftJoin('tenants', 'tenants.id', 'users.tenant_id')
-        .select([
-          'users.id as id',
-          'users.tenant_id as tenant_id',
-          'tenants.tax_mode as tax_mode',
-          'tenants.status as tenant_status',
-          'tenants.plan as tenant_plan',
-          'users.email as email',
-          'users.name as name',
-          'users.role as role',
-          'users.active as active'
-        ])
-        .where('users.id', '=', session.target_user_id)
-        .where('users.active', '=', true)
-        .executeTakeFirst();
+      const user = await getUserForAuth(app.db, session.target_user_id);
 
       if (!user) {
         throw new AppError(403, 'AUTH_FORBIDDEN', 'El usuario objetivo no está disponible');
       }
 
-      const refreshTokenRaw = randomBytes(32).toString('hex');
-      const refreshTokenHash = createHash('sha256').update(refreshTokenRaw).digest('hex');
-
-      const match = env.REFRESH_TOKEN_EXPIRES_IN.match(/^(\d+)([dhms])$/);
-      let expMs = 7 * 24 * 60 * 60 * 1000;
-      if (match) {
-        const val = parseInt(match[1]!, 10);
-        if (match[2] === 'd') expMs = val * 24 * 60 * 60 * 1000;
-        if (match[2] === 'h') expMs = val * 60 * 60 * 1000;
-        if (match[2] === 'm') expMs = val * 60 * 1000;
-      }
-      const expiresAt = new Date(Date.now() + expMs);
-
-      await app.db.insertInto('refresh_tokens').values({
-        id: randomUUID(),
-        tenant_id: user.tenant_id,
-        user_id: user.id,
-        token_hash: refreshTokenHash,
-        expires_at: expiresAt,
-        created_at: new Date(),
-        revoked_at: null
-      }).execute();
-
-      reply.setCookie('pos_refresh_token', refreshTokenRaw, {
-        path: '/',
-        httpOnly: true,
-        secure: env.NODE_ENV === 'production',
-        sameSite: 'lax',
-        maxAge: expMs / 1000
-      });
-
-      let branchIds: string[] = [];
-      if (user.tenant_id) {
-          const userBranches = await app.db
-            .selectFrom('user_branches')
-            .select('branch_id')
-            .where('user_id', '=', user.id)
-            .where('tenant_id', '=', user.tenant_id)
-            .execute();
-          branchIds = userBranches.map(b => b.branch_id);
-      }
-
+      const branchIds = await getUserBranchIds(app.db, user.id, user.tenant_id);
       const permissions = getPermissionsForRole(user.role);
       const isPlatformRole = user.role === 'PLATFORM_OWNER';
 
-      const claims = {
-        sub: user.id,
-        userId: user.id,
-        tenantId: user.tenant_id,
-        tenantPlan: user.tenant_plan,
-        role: user.role,
-        email: user.email,
-        name: user.name,
+      return await buildAuthResponse(
+        app.jwt,
+        user,
         branchIds,
         permissions,
         isPlatformRole,
-        isImpersonating: true
-      };
-
-      const accessToken = await app.jwt.sign(claims, { expiresIn: env.JWT_EXPIRES_IN });
-
-      // Invalidate the impersonation session so it can't be used again
-      await app.db.updateTable('impersonation_sessions')
-        .set({ expires_at: new Date() })
-        .where('id', '=', session_id)
-        .execute();
-
-      return {
-        accessToken,
-        tokenType: 'Bearer' as const,
-        expiresIn: env.JWT_EXPIRES_IN,
-        user: {
-          id: user.id,
-          tenantId: user.tenant_id,
-          tenantPlan: user.tenant_plan,
-          taxMode: user.tax_mode,
-          role: user.role,
-          email: user.email,
-          name: user.name,
-          active: user.active,
-          branchIds,
-          permissions,
-          isPlatformRole
-        }
-      };
+        env.JWT_EXPIRES_IN,
+        { isImpersonating: true }
+      );
     }
   );
 
@@ -526,6 +355,22 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
       }
     },
     async (request, reply) => {
+      const ip = request.ip;
+      const key = buildIpRateLimitKey('refresh', ip);
+      
+      try {
+        if (app.redis) {
+          await assertAndRecordIpRateLimit(app.redis, key, 30, 60000);
+        } else {
+          assertAndRecordIpRateLimitSync(key, 30, 60000);
+        }
+      } catch (err) {
+        if (err instanceof Error && err.message === 'RATE_LIMIT_EXCEEDED') {
+          return reply.status(429).send({ message: 'Too many requests' });
+        }
+        throw err;
+      }
+
       const currentToken = request.cookies['pos_refresh_token'];
       if (!currentToken) {
         throw new AppError(401, 'AUTH_UNAUTHORIZED', 'No refresh token provided');
@@ -570,23 +415,34 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
         throw new AppError(401, 'AUTH_UNAUTHORIZED', 'Refresh token expired');
       }
 
-      const user = await app.db
-        .selectFrom('users')
-        .leftJoin('tenants', 'tenants.id', 'users.tenant_id')
-        .select([
-          'users.id as id',
-          'users.tenant_id as tenant_id',
-          'tenants.tax_mode as tax_mode',
-          'tenants.status as tenant_status',
-          'tenants.plan as tenant_plan',
-          'users.email as email',
-          'users.name as name',
-          'users.role as role',
-          'users.active as active'
-        ])
-        .where('users.id', '=', tokenRecord.user_id)
-        .where('users.active', '=', true)
-        .executeTakeFirst();
+      let targetUserId = tokenRecord.user_id;
+      let isImpersonating = false;
+      
+      const impersonationId = request.headers['x-impersonation-id'] as string;
+      if (impersonationId) {
+        const session = await app.db.selectFrom('impersonation_sessions')
+          .where('id', '=', impersonationId)
+          .where('expires_at', '>', new Date())
+          .where('revoked_at', 'is', null)
+          .selectAll()
+          .executeTakeFirst();
+          
+        if (session && session.platform_user_id === tokenRecord.user_id) {
+           targetUserId = session.target_user_id;
+           isImpersonating = true;
+        } else {
+           throw new AppError(401, 'AUTH_UNAUTHORIZED', 'Sesión de suplantación inválida o expirada');
+        }
+      }
+
+      // Verificamos que el usuario original siga activo
+      const originalUser = await getUserForAuth(app.db, tokenRecord.user_id);
+      if (!originalUser) {
+        reply.clearCookie('pos_refresh_token', { path: '/' });
+        throw new AppError(401, 'AUTH_UNAUTHORIZED', 'User not found or inactive');
+      }
+
+      const user = isImpersonating ? await getUserForAuth(app.db, targetUserId) : originalUser;
 
       if (!user) {
         reply.clearCookie('pos_refresh_token', { path: '/' });
@@ -598,18 +454,7 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
         throw new AppError(403, 'AUTH_FORBIDDEN', 'El negocio se encuentra suspendido. Contacta al administrador de la plataforma.');
       }
 
-      const refreshTokenRaw = randomBytes(32).toString('hex');
-      const refreshTokenHash = createHash('sha256').update(refreshTokenRaw).digest('hex');
-
-      const match = env.REFRESH_TOKEN_EXPIRES_IN.match(/^(\d+)([dhms])$/);
-      let expMs = 7 * 24 * 60 * 60 * 1000;
-      if (match) {
-        const val = parseInt(match[1]!, 10);
-        if (match[2] === 'd') expMs = val * 24 * 60 * 60 * 1000;
-        if (match[2] === 'h') expMs = val * 60 * 60 * 1000;
-        if (match[2] === 'm') expMs = val * 60 * 1000;
-      }
-      const expiresAt = new Date(Date.now() + expMs);
+      const { refreshTokenRaw, refreshTokenHash, expMs, expiresAt } = generateRefreshToken(env.REFRESH_TOKEN_EXPIRES_IN);
 
       await app.db.transaction().execute(async (trx) => {
         let updateQ = trx
@@ -622,10 +467,11 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
         }
         await updateQ.execute();
 
+        // Guardamos el token para el usuario ORIGINAL (PLATFORM_OWNER o usuario normal)
         await trx.insertInto('refresh_tokens').values({
           id: randomUUID(),
-          tenant_id: user.tenant_id,
-          user_id: user.id,
+          tenant_id: originalUser.tenant_id,
+          user_id: originalUser.id,
           token_hash: refreshTokenHash,
           expires_at: expiresAt,
           created_at: new Date(),
@@ -633,63 +479,41 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
         }).execute();
       });
 
-      reply.setCookie('pos_refresh_token', refreshTokenRaw, {
-        path: '/',
-        httpOnly: true,
-        secure: env.NODE_ENV === 'production',
-        sameSite: 'lax',
-        maxAge: expMs / 1000
-      });
+      setRefreshTokenCookie(reply, refreshTokenRaw, expMs, env.NODE_ENV === 'production');
 
-      let branchIds: string[] = [];
-      if (user.tenant_id) {
-          const userBranches = await app.db
-            .selectFrom('user_branches')
-            .select('branch_id')
-            .where('user_id', '=', user.id)
-            .where('tenant_id', '=', user.tenant_id)
-            .execute();
-          branchIds = userBranches.map(b => b.branch_id);
-      }
-
+      const branchIds = await getUserBranchIds(app.db, user.id, user.tenant_id);
       const permissions = getPermissionsForRole(user.role);
       const isPlatformRole = user.role === 'PLATFORM_OWNER';
 
-      const claims = {
-        sub: user.id,
-        userId: user.id,
-        tenantId: user.tenant_id,
-        tenantPlan: user.tenant_plan,
-        role: user.role,
-        email: user.email,
-        name: user.name,
+      return await buildAuthResponse(
+        app.jwt,
+        user,
         branchIds,
         permissions,
-        isPlatformRole
-      };
+        isPlatformRole,
+        env.JWT_EXPIRES_IN,
+        isImpersonating ? { isImpersonating: true } : undefined
+      );
+    }
+  );
 
-      const accessToken = await app.jwt.sign(claims, {
-        expiresIn: env.JWT_EXPIRES_IN
-      });
+  typedApp.post(
+    '/auth/impersonate/stop',
+    {
+      schema: {
+        tags: ['auth'],
+        body: z.object({ session_id: z.string() })
+      }
+    },
+    async (request, reply) => {
+      const { session_id } = request.body;
 
-      return {
-        accessToken,
-        tokenType: 'Bearer' as const,
-        expiresIn: env.JWT_EXPIRES_IN,
-        user: {
-          id: user.id,
-          tenantId: user.tenant_id,
-          tenantPlan: user.tenant_plan,
-          taxMode: user.tax_mode,
-          role: user.role,
-          email: user.email,
-          name: user.name,
-          active: user.active,
-          branchIds,
-          permissions,
-          isPlatformRole
-        }
-      };
+      await app.db.updateTable('impersonation_sessions')
+        .set({ revoked_at: new Date() })
+        .where('id', '=', session_id)
+        .execute();
+
+      return { success: true };
     }
   );
 };

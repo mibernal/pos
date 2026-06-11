@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Card, CardHeader, CardTitle, CardContent } from '../../../components/ui';
 
 export function PlatformAlertsWidget({ baseUrl, sessionToken }: { baseUrl: string, sessionToken: string }) {
-  const [alerts, setAlerts] = useState<any[]>([]); // eslint-disable-line @typescript-eslint/no-explicit-any
+  const [alerts, setAlerts] = useState<{ severity: string; title: string }[]>([]);
   const [connected, setConnected] = useState(false);
 
   useEffect(() => {

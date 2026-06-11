@@ -66,6 +66,9 @@ describe('Outbox Events E2E', () => {
         payments: [{ method: 'CASH', amount_cents: fixture.productPriceCents }]
       }
     });
+    if (saleRes.statusCode !== 201) {
+      console.error('Failed to create sale:', saleRes.body);
+    }
     expect(saleRes.statusCode).toBe(201);
     const saleId = (saleRes.json() as any).sale.id;
 

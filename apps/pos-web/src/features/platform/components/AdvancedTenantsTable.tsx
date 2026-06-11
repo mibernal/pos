@@ -1,5 +1,18 @@
 import React, { useState } from 'react';
 import { Card, Button, Input } from '../../../components/ui';
+import { PlatformTenantSearchResult } from '../../../lib/api/client';
+
+interface AdvancedTenantsTableProps {
+  tenants: PlatformTenantSearchResult[];
+  onEdit: (tenant: PlatformTenantSearchResult) => void;
+  onImpersonate: (tenantId: string) => void;
+  onCreate: () => void;
+  onSearch: (query: string) => void;
+  onFilterStatus: (status: string) => void;
+  onChangePlan: (tenant: PlatformTenantSearchResult) => void;
+  onSuspend: (tenant: PlatformTenantSearchResult) => void;
+  onReactivate: (tenant: PlatformTenantSearchResult) => void;
+}
 
 export function AdvancedTenantsTable({ 
   tenants, 
@@ -7,8 +20,11 @@ export function AdvancedTenantsTable({
   onImpersonate,
   onCreate,
   onSearch, 
-  onFilterStatus 
-}: any) { // eslint-disable-line @typescript-eslint/no-explicit-any
+  onFilterStatus,
+  onChangePlan,
+  onSuspend,
+  onReactivate
+}: AdvancedTenantsTableProps) {
   const [searchTerm, setSearchTerm] = useState('');
 
   const handleSearch = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -55,7 +71,7 @@ export function AdvancedTenantsTable({
             </tr>
           </thead>
           <tbody>
-            {tenants.map((t: any) => ( // eslint-disable-line @typescript-eslint/no-explicit-any
+            {tenants.map((t) => (
               <tr key={t.id} className="border-b border-slate-100 transition-colors hover:bg-slate-50">
                 <td className="p-4">
                   <div className="flex items-center gap-4">

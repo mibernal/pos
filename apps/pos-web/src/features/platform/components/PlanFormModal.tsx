@@ -81,8 +81,8 @@ export function PlanFormModal({ open, onOpenChange, plan, onSave }: PlanFormModa
         });
       }
       onOpenChange(false);
-    } catch (err: any) { // eslint-disable-line @typescript-eslint/no-explicit-any
-      setError(err.message || 'Error al guardar el plan');
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : String(err));
     } finally {
       setLoading(false);
     }

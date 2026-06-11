@@ -2,7 +2,9 @@ import type { FastifyPluginAsync } from 'fastify';
 import { z } from 'zod';
 import { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { AppError } from '../../../shared/infra/errors/app-error.js';
+import { env } from '../../../app/env.js';
 import { createCheckoutSession } from '../application/create-checkout-session.js';
+import { SubscriptionService } from '../application/subscription.service.js';
 
 const checkoutBodySchema = z.object({
   planId: z.string(),
@@ -68,7 +70,9 @@ export const billingRoutes: FastifyPluginAsync = async (app) => {
       });
     }
   );
-  typedApp.get(
+  
+  if (env.NODE_ENV !== 'production') {
+    typedApp.get(
     '/billing/mock-checkout',
     {
       schema: {
@@ -93,16 +97,30 @@ export const billingRoutes: FastifyPluginAsync = async (app) => {
       if (updatedTx) {
         const metadata = updatedTx.metadata_json as { planId?: string } | null;
         if (metadata?.planId) {
-          // Update tenant plan
-          await app.db
-            .updateTable('tenants')
-            .set({ plan: metadata.planId, status: 'ACTIVE' })
-            .where('id', '=', updatedTx.tenant_id)
-            .execute();
+          const planId = metadata.planId;
+          await app.db.transaction().execute(async (trx) => {
+            const sub = await trx.selectFrom('tenant_subscriptions').select(['plan_id', 'status']).where('tenant_id', '=', updatedTx.tenant_id).executeTakeFirst();
+            
+            await trx.updateTable('tenants')
+              .set({ status: 'ACTIVE' })
+              .where('id', '=', updatedTx.tenant_id)
+              .execute();
+
+            if (sub?.plan_id !== planId) {
+              await SubscriptionService.upgradeSubscription(trx, updatedTx.tenant_id, planId);
+            }
+
+            if (sub?.status === 'ACTIVE') {
+              await SubscriptionService.renewSubscription(trx, updatedTx.tenant_id, 30);
+            } else {
+              await SubscriptionService.activateSubscription(trx, updatedTx.tenant_id, 30);
+            }
+          });
         }
       }
 
       return reply.redirect(redirectUrl);
     }
   );
+  }
 };

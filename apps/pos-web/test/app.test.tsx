@@ -5,6 +5,7 @@ import App from '../src/app/App';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { addPendingSale, clearPendingSales } from '../src/lib/offline-queue';
 import { writeAuthSession, writePosContext } from '../src/lib/session';
+import { usePosStore } from '../src/hooks/usePosStore';
 
 function normalizeText(value: string | null | undefined) {
   return (value ?? '').replace(/\s+/g, ' ').trim();
@@ -32,14 +33,16 @@ function seedSession(role: 'ADMIN' | 'CASHIER' = 'ADMIN') {
     }
   });
 
-  writePosContext({
+  const context = {
     branchId: '33333333-3333-4333-8333-333333333333',
     branchName: 'Sucursal Centro',
     branchAddress: 'Calle 1 # 2-3',
     cashSessionId: '44444444-4444-4444-8444-444444444444',
     terminalId: '55555555-5555-4555-8555-555555555555',
     terminalName: 'Caja 1'
-  });
+  };
+  writePosContext(context);
+  usePosStore.setState({ posContext: context });
 }
 
 function mockAuthenticatedAppFetch(role: 'ADMIN' | 'CASHIER' = 'ADMIN') {
@@ -100,6 +103,39 @@ function mockAuthenticatedAppFetch(role: 'ADMIN' | 'CASHIER' = 'ADMIN') {
         status: 200,
         headers: { 'content-type': 'application/json' }
       });
+    }
+
+    if (url.endsWith('/branches')) {
+      return new Response(
+        JSON.stringify({
+          items: [
+            {
+              id: '33333333-3333-4333-8333-333333333333',
+              tenant_id: '22222222-2222-4222-8222-222222222222',
+              name: 'Sucursal Centro',
+              address: 'Calle 1 # 2-3',
+              created_at: new Date().toISOString(),
+              current_cash_session: null
+            }
+          ]
+        }),
+        { status: 200, headers: { 'content-type': 'application/json' } }
+      );
+    }
+
+    if (url.includes('/terminals')) {
+      return new Response(
+        JSON.stringify({
+          terminals: [
+            {
+              id: '55555555-5555-4555-8555-555555555555',
+              name: 'Caja 1',
+              is_active: true
+            }
+          ]
+        }),
+        { status: 200, headers: { 'content-type': 'application/json' } }
+      );
     }
 
     if (url.endsWith('/admin/tenants/current')) {
@@ -261,6 +297,39 @@ function mockAuthenticatedPosFetch(options?: {
       });
     }
 
+    if (url.endsWith('/branches')) {
+      return new Response(
+        JSON.stringify({
+          items: [
+            {
+              id: '33333333-3333-4333-8333-333333333333',
+              tenant_id: '22222222-2222-4222-8222-222222222222',
+              name: 'Sucursal Centro',
+              address: 'Calle 1 # 2-3',
+              created_at: new Date().toISOString(),
+              current_cash_session: null
+            }
+          ]
+        }),
+        { status: 200, headers: { 'content-type': 'application/json' } }
+      );
+    }
+
+    if (url.includes('/terminals')) {
+      return new Response(
+        JSON.stringify({
+          terminals: [
+            {
+              id: '55555555-5555-4555-8555-555555555555',
+              name: 'Caja 1',
+              is_active: true
+            }
+          ]
+        }),
+        { status: 200, headers: { 'content-type': 'application/json' } }
+      );
+    }
+
     if (url.endsWith('/sales') && init?.method === 'POST') {
       saleCalls += 1;
       if (options?.onCreateSale) {
@@ -329,6 +398,21 @@ function mockLoginFlowFetch() {
       );
     }
 
+    if (url.includes('/terminals')) {
+      return new Response(
+        JSON.stringify({
+          terminals: [
+            {
+              id: '55555555-5555-4555-8555-555555555555',
+              name: 'Caja 1',
+              is_active: true
+            }
+          ]
+        }),
+        { status: 200, headers: { 'content-type': 'application/json' } }
+      );
+    }
+
     if (url.includes('/cash-sessions/current?')) {
       return new Response(JSON.stringify({ cash_session: null }), {
         status: 200,
@@ -347,6 +431,7 @@ describe('App', () => {
   afterEach(async () => {
     vi.restoreAllMocks();
     window.localStorage.clear();
+    usePosStore.setState({ posContext: null });
     await clearPendingSales();
   });
 

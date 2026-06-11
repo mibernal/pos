@@ -67,7 +67,6 @@ export class MercadoPagoGateway implements IPaymentGateway {
         if (p.startsWith('v1=')) v1 = p.substring(3);
       }
 
-      const urlParams = new URLSearchParams(); // eslint-disable-line @typescript-eslint/no-unused-vars
       // MercadoPago webhooks usualmente vienen con data.id en el payload de query params
       const payloadObj = JSON.parse(rawBody);
       const dataId = payloadObj?.data?.id || '';
@@ -83,21 +82,62 @@ export class MercadoPagoGateway implements IPaymentGateway {
     }
   }
 
-  parseWebhook(payload: any): PaymentWebhookResult { // eslint-disable-line @typescript-eslint/no-explicit-any
-    // Nota: MP normalmente envía solo notificaciones del ID de evento.
-    // Aquí asumimos que obtenemos el status consultando o parseando un evento directo tipo 'payment'
-    // En una implementación real más robusta, el Webhook solo informa ID, y se debe hacer un fetch() a la API de MP para ver el estado real de payment.
-    const action = payload?.action; // eslint-disable-line @typescript-eslint/no-unused-vars
-    const type = payload?.type; // eslint-disable-line @typescript-eslint/no-unused-vars
-    
-    // Si la arquitectura requiere ir por el payment:
-    // (Asumido que para el MVP tomaremos el id y luego el caso de uso tendría que pedir la info real de MP, o que MP lo envíe)
-    // Para cumplir el interface, parseamos lo que envía:
-    return {
-      reference: payload?.external_reference || '', // Puede venir o no dependiendo del evento
-      gatewayTransactionId: payload?.data?.id || '',
-      status: 'PENDING', // Debe resolverse luego consultando la API en el UseCase, o asumiendo el state de action
-      rawPayload: payload
-    };
+  async parseWebhook(payload: any): Promise<PaymentWebhookResult> { // eslint-disable-line @typescript-eslint/no-explicit-any
+    const dataId = payload?.data?.id;
+
+    if (!dataId) {
+      return {
+        reference: '',
+        gatewayTransactionId: '',
+        status: 'ERROR',
+        rawPayload: payload
+      };
+    }
+
+    try {
+      const response = await fetch(`https://api.mercadopago.com/v1/payments/${dataId}`, {
+        headers: {
+          'Authorization': `Bearer ${this.accessToken}`
+        }
+      });
+
+      if (!response.ok) {
+        return {
+          reference: '',
+          gatewayTransactionId: dataId,
+          status: 'ERROR',
+          rawPayload: payload
+        };
+      }
+
+      const payment = await response.json() as any; // eslint-disable-line @typescript-eslint/no-explicit-any
+      const mpStatus = payment.status;
+
+      let status: 'PENDING' | 'APPROVED' | 'DECLINED' | 'ERROR' = 'ERROR';
+
+      if (mpStatus === 'approved') {
+        status = 'APPROVED';
+      } else if (mpStatus === 'pending' || mpStatus === 'in_process' || mpStatus === 'authorized') {
+        status = 'PENDING';
+      } else if (mpStatus === 'rejected' || mpStatus === 'cancelled') {
+        status = 'DECLINED';
+      } else if (mpStatus === 'refunded' || mpStatus === 'charged_back') {
+        status = 'ERROR';
+      }
+
+      return {
+        reference: payment.external_reference || '',
+        gatewayTransactionId: dataId.toString(),
+        status,
+        rawPayload: payload
+      };
+    } catch {
+      return {
+        reference: '',
+        gatewayTransactionId: dataId,
+        status: 'ERROR',
+        rawPayload: payload
+      };
+    }
   }
 }

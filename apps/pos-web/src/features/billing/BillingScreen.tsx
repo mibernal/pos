@@ -7,7 +7,7 @@ interface BillingScreenProps {
 }
 
 export function BillingScreen({ api }: BillingScreenProps) {
-  const [plans, setPlans] = useState<any[]>([]); // eslint-disable-line @typescript-eslint/no-explicit-any
+  const [plans, setPlans] = useState<import('../../lib/api/client').BillingPlan[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [gateway, setGateway] = useState<'STRIPE' | 'WOMPI' | 'MERCADOPAGO' | 'MOCK'>('STRIPE');
@@ -21,8 +21,8 @@ export function BillingScreen({ api }: BillingScreenProps) {
       setLoading(true);
       const data = await api.getBillingPlans();
       setPlans(data.plans || []);
-    } catch (err: any) { // eslint-disable-line @typescript-eslint/no-explicit-any
-      setError(err.message);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : String(err));
     } finally {
       setLoading(false);
     }
@@ -38,8 +38,8 @@ export function BillingScreen({ api }: BillingScreenProps) {
 
       // Redirigir al usuario al checkout de la pasarela
       window.location.href = result.checkoutUrl;
-    } catch (err: any) { // eslint-disable-line @typescript-eslint/no-explicit-any
-      alert(err.message);
+    } catch (err: unknown) {
+      alert(err instanceof Error ? err.message : String(err));
     }
   }
 
@@ -89,7 +89,7 @@ export function BillingScreen({ api }: BillingScreenProps) {
           ].map(opt => (
             <button
               key={opt.id}
-              onClick={() => setGateway(opt.id as any)} // eslint-disable-line @typescript-eslint/no-explicit-any
+              onClick={() => setGateway(opt.id as 'STRIPE' | 'WOMPI' | 'MERCADOPAGO' | 'MOCK')}
               className={`
                 px-5 py-2.5 rounded-lg text-sm font-semibold transition-all duration-200
                 ${gateway === opt.id 

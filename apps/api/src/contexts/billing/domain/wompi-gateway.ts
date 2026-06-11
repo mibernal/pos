@@ -43,9 +43,9 @@ export class WompiGateway implements IPaymentGateway {
         const parts = prop.split('.');
         let val: any = payload.data; // eslint-disable-line @typescript-eslint/no-explicit-any
         for (const p of parts) {
-          val = val[p];
+          val = val?.[p];
         }
-        concatenatedValues += val;
+        concatenatedValues += (val ?? '');
       }
       
       concatenatedValues += payload.timestamp;
@@ -58,7 +58,7 @@ export class WompiGateway implements IPaymentGateway {
     }
   }
 
-  parseWebhook(payload: any): PaymentWebhookResult { // eslint-disable-line @typescript-eslint/no-explicit-any
+  async parseWebhook(payload: any): Promise<PaymentWebhookResult> { // eslint-disable-line @typescript-eslint/no-explicit-any
     const transaction = payload?.data?.transaction;
     
     let status: 'APPROVED' | 'DECLINED' | 'ERROR' = 'ERROR';

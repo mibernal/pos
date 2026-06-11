@@ -4,6 +4,7 @@ export interface PaymentIntentInput {
   customerEmail: string;
   redirectUrl: string;
   currency?: string;
+  billingCycle: 'MONTHLY' | 'YEARLY';
 }
 
 export interface PaymentWebhookResult {
@@ -27,5 +28,5 @@ export interface IPaymentGateway {
   /**
    * Parsea el payload del webhook y lo estandariza
    */
-  parseWebhook(payload: any): PaymentWebhookResult; // eslint-disable-line @typescript-eslint/no-explicit-any
+  parseWebhook(payload: any): Promise<PaymentWebhookResult>; // eslint-disable-line @typescript-eslint/no-explicit-any
 }

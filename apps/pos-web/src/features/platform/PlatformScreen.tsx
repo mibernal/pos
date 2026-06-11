@@ -14,17 +14,25 @@ interface PlatformScreenProps {
   api: ReturnType<typeof import('../../lib/api/client').createApiClient>;
 }
 
+import {
+  PlatformDashboardMetrics,
+  PlatformGrowthMetric,
+  PlatformActivityEvent,
+  PlatformTenantSearchResult
+} from '../../lib/api/client';
+import { PlatformHealthResponse } from './components/PlatformHealthWidget';
+
 export function PlatformScreen({ api }: PlatformScreenProps) {
   const [activeTab, setActiveTab] = useState<'OVERVIEW' | 'TENANTS' | 'PLANS'>('OVERVIEW');
-  const [tenants, setTenants] = useState<any[]>([]); // eslint-disable-line @typescript-eslint/no-explicit-any
+  const [tenants, setTenants] = useState<PlatformTenantSearchResult[]>([]);
   const [loading, setLoading] = useState(true);
-  const [dashboardMetrics, setDashboardMetrics] = useState<any>(null); // eslint-disable-line @typescript-eslint/no-explicit-any
-  const [growthData, setGrowthData] = useState<any[]>([]); // eslint-disable-line @typescript-eslint/no-explicit-any
-  const [healthData, setHealthData] = useState<any>(null); // eslint-disable-line @typescript-eslint/no-explicit-any
-  const [recentActivity, setRecentActivity] = useState<any[]>([]); // eslint-disable-line @typescript-eslint/no-explicit-any
+  const [dashboardMetrics, setDashboardMetrics] = useState<PlatformDashboardMetrics | null>(null);
+  const [growthData, setGrowthData] = useState<PlatformGrowthMetric[]>([]);
+  const [healthData, setHealthData] = useState<PlatformHealthResponse | null>(null);
+  const [recentActivity, setRecentActivity] = useState<PlatformActivityEvent[]>([]);
   
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
-  const [selectedTenant, setSelectedTenant] = useState<any>(null); // eslint-disable-line @typescript-eslint/no-explicit-any
+  const [selectedTenant, setSelectedTenant] = useState<PlatformTenantSearchResult | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const [searchParams, setSearchParams] = useState({ query: '', status: 'ALL' });
@@ -46,10 +54,10 @@ export function PlatformScreen({ api }: PlatformScreenProps) {
       setTenants(tenantsData.items || []);
       setDashboardMetrics(metricsData.metrics);
       setGrowthData(growthDataReq.history || []);
-      setHealthData(healthDataReq);
+      setHealthData(healthDataReq as unknown as PlatformHealthResponse);
       setRecentActivity(activityDataReq.activity || []);
-    } catch (err: any) { // eslint-disable-line @typescript-eslint/no-explicit-any
-      setError(err.message);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : String(err));
     } finally {
       setLoading(false);
     }
@@ -60,8 +68,8 @@ export function PlatformScreen({ api }: PlatformScreenProps) {
     try {
       await api.impersonateTenant(tenantId, 'Impersonation via Superadmin Dashboard');
       window.location.href = '/';
-    } catch (err: any) { // eslint-disable-line @typescript-eslint/no-explicit-any
-      alert(err.message);
+    } catch (err: unknown) {
+      alert(err instanceof Error ? err.message : String(err));
     }
   }
 
@@ -75,7 +83,7 @@ export function PlatformScreen({ api }: PlatformScreenProps) {
           {['OVERVIEW', 'TENANTS', 'PLANS'].map((tab) => (
             <button
               key={tab}
-              onClick={() => setActiveTab(tab as any)} // eslint-disable-line @typescript-eslint/no-explicit-any
+              onClick={() => setActiveTab(tab as 'OVERVIEW' | 'TENANTS' | 'PLANS')}
               className={`pb-3 px-1 text-sm font-semibold transition-colors border-b-2 whitespace-nowrap ${
                 activeTab === tab 
                   ? 'border-primary text-primary' 
@@ -122,10 +130,10 @@ export function PlatformScreen({ api }: PlatformScreenProps) {
               onFilterStatus={(status: string) => setSearchParams(prev => ({ ...prev, status }))}
               onImpersonate={handleImpersonate}
               onCreate={() => setIsCreateModalOpen(true)}
-              onEdit={(tenant: unknown) => setSelectedTenant(tenant)}
-              onChangePlan={(tenant: unknown) => setSelectedTenant(tenant)} // Plan is now inside drawer
-              onSuspend={(tenant: unknown) => setSelectedTenant(tenant)} // Actions are inside drawer
-              onReactivate={(tenant: unknown) => setSelectedTenant(tenant)}
+              onEdit={(tenant: PlatformTenantSearchResult) => setSelectedTenant(tenant)}
+              onChangePlan={(tenant: PlatformTenantSearchResult) => setSelectedTenant(tenant)} // Plan is now inside drawer
+              onSuspend={(tenant: PlatformTenantSearchResult) => setSelectedTenant(tenant)} // Actions are inside drawer
+              onReactivate={(tenant: PlatformTenantSearchResult) => setSelectedTenant(tenant)}
             />
           )}
 

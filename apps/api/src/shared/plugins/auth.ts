@@ -16,6 +16,7 @@ function mapClaimsToAuthContext(claims: JwtClaims): AuthContext {
     branchIds: claims.branchIds,
     permissions: claims.permissions,
     isPlatformRole: claims.isPlatformRole ?? false,
+    isImpersonating: claims.isImpersonating ?? false,
     user_id: claims.userId,
     tenant_id: claims.tenantId
   };

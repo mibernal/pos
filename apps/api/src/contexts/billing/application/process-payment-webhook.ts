@@ -5,6 +5,7 @@ import { WompiGateway } from '../domain/wompi-gateway.js';
 import { MercadoPagoGateway } from '../domain/mercadopago-gateway.js';
 import { StripeGateway } from '../domain/stripe-gateway.js';
 import { writeAuditLog } from '../../../shared/domain/audit/write-audit-log.js';
+import { SubscriptionService } from './subscription.service.js';
 
 interface WebhookInput {
   gateway: 'WOMPI' | 'MERCADOPAGO' | 'STRIPE';
@@ -22,7 +23,7 @@ export async function processPaymentWebhook(db: Kysely<Database>, input: Webhook
   }
 
   const payload = JSON.parse(input.rawBody);
-  const result = adapter.parseWebhook(payload);
+  const result = await adapter.parseWebhook(payload);
 
   if (!result.reference) {
     // Algunas pasarelas envían eventos generales sin referencia. Se ignoran en este MVP prepago.
@@ -48,7 +49,7 @@ export async function processPaymentWebhook(db: Kysely<Database>, input: Webhook
 
   // 3. Actualizar transacción
   const newStatus = result.status;
-  await db
+  const updateResult = await db
     .updateTable('payment_transactions')
     .set({
       status: newStatus,
@@ -56,7 +57,14 @@ export async function processPaymentWebhook(db: Kysely<Database>, input: Webhook
       updated_at: new Date()
     })
     .where('id', '=', tx.id)
-    .execute();
+    .where('status', '!=', 'APPROVED')
+    .executeTakeFirst();
+
+  if (Number(updateResult.numUpdatedRows) === 0) {
+    // Si numUpdatedRows es 0, significa que otro hilo o proceso
+    // ya aprobó la transacción de manera concurrente.
+    return { success: true, alreadyProcessed: true };
+  }
 
   // 4. Actualizar el plan si fue Aprobado
   if (newStatus === 'APPROVED') {
@@ -65,23 +73,30 @@ export async function processPaymentWebhook(db: Kysely<Database>, input: Webhook
 
     if (planId) {
       await db.transaction().execute(async (trx) => {
-        const tenant = await trx.selectFrom('tenants').select(['plan']).where('id', '=', tx.tenant_id).executeTakeFirst();
+        const sub = await trx.selectFrom('tenant_subscriptions').select(['plan_id', 'status']).where('tenant_id', '=', tx.tenant_id).executeTakeFirst();
         
         await trx
           .updateTable('tenants')
-          .set({ plan: planId, status: 'ACTIVE' })
+          .set({ status: 'ACTIVE' })
           .where('id', '=', tx.tenant_id)
           .execute();
 
-        // En un modelo recurrente se actualizaría tenant_subscriptions (fecha actual + 1 mes). 
-        // Para prepago básico actualizamos directamente tenants.plan y permitimos el login.
+        if (sub?.plan_id !== planId) {
+          await SubscriptionService.upgradeSubscription(trx, tx.tenant_id, planId);
+        }
+
+        if (sub?.status === 'ACTIVE') {
+          await SubscriptionService.renewSubscription(trx, tx.tenant_id, 30);
+        } else {
+          await SubscriptionService.activateSubscription(trx, tx.tenant_id, 30);
+        }
 
         await writeAuditLog(trx, {
           tenantId: tx.tenant_id,
           entityType: 'TENANT',
           entityId: tx.tenant_id,
-          action: 'TENANT_PLAN_UPGRADED',
-          payloadJson: { previous: { plan: tenant?.plan }, current: { plan: planId } }
+          action: 'TENANT_SUBSCRIPTION_PROCESSED',
+          payloadJson: { previous: { plan: sub?.plan_id }, current: { plan: planId } }
         });
       });
     }

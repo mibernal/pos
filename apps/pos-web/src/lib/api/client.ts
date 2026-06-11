@@ -28,7 +28,14 @@ import type {
   ListPromotionsQuery as SharedListPromotionsQuery,
   BillingPlan as SharedBillingPlan,
   CreateBillingPlanInput as SharedCreateBillingPlanInput,
-  UpdateBillingPlanInput as SharedUpdateBillingPlanInput
+  UpdateBillingPlanInput as SharedUpdateBillingPlanInput,
+  PlatformDashboardMetrics as SharedPlatformDashboardMetrics,
+  PlatformGrowthMetric as SharedPlatformGrowthMetric,
+  PlatformActivityEvent as SharedPlatformActivityEvent,
+  PlatformTenantSearchResult as SharedPlatformTenantSearchResult,
+  CreatePlatformTenantInput as SharedCreatePlatformTenantInput,
+  UpdatePlatformTenantInput as SharedUpdatePlatformTenantInput,
+  PlatformTenantUser as SharedPlatformTenantUser
 } from '@pos-dian/shared';
 
 export type UserRole = SharedAuthUser['role'];
@@ -39,6 +46,14 @@ export type UpdateTenantBusinessProfileBody = SharedUpdateTenantBusinessProfileB
 export type BillingPlan = SharedBillingPlan;
 export type CreateBillingPlanInput = SharedCreateBillingPlanInput;
 export type UpdateBillingPlanInput = SharedUpdateBillingPlanInput;
+
+export type PlatformDashboardMetrics = SharedPlatformDashboardMetrics;
+export type PlatformGrowthMetric = SharedPlatformGrowthMetric;
+export type PlatformActivityEvent = SharedPlatformActivityEvent;
+export type PlatformTenantSearchResult = SharedPlatformTenantSearchResult;
+export type CreatePlatformTenantInput = SharedCreatePlatformTenantInput;
+export type UpdatePlatformTenantInput = SharedUpdatePlatformTenantInput;
+export type PlatformTenantUser = SharedPlatformTenantUser;
 
 export interface AuthSession {
   accessToken: string;
@@ -148,18 +163,24 @@ export function createApiClient({ baseUrl, getSession, setSession, onReauthRequi
     }
     refreshPromise = (async () => {
       try {
+        const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+        const impersonationId = localStorage.getItem('pos_impersonation_id');
+        if (impersonationId) {
+          headers['x-impersonation-id'] = impersonationId;
+        }
+
         const response = await fetch(`${baseUrl}/auth/refresh`, {
           method: 'POST',
           credentials: 'include',
-          headers: { 'Content-Type': 'application/json' },
+          headers,
           body: '{}'
         });
         if (!response.ok) {
           return null;
         }
         return (await response.json()) as AuthSession;
-      } catch {
-        return null;
+      } catch (error) {
+        throw new ApiClientError('No fue posible conectar con el API', { isNetworkError: true });
       } finally {
         refreshPromise = null;
       }
@@ -171,6 +192,11 @@ export function createApiClient({ baseUrl, getSession, setSession, onReauthRequi
     const session = getSession();
     const headers = new Headers(options.headers);
     headers.set('Content-Type', 'application/json');
+
+    const impersonationId = localStorage.getItem('pos_impersonation_id');
+    if (impersonationId) {
+      headers.set('x-impersonation-id', impersonationId);
+    }
 
     if (session?.accessToken) {
       // Retaining this for fallback just in case some servers rely on it initially
@@ -266,7 +292,7 @@ export function createApiClient({ baseUrl, getSession, setSession, onReauthRequi
     return response;
   }
 
-  async function register(payload: any): Promise<void> { // eslint-disable-line @typescript-eslint/no-explicit-any
+  async function register(payload: Record<string, unknown>): Promise<void> {
     await requestJson('/auth/register', {
       method: 'POST',
       body: JSON.stringify(payload)
@@ -288,7 +314,7 @@ export function createApiClient({ baseUrl, getSession, setSession, onReauthRequi
     register,
     logout,
     me: () => requestJson<SharedMeResponse>('/auth/me'),
-    refresh: () => requestJson<AuthSession>('/auth/refresh', { method: 'POST', body: '{}' }),
+    refresh: refreshToken,
     listBranches: () => requestJson<{ items: BranchItem[] }>('/branches'),
     createBranch: (payload: { name: string; address: string }) => 
       requestJson<BranchItem>('/branches', {
@@ -343,7 +369,7 @@ export function createApiClient({ baseUrl, getSession, setSession, onReauthRequi
         body: JSON.stringify({ closing_cash_real_cents: closingCashRealCents })
       }),
     getZReport: (sessionId: string) =>
-      requestJson<any>(`/cash-sessions/${sessionId}/z-report`), // eslint-disable-line @typescript-eslint/no-explicit-any
+      requestJson<Record<string, unknown>>(`/cash-sessions/${sessionId}/z-report`),
     addCashMovement: (sessionId: string, type: 'IN' | 'OUT', amountCents: number, reason: string) =>
       requestJson<{ movement: { id: string; cash_session_id: string; type: 'IN' | 'OUT'; amount_cents: number; reason: string; created_at: string } }>(`/cash-sessions/${sessionId}/movements`, {
         method: 'POST',
@@ -377,7 +403,7 @@ export function createApiClient({ baseUrl, getSession, setSession, onReauthRequi
         headers: branchId ? { 'x-branch-id': branchId } : {}
       }),
 
-    bulkImport: (payload: { items: any[] }, branchId?: string) => // eslint-disable-line @typescript-eslint/no-explicit-any
+    bulkImport: (payload: { items: Record<string, unknown>[] }, branchId?: string) =>
       requestJson<{ success: boolean; imported: number }>('/inventory/bulk-import', {
         method: 'POST',
         body: JSON.stringify(payload),
@@ -402,7 +428,7 @@ export function createApiClient({ baseUrl, getSession, setSession, onReauthRequi
         }
         return res.json() as Promise<{
           jobId: string; fileName: string; totalRows: number; validRows: number; invalidRows: number;
-          previewErrors: any[]; previewValid: any[]; // eslint-disable-line @typescript-eslint/no-explicit-any
+          previewErrors: Record<string, unknown>[]; previewValid: Record<string, unknown>[];
         }>;
       });
     },
@@ -412,7 +438,7 @@ export function createApiClient({ baseUrl, getSession, setSession, onReauthRequi
         body: JSON.stringify({ branchId })
       }),
     getEnterpriseBulkStatus: (jobId: string) =>
-      requestJson<{ id: string; status: string; fileName: string; totalRows: number; validRows: number; invalidRows: number; processedRows: number; errors: any[] }>(`/inventory/enterprise-bulk/${jobId}`), // eslint-disable-line @typescript-eslint/no-explicit-any
+      requestJson<{ id: string; status: string; fileName: string; totalRows: number; validRows: number; invalidRows: number; processedRows: number; errors: Record<string, unknown>[] }>(`/inventory/enterprise-bulk/${jobId}`),
 
     patchProduct: (productId: string, payload: SharedPatchProductBody, branchId?: string) =>
       requestJson<ProductItem>(`/products/${productId}`, {
@@ -483,7 +509,7 @@ export function createApiClient({ baseUrl, getSession, setSession, onReauthRequi
       notes?: string;
       items: { product_id: string; variant_id?: string | null; qty_change: number }[];
     }) =>
-      requestJson<{ adjustment: any; transaction: any }>('/inventory/adjustments', { // eslint-disable-line @typescript-eslint/no-explicit-any
+      requestJson<{ adjustment: Record<string, unknown>; transaction: Record<string, unknown> }>('/inventory/adjustments', {
         method: 'POST',
         body: JSON.stringify(payload)
       }),
@@ -548,7 +574,7 @@ export function createApiClient({ baseUrl, getSession, setSession, onReauthRequi
       }>(`/reports/shifts?${searchParams.toString()}`);
     },
     listPromotions: (params: ListPromotionsQuery) =>
-      requestJson<{ items: Promotion[] }>(`/promotions?${toQueryString(params as any)}`), // eslint-disable-line @typescript-eslint/no-explicit-any
+      requestJson<{ items: Promotion[] }>(`/promotions?${toQueryString(params as Record<string, string | number | undefined>)}`),
     createPromotion: (payload: CreatePromotion) =>
       requestJson<Promotion>('/promotions', {
         method: 'POST',
@@ -566,33 +592,33 @@ export function createApiClient({ baseUrl, getSession, setSession, onReauthRequi
       
     // PLATFORM ENDPOINTS
     listTenants: (params?: { limit?: number; offset?: number; query?: string; status?: string; plan?: string; activity?: string }) =>
-      requestJson<any>(`/platform/tenants?${toQueryString(params as any)}`), // eslint-disable-line @typescript-eslint/no-explicit-any
+      requestJson<{ items: PlatformTenantSearchResult[]; total: number }>(`/platform/tenants?${toQueryString(params as Record<string, string | number | undefined>)}`),
       
     getTenantDashboard: (tenantId: string) =>
-      requestJson<any>(`/platform/tenants/${tenantId}/dashboard`), // eslint-disable-line @typescript-eslint/no-explicit-any
+      requestJson<PlatformDashboardMetrics>(`/platform/tenants/${tenantId}/dashboard`),
       
     getPlatformDashboard: () =>
-      requestJson<any>(`/platform/dashboard`), // eslint-disable-line @typescript-eslint/no-explicit-any
+      requestJson<{ metrics: PlatformDashboardMetrics }>(`/platform/dashboard`),
 
     getPlatformActivity: (params?: { limit?: number }) =>
-      requestJson<any>(`/platform/activity?${toQueryString(params as any)}`), // eslint-disable-line @typescript-eslint/no-explicit-any
+      requestJson<{ activity: PlatformActivityEvent[] }>(`/platform/activity?${toQueryString(params as Record<string, string | number | undefined>)}`),
 
     getPlatformHealth: () =>
-      requestJson<any>(`/platform/health`), // eslint-disable-line @typescript-eslint/no-explicit-any
+      requestJson<Record<string, unknown>>(`/platform/health`),
 
     getPlatformGrowth: () =>
-      requestJson<any>(`/platform/growth`), // eslint-disable-line @typescript-eslint/no-explicit-any
+      requestJson<{ history: PlatformGrowthMetric[] }>(`/platform/growth`),
 
     getPlatformTenantUsers: (id: string) =>
-      requestJson<{ users: Array<{ id: string; email: string; name: string; role: string; active: boolean; created_at: string }> }>(`/platform/tenants/${id}/users`),
+      requestJson<{ users: PlatformTenantUser[] }>(`/platform/tenants/${id}/users`),
       
-    createPlatformTenantUser: (id: string, data: any) => // eslint-disable-line @typescript-eslint/no-explicit-any
-      requestJson<{ user: any }>(`/platform/tenants/${id}/users`, { // eslint-disable-line @typescript-eslint/no-explicit-any
+    createPlatformTenantUser: (id: string, data: Pick<PlatformTenantUser, 'email' | 'name' | 'role'> & { password?: string }) =>
+      requestJson<{ user: PlatformTenantUser }>(`/platform/tenants/${id}/users`, {
         method: 'POST',
         body: JSON.stringify(data)
       }),
 
-    updatePlatformTenantUser: (id: string, userId: string, data: any) => // eslint-disable-line @typescript-eslint/no-explicit-any
+    updatePlatformTenantUser: (id: string, userId: string, data: Partial<Pick<PlatformTenantUser, 'name' | 'role' | 'active'>> & { password?: string }) =>
       requestJson<{ success: boolean }>(`/platform/tenants/${id}/users/${userId}`, {
         method: 'PATCH',
         body: JSON.stringify(data)
@@ -604,13 +630,13 @@ export function createApiClient({ baseUrl, getSession, setSession, onReauthRequi
       }),
       
     suspendTenant: (tenantId: string, reason: string) =>
-      requestJson<any>(`/platform/tenants/${tenantId}/suspend`, { // eslint-disable-line @typescript-eslint/no-explicit-any
+      requestJson<{ success: boolean }>(`/platform/tenants/${tenantId}/suspend`, {
         method: 'POST',
         body: JSON.stringify({ reason })
       }),
 
     reactivateTenant: (tenantId: string) =>
-      requestJson<any>(`/platform/tenants/${tenantId}/reactivate`, { // eslint-disable-line @typescript-eslint/no-explicit-any
+      requestJson<{ success: boolean }>(`/platform/tenants/${tenantId}/reactivate`, {
         method: 'POST',
         body: JSON.stringify({})
       }),
@@ -620,12 +646,34 @@ export function createApiClient({ baseUrl, getSession, setSession, onReauthRequi
         method: 'POST',
         body: JSON.stringify({ reason })
       });
+      localStorage.setItem('pos_impersonation_id', res.session_id);
+      
       const exchangeRes = await requestJson<AuthSession>('/auth/impersonate/exchange', {
         method: 'POST',
         body: JSON.stringify({ session_id: res.session_id })
       });
       setSession(exchangeRes);
       return exchangeRes;
+    },
+
+    stopImpersonating: async () => {
+      const sessionId = localStorage.getItem('pos_impersonation_id');
+      if (sessionId) {
+        try {
+          await requestJson('/auth/impersonate/stop', {
+            method: 'POST',
+            body: JSON.stringify({ session_id: sessionId })
+          });
+        } catch (err) {
+           console.warn('Failed to stop impersonation on backend', err);
+        }
+      }
+      localStorage.removeItem('pos_impersonation_id');
+      
+      // Attempt to refresh token to revert to original session natively
+      const originalSession = await refreshToken();
+      setSession(originalSession);
+      return originalSession;
     },
       
     getPlatformPlans: () =>
@@ -653,7 +701,7 @@ export function createApiClient({ baseUrl, getSession, setSession, onReauthRequi
       });
       return res.success;
     },
-    createPlatformTenant: async (payload: any) => { // eslint-disable-line @typescript-eslint/no-explicit-any
+    createPlatformTenant: async (payload: CreatePlatformTenantInput) => {
       const res = await requestJson<{ success: boolean; tenant_id: string }>('/platform/tenants', {
         method: 'POST',
         body: JSON.stringify(payload)
@@ -661,7 +709,7 @@ export function createApiClient({ baseUrl, getSession, setSession, onReauthRequi
       return res;
     },
       
-    updatePlatformTenant: async (tenantId: string, payload: any) => { // eslint-disable-line @typescript-eslint/no-explicit-any
+    updatePlatformTenant: async (tenantId: string, payload: UpdatePlatformTenantInput) => {
       const res = await requestJson<{ success: boolean }>(`/platform/tenants/${tenantId}`, {
         method: 'PATCH',
         body: JSON.stringify(payload)
@@ -678,7 +726,7 @@ export function createApiClient({ baseUrl, getSession, setSession, onReauthRequi
     },
       
     // BILLING ENDPOINTS
-    getBillingPlans: () => requestJson<{ plans: any[] }>('/billing/plans'), // eslint-disable-line @typescript-eslint/no-explicit-any
+    getBillingPlans: () => requestJson<{ plans: BillingPlan[] }>('/billing/plans'),
     createCheckoutSession: (payload: { planId: string; gateway: 'WOMPI' | 'MERCADOPAGO' | 'STRIPE' | 'MOCK'; redirectUrl: string }) =>
       requestJson<{ checkoutUrl: string; transactionId: string }>('/billing/checkout', {
         method: 'POST',

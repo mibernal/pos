@@ -4,9 +4,15 @@ import { queryKeys } from '../../../shared/query-keys';
 import { Button, Input, Label } from '../../../components/ui';
 import { X, CheckCircle, AlertTriangle, AlertCircle, Eye, LogIn, Edit, Trash2, Plus } from 'lucide-react';
 
+import {
+  PlatformTenantSearchResult,
+  PlatformTenantUser,
+  BillingPlan
+} from '../../../lib/api/client';
+
 interface TenantDetailDrawerProps {
-  api: any; // eslint-disable-line @typescript-eslint/no-explicit-any
-  tenant: any; // eslint-disable-line @typescript-eslint/no-explicit-any
+  api: ReturnType<typeof import('../../../lib/api/client').createApiClient>;
+  tenant: PlatformTenantSearchResult | null;
   isOpen: boolean;
   onClose: () => void;
   onSuccess: () => void;
@@ -25,20 +31,20 @@ export function TenantDetailDrawer({ api, tenant, isOpen, onClose, onSuccess }: 
 
   const { data: usersData, refetch: refetchUsers } = useQuery({
     queryKey: queryKeys.platform.tenantUsers(tenant?.id),
-    queryFn: () => api.getPlatformTenantUsers(tenant.id),
+    queryFn: () => api.getPlatformTenantUsers(tenant!.id),
     enabled: isOpen && !!tenant && activeTab === 'USERS'
   });
 
   const [showUserForm, setShowUserForm] = useState(false);
-  const [editingUser, setEditingUser] = useState<any>(null); // eslint-disable-line @typescript-eslint/no-explicit-any
+  const [editingUser, setEditingUser] = useState<PlatformTenantUser | null>(null);
   const [userFormData, setUserFormData] = useState({ name: '', email: '', password: '', role: 'CASHIER', active: true });
 
   const [formData, setFormData] = useState({
     name: tenant?.name || '',
     business_name: tenant?.business_name || '',
-    nit: tenant?.nit || '',
-    tax_mode: tenant?.tax_mode || 'IVA',
-    plan: tenant?.plan || 'STARTER',
+    nit: tenant?.document_number || '',
+    tax_mode: 'IVA',
+    plan: tenant?.plan_name || 'STARTER',
     owner_email: tenant?.owner_email || '',
     owner_name: '' 
   });
@@ -48,9 +54,9 @@ export function TenantDetailDrawer({ api, tenant, isOpen, onClose, onSuccess }: 
       setFormData({
         name: tenant.name || '',
         business_name: tenant.business_name || '',
-        nit: tenant.nit || '',
-        tax_mode: tenant.tax_mode || 'IVA',
-        plan: tenant.plan || 'STARTER',
+        nit: tenant.document_number || '',
+        tax_mode: 'IVA',
+        plan: tenant.plan_name || 'STARTER',
         owner_email: tenant.owner_email || '',
         owner_name: ''
       });
@@ -70,15 +76,13 @@ export function TenantDetailDrawer({ api, tenant, isOpen, onClose, onSuccess }: 
         name: formData.name,
         business_name: formData.business_name,
         nit: formData.nit,
-        tax_mode: formData.tax_mode,
-        owner_email: formData.owner_email
       });
-      if (formData.plan !== tenant.plan) {
+      if (formData.plan !== tenant.plan_name) {
         await api.changeTenantPlan(tenant.id, formData.plan);
       }
       onSuccess();
-    } catch (err: any) { // eslint-disable-line @typescript-eslint/no-explicit-any
-      setError(err.message || 'Error al actualizar');
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : String(err));
     } finally {
       setLoading(false);
     }
@@ -94,8 +98,8 @@ export function TenantDetailDrawer({ api, tenant, isOpen, onClose, onSuccess }: 
     try {
       await api.suspendTenant(tenant.id, suspendReason);
       onSuccess();
-    } catch (err: any) { // eslint-disable-line @typescript-eslint/no-explicit-any
-      setError(err.message || 'Error al suspender');
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : String(err));
     } finally {
       setLoading(false);
     }
@@ -107,8 +111,8 @@ export function TenantDetailDrawer({ api, tenant, isOpen, onClose, onSuccess }: 
     try {
       await api.reactivateTenant(tenant.id);
       onSuccess();
-    } catch (err: any) { // eslint-disable-line @typescript-eslint/no-explicit-any
-      setError(err.message || 'Error al reactivar');
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : String(err));
     } finally {
       setLoading(false);
     }
@@ -118,8 +122,8 @@ export function TenantDetailDrawer({ api, tenant, isOpen, onClose, onSuccess }: 
     try {
       await api.impersonateTenant(tenant.id, 'Impersonation via Dashboard');
       window.location.href = '/';
-    } catch (err: any) { // eslint-disable-line @typescript-eslint/no-explicit-any
-      setError(err.message || 'Error al impersonar');
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : String(err));
     }
   };
 
@@ -140,8 +144,8 @@ export function TenantDetailDrawer({ api, tenant, isOpen, onClose, onSuccess }: 
       setShowUserForm(false);
       setEditingUser(null);
       refetchUsers();
-    } catch(err: any) { // eslint-disable-line @typescript-eslint/no-explicit-any
-      setError(err.message || 'Error al guardar usuario');
+    } catch(err: unknown) {
+      setError(err instanceof Error ? err.message : String(err));
     } finally {
       setLoading(false);
     }
@@ -154,8 +158,8 @@ export function TenantDetailDrawer({ api, tenant, isOpen, onClose, onSuccess }: 
     try {
       await api.deletePlatformTenantUser(tenant.id, userId);
       refetchUsers();
-    } catch(err: any) { // eslint-disable-line @typescript-eslint/no-explicit-any
-      setError(err.message || 'Error al eliminar usuario');
+    } catch(err: unknown) {
+      setError(err instanceof Error ? err.message : String(err));
     } finally {
       setLoading(false);
     }
@@ -177,7 +181,7 @@ export function TenantDetailDrawer({ api, tenant, isOpen, onClose, onSuccess }: 
               </div>
               <div>
                 <h2 className="text-xl font-bold text-foreground leading-tight">{tenant.business_name}</h2>
-                <div className="text-sm text-muted-foreground mt-0.5">NIT: {tenant.document_number || tenant.nit}</div>
+                <div className="text-sm text-muted-foreground mt-0.5">NIT: {tenant.document_number}</div>
               </div>
             </div>
             <div className="flex flex-wrap gap-2 mt-4">
@@ -192,7 +196,7 @@ export function TenantDetailDrawer({ api, tenant, isOpen, onClose, onSuccess }: 
                 {tenant.status === 'ACTIVE' ? 'Activo' : tenant.status === 'SUSPENDED' ? 'Suspendido' : tenant.status}
               </span>
               <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold bg-muted text-muted-foreground">
-                {tenant.plan || 'STARTER'}
+                {tenant.plan_name || 'STARTER'}
               </span>
             </div>
           </div>
@@ -206,7 +210,7 @@ export function TenantDetailDrawer({ api, tenant, isOpen, onClose, onSuccess }: 
           {['DETAILS', 'USERS', 'CONFIG', 'ACTIONS'].map(tab => (
             <button 
               key={tab}
-              onClick={() => setActiveTab(tab as any)} // eslint-disable-line @typescript-eslint/no-explicit-any
+              onClick={() => setActiveTab(tab as 'DETAILS' | 'USERS' | 'CONFIG' | 'ACTIONS')}
               className={`flex-1 pb-3 pt-2 px-2 text-sm font-semibold transition-colors border-b-2 ${
                 activeTab === tab 
                   ? 'text-primary border-primary bg-card rounded-t-lg' 
@@ -274,7 +278,7 @@ export function TenantDetailDrawer({ api, tenant, isOpen, onClose, onSuccess }: 
                         No hay usuarios registrados
                       </div>
                     ) : (
-                      usersData?.users?.map((u: any) => ( // eslint-disable-line @typescript-eslint/no-explicit-any
+                      usersData?.users?.map((u: PlatformTenantUser) => (
                         <div key={u.id} className="flex flex-col sm:flex-row sm:items-center justify-between p-4 border border-border bg-card rounded-xl gap-4 shadow-sm hover:border-primary/30 transition-colors">
                           <div>
                             <div className="font-semibold text-foreground text-sm flex items-center gap-2">
@@ -422,7 +426,7 @@ export function TenantDetailDrawer({ api, tenant, isOpen, onClose, onSuccess }: 
                     onChange={e => setFormData({...formData, plan: e.target.value})}
                     className="flex h-11 w-full rounded-lg border border-input bg-background px-3 py-2 text-sm text-foreground shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                   >
-                    {plansData?.plans?.map((p: any) => ( // eslint-disable-line @typescript-eslint/no-explicit-any
+                    {plansData?.plans?.map((p: BillingPlan) => (
                       <option key={p.id} value={p.name}>{p.name} (${(p.price_cents / 100).toFixed(0)}/mes)</option>
                     )) || (
                       <>

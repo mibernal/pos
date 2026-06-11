@@ -1,15 +1,17 @@
 import { useState, useEffect } from 'react';
 import { Button, Input, Label } from '../../../components/ui';
 
+import { BillingPlan } from '../../../lib/api/client';
+
 interface CreateTenantModalProps {
-  api: any; // eslint-disable-line @typescript-eslint/no-explicit-any
+  api: ReturnType<typeof import('../../../lib/api/client').createApiClient>;
   onClose: () => void;
   onSuccess: () => void;
 }
 
 export function CreateTenantModal({ api, onClose, onSuccess }: CreateTenantModalProps) {
   const [loading, setLoading] = useState(false);
-  const [plans, setPlans] = useState<any[]>([]); // eslint-disable-line @typescript-eslint/no-explicit-any
+  const [plans, setPlans] = useState<BillingPlan[]>([]);
   const [formData, setFormData] = useState({
     tenant_name: '',
     tenant_business_name: '',
@@ -24,7 +26,7 @@ export function CreateTenantModal({ api, onClose, onSuccess }: CreateTenantModal
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    api.getPlatformPlans().then((res: any) => setPlans(res.plans || [])); // eslint-disable-line @typescript-eslint/no-explicit-any
+    api.getPlatformPlans().then((res: { plans: BillingPlan[] }) => setPlans(res.plans || []));
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -32,10 +34,17 @@ export function CreateTenantModal({ api, onClose, onSuccess }: CreateTenantModal
     setLoading(true);
     setError(null);
     try {
-      await api.createPlatformTenant(formData);
+      await api.createPlatformTenant({
+        name: formData.tenant_name,
+        business_name: formData.tenant_business_name,
+        nit: formData.tenant_document_number,
+        owner_email: formData.email,
+        owner_name: formData.name,
+        plan_id: formData.plan
+      });
       onSuccess();
-    } catch (err: any) { // eslint-disable-line @typescript-eslint/no-explicit-any
-      setError(err.message || 'Error al crear la organización');
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : String(err));
     } finally {
       setLoading(false);
     }

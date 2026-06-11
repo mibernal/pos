@@ -30,6 +30,10 @@ export function buildLoginRateLimitKey(ipAddress: string, normalizedEmail: strin
   return `${RATE_LIMIT_KEY_PREFIX}:${tenantId || 'global'}:${ipAddress}:${normalizedEmail}`;
 }
 
+export function buildIpRateLimitKey(action: string, ipAddress: string): string {
+  return `${RATE_LIMIT_KEY_PREFIX}:${action}:${ipAddress}`;
+}
+
 /**
  * Incrementa atómicamente el contador y lanza error si se supera el límite configurado.
  * Elimina la condición de carrera entre chequeo e incremento.
@@ -40,6 +44,18 @@ export async function assertAndRecordLoginAttempt(redis: Redis, key: string): Pr
   
   if (Number(current) > env.AUTH_LOGIN_RATE_LIMIT_MAX) {
     throw new Error('LOGIN_RATE_LIMIT_EXCEEDED');
+  }
+}
+
+/**
+ * Incrementa atómicamente el contador para una IP y acción general (ej. refresh token).
+ */
+export async function assertAndRecordIpRateLimit(redis: Redis, key: string, max: number = 30, windowMs: number = 60000): Promise<void> {
+  const windowSeconds = Math.ceil(windowMs / 1000);
+  const current = await redis.eval(ATOMIC_RATE_LIMIT_LUA, 1, key, String(windowSeconds));
+  
+  if (Number(current) > max) {
+    throw new Error('RATE_LIMIT_EXCEEDED');
   }
 }
 
@@ -69,6 +85,23 @@ export function assertAndRecordLoginAttemptSync(key: string, now = Date.now()): 
 
   if (existing.attempts > env.AUTH_LOGIN_RATE_LIMIT_MAX) {
     throw new Error('LOGIN_RATE_LIMIT_EXCEEDED');
+  }
+}
+
+export function assertAndRecordIpRateLimitSync(key: string, max: number = 30, windowMs: number = 60000, now = Date.now()): void {
+  const existing = memoryStore.get(key);
+  if (!existing || existing.resetAtMs <= now) {
+    memoryStore.set(key, {
+      attempts: 1,
+      resetAtMs: now + windowMs
+    });
+    return;
+  }
+  
+  existing.attempts += 1;
+
+  if (existing.attempts > max) {
+    throw new Error('RATE_LIMIT_EXCEEDED');
   }
 }
 

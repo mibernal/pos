@@ -1,8 +1,9 @@
 import React from 'react';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar } from 'recharts';
 import { Card } from '../../../components/ui';
+import { PlatformGrowthMetric } from '../../../lib/api/client';
 
-export function GrowthChartsWidget({ growthData }: { growthData: any[] }) { // eslint-disable-line @typescript-eslint/no-explicit-any
+export function GrowthChartsWidget({ growthData }: { growthData: PlatformGrowthMetric[] }) {
   if (!growthData || growthData.length === 0) return null;
 
   return (
@@ -11,7 +12,7 @@ export function GrowthChartsWidget({ growthData }: { growthData: any[] }) { // e
       <Card className="p-6">
         <h3 className="text-base font-semibold text-slate-800 mb-6">Evolución de Ingresos SaaS (MRR)</h3>
         <div className="w-full h-64">
-          <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
+          <ResponsiveContainer width="99%" height={256}>
             <AreaChart data={growthData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
               <defs>
                 <linearGradient id="colorRevenue" x1="0" y1="0" x2="0" y2="1">
@@ -29,7 +30,7 @@ export function GrowthChartsWidget({ growthData }: { growthData: any[] }) { // e
                 width={60} 
               />
               <Tooltip 
-                formatter={(val: any) => [new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(val / 100), 'Ingreso']} // eslint-disable-line @typescript-eslint/no-explicit-any
+                formatter={(val: any) => [new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(Number(val) / 100), 'Ingreso']}
                 contentStyle={{ borderRadius: '0.5rem', border: 'none', boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)' }}
               />
               <Area type="monotone" dataKey="revenueCents" stroke="#4f46e5" strokeWidth={3} fillOpacity={1} fill="url(#colorRevenue)" />
@@ -42,7 +43,7 @@ export function GrowthChartsWidget({ growthData }: { growthData: any[] }) { // e
       <Card className="p-6">
         <h3 className="text-base font-semibold text-slate-800 mb-6">Nuevos Tenants y Usuarios</h3>
         <div className="w-full h-64">
-          <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
+          <ResponsiveContainer width="99%" height={256}>
             <BarChart data={growthData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
               <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
               <XAxis dataKey="month" axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#64748b' }} dy={10} />

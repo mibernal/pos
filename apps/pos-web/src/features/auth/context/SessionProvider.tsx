@@ -48,7 +48,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<AuthSession | null>(null);
   const [user, setUser] = useState<AuthSession['user'] | null>(initialUserRef.current);
   const [authMessage, setAuthMessage] = useState<string | null>(null);
-  const [authState, setAuthState] = useState<AuthState>('refreshing');
+  const [authState, setAuthState] = useState<AuthState>('unauthenticated');
+  const [isHydrating, setIsHydrating] = useState(true);
 
   const queryClient = useQueryClient();
 
@@ -183,17 +184,12 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     });
   }, [api, clearSession]);
 
-  const refreshPromiseRef = useRef<Promise<AuthSession | null> | null>(null);
-
   useEffect(() => {
     let cancelled = false;
 
     async function hydrateSession() {
       try {
-        if (!refreshPromiseRef.current) {
-          refreshPromiseRef.current = api.refresh();
-        }
-        const refreshedSession = await refreshPromiseRef.current;
+        const refreshedSession = await api.refresh();
         
         if (cancelled) {
           return;
@@ -228,6 +224,10 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         } else {
           clearSession(undefined, true);
         }
+      } finally {
+        if (!cancelled) {
+          setIsHydrating(false);
+        }
       }
     }
 
@@ -245,7 +245,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       authMessage,
       clearAuthMessage,
       authState,
-      isHydrating: authState === 'refreshing',
+      isHydrating,
       isAuthenticated: authState === 'authenticated' || authState === 'reauth_required', // Treat as authenticated to keep DOM
       login,
       logout,
@@ -257,7 +257,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       resolveReauth,
       rejectReauth
     }),
-    [api, authMessage, clearAuthMessage, authState, login, logout, session, user, resolveReauth, rejectReauth]
+    [api, authMessage, clearAuthMessage, authState, isHydrating, login, logout, session, user, resolveReauth, rejectReauth]
   );
 
   return <SessionContext.Provider value={value}>{children}</SessionContext.Provider>;

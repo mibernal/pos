@@ -387,6 +387,19 @@ export async function seedE2eFixture(
       .execute();
 
     await trx
+      .insertInto('tenant_subscriptions')
+      .values({
+        id: randomUUID(),
+        tenant_id: tenantId,
+        plan_id: 'STARTER',
+        status: 'ACTIVE',
+        current_period_start: new Date(),
+        current_period_end: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+        starts_at: new Date()
+      })
+      .execute();
+
+    await trx
       .insertInto('branches')
       .values({
         id: branchId,
@@ -506,6 +519,7 @@ export async function cleanupE2eFixture(
     await trx.deleteFrom('users').where('tenant_id', '=', fixture.tenantId).execute();
     await trx.deleteFrom('terminals').where('tenant_id', '=', fixture.tenantId).execute();
     await trx.deleteFrom('branches').where('tenant_id', '=', fixture.tenantId).execute();
+    await trx.deleteFrom('tenant_subscriptions').where('tenant_id', '=', fixture.tenantId).execute();
     await trx.deleteFrom('tenants').where('id', '=', fixture.tenantId).execute();
   });
 }

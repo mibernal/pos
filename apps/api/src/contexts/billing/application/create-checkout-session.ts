@@ -19,13 +19,36 @@ export async function createCheckoutSession(db: Kysely<Database>, input: CreateC
   // 1. Obtener detalles del plan
   const plan = await db
     .selectFrom('billing_plans')
-    .select(['id', 'price_cents'])
+    .select(['id', 'price_cents', 'billing_cycle'])
     .where('id', '=', input.planId)
     .where('active', '=', true)
     .executeTakeFirst();
 
   if (!plan) {
     throw new AppError(404, 'NOT_FOUND', 'Plan no encontrado o inactivo');
+  }
+
+  // Idempotencia: Verificar si ya hay una transacción pendiente reciente (últimas 2 horas)
+  const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000);
+  const existingPending = await db
+    .selectFrom('payment_transactions')
+    .select(['id', 'gateway_reference', 'metadata_json'])
+    .where('tenant_id', '=', input.tenantId)
+    .where('gateway', '=', input.gateway)
+    .where('status', '=', 'PENDING')
+    .where('created_at', '>=', twoHoursAgo)
+    .orderBy('created_at', 'desc')
+    .executeTakeFirst();
+
+  if (existingPending) {
+    const meta = existingPending.metadata_json as { planId?: string; checkoutUrl?: string };
+    if (meta?.planId === input.planId && meta?.checkoutUrl) {
+      return { 
+        checkoutUrl: meta.checkoutUrl, 
+        transactionId: existingPending.id, 
+        reference: existingPending.gateway_reference 
+      };
+    }
   }
 
   const transactionId = randomUUID();
@@ -49,7 +72,8 @@ export async function createCheckoutSession(db: Kysely<Database>, input: CreateC
     amountCents: plan.price_cents,
     reference,
     customerEmail: input.customerEmail,
-    redirectUrl: input.redirectUrl
+    redirectUrl: input.redirectUrl,
+    billingCycle: plan.billing_cycle as 'MONTHLY' | 'YEARLY'
   });
 
   // 3. Registrar la transacción en BD (PENDING)
@@ -64,7 +88,7 @@ export async function createCheckoutSession(db: Kysely<Database>, input: CreateC
       gateway_transaction_id: gatewayId || null,
       gateway_reference: reference,
       status: 'PENDING',
-      metadata_json: { planId: input.planId }
+      metadata_json: { planId: input.planId, checkoutUrl }
     })
     .execute();
 

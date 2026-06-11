@@ -40,6 +40,9 @@ export const adminUsersRoutes: FastifyPluginAsync = async (app) => {
 
       if (!request.auth.isPlatformRole) {
         query = query.where('users.tenant_id', '=', request.auth!.tenantId!);
+      } else {
+        // Platform Owners shouldn't fetch all users globally by default
+        query = query.where('users.tenant_id', 'is', null);
       }
 
       // Managers can only see CASHIERS in their own branches
@@ -105,6 +108,10 @@ export const adminUsersRoutes: FastifyPluginAsync = async (app) => {
       const passwordHash = await hashPassword(payload.password);
       const newUserId = randomUUID();
       const targetTenantId = request.auth.isPlatformRole && payload.role === 'PLATFORM_OWNER' ? null : request.auth!.tenantId!;
+
+      if (!targetTenantId && payload.role !== 'PLATFORM_OWNER') {
+        throw new AppError(400, 'BAD_REQUEST', 'No se puede crear un usuario sin tenant_id a menos que sea PLATFORM_OWNER');
+      }
 
       if (targetTenantId) {
         await QuotaGuard.assertCanCreateUser(app.db, targetTenantId);

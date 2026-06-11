@@ -7,7 +7,7 @@ import type { BillingPlan, CreateBillingPlanInput, UpdateBillingPlanInput } from
 import { Badge } from 'lucide-react';
 
 interface PlansManagementTabProps {
-  api: any; // eslint-disable-line @typescript-eslint/no-explicit-any
+  api: ReturnType<typeof import('../../../lib/api/client').createApiClient>;
 }
 
 export function PlansManagementTab({ api }: PlansManagementTabProps) {

@@ -41,7 +41,6 @@ export interface TenantsTable {
    *  Si FALSE, la API bloquea ventas sin stock suficiente. Migration 010. */
   allow_negative_stock: Generated<boolean>;
   status: Generated<string>;
-  plan: Generated<string>;
   suspended_at: Date | null;
   suspended_reason: string | null;
   owner_user_id: string | null;

@@ -29,7 +29,8 @@ export function usePosNavigation(user: { role?: string; permissions?: string[] }
     defaultRoute = 'platform';
   }
   
-  const [activeRoute, setActiveRoute] = useState<AppRoute>(defaultRoute);
+  const [activeRouteState, setActiveRoute] = useState<AppRoute>(defaultRoute);
+  const activeRoute = allowedRoutes.find(r => r.id === activeRouteState) ? activeRouteState : defaultRoute;
 
   const navigate = useCallback((route: AppRoute) => {
     setActiveRoute(route);

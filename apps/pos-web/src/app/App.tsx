@@ -224,6 +224,20 @@ function AppShell() {
                 />
               }
             >
+              {session?.user?.isImpersonating && (
+                <div style={{ padding: '0.75rem 1.5rem', backgroundColor: 'var(--color-warning-500)', color: 'black', display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontWeight: 600 }}>
+                  <span>⚠️ Estás viendo la plataforma como {session?.user.name} (Modo Suplantación)</span>
+                  <button 
+                    onClick={async () => {
+                      await api.stopImpersonating();
+                      window.location.href = '/platform';
+                    }}
+                    style={{ background: 'black', color: 'white', border: 'none', padding: '0.4rem 1rem', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' }}
+                  >
+                    Dejar de Suplantar
+                  </button>
+                </div>
+              )}
               {syncMessage ? <Banner tone="info">{syncMessage}</Banner> : null}
               {syncError ? <Banner tone="error">{syncError}</Banner> : null}
               <Suspense fallback={<ShellMessage title="Cargando módulo..." subtitle="Preparando vista" />}>

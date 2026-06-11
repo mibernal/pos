@@ -23,6 +23,7 @@ export interface AuthUser {
   active: boolean;
   branchIds?: string[];
   permissions?: string[];
+  isImpersonating?: boolean;
 }
 
 export interface Product {

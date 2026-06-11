@@ -17,7 +17,7 @@ import {
   loadProviderPayload
 } from './shared/dian-payload-builder.js';
 import {
-  type OutboxEventRow,
+  claimOutboxEvent,
   markOutboxFailed,
   markOutboxSent,
   updateDianDocumentMetadata
@@ -34,27 +34,6 @@ interface VoidedDianDocumentRow {
   cude: string | null;
 }
 
-// SALE_VOIDED specific claim — filters by type='SALE_VOIDED'
-async function claimVoidedOutboxEvent(
-  pool: Pool,
-  outboxEventId: string,
-  claimWindowMs: number
-): Promise<OutboxEventRow | null> {
-  const { rows } = await pool.query<OutboxEventRow>(
-    `
-      UPDATE outbox_events
-      SET next_retry_at = NOW() + ($2 * INTERVAL '1 millisecond')
-      WHERE id = $1
-        AND type = 'SALE_VOIDED'
-        AND status IN ('PENDING', 'FAILED')
-        AND (next_retry_at IS NULL OR next_retry_at <= NOW())
-      RETURNING id, tenant_id, aggregate_id, status, attempts, payload_json
-    `,
-    [outboxEventId, claimWindowMs]
-  );
-
-  return rows[0] ?? null;
-}
 
 async function getInvoiceDianDocument(
   pool: Pool,
@@ -129,7 +108,7 @@ export function buildOutboxSaleVoidedProcessor({
 }: BuildOutboxSaleVoidedProcessorInput) {
   return async (job: Job<OutboxSaleVoidedJobData>): Promise<void> => {
     const claimWindowMs = Math.max(env.OUTBOX_POLL_INTERVAL_MS * 4, 30000);
-    const claimedEvent = await claimVoidedOutboxEvent(pool, job.data.outboxEventId, claimWindowMs);
+    const claimedEvent = await claimOutboxEvent(pool, job.data.outboxEventId, claimWindowMs);
     if (!claimedEvent) {
       await job.log(`Outbox event ${job.data.outboxEventId} no está pendiente o ya fue tomado`);
       return;

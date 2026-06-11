@@ -24,7 +24,7 @@ export class StripeGateway implements IPaymentGateway {
             },
             unit_amount: input.amountCents,
             recurring: {
-              interval: 'month'
+              interval: input.billingCycle === 'YEARLY' ? 'year' : 'month'
             }
           },
           quantity: 1
@@ -57,7 +57,7 @@ export class StripeGateway implements IPaymentGateway {
     }
   }
 
-  parseWebhook(payload: any): PaymentWebhookResult {
+  async parseWebhook(payload: any): Promise<PaymentWebhookResult> {
     if (payload.type === 'checkout.session.completed') {
       const session = payload.data.object as Stripe.Checkout.Session;
       return {
@@ -72,7 +72,7 @@ export class StripeGateway implements IPaymentGateway {
       const session = payload.data.object as Stripe.Checkout.Session;
       return {
         reference: session.client_reference_id || '',
-        status: 'FAILED' as any, // FAILED in my enum is not in PaymentWebhookResult (only PENDING | APPROVED | DECLINED | ERROR). Let's map it to DECLINED or ERROR.
+        status: 'DECLINED',
         gatewayTransactionId: session.id,
         rawPayload: payload
       };
@@ -81,7 +81,4 @@ export class StripeGateway implements IPaymentGateway {
     return { reference: '', gatewayTransactionId: '', status: 'PENDING', rawPayload: payload };
   }
 
-  async verifyPayment(reference: string): Promise<boolean> {
-    return true;
-  }
 }

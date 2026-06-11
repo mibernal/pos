@@ -78,9 +78,15 @@ async function runSeed(): Promise<void> {
     // ==========================================
     await executeAsTenant(db, demoIds.tenant1Id, async (trx) => {
       await sql`
-        INSERT INTO tenants (id, name, nit, business_name, address, phone, footer_message, plan, status)
-        VALUES (${demoIds.tenant1Id}, 'Demo Restaurant', '900111222', 'Demo Rest S.A.S.', 'Calle 100', '6011111', 'Gracias!', 'pro', 'ACTIVE')
-        ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, plan = EXCLUDED.plan, status = EXCLUDED.status
+        INSERT INTO tenants (id, name, nit, business_name, address, phone, footer_message, status)
+        VALUES (${demoIds.tenant1Id}, 'Demo Restaurant', '900111222', 'Demo Rest S.A.S.', 'Calle 100', '6011111', 'Gracias!', 'ACTIVE')
+        ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, status = EXCLUDED.status
+      `.execute(trx);
+
+      await sql`DELETE FROM tenant_subscriptions WHERE tenant_id = ${demoIds.tenant1Id}`.execute(trx);
+      await sql`
+        INSERT INTO tenant_subscriptions (id, tenant_id, plan_id, status, current_period_start, current_period_end, starts_at)
+        VALUES (${randomUUID()}, ${demoIds.tenant1Id}, 'PRO', 'ACTIVE', now(), now() + interval '30 days', now())
       `.execute(trx);
 
       await sql`
@@ -148,9 +154,15 @@ async function runSeed(): Promise<void> {
     // ==========================================
     await executeAsTenant(db, demoIds.tenant2Id, async (trx) => {
       await sql`
-        INSERT INTO tenants (id, name, nit, business_name, address, phone, footer_message, plan, status)
-        VALUES (${demoIds.tenant2Id}, 'Demo Retail', '900333444', 'Demo Retail S.A.S.', 'Cra 50', '6012222', 'Vuelva pronto!', 'basic', 'ACTIVE')
-        ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, plan = EXCLUDED.plan, status = EXCLUDED.status
+        INSERT INTO tenants (id, name, nit, business_name, address, phone, footer_message, status)
+        VALUES (${demoIds.tenant2Id}, 'Demo Retail', '900333444', 'Demo Retail S.A.S.', 'Cra 50', '6012222', 'Vuelva pronto!', 'ACTIVE')
+        ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, status = EXCLUDED.status
+      `.execute(trx);
+
+      await sql`DELETE FROM tenant_subscriptions WHERE tenant_id = ${demoIds.tenant2Id}`.execute(trx);
+      await sql`
+        INSERT INTO tenant_subscriptions (id, tenant_id, plan_id, status, current_period_start, current_period_end, starts_at)
+        VALUES (${randomUUID()}, ${demoIds.tenant2Id}, 'STARTER', 'ACTIVE', now(), now() + interval '30 days', now())
       `.execute(trx);
 
       await sql`

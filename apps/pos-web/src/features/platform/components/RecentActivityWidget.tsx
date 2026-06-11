@@ -1,7 +1,8 @@
 import React from 'react';
 import { Card } from '../../../components/ui';
+import { PlatformActivityEvent } from '../../../lib/api/client';
 
-export function RecentActivityWidget({ activity }: { activity: any[] }) { // eslint-disable-line @typescript-eslint/no-explicit-any
+export function RecentActivityWidget({ activity }: { activity: PlatformActivityEvent[] }) {
   if (!activity || !activity.length) return null;
 
   return (

@@ -12,7 +12,7 @@ export class MockGateway implements IPaymentGateway {
     return true; // Siempre válido en mock
   }
 
-  parseWebhook(payload: any): PaymentWebhookResult { // eslint-disable-line @typescript-eslint/no-explicit-any
+  async parseWebhook(payload: any): Promise<PaymentWebhookResult> { // eslint-disable-line @typescript-eslint/no-explicit-any
     return {
       reference: payload.reference,
       gatewayTransactionId: payload.gatewayTransactionId || `MOCK_${Date.now()}`,

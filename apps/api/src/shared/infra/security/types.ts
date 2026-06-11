@@ -64,6 +64,7 @@ export interface JwtClaims {
   branchIds: string[];
   permissions: UserPermission[];
   isPlatformRole: boolean;
+  isImpersonating?: boolean;
   iat?: number;
   exp?: number;
 }
@@ -78,6 +79,7 @@ export interface AuthContext {
   branchIds: string[];
   permissions: UserPermission[];
   isPlatformRole: boolean;
+  isImpersonating?: boolean;
   user_id: string;
   tenant_id: string | null;
 }

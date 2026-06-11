@@ -5,6 +5,16 @@ import { processPaymentWebhook } from '../application/process-payment-webhook.js
 export const webhooksRoutes: FastifyPluginAsync = async (app) => {
   const typedApp = app.withTypeProvider<ZodTypeProvider>();
 
+  // Conservar el body crudo para las validaciones criptográficas de webhooks
+  typedApp.addContentTypeParser('application/json', { parseAs: 'string' }, (req, body, done) => {
+    (req as any).rawBody = body; // eslint-disable-line @typescript-eslint/no-explicit-any
+    try {
+      done(null, JSON.parse(body as string));
+    } catch (err) {
+      done(err as Error, undefined);
+    }
+  });
+
   // WOMPI WEBHOOK
   typedApp.post(
     '/webhooks/payments/wompi',
@@ -14,8 +24,8 @@ export const webhooksRoutes: FastifyPluginAsync = async (app) => {
       }
     },
     async (request, reply) => {
-      // Wompi sends application/json
-      const rawBody = typeof request.body === 'string' ? request.body : JSON.stringify(request.body);
+      // Obtener el body original antes de ser parseado
+      const rawBody = (request.raw as any)?.rawBody || (request as any).rawBody || (typeof request.body === 'string' ? request.body : JSON.stringify(request.body)); // eslint-disable-line @typescript-eslint/no-explicit-any
 
       try {
         await processPaymentWebhook(app.db, {
@@ -42,7 +52,7 @@ export const webhooksRoutes: FastifyPluginAsync = async (app) => {
       }
     },
     async (request, reply) => {
-      const rawBody = typeof request.body === 'string' ? request.body : JSON.stringify(request.body);
+      const rawBody = (request.raw as any)?.rawBody || (request as any).rawBody || (typeof request.body === 'string' ? request.body : JSON.stringify(request.body)); // eslint-disable-line @typescript-eslint/no-explicit-any
 
       try {
         await processPaymentWebhook(app.db, {
@@ -67,7 +77,7 @@ export const webhooksRoutes: FastifyPluginAsync = async (app) => {
       }
     },
     async (request, reply) => {
-      const rawBody = typeof request.body === 'string' ? request.body : JSON.stringify(request.body);
+      const rawBody = (request.raw as any)?.rawBody || (request as any).rawBody || (typeof request.body === 'string' ? request.body : JSON.stringify(request.body)); // eslint-disable-line @typescript-eslint/no-explicit-any
 
       try {
         await processPaymentWebhook(app.db, {

@@ -14,7 +14,7 @@ import { errorHandlerPlugin } from '../shared/plugins/error-handler.js';
 import { registerSwagger } from '../shared/plugins/swagger.js';
 import { idempotencyPlugin } from '../shared/infra/http/idempotency.plugin.js';
 import { authRoutes } from '../contexts/identity/http/auth.routes.js';
-import { platformAdminRoutes } from '../contexts/platform-admin/http/platform-admin.routes.js';
+import { platformAdminRoutes } from '../contexts/platform-admin/http/index.js';
 import { branchesRoutes } from '../contexts/identity/http/branches.routes.js';
 import { healthRoutes } from '../shared/http/health.routes.js';
 import { salesRoutes } from '../contexts/sales/http/sales.routes.js';
