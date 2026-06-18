@@ -5,7 +5,7 @@ import { LoginScreen, RequireSession, SessionProvider, useSession, PermissionGua
 import { CloseCashSessionModal, CashControlScreen, CashMovementModal } from '../features/cash-sessions';
 import { BranchSetupScreen } from '../features/branches';
 import { PosScreen } from '../features/sales';
-import { DianConfigModal, TicketTemplateModal } from '../features/settings';
+import { DianConfigModal, TicketTemplateModal, SetPinModal } from '../features/settings';
 import { BillingScreen } from '../features/billing/BillingScreen';
 import { UpgradePlanModal } from '../features/billing/components/UpgradePlanModal';
 
@@ -59,6 +59,7 @@ function AppShell() {
     session
   });
   const [isTicketTemplateModalOpen, setIsTicketTemplateModalOpen] = useState(false);
+  const [isSetPinModalOpen, setIsSetPinModalOpen] = useState(false);
   const [isDianConfigModalOpen, setIsDianConfigModalOpen] = useState(false);
   const [isCloseSessionModalOpen, setIsCloseSessionModalOpen] = useState(false);
   const [isCashMovementModalOpen, setIsCashMovementModalOpen] = useState(false);
@@ -215,6 +216,7 @@ function AppShell() {
                   onNavigate={navigate}
                   onOpenDianConfig={() => setIsDianConfigModalOpen(true)}
                   onOpenTicketTemplate={() => setIsTicketTemplateModalOpen(true)}
+                  onOpenSetPin={() => setIsSetPinModalOpen(true)}
                   onOpenCashMovements={() => setIsCashMovementModalOpen(true)}
                   onSyncPendingSales={() => void syncPendingSales()}
                   pendingSalesCount={pendingSalesCount}
@@ -257,6 +259,12 @@ function AppShell() {
                 isOpen={isDianConfigModalOpen}
                 onClose={() => setIsDianConfigModalOpen(false)}
                 onSaved={setTenantTaxMode}
+              />
+
+              <SetPinModal
+                api={api}
+                isOpen={isSetPinModalOpen}
+                onClose={() => setIsSetPinModalOpen(false)}
               />
 
               {posContext && (

@@ -6,6 +6,9 @@ import { MercadoPagoGateway } from '../domain/mercadopago-gateway.js';
 import { StripeGateway } from '../domain/stripe-gateway.js';
 import { writeAuditLog } from '../../../shared/domain/audit/write-audit-log.js';
 import { SubscriptionService } from './subscription.service.js';
+import { NotificationService } from '../../../shared/infra/notifications/NotificationService.js';
+import { TracerHelper } from '../../../shared/infra/tracing/Tracer.js';
+import { SemanticAttributes } from '../../../shared/infra/tracing/SemanticAttributes.js';
 
 interface WebhookInput {
   gateway: 'WOMPI' | 'MERCADOPAGO' | 'STRIPE';
@@ -14,21 +17,29 @@ interface WebhookInput {
 }
 
 export async function processPaymentWebhook(db: Kysely<Database>, input: WebhookInput) {
-  const adapter = input.gateway === 'WOMPI' ? new WompiGateway() : input.gateway === 'STRIPE' ? new StripeGateway() : new MercadoPagoGateway();
+  return TracerHelper.withSpan('billing', 'billing.webhook.process', {
+    [SemanticAttributes.GATEWAY_NAME]: input.gateway
+  }, async (span) => {
+    const adapter = input.gateway === 'WOMPI' ? new WompiGateway() : input.gateway === 'STRIPE' ? new StripeGateway() : new MercadoPagoGateway();
 
-  // 1. Validar firma criptográfica
-  const isValid = adapter.verifyWebhookSignature(input.headers, input.rawBody);
-  if (!isValid) {
-    throw new AppError(400, 'BAD_REQUEST', 'Firma de webhook inválida');
-  }
+    // 1. Validar firma criptográfica
+    const isValid = adapter.verifyWebhookSignature(input.headers, input.rawBody);
+    if (!isValid) {
+      const error = new AppError(400, 'BAD_REQUEST', 'Firma de webhook inválida');
+      TracerHelper.setSpanError(span, error);
+      throw error;
+    }
 
   const payload = JSON.parse(input.rawBody);
   const result = await adapter.parseWebhook(payload);
 
-  if (!result.reference) {
-    // Algunas pasarelas envían eventos generales sin referencia. Se ignoran en este MVP prepago.
-    return { success: true, ignored: true };
-  }
+    if (!result.reference) {
+      // Algunas pasarelas envían eventos generales sin referencia. Se ignoran en este MVP prepago.
+      span.setAttribute(SemanticAttributes.WEBHOOK_STATUS_RESULT, 'ignored');
+      return { success: true, ignored: true };
+    }
+
+    span.setAttribute(SemanticAttributes.TRANSACTION_REFERENCE, result.reference);
 
   // 2. Buscar transacción
   const tx = await db
@@ -66,10 +77,22 @@ export async function processPaymentWebhook(db: Kysely<Database>, input: Webhook
     return { success: true, alreadyProcessed: true };
   }
 
+  const notificationService = new NotificationService(db);
+  const tenant = await db.selectFrom('tenants').select(['name']).where('id', '=', tx.tenant_id).executeTakeFirst();
+  const tenantName = tenant?.name || 'Cliente';
+
+  if (newStatus === 'DECLINED' || newStatus === 'ERROR') {
+    await notificationService.notifyPaymentRejected(tx.tenant_id, {
+      tenantName,
+      reason: 'El banco o la pasarela de pagos rechazó la transacción.'
+    });
+  }
+
   // 4. Actualizar el plan si fue Aprobado
   if (newStatus === 'APPROVED') {
     const meta = tx.metadata_json as any; // eslint-disable-line @typescript-eslint/no-explicit-any
     const planId = meta?.planId;
+    const autoRenew = meta?.autoRenew === true;
 
     if (planId) {
       await db.transaction().execute(async (trx) => {
@@ -91,6 +114,12 @@ export async function processPaymentWebhook(db: Kysely<Database>, input: Webhook
           await SubscriptionService.activateSubscription(trx, tx.tenant_id, 30);
         }
 
+        // Actualizar preferencia de autoRenew
+        await trx.updateTable('tenant_subscriptions')
+          .set({ auto_renew: autoRenew, updated_at: new Date() })
+          .where('tenant_id', '=', tx.tenant_id)
+          .execute();
+
         await writeAuditLog(trx, {
           tenantId: tx.tenant_id,
           entityType: 'TENANT',
@@ -98,9 +127,28 @@ export async function processPaymentWebhook(db: Kysely<Database>, input: Webhook
           action: 'TENANT_SUBSCRIPTION_PROCESSED',
           payloadJson: { previous: { plan: sub?.plan_id }, current: { plan: planId } }
         });
+
+        // Notificaciones
+        const metaData = tx.metadata_json as any;
+        await notificationService.notifyPaymentApproved(tx.tenant_id, {
+          tenantName,
+          planName: planId,
+          amount: metaData?.amount || 0,
+          currency: metaData?.currency || 'COP'
+        });
+
+        if (sub?.plan_id && sub.plan_id !== planId) {
+          await notificationService.notifyPlanChanged(tx.tenant_id, {
+            tenantName,
+            oldPlanName: sub.plan_id,
+            newPlanName: planId
+          });
+        }
       });
     }
-  }
+    }
 
-  return { success: true, updatedTx: tx.id, newStatus };
+    span.setAttribute(SemanticAttributes.WEBHOOK_STATUS_RESULT, newStatus);
+    return { success: true, updatedTx: tx.id, newStatus };
+  });
 }

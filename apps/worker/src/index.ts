@@ -18,6 +18,7 @@ import { checkStalledOutboxEvents } from './scheduler/alerts-stalled-outbox.sche
 import { rollupDailySales } from './scheduler/rollup-daily-sales.scheduler.js';
 import { rollupInventoryValuation } from './scheduler/rollup-inventory-valuation.scheduler.js';
 import { runHousekeepingJobs } from './scheduler/cleanup-housekeeping.scheduler.js';
+import { runSubscriptionRenewals } from './scheduler/renewal-engine.scheduler.js';
 import { logWorkerError, logWorkerInfo } from './infra/logging/worker-log.js';
 
 const provider = buildDianProvider();
@@ -236,6 +237,18 @@ const housekeepingTimer = setInterval(() => {
   });
 }, housekeepingIntervalMs);
 
+// C9: Scheduler de Renovación de Suscripciones
+const renewalIntervalMs = 15 * 60 * 1000; // 15 minutos
+const renewalTimer = setInterval(() => {
+  void runSubscriptionRenewals(dbPool).catch(err => {
+    logWorkerError({
+      event: 'renewal_scheduler_failed',
+      message: 'Failed to run subscription renewal scheduler',
+      error: err
+    });
+  });
+}, renewalIntervalMs);
+
 void ensureAuditLogPartitions(dbPool).catch(err => {
   logWorkerError({
     event: 'audit_partition_startup_failed',
@@ -302,6 +315,7 @@ const shutdown = async () => {
   clearInterval(salesRollupTimer); // C7: cancelar rollups
   clearInterval(inventoryRollupTimer);
   clearInterval(housekeepingTimer); // C8: cancelar housekeeping
+  clearInterval(renewalTimer); // C9: cancelar renovación
   await Promise.all([worker.close(), bulkImportWorker.close(), queue.close(), queueEvents.close(), dbPool.end()]);
   process.exit(0);
 };

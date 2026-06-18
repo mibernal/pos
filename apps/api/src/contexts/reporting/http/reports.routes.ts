@@ -25,15 +25,16 @@ export const reportsRoutes: FastifyPluginAsync = async (app) => {
 
       if (branch_id) ensureUserCanAccessBranch(request.auth, branch_id);
 
-      let query = app.db
+      return await request.executeAsTenant(async (trx) => {
+      let query = trx
         .selectFrom('sales')
         .where('tenant_id', '=', request.auth!.tenantId!)
         .where('status', '=', 'COMPLETED'); // Only count completed sales
 
       if (branch_id) {
         query = query.where('branch_id', '=', branch_id as string);
-      } else if (request.auth.role !== 'ADMIN' && request.auth.role !== 'TENANT_OWNER' && !request.auth.isPlatformRole) {
-        query = query.where('branch_id', 'in', request.auth.branchIds);
+      } else if (request.auth!.role !== 'ADMIN' && request.auth!.role !== 'TENANT_OWNER' && !request.auth!.isPlatformRole) {
+        query = query.where('branch_id', 'in', request.auth!.branchIds);
       }
 
       if (from) {
@@ -56,7 +57,7 @@ export const reportsRoutes: FastifyPluginAsync = async (app) => {
       // Easiest is to select all matching sales payment_json and group in JS,
       // as payment_json is unstructured jsonb in a simple view. 
       // Kysely json functions can be complex across dialects, so querying JSON values:
-      let salesFiltered = app.db
+      let salesFiltered = trx
         .selectFrom('sales')
         .select(['payment_json'])
         .where('tenant_id', '=', request.auth!.tenantId!)
@@ -64,8 +65,8 @@ export const reportsRoutes: FastifyPluginAsync = async (app) => {
 
       if (branch_id) {
         salesFiltered = salesFiltered.where('branch_id', '=', branch_id as string);
-      } else if (request.auth.role !== 'ADMIN' && request.auth.role !== 'TENANT_OWNER' && !request.auth.isPlatformRole) {
-        salesFiltered = salesFiltered.where('branch_id', 'in', request.auth.branchIds);
+      } else if (request.auth!.role !== 'ADMIN' && request.auth!.role !== 'TENANT_OWNER' && !request.auth!.isPlatformRole) {
+        salesFiltered = salesFiltered.where('branch_id', 'in', request.auth!.branchIds);
       }
       if (from) salesFiltered = salesFiltered.where('created_at', '>=', new Date(from));
       if (to) salesFiltered = salesFiltered.where('created_at', '<=', new Date(to));
@@ -107,6 +108,7 @@ export const reportsRoutes: FastifyPluginAsync = async (app) => {
         average_ticket_cents: Math.round(Number(rows?.average_ticket_cents || 0)),
         revenue_by_method
       };
+      });
     }
   );
 
@@ -127,15 +129,16 @@ export const reportsRoutes: FastifyPluginAsync = async (app) => {
 
       if (branch_id) ensureUserCanAccessBranch(request.auth, branch_id);
 
-      let query = app.db
+      return await request.executeAsTenant(async (trx) => {
+      let query = trx
         .selectFrom('cash_sessions')
         .leftJoin('users', 'users.id', 'cash_sessions.opened_by_user_id')
         .where('cash_sessions.tenant_id', '=', request.auth!.tenantId!);
 
       if (branch_id) {
         query = query.where('cash_sessions.branch_id', '=', branch_id as string);
-      } else if (request.auth.role !== 'ADMIN' && request.auth.role !== 'TENANT_OWNER' && !request.auth.isPlatformRole) {
-        query = query.where('cash_sessions.branch_id', 'in', request.auth.branchIds);
+      } else if (request.auth!.role !== 'ADMIN' && request.auth!.role !== 'TENANT_OWNER' && !request.auth!.isPlatformRole) {
+        query = query.where('cash_sessions.branch_id', 'in', request.auth!.branchIds);
       }
 
       if (from) {
@@ -176,6 +179,7 @@ export const reportsRoutes: FastifyPluginAsync = async (app) => {
           diff_cents: row.diff_cents
         }))
       };
+      });
     }
   );
 
@@ -195,7 +199,8 @@ export const reportsRoutes: FastifyPluginAsync = async (app) => {
 
       ensureUserCanAccessBranch(request.auth, branch_id);
 
-      let query = app.db
+      return await request.executeAsTenant(async (trx) => {
+      let query = trx
         .selectFrom('inventory_transactions')
         .leftJoin('users', 'users.id', 'inventory_transactions.created_by_user_id')
         .where('inventory_transactions.tenant_id', '=', request.auth!.tenantId!)
@@ -237,6 +242,7 @@ export const reportsRoutes: FastifyPluginAsync = async (app) => {
           created_at: r.created_at.toISOString()
         }))
       };
+      });
     }
   );
 };

@@ -37,7 +37,8 @@ export const customersRoutes: FastifyPluginAsync = async (app) => {
     async (request, reply) => {
       const payload = request.body;
 
-      const existing = await app.db
+      return await request.executeAsTenant(async (trx) => {
+      const existing = await trx
         .selectFrom('customers')
         .select('id')
         .where('tenant_id', '=', request.auth!.tenantId!)
@@ -49,7 +50,7 @@ export const customersRoutes: FastifyPluginAsync = async (app) => {
         throw new AppError(409, 'CUSTOMER_EXISTS', 'Ya existe un cliente con este documento');
       }
 
-      const newCustomer = await app.db
+      const newCustomer = await trx
         .insertInto('customers')
         .values({
           id: randomUUID(),
@@ -69,6 +70,7 @@ export const customersRoutes: FastifyPluginAsync = async (app) => {
         created_at: newCustomer.created_at.toISOString(),
         updated_at: newCustomer.updated_at.toISOString()
       });
+      });
     }
   );
 
@@ -82,7 +84,8 @@ export const customersRoutes: FastifyPluginAsync = async (app) => {
       }
     },
     async (request) => {
-      const rows = await app.db
+      return await request.executeAsTenant(async (trx) => {
+      const rows = await trx
         .selectFrom('customers')
         .select([...customerColumnList])
         .where('tenant_id', '=', request.auth!.tenantId!)
@@ -94,6 +97,7 @@ export const customersRoutes: FastifyPluginAsync = async (app) => {
         created_at: row.created_at.toISOString(),
         updated_at: row.updated_at.toISOString()
       }));
+      });
     }
   );
 
@@ -112,7 +116,8 @@ export const customersRoutes: FastifyPluginAsync = async (app) => {
       const { id } = request.params;
       const payload = request.body;
 
-      const existing = await app.db
+      return await request.executeAsTenant(async (trx) => {
+      const existing = await trx
         .selectFrom('customers')
         .select(['id', 'document_type', 'document_number'])
         .where('tenant_id', '=', request.auth!.tenantId!)
@@ -130,7 +135,7 @@ export const customersRoutes: FastifyPluginAsync = async (app) => {
         nextDocumentType !== existing.document_type ||
         nextDocumentNumber !== existing.document_number
       ) {
-        const duplicatedCustomer = await app.db
+        const duplicatedCustomer = await trx
           .selectFrom('customers')
           .select('id')
           .where('tenant_id', '=', request.auth!.tenantId!)
@@ -153,7 +158,7 @@ export const customersRoutes: FastifyPluginAsync = async (app) => {
       if (payload.phone !== undefined) toUpdate.phone = payload.phone ?? null;
       if (payload.address !== undefined) toUpdate.address = payload.address ?? null;
 
-      const updated = await app.db
+      const updated = await trx
         .updateTable('customers')
         .set(toUpdate)
         .where('tenant_id', '=', request.auth!.tenantId!)
@@ -166,6 +171,7 @@ export const customersRoutes: FastifyPluginAsync = async (app) => {
         created_at: updated.created_at.toISOString(),
         updated_at: updated.updated_at.toISOString()
       };
+      });
     }
   );
 };

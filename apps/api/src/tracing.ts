@@ -3,7 +3,7 @@ import { getNodeAutoInstrumentations } from '@opentelemetry/auto-instrumentation
 import { OTLPTraceExporter } from '@opentelemetry/exporter-trace-otlp-http';
 import { OTLPMetricExporter } from '@opentelemetry/exporter-metrics-otlp-http';
 import { Resource } from '@opentelemetry/resources';
-import { ATTR_SERVICE_NAME, ATTR_SERVICE_VERSION } from '@opentelemetry/semantic-conventions';
+import { ATTR_SERVICE_NAME, ATTR_SERVICE_VERSION, ATTR_DEPLOYMENT_ENVIRONMENT_NAME } from '@opentelemetry/semantic-conventions';
 import { propagation, metrics } from '@opentelemetry/api';
 import { W3CTraceContextPropagator } from '@opentelemetry/core';
 import { PeriodicExportingMetricReader, MeterProvider } from '@opentelemetry/sdk-metrics';
@@ -14,6 +14,7 @@ propagation.setGlobalPropagator(new W3CTraceContextPropagator());
 const resource = new Resource({
   [ATTR_SERVICE_NAME]: 'pos-dian-api',
   [ATTR_SERVICE_VERSION]: '0.1.0',
+  [ATTR_DEPLOYMENT_ENVIRONMENT_NAME]: process.env.NODE_ENV || 'development',
 });
 
 const traceExporter = new OTLPTraceExporter({
@@ -75,7 +76,10 @@ const sdk = new NodeSDK({
       // Disable noisy instrumentations if needed
       '@opentelemetry/instrumentation-fs': { enabled: false },
       '@opentelemetry/instrumentation-net': { enabled: false },
-      '@opentelemetry/instrumentation-express': { enabled: false }
+      '@opentelemetry/instrumentation-express': { enabled: false },
+      '@opentelemetry/instrumentation-fastify': { enabled: true },
+      '@opentelemetry/instrumentation-ioredis': { enabled: true },
+      '@opentelemetry/instrumentation-pg': { enabled: true }
     }),
   ],
 });

@@ -13,28 +13,22 @@ Things like:
 - Device nicknames
 - Anything environment-specific
 
-## Examples
+## Entorno Local del POS DIAN
 
-```markdown
-### Cameras
+### URLs Clave
+- **Frontend PWA:** http://localhost:5173
+- **API REST:** http://localhost:3000
+- **Swagger / OpenAPI:** http://localhost:3000/docs
+- **Grafana (Observabilidad):** http://localhost:3100
+- **Prometheus:** http://localhost:9090
 
-- living-room → Main area, 180° wide angle
-- front-door → Entrance, motion-triggered
+### Comandos Frecuentes
+- **Levantar todo (App + Infra + Observabilidad):** `docker compose -f infra/docker-compose.yml -f infra/docker-compose.obs.yml up -d`
+- **Solo Infraestructura Core:** `docker compose -f infra/docker-compose.yml up -d`
+- **Migraciones DB:** `pnpm --filter @pos-dian/api db:migrate`
+- **Poblar Demo DB:** `pnpm --filter @pos-dian/api db:seed`
+- **Iniciar Servidores Dev:** `pnpm dev`
 
-### SSH
-
-- home-server → 192.168.1.100, user: admin
-
-### TTS
-
-- Preferred voice: "Nova" (warm, slightly British)
-- Default speaker: Kitchen HomePod
-```
-
-## Why Separate?
-
-Skills are shared. Your setup is yours. Keeping them apart means you can update skills without losing your notes, and share skills without leaking your infrastructure.
-
----
-
-Add whatever helps you do your job. This is your cheat sheet.
+### Credenciales Demo (SaaS Backoffice)
+- **SuperAdmin:** `superadmin@demo.posdian.local` / `Password123*`
+- **Tenant Admin:** `admin@demo.posdian.local` / `Password123*`

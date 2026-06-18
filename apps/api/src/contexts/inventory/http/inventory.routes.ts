@@ -13,6 +13,7 @@ import {
   inventoryBalancesQuerySchema
 } from '@pos-dian/shared';
 import { ensureUserCanAccessBranch } from '../../../shared/infra/security/permissions.js';
+import { NotificationService } from '../../../shared/infra/notifications/NotificationService.js';
 
 export async function recordInventoryTransaction(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -86,6 +87,20 @@ export async function recordInventoryTransaction(
             status: 'UNREAD'
           })
           .execute();
+
+        const branch = await trx
+          .selectFrom('branches')
+          .select(['name'])
+          .where('id', '=', branchId)
+          .executeTakeFirst();
+
+        const notificationService = new NotificationService(trx);
+        await notificationService.notifyLowStock(tenantId, {
+          productName: product.name,
+          currentQty: newQty,
+          threshold: threshold,
+          branchName: branch?.name || 'Sucursal Principal'
+        });
       }
     }
   }
@@ -158,8 +173,8 @@ export async function recordInventoryTransaction(
 export const inventoryRoutes: FastifyPluginAsync = async (app) => {
   const typedApp = app.withTypeProvider<ZodTypeProvider>();
 
-  async function ensureBranchBelongsToTenant(tenantId: string, branchId: string): Promise<void> {
-    const branch = await app.db
+  async function ensureBranchBelongsToTenant(trx: any, tenantId: string, branchId: string): Promise<void> {
+    const branch = await trx
       .selectFrom('branches')
       .select('id')
       .where('tenant_id', '=', tenantId)
@@ -183,10 +198,12 @@ export const inventoryRoutes: FastifyPluginAsync = async (app) => {
     },
     async (request) => {
       const { branch_id, product_id, variant_id } = request.query as any; // eslint-disable-line @typescript-eslint/no-explicit-any
-      await ensureBranchBelongsToTenant(request.auth!.tenantId!, branch_id);
-      ensureUserCanAccessBranch(request.auth, branch_id);
+      
+      return await request.executeAsTenant(async (trx) => {
+        await ensureBranchBelongsToTenant(trx, request.auth!.tenantId!, branch_id);
+        ensureUserCanAccessBranch(request.auth!, branch_id);
 
-      let query = app.db
+      let query = trx
         .selectFrom('inventory_balances as b')
         .innerJoin('products as p', (join) =>
           join
@@ -231,6 +248,7 @@ export const inventoryRoutes: FastifyPluginAsync = async (app) => {
         product_name: row.product_name,
         image_url: row.image_url
       }));
+      });
     }
   );
 
@@ -247,7 +265,8 @@ export const inventoryRoutes: FastifyPluginAsync = async (app) => {
       }
     },
     async (request) => {
-      let query = app.db
+      return await request.executeAsTenant(async (trx) => {
+      let query = trx
         .selectFrom('inventory_balances as b')
         .innerJoin('products as p', (join) =>
           join
@@ -298,6 +317,7 @@ export const inventoryRoutes: FastifyPluginAsync = async (app) => {
         total_in_transit_qty: Number(row.total_in_transit_qty),
         branches_breakdown: row.branches_breakdown
       }));
+      });
     }
   );
 
@@ -313,10 +333,12 @@ export const inventoryRoutes: FastifyPluginAsync = async (app) => {
     },
     async (request, reply) => {
       const payload = request.body;
-      await ensureBranchBelongsToTenant(request.auth!.tenantId!, payload.branch_id);
-      ensureUserCanAccessBranch(request.auth, payload.branch_id);
+      
+      return await request.executeAsTenant(async (trx) => {
+        await ensureBranchBelongsToTenant(trx, request.auth!.tenantId!, payload.branch_id);
+        ensureUserCanAccessBranch(request.auth!, payload.branch_id);
 
-      const product = await app.db
+      const product = await trx
         .selectFrom('products')
         .select(['id', 'branch_id'])
         .where('tenant_id', '=', request.auth!.tenantId!)
@@ -327,7 +349,6 @@ export const inventoryRoutes: FastifyPluginAsync = async (app) => {
         throw new AppError(404, 'PRODUCT_NOT_FOUND', 'Producto no encontrado en esta sucursal');
       }
 
-      await app.db.transaction().execute(async (trx) => {
         await recordInventoryTransaction(trx, {
           tenantId: request.auth!.tenantId!,
           branchId: payload.branch_id,
@@ -339,9 +360,9 @@ export const inventoryRoutes: FastifyPluginAsync = async (app) => {
           notes: payload.notes ?? null,
           userId: request.auth!.userId
         });
-      });
 
-      return reply.code(201).send({ success: true });
+        return reply.code(201).send({ success: true });
+      });
     }
   );
 
@@ -371,10 +392,11 @@ export const inventoryRoutes: FastifyPluginAsync = async (app) => {
       if (!request.auth) throw new AppError(401, 'AUTH_UNAUTHORIZED', 'No autorizado');
 
       const payload = createAdjustmentBodySchema.parse(request.body);
-      await ensureBranchBelongsToTenant(request.auth!.tenantId!, payload.branch_id);
-      ensureUserCanAccessBranch(request.auth, payload.branch_id);
+      
+      return await request.executeAsTenant(async (trx) => {
+        await ensureBranchBelongsToTenant(trx, request.auth!.tenantId!, payload.branch_id);
+        ensureUserCanAccessBranch(request.auth!, payload.branch_id);
 
-      const adjustment = await app.db.transaction().execute(async (trx) => {
         const adj = await trx
           .insertInto('inventory_adjustments')
           .values({
@@ -419,10 +441,8 @@ export const inventoryRoutes: FastifyPluginAsync = async (app) => {
           });
         }
 
-        return adj;
+        return reply.code(201).send({ adjustment: adj });
       });
-
-      return reply.code(201).send({ adjustment });
     }
   );
   typedApp.post(
@@ -437,10 +457,11 @@ export const inventoryRoutes: FastifyPluginAsync = async (app) => {
     },
     async (request, reply) => {
       const payload = request.body;
-      await ensureBranchBelongsToTenant(request.auth!.tenantId!, payload.from_branch_id);
-      ensureUserCanAccessBranch(request.auth, payload.from_branch_id);
+      
+      return await request.executeAsTenant(async (trx) => {
+        await ensureBranchBelongsToTenant(trx, request.auth!.tenantId!, payload.from_branch_id);
+        ensureUserCanAccessBranch(request.auth!, payload.from_branch_id);
 
-      const transfer = await app.db.transaction().execute(async (trx) => {
         const trId = randomUUID();
         const tr = await trx
           .insertInto('inventory_transfers')
@@ -469,10 +490,8 @@ export const inventoryRoutes: FastifyPluginAsync = async (app) => {
             })
             .execute();
         }
-        return tr;
+        return reply.code(201).send({ transfer: tr });
       });
-
-      return reply.code(201).send({ transfer });
     }
   );
 
@@ -491,7 +510,7 @@ export const inventoryRoutes: FastifyPluginAsync = async (app) => {
       const { id } = request.params;
       const payload = request.body;
 
-      const transfer = await app.db.transaction().execute(async (trx) => {
+      return await request.executeAsTenant(async (trx) => {
         const tr = await trx
           .selectFrom('inventory_transfers')
           .selectAll()
@@ -503,7 +522,7 @@ export const inventoryRoutes: FastifyPluginAsync = async (app) => {
         if (!tr) throw new AppError(404, 'NOT_FOUND', 'Transferencia no encontrada');
         if (tr.status !== 'DRAFT') throw new AppError(400, 'INVALID_STATUS', 'La transferencia no está en DRAFT');
 
-        ensureUserCanAccessBranch(request.auth, tr.from_branch_id);
+        ensureUserCanAccessBranch(request.auth!, tr.from_branch_id);
 
         const items = await trx
           .selectFrom('inventory_transfer_items')
@@ -552,10 +571,8 @@ export const inventoryRoutes: FastifyPluginAsync = async (app) => {
           .returningAll()
           .executeTakeFirstOrThrow();
 
-        return updated;
+        return reply.code(200).send({ transfer: updated });
       });
-
-      return reply.code(200).send({ transfer });
     }
   );
 
@@ -574,7 +591,7 @@ export const inventoryRoutes: FastifyPluginAsync = async (app) => {
       const { id } = request.params;
       const payload = request.body;
 
-      const transfer = await app.db.transaction().execute(async (trx) => {
+      return await request.executeAsTenant(async (trx) => {
         const tr = await trx
           .selectFrom('inventory_transfers')
           .selectAll()
@@ -586,8 +603,8 @@ export const inventoryRoutes: FastifyPluginAsync = async (app) => {
         if (!tr) throw new AppError(404, 'NOT_FOUND', 'Transferencia no encontrada');
         if (tr.status !== 'IN_TRANSIT') throw new AppError(400, 'INVALID_STATUS', 'La transferencia no está en tránsito');
 
-        ensureUserCanAccessBranch(request.auth, tr.to_branch_id);
-        await ensureBranchBelongsToTenant(request.auth!.tenantId!, tr.to_branch_id);
+        ensureUserCanAccessBranch(request.auth!, tr.to_branch_id);
+        await ensureBranchBelongsToTenant(trx, request.auth!.tenantId!, tr.to_branch_id);
 
         const items = await trx
           .selectFrom('inventory_transfer_items')
@@ -635,10 +652,8 @@ export const inventoryRoutes: FastifyPluginAsync = async (app) => {
           .returningAll()
           .executeTakeFirstOrThrow();
 
-        return updated;
+        return reply.code(200).send({ transfer: updated });
       });
-
-      return reply.code(200).send({ transfer });
     }
   );
 
@@ -657,7 +672,7 @@ export const inventoryRoutes: FastifyPluginAsync = async (app) => {
       const { id } = request.params;
       const payload = request.body;
 
-      const transfer = await app.db.transaction().execute(async (trx) => {
+      return await request.executeAsTenant(async (trx) => {
         const tr = await trx
           .selectFrom('inventory_transfers')
           .selectAll()
@@ -669,7 +684,7 @@ export const inventoryRoutes: FastifyPluginAsync = async (app) => {
         if (!tr) throw new AppError(404, 'NOT_FOUND', 'Transferencia no encontrada');
         if (tr.status !== 'IN_TRANSIT') throw new AppError(400, 'INVALID_STATUS', 'La transferencia no está en tránsito');
 
-        ensureUserCanAccessBranch(request.auth, tr.to_branch_id); // The receiving branch rejects it
+        ensureUserCanAccessBranch(request.auth!, tr.to_branch_id); // The receiving branch rejects it
 
         const items = await trx
           .selectFrom('inventory_transfer_items')
@@ -723,10 +738,8 @@ export const inventoryRoutes: FastifyPluginAsync = async (app) => {
           .returningAll()
           .executeTakeFirstOrThrow();
 
-        return updated;
+        return reply.code(200).send({ transfer: updated });
       });
-
-      return reply.code(200).send({ transfer });
     }
   );
 };

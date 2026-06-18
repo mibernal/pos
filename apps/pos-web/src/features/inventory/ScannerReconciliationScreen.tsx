@@ -119,10 +119,19 @@ export const ScannerReconciliationScreen: React.FC<ScannerReconciliationScreenPr
       }
     }
 
-    // In a real app, if differences exist we ask for PIN.
-    const PIN = window.prompt("Introduce PIN de Manager para confirmar discrepancias (Opcional si cuadra)");
+    const hasDiscrepancies = reconciliationData.some((row: any) => row.diff !== 0); // eslint-disable-line @typescript-eslint/no-explicit-any
+    let pin: string | null = null;
+
+    if (hasDiscrepancies) {
+      pin = window.prompt("Se detectaron discrepancias. Introduce PIN de Mánager para confirmar:");
+      if (!pin) {
+        alert("Operación cancelada. El PIN es requerido para aprobar discrepancias.");
+        return;
+      }
+    }
+
     commitMutation.mutate({
-      discrepancy_approved_by_pin: PIN,
+      discrepancy_approved_by_pin: pin,
       notes: "Procesado mediante Scanner"
     });
   };

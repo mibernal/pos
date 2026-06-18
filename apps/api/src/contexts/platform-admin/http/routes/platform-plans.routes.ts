@@ -5,6 +5,7 @@ import { GetPlansUseCase } from '../../application/billing-plans/get-plans.use-c
 import { CreatePlanUseCase } from '../../application/billing-plans/create-plan.use-case.js';
 import { UpdatePlanUseCase } from '../../application/billing-plans/update-plan.use-case.js';
 import { DeletePlanUseCase } from '../../application/billing-plans/delete-plan.use-case.js';
+import { invalidateDashboardCache } from '../../../../shared/infra/cache/invalidate-dashboard-cache.js';
 
 const planFeaturesSchema = z.object({
   users: z.number(),
@@ -54,6 +55,7 @@ export const platformPlansRoutes: FastifyPluginAsync = async (app) => {
   }, async (request) => {
     const useCase = new CreatePlanUseCase(app.db);
     const id = await useCase.execute(request.body as any, request.auth!.userId, request.auth!.email);
+    await invalidateDashboardCache(app.redis);
     return { success: true, id };
   });
 
@@ -67,6 +69,7 @@ export const platformPlansRoutes: FastifyPluginAsync = async (app) => {
   }, async (request) => {
     const useCase = new UpdatePlanUseCase(app.db);
     await useCase.execute(request.params.id, request.body as any, request.auth!.userId, request.auth!.email);
+    await invalidateDashboardCache(app.redis);
     return { success: true };
   });
 
@@ -79,6 +82,7 @@ export const platformPlansRoutes: FastifyPluginAsync = async (app) => {
   }, async (request) => {
     const useCase = new DeletePlanUseCase(app.db);
     await useCase.execute(request.params.id, request.auth!.userId, request.auth!.email);
+    await invalidateDashboardCache(app.redis);
     return { success: true };
   });
 };

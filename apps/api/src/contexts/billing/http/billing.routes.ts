@@ -9,7 +9,8 @@ import { SubscriptionService } from '../application/subscription.service.js';
 const checkoutBodySchema = z.object({
   planId: z.string(),
   gateway: z.enum(['WOMPI', 'MERCADOPAGO', 'STRIPE', 'MOCK']),
-  redirectUrl: z.string().url()
+  redirectUrl: z.string().url(),
+  autoRenew: z.boolean().default(false)
 });
 
 export const billingRoutes: FastifyPluginAsync = async (app) => {
@@ -24,13 +25,15 @@ export const billingRoutes: FastifyPluginAsync = async (app) => {
         security: [{ bearerAuth: [] }]
       }
     },
-    async () => {
-      const plans = await app.db
-        .selectFrom('billing_plans')
-        .select(['id', 'name', 'price_cents', 'billing_cycle', 'features_json'])
-        .where('active', '=', true)
-        .orderBy('price_cents', 'asc')
-        .execute();
+    async (request) => {
+      const plans = await request.executeAsTenant(async (trx) => {
+        return await trx
+          .selectFrom('billing_plans')
+          .select(['id', 'name', 'price_cents', 'billing_cycle', 'features_json'])
+          .where('active', '=', true)
+          .orderBy('price_cents', 'asc')
+          .execute();
+      });
 
       return { plans };
     }
@@ -56,12 +59,15 @@ export const billingRoutes: FastifyPluginAsync = async (app) => {
 
       const payload = checkoutBodySchema.parse(request.body);
 
-      const result = await createCheckoutSession(app.db, {
-        tenantId: request.auth.tenantId!,
-        planId: payload.planId,
-        gateway: payload.gateway,
-        customerEmail: request.auth.email,
-        redirectUrl: payload.redirectUrl
+      const result = await request.executeAsTenant(async (trx) => {
+        return await createCheckoutSession(trx as any, {
+          tenantId: request.auth!.tenantId!,
+          planId: payload.planId,
+          gateway: payload.gateway,
+          customerEmail: request.auth!.email,
+          redirectUrl: payload.redirectUrl,
+          autoRenew: payload.autoRenew
+        });
       });
 
       return reply.code(201).send({
@@ -87,37 +93,38 @@ export const billingRoutes: FastifyPluginAsync = async (app) => {
       const { reference, redirectUrl } = request.query;
 
       // Update the transaction to APPROVED
-      const updatedTx = await app.db
-        .updateTable('payment_transactions')
-        .set({ status: 'APPROVED', updated_at: new Date() })
-        .where('gateway_reference', '=', reference)
-        .returning(['tenant_id', 'metadata_json'])
-        .executeTakeFirst();
+      const updatedTx = await app.db.transaction().execute(async (trx) => {
+        const tx = await trx
+          .updateTable('payment_transactions')
+          .set({ status: 'APPROVED', updated_at: new Date() })
+          .where('gateway_reference', '=', reference)
+          .returning(['tenant_id', 'metadata_json'])
+          .executeTakeFirst();
 
-      if (updatedTx) {
-        const metadata = updatedTx.metadata_json as { planId?: string } | null;
-        if (metadata?.planId) {
-          const planId = metadata.planId;
-          await app.db.transaction().execute(async (trx) => {
-            const sub = await trx.selectFrom('tenant_subscriptions').select(['plan_id', 'status']).where('tenant_id', '=', updatedTx.tenant_id).executeTakeFirst();
-            
+        if (tx) {
+          const metadata = tx.metadata_json as { planId?: string } | null;
+          if (metadata?.planId) {
+            const planId = metadata.planId;
+            const sub = await trx.selectFrom('tenant_subscriptions').select(['plan_id', 'status']).where('tenant_id', '=', tx.tenant_id).executeTakeFirst();
+              
             await trx.updateTable('tenants')
               .set({ status: 'ACTIVE' })
-              .where('id', '=', updatedTx.tenant_id)
+              .where('id', '=', tx.tenant_id)
               .execute();
 
             if (sub?.plan_id !== planId) {
-              await SubscriptionService.upgradeSubscription(trx, updatedTx.tenant_id, planId);
+              await SubscriptionService.upgradeSubscription(trx, tx.tenant_id, planId);
             }
 
             if (sub?.status === 'ACTIVE') {
-              await SubscriptionService.renewSubscription(trx, updatedTx.tenant_id, 30);
+              await SubscriptionService.renewSubscription(trx, tx.tenant_id, 30);
             } else {
-              await SubscriptionService.activateSubscription(trx, updatedTx.tenant_id, 30);
+              await SubscriptionService.activateSubscription(trx, tx.tenant_id, 30);
             }
-          });
+          }
         }
-      }
+        return tx;
+      });
 
       return reply.redirect(redirectUrl);
     }

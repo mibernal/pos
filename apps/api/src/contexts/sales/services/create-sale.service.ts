@@ -17,6 +17,8 @@ import { SaleCreatedEvent } from '../domain/events/SaleCreatedEvent.js';
 import { StockLowEvent } from '../../inventory/domain/events/StockLowEvent.js';
 import { LedgerService } from '../../../shared/infra/db/ledger-service.js';
 import { executeAsTenant } from '../../../shared/infra/db/rls.js';
+import { TracerHelper } from '../../../shared/infra/tracing/Tracer.js';
+import { SemanticAttributes } from '../../../shared/infra/tracing/SemanticAttributes.js';
 import type { FastifyBaseLogger } from 'fastify';
 import type { CreateSaleBodyInput } from './schemas.js';
 
@@ -69,9 +71,13 @@ export async function createSaleService(input: CreateSaleServiceInput) {
   let lastCreateError: unknown = null;
 
   const createSaleInTransaction = () =>
-    db.transaction().execute(async (trx) => {
-      // Configurar el contexto RLS para esta transacción
-      await sql`SELECT set_config('app.current_tenant', ${tenantId}, true)`.execute(trx);
+    TracerHelper.withSpan('sales', 'sales.process', {
+      [SemanticAttributes.TENANT_ID]: tenantId,
+      [SemanticAttributes.SALE_ITEMS_COUNT]: payload.items.length
+    }, async (span) => {
+      return db.transaction().execute(async (trx) => {
+        // Configurar el contexto RLS para esta transacción
+        await sql`SELECT set_config('app.current_tenant', ${tenantId}, true)`.execute(trx);
 
       const cashSession = await trx
         .selectFrom('cash_sessions')
@@ -403,6 +409,10 @@ export async function createSaleService(input: CreateSaleServiceInput) {
         taxAmountCents: finalTaxTotalCents,
         userId
       });
+      
+      span.setAttribute(SemanticAttributes.SALE_ID, saleId);
+      span.setAttribute(SemanticAttributes.SALE_TOTAL_CENTS, finalTotalCents);
+      span.setAttribute(SemanticAttributes.SALE_PAYMENT_MODE, normalizedPayments.mode);
 
       await LedgerService.appendCashLedger(trx, {
         tenantId,
@@ -627,6 +637,7 @@ export async function createSaleService(input: CreateSaleServiceInput) {
         discount_override_reason: discountOverrideReason
       };
     });
+  });
 
   for (let attempt = 1; attempt <= maxNumberingAttempts; attempt += 1) {
     try {

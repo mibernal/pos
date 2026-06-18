@@ -15,7 +15,7 @@ import { voidSaleService } from '../services/void-sale.service.js';
 import { processPartialReturn } from '../services/create-return.service.js';
 import { CreateReturnRequestSchema } from '@pos-dian/shared';
 import { ensureUserCanAccessBranch } from '../../../shared/infra/security/permissions.js';
-import { executeAsTenant } from '../../../shared/infra/db/rls.js';
+
 
 export const salesRoutes: FastifyPluginAsync = async (app) => {
   const typedApp = app.withTypeProvider<ZodTypeProvider>();
@@ -99,7 +99,7 @@ export const salesRoutes: FastifyPluginAsync = async (app) => {
 
       ensureUserCanAccessBranch(request.auth, branchId);
 
-      const rows = await executeAsTenant(app.db, request.auth!.tenantId!, async (trx) => {
+      const rows = await request.executeAsTenant(async (trx) => {
         let queryBuilder = trx
           .selectFrom('sales')
           .leftJoin('dian_documents', (join) =>
@@ -161,7 +161,7 @@ export const salesRoutes: FastifyPluginAsync = async (app) => {
 
       const params = saleIdParamsSchema.parse(request.params);
 
-      const result = await executeAsTenant(app.db, request.auth!.tenantId!, async (trx) => {
+      const result = await request.executeAsTenant(async (trx) => {
         const sale = await trx
           .selectFrom('sales')
           .select([...saleColumnList])

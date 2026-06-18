@@ -15,7 +15,11 @@ export const envSchema = z
     OUTBOX_POLL_INTERVAL_MS: z.coerce.number().int().positive().default(5000),
     OUTBOX_BATCH_SIZE: z.coerce.number().int().positive().max(500).default(50),
     OUTBOX_RETRY_BASE_MS: z.coerce.number().int().positive().default(30000),
-    OUTBOX_RETRY_MAX_MS: z.coerce.number().int().positive().default(3600000)
+    OUTBOX_RETRY_MAX_MS: z.coerce.number().int().positive().default(3600000),
+    BILLING_MAX_RETRIES: z.coerce.number().int().default(3),
+    BILLING_GRACE_PERIOD_DAYS: z.coerce.number().int().default(7),
+    BILLING_TRIAL_DAYS: z.coerce.number().int().default(14),
+    BILLING_SUSPENSION_AFTER_DAYS: z.coerce.number().int().default(30)
   })
   .superRefine((value, ctx) => {
     // C11: Bloquear DIAN_PROVIDER=mock en producción — riesgo fiscal crítico.

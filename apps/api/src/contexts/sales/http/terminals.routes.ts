@@ -44,10 +44,11 @@ export const terminalsRoutes: FastifyPluginAsync = async (app) => {
 
       const payload = createTerminalBodySchema.parse(request.body);
       
-      ensureUserCanAccessBranch(request.auth, payload.branch_id);
+      ensureUserCanAccessBranch(request.auth!, payload.branch_id);
 
+      return await request.executeAsTenant(async (trx) => {
       // Verify branch
-      const branch = await app.db
+      const branch = await trx
         .selectFrom('branches')
         .select('id')
         .where('tenant_id', '=', request.auth!.tenantId!)
@@ -59,7 +60,7 @@ export const terminalsRoutes: FastifyPluginAsync = async (app) => {
       }
 
       try {
-        const terminal = await app.db
+        const terminal = await trx
           .insertInto('terminals')
           .values({
             id: randomUUID(),
@@ -78,6 +79,7 @@ export const terminalsRoutes: FastifyPluginAsync = async (app) => {
         }
         throw err;
       }
+      });
     }
   );
 
@@ -97,10 +99,11 @@ export const terminalsRoutes: FastifyPluginAsync = async (app) => {
       const query = getTerminalsQuerySchema.parse(request.query);
 
       if (query.branch_id) {
-        ensureUserCanAccessBranch(request.auth, query.branch_id);
+        ensureUserCanAccessBranch(request.auth!, query.branch_id);
       }
 
-      let dbQuery = app.db
+      return await request.executeAsTenant(async (trx) => {
+      let dbQuery = trx
         .selectFrom('terminals')
         .selectAll()
         .where('tenant_id', '=', request.auth!.tenantId!);
@@ -112,6 +115,7 @@ export const terminalsRoutes: FastifyPluginAsync = async (app) => {
       const terminals = await dbQuery.orderBy('name', 'asc').execute();
 
       return { terminals: terminals.map(t => ({ ...t, created_at: t.created_at.toISOString(), updated_at: t.updated_at.toISOString() })) };
+      });
     }
   );
 };

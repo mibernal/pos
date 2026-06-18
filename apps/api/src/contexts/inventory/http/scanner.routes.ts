@@ -12,6 +12,7 @@ import {
 } from '@pos-dian/shared';
 import { ensureUserCanAccessBranch } from '../../../shared/infra/security/permissions.js';
 import { recordInventoryTransaction } from './inventory.routes.js'; // I'll export this from inventory.routes.ts
+import { verifyApprovalPin } from '../../../shared/infra/security/verify-pin.js';
 
 export const scannerRoutes: FastifyPluginAsync = async (app) => {
   const typedApp = app.withTypeProvider<ZodTypeProvider>();
@@ -33,7 +34,7 @@ export const scannerRoutes: FastifyPluginAsync = async (app) => {
       const { id } = request.params;
       const { items } = request.body;
 
-      await app.db.transaction().execute(async (trx) => {
+      await request.executeAsTenant(async (trx) => {
         const receipt = await trx
           .selectFrom('inventory_receipts')
           .selectAll()
@@ -45,7 +46,7 @@ export const scannerRoutes: FastifyPluginAsync = async (app) => {
         if (receipt.status !== 'DRAFT') throw new AppError(400, 'INVALID_STATUS', 'La recepción no está en DRAFT');
 
         if (receipt.branch_id) {
-          ensureUserCanAccessBranch(request.auth, receipt.branch_id);
+          ensureUserCanAccessBranch(request.auth!, receipt.branch_id);
         }
 
         for (const item of items) {
@@ -108,7 +109,7 @@ export const scannerRoutes: FastifyPluginAsync = async (app) => {
       const { id } = request.params;
       const { discrepancy_approved_by_pin, notes } = request.body; // eslint-disable-line @typescript-eslint/no-unused-vars
 
-      const receipt = await app.db.transaction().execute(async (trx) => {
+      const receipt = await request.executeAsTenant(async (trx) => {
         const rcpt = await trx
           .selectFrom('inventory_receipts')
           .selectAll()
@@ -121,15 +122,78 @@ export const scannerRoutes: FastifyPluginAsync = async (app) => {
         if (rcpt.status !== 'DRAFT') throw new AppError(400, 'INVALID_STATUS', 'La recepción no está en DRAFT');
         
         if (!rcpt.branch_id) throw new AppError(400, 'NO_BRANCH', 'Recepción no tiene sucursal asignada');
-        ensureUserCanAccessBranch(request.auth, rcpt.branch_id);
-
-        // TODO: Validate differences against PO if PO_LINKED, require PIN if differences
+        ensureUserCanAccessBranch(request.auth!, rcpt.branch_id);
 
         const items = await trx
           .selectFrom('inventory_receipt_items')
           .selectAll()
           .where('receipt_id', '=', rcpt.id)
           .execute();
+
+        let hasDiscrepancy = false;
+        let approverUserId: string | null = null;
+        let discrepancyDetails: any[] = [];
+
+        if (rcpt.receipt_type === 'PO_LINKED' && rcpt.po_id) {
+          const poItems = await trx
+            .selectFrom('purchase_order_items')
+            .selectAll()
+            .where('po_id', '=', rcpt.po_id)
+            .execute();
+
+          const expectedMap = new Map(poItems.map(p => [p.product_id + '_' + (p.variant_id ?? ''), Number(p.expected_qty)]));
+          for (const item of items) {
+            const expected = expectedMap.get(item.product_id + '_' + (item.variant_id ?? '')) ?? 0;
+            const received = Number(item.received_qty);
+            if (expected !== received) {
+              hasDiscrepancy = true;
+              discrepancyDetails.push({ product_id: item.product_id, variant_id: item.variant_id, expected, received });
+            }
+          }
+        }
+
+        if (hasDiscrepancy) {
+          if (!discrepancy_approved_by_pin) {
+            throw new AppError(403, 'PIN_REQUIRED', 'Existen discrepancias. Se requiere PIN de manager para aprobar.');
+          }
+          approverUserId = await verifyApprovalPin(trx as any, request.auth!.tenantId!, discrepancy_approved_by_pin);
+          if (!approverUserId) {
+            throw new AppError(403, 'INVALID_PIN', 'PIN de aprobación inválido o el usuario no tiene permisos suficientes');
+          }
+
+          // Register audit
+          await trx.insertInto('audit_logs').values({
+            id: randomUUID(),
+            tenant_id: request.auth!.tenantId!,
+            branch_id: rcpt.branch_id,
+            user_id: request.auth!.userId,
+            entity_type: 'INVENTORY_RECEIPT',
+            entity_id: rcpt.id,
+            action: 'DISCREPANCY_APPROVAL',
+            legacy_payload: null,
+            old_values: null,
+            new_values: JSON.stringify({
+              approved_by: approverUserId,
+              discrepancies: discrepancyDetails
+            }),
+            ip_address: request.ip,
+            user_agent: request.headers['user-agent'] ?? null,
+            correlation_id: null
+          }).execute();
+
+          await trx.insertInto('platform_events').values({
+            tenant_id: request.auth!.tenantId!,
+            type: 'INVENTORY_DISCREPANCY_APPROVED',
+            severity: 'warn',
+            actor_id: request.auth!.userId,
+            actor_email: request.auth!.email,
+            metadata: {
+              receipt_id: rcpt.id,
+              approved_by: approverUserId,
+              discrepancies: discrepancyDetails
+            } as any
+          }).execute();
+        }
 
         for (const item of items) {
           const qty = Number(item.received_qty);
@@ -153,7 +217,8 @@ export const scannerRoutes: FastifyPluginAsync = async (app) => {
           .set({
             status: 'COMPLETED',
             notes: notes ?? rcpt.notes,
-            updated_at: new Date()
+            updated_at: new Date(),
+            discrepancy_approved_by_user_id: approverUserId
           })
           .where('id', '=', rcpt.id)
           .returningAll()
@@ -180,9 +245,9 @@ export const scannerRoutes: FastifyPluginAsync = async (app) => {
     },
     async (request, reply) => {
       const payload = request.body;
-      ensureUserCanAccessBranch(request.auth, payload.branch_id);
+      ensureUserCanAccessBranch(request.auth!, payload.branch_id);
 
-      const count = await app.db.transaction().execute(async (trx) => {
+      const count = await request.executeAsTenant(async (trx) => {
         return await trx
           .insertInto('inventory_counts')
           .values({
@@ -217,7 +282,7 @@ export const scannerRoutes: FastifyPluginAsync = async (app) => {
       const { id } = request.params;
       const { items } = request.body;
 
-      await app.db.transaction().execute(async (trx) => {
+      await request.executeAsTenant(async (trx) => {
         const count = await trx
           .selectFrom('inventory_counts')
           .selectAll()
@@ -228,7 +293,7 @@ export const scannerRoutes: FastifyPluginAsync = async (app) => {
         if (!count) throw new AppError(404, 'NOT_FOUND', 'Conteo no encontrado');
         if (count.status === 'COMPLETED' || count.status === 'CANCELED') throw new AppError(400, 'INVALID_STATUS', 'El conteo ya finalizó');
 
-        ensureUserCanAccessBranch(request.auth, count.branch_id);
+        ensureUserCanAccessBranch(request.auth!, count.branch_id);
 
         for (const item of items) {
           const existing = await trx
@@ -318,7 +383,7 @@ export const scannerRoutes: FastifyPluginAsync = async (app) => {
       const { id } = request.params;
       const { discrepancy_approved_by_pin, notes } = request.body; // eslint-disable-line @typescript-eslint/no-unused-vars
 
-      const count = await app.db.transaction().execute(async (trx) => {
+      const count = await request.executeAsTenant(async (trx) => {
         const cnt = await trx
           .selectFrom('inventory_counts')
           .selectAll()
@@ -330,7 +395,7 @@ export const scannerRoutes: FastifyPluginAsync = async (app) => {
         if (!cnt) throw new AppError(404, 'NOT_FOUND', 'Conteo no encontrado');
         if (cnt.status === 'COMPLETED' || cnt.status === 'CANCELED') throw new AppError(400, 'INVALID_STATUS', 'El conteo ya finalizó');
 
-        ensureUserCanAccessBranch(request.auth, cnt.branch_id);
+        ensureUserCanAccessBranch(request.auth!, cnt.branch_id);
 
         const items = await trx
           .selectFrom('inventory_count_items')
@@ -339,7 +404,49 @@ export const scannerRoutes: FastifyPluginAsync = async (app) => {
           .where('diff_qty', '!=', 0)
           .execute();
 
-        // TODO: Require PIN verification for discrepancy_approved_by_pin if items.length > 0
+        let approverUserId: string | null = null;
+        if (items.length > 0) {
+          if (!discrepancy_approved_by_pin) {
+            throw new AppError(403, 'PIN_REQUIRED', 'Existen discrepancias. Se requiere PIN de manager para aprobar.');
+          }
+          approverUserId = await verifyApprovalPin(trx as any, request.auth!.tenantId!, discrepancy_approved_by_pin);
+          if (!approverUserId) {
+            throw new AppError(403, 'INVALID_PIN', 'PIN de aprobación inválido o el usuario no tiene permisos suficientes');
+          }
+
+          // Register audit
+          await trx.insertInto('audit_logs').values({
+            id: randomUUID(),
+            tenant_id: request.auth!.tenantId!,
+            branch_id: cnt.branch_id,
+            user_id: request.auth!.userId,
+            entity_type: 'INVENTORY_COUNT',
+            entity_id: cnt.id,
+            action: 'DISCREPANCY_APPROVAL',
+            legacy_payload: null,
+            old_values: null,
+            new_values: JSON.stringify({
+              approved_by: approverUserId,
+              discrepancies: items.map(i => ({ product_id: i.product_id, diff: i.diff_qty }))
+            }),
+            ip_address: request.ip,
+            user_agent: request.headers['user-agent'] ?? null,
+            correlation_id: null
+          }).execute();
+
+          await trx.insertInto('platform_events').values({
+            tenant_id: request.auth!.tenantId!,
+            type: 'INVENTORY_COUNT_DISCREPANCY_APPROVED',
+            severity: 'warn',
+            actor_id: request.auth!.userId,
+            actor_email: request.auth!.email,
+            metadata: {
+              count_id: cnt.id,
+              approved_by: approverUserId,
+              discrepancies: items.map(i => ({ product_id: i.product_id, diff: i.diff_qty }))
+            } as any
+          }).execute();
+        }
 
         for (const item of items) {
           const diff = Number(item.diff_qty);
@@ -363,7 +470,7 @@ export const scannerRoutes: FastifyPluginAsync = async (app) => {
           .set({
             status: 'COMPLETED',
             completed_at: new Date(),
-            approved_by_user_id: request.auth!.userId // Or the PIN owner
+            approved_by_user_id: approverUserId ?? request.auth!.userId
           })
           .where('id', '=', cnt.id)
           .returningAll()

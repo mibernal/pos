@@ -11,6 +11,7 @@ export type UserPermission =
   | 'inventory:adjust'
   | 'inventory:transfer'
   | 'inventory:receive'
+  | 'inventory:approve_discrepancy'
   // Products
   | 'products:view'
   | 'products:manage'

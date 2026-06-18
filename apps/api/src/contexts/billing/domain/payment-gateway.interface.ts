@@ -29,4 +29,24 @@ export interface IPaymentGateway {
    * Parsea el payload del webhook y lo estandariza
    */
   parseWebhook(payload: any): Promise<PaymentWebhookResult>; // eslint-disable-line @typescript-eslint/no-explicit-any
+
+  /**
+   * Cobro automático server-to-server (opcional si el gateway lo soporta)
+   */
+  chargeStoredPaymentMethod?(input: AutoChargeInput): Promise<AutoChargeResult>;
+}
+
+export interface AutoChargeInput {
+  paymentMethodToken: string;
+  amountCents: number;
+  currency: string;
+  idempotencyKey: string;
+  description: string;
+}
+
+export interface AutoChargeResult {
+  success: boolean;
+  gatewayTransactionId: string;
+  status: 'APPROVED' | 'DECLINED' | 'ERROR';
+  rawPayload: any; // eslint-disable-line @typescript-eslint/no-explicit-any
 }

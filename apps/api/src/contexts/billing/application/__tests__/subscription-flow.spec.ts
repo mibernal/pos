@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterAll, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, afterAll, vi } from 'vitest';
 import { randomUUID } from 'crypto';
 import { createDb } from '../../../../shared/infra/db/connection.js';
 import { SubscriptionService } from '../subscription.service.js';

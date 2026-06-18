@@ -56,7 +56,8 @@ export const adminTenantsRoutes: FastifyPluginAsync = async (app) => {
         throw new AppError(401, 'AUTH_UNAUTHORIZED', 'No autorizado');
       }
 
-      const tenant = await app.db
+      return await request.executeAsTenant(async (trx) => {
+      const tenant = await trx
         .selectFrom('tenants')
         .select([
           'id',
@@ -77,6 +78,7 @@ export const adminTenantsRoutes: FastifyPluginAsync = async (app) => {
       }
 
       return tenantProfileSchema.parse(mapTenantProfile(tenant));
+      });
     }
   );
 
@@ -97,7 +99,7 @@ export const adminTenantsRoutes: FastifyPluginAsync = async (app) => {
 
       const payload = updateTenantBusinessProfileBodySchema.parse(request.body);
 
-      const updatedTenant = await app.db.transaction().execute(async (trx) => {
+      const updatedTenant = await request.executeAsTenant(async (trx) => {
         const currentTenant = await trx
           .selectFrom('tenants')
           .select([
@@ -203,7 +205,7 @@ export const adminTenantsRoutes: FastifyPluginAsync = async (app) => {
       const params = updateTenantTaxProfileParamsSchema.parse(request.params);
       const payload = updateTenantTaxProfileBodySchema.parse(request.body);
 
-      const updatedTenant = await app.db.transaction().execute(async (trx) => {
+      const updatedTenant = await request.executeAsTenant(async (trx) => {
         const currentTenant = await trx
           .selectFrom('tenants')
           .select(['id', 'tax_mode'])

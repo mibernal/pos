@@ -10,6 +10,7 @@ import { CreateTenantUseCase } from '../../application/tenants/create-tenant.use
 import { UpdateTenantUseCase } from '../../application/tenants/update-tenant.use-case.js';
 import { ChangeTenantPlanUseCase } from '../../application/tenants/change-tenant-plan.use-case.js';
 import { TaxMode } from '../../domain/platform-admin.types.js';
+import { invalidateDashboardCache } from '../../../../shared/infra/cache/invalidate-dashboard-cache.js';
 
 const createTenantBodySchema = z.object({
   email: z.string().trim().email().transform((value) => value.toLowerCase()),
@@ -67,6 +68,7 @@ export const platformTenantsRoutes: FastifyPluginAsync = async (app) => {
   }, async (request) => {
     const useCase = new CreateTenantUseCase(app.db);
     const tenant_id = await useCase.execute(request.body as any, request.auth!.userId, request.auth!.email);
+    await invalidateDashboardCache(app.redis);
     return { success: true, tenant_id };
   });
 
@@ -80,6 +82,7 @@ export const platformTenantsRoutes: FastifyPluginAsync = async (app) => {
   }, async (request) => {
     const useCase = new UpdateTenantUseCase(app.db);
     await useCase.execute(request.params.id, request.body as any, request.auth!.userId, request.auth!.email);
+    await invalidateDashboardCache(app.redis);
     return { success: true };
   });
 
@@ -93,6 +96,7 @@ export const platformTenantsRoutes: FastifyPluginAsync = async (app) => {
   }, async (request) => {
     const useCase = new SuspendTenantUseCase(app.db);
     await useCase.execute(request.params.id, request.body.reason, request.auth!.userId, request.auth!.email);
+    await invalidateDashboardCache(app.redis);
     return { success: true };
   });
 
@@ -105,6 +109,7 @@ export const platformTenantsRoutes: FastifyPluginAsync = async (app) => {
   }, async (request) => {
     const useCase = new ReactivateTenantUseCase(app.db);
     await useCase.execute(request.params.id, request.auth!.userId, request.auth!.email);
+    await invalidateDashboardCache(app.redis);
     return { success: true };
   });
 
@@ -135,6 +140,7 @@ export const platformTenantsRoutes: FastifyPluginAsync = async (app) => {
   }, async (request) => {
     const useCase = new ChangeTenantPlanUseCase(app.db);
     await useCase.execute(request.params.id, request.body.new_plan, request.auth!.userId, request.auth!.email);
+    await invalidateDashboardCache(app.redis);
     return { success: true };
   });
 };

@@ -20,7 +20,8 @@ export const authUserSchema = z.object({
   active: z.boolean(),
   branchIds: z.array(z.string().uuid()).optional(),
   permissions: z.array(z.string()).optional(),
-  isPlatformRole: z.boolean().optional()
+  isPlatformRole: z.boolean().optional(),
+  isImpersonating: z.boolean().optional()
 });
 
 export const loginResponseSchema = z.object({
@@ -51,6 +52,7 @@ export const jwtClaimsSchema = z.object({
   branchIds: z.array(z.string().uuid()).optional(),
   permissions: z.array(z.string()).optional(),
   isPlatformRole: z.boolean().optional(),
+  isImpersonating: z.boolean().optional(),
   iat: z.number().int().optional(),
   exp: z.number().int().optional()
 });

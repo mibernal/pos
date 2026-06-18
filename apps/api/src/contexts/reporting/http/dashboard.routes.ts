@@ -45,7 +45,8 @@ export const dashboardRoutes: FastifyPluginAsync = async (app) => {
           const endOfDay = new Date();
           endOfDay.setHours(23, 59, 59, 999);
 
-          const rows = await app.db
+          await request.executeAsTenant(async (trx) => {
+          const rows = await trx
             .selectFrom('sales')
             .where('tenant_id', '=', tenantId)
             .where('branch_id', '=', branch_id)
@@ -58,7 +59,7 @@ export const dashboardRoutes: FastifyPluginAsync = async (app) => {
             ])
             .executeTakeFirst();
 
-          const inventoryRows = await app.db
+          const inventoryRows = await trx
             .selectFrom('inventory_balances')
             .innerJoin('products', 'products.id', 'inventory_balances.product_id')
             .where('inventory_balances.tenant_id', '=', tenantId)
@@ -69,7 +70,7 @@ export const dashboardRoutes: FastifyPluginAsync = async (app) => {
             .executeTakeFirst();
 
           // Recent sales for a timeline
-          const recentSales = await app.db
+          const recentSales = await trx
             .selectFrom('sales')
             .where('tenant_id', '=', tenantId)
             .where('branch_id', '=', branch_id)
@@ -100,6 +101,7 @@ export const dashboardRoutes: FastifyPluginAsync = async (app) => {
 
           const payload = JSON.stringify(responsePayload);
           stream.writeEvent(payload);
+          });
         } catch (err) {
           app.log.error(err, 'SSE Push error');
         }

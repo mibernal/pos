@@ -26,14 +26,15 @@ export const branchesRoutes: FastifyPluginAsync = async (app) => {
         throw new AppError(401, 'AUTH_UNAUTHORIZED', 'No autorizado');
       }
 
-      let branchesQuery = app.db
+      return await request.executeAsTenant(async (trx) => {
+      let branchesQuery = trx
         .selectFrom('branches')
         .select(['id', 'tenant_id', 'name', 'address', 'created_at'])
         .where('tenant_id', '=', request.auth!.tenantId!)
         .orderBy('name', 'asc');
 
-      if (request.auth.role !== 'ADMIN' && request.auth.role !== 'TENANT_OWNER' && !request.auth.isPlatformRole) {
-        const userBranchIds = request.auth.branchIds || [];
+      if (request.auth!.role !== 'ADMIN' && request.auth!.role !== 'TENANT_OWNER' && !request.auth!.isPlatformRole) {
+        const userBranchIds = request.auth!.branchIds || [];
         if (userBranchIds.length === 0) {
           return { items: [] };
         }
@@ -42,7 +43,7 @@ export const branchesRoutes: FastifyPluginAsync = async (app) => {
 
       const branches = await branchesQuery.execute();
 
-      const openCashSessions = await app.db
+      const openCashSessions = await trx
         .selectFrom('cash_sessions')
         .select(['id', 'branch_id', 'opened_at', 'opening_amount_cents'])
         .where('tenant_id', '=', request.auth!.tenantId!)
@@ -70,6 +71,7 @@ export const branchesRoutes: FastifyPluginAsync = async (app) => {
           current_cash_session: openSessionsByBranchId.get(branch.id) ?? null
         }))
       };
+      });
     }
   );
 
@@ -90,13 +92,14 @@ export const branchesRoutes: FastifyPluginAsync = async (app) => {
 
       const payload = createBranchBodySchema.parse(request.body);
 
-      await QuotaGuard.assertCanCreateBranch(app.db, request.auth.tenantId!);
+      return await request.executeAsTenant(async (trx) => {
+      await QuotaGuard.assertCanCreateBranch(trx as any, request.auth!.tenantId!);
 
-      const createdBranch = await app.db
+      const createdBranch = await trx
         .insertInto('branches')
         .values({
           id: randomUUID(),
-          tenant_id: request.auth.tenantId!,
+          tenant_id: request.auth!.tenantId!,
           name: payload.name,
           address: payload.address
         })
@@ -109,6 +112,7 @@ export const branchesRoutes: FastifyPluginAsync = async (app) => {
         name: createdBranch.name,
         address: createdBranch.address,
         created_at: createdBranch.created_at.toISOString()
+      });
       });
     }
   );
@@ -134,7 +138,8 @@ export const branchesRoutes: FastifyPluginAsync = async (app) => {
         return reply.code(400).send({ message: 'No hay campos para actualizar' });
       }
 
-      const updated = await app.db
+      return await request.executeAsTenant(async (trx) => {
+      const updated = await trx
         .updateTable('branches')
         .set(request.body)
         .where('id', '=', request.params.id)
@@ -152,6 +157,7 @@ export const branchesRoutes: FastifyPluginAsync = async (app) => {
         name: updated.name,
         address: updated.address,
         created_at: updated.created_at.toISOString()
+      });
       });
     }
   );

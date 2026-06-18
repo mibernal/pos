@@ -4,7 +4,8 @@
     "baseUrl": ".",
     "paths": {
       "@pos-dian/shared": ["packages/shared/src/index.ts"],
-      "@pos-dian/shared/*": ["packages/shared/src/*"]
+      "@pos-dian/shared/*": ["packages/shared/src/*"],
+      "@pos-dian/api/*": ["apps/api/*"]
     }
   }
 }

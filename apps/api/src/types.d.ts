@@ -23,6 +23,7 @@ declare module 'fastify' {
 
   interface FastifyRequest {
     auth: AuthContext | null;
+    executeAsTenant: <T>(callback: (trx: import('kysely').Transaction<Database>) => Promise<T>) => Promise<T>;
   }
 }
 

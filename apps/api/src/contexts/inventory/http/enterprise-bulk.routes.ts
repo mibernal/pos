@@ -104,23 +104,25 @@ export const enterpriseBulkRoutes: FastifyPluginAsync = async (app) => {
 
       const jobId = randomUUID();
 
-      await app.db
-        .insertInto('bulk_import_jobs')
-        .values({
-          id: jobId,
-          tenant_id: tenantId!,
-          user_id: userId,
-          file_name: fileName,
-          status: 'PENDING',
-          total_rows: rawRows.length,
-          valid_rows: validRows.length,
-          invalid_rows: errors.length,
-          processed_rows: 0,
-          payload_json: JSON.stringify(validRows) as any, // eslint-disable-line @typescript-eslint/no-explicit-any
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          errors_json: JSON.stringify(errors.slice(0, 100)) as any // Store max 100 errors to save space
-        })
-        .execute();
+      await request.executeAsTenant(async (trx) => {
+        await trx
+          .insertInto('bulk_import_jobs')
+          .values({
+            id: jobId,
+            tenant_id: tenantId!,
+            user_id: userId,
+            file_name: fileName,
+            status: 'PENDING',
+            total_rows: rawRows.length,
+            valid_rows: validRows.length,
+            invalid_rows: errors.length,
+            processed_rows: 0,
+            payload_json: JSON.stringify(validRows) as any, // eslint-disable-line @typescript-eslint/no-explicit-any
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            errors_json: JSON.stringify(errors.slice(0, 100)) as any // Store max 100 errors to save space
+          })
+          .execute();
+      });
 
       return reply.code(200).send({
         jobId,
@@ -155,26 +157,28 @@ export const enterpriseBulkRoutes: FastifyPluginAsync = async (app) => {
       const { branchId } = request.body;
       const tenantId = request.auth!.tenantId!;
 
-      const job = await app.db
-        .selectFrom('bulk_import_jobs')
-        .select(['id', 'status'])
-        .where('id', '=', jobId)
-        .where('tenant_id', '=', tenantId)
-        .executeTakeFirst();
+      await request.executeAsTenant(async (trx) => {
+        const job = await trx
+          .selectFrom('bulk_import_jobs')
+          .select(['id', 'status'])
+          .where('id', '=', jobId)
+          .where('tenant_id', '=', tenantId)
+          .executeTakeFirst();
 
-      if (!job) {
-        throw new AppError(404, 'JOB_NOT_FOUND', 'El trabajo de importación no existe');
-      }
+        if (!job) {
+          throw new AppError(404, 'JOB_NOT_FOUND', 'El trabajo de importación no existe');
+        }
 
-      if (job.status !== 'PENDING') {
-        throw new AppError(400, 'INVALID_STATE', `El trabajo no está en estado PENDING (actual: ${job.status})`);
-      }
+        if (job.status !== 'PENDING') {
+          throw new AppError(400, 'INVALID_STATE', `El trabajo no está en estado PENDING (actual: ${job.status})`);
+        }
 
-      await app.db
-        .updateTable('bulk_import_jobs')
-        .set({ status: 'QUEUED' })
-        .where('id', '=', jobId)
-        .execute();
+        await trx
+          .updateTable('bulk_import_jobs')
+          .set({ status: 'QUEUED' })
+          .where('id', '=', jobId)
+          .execute();
+      });
 
       await app.bulkImportQueue.add('process-bulk-import', {
         jobId,
@@ -204,15 +208,17 @@ export const enterpriseBulkRoutes: FastifyPluginAsync = async (app) => {
       const { jobId } = request.params;
       const tenantId = request.auth!.tenantId!;
 
-      const job = await app.db
-        .selectFrom('bulk_import_jobs')
-        .select([
-          'id', 'status', 'file_name', 'total_rows', 'valid_rows', 
-          'invalid_rows', 'processed_rows', 'created_at', 'completed_at', 'errors_json'
-        ])
-        .where('id', '=', jobId)
-        .where('tenant_id', '=', tenantId)
-        .executeTakeFirst();
+      const job = await request.executeAsTenant(async (trx) => {
+        return await trx
+          .selectFrom('bulk_import_jobs')
+          .select([
+            'id', 'status', 'file_name', 'total_rows', 'valid_rows', 
+            'invalid_rows', 'processed_rows', 'created_at', 'completed_at', 'errors_json'
+          ])
+          .where('id', '=', jobId)
+          .where('tenant_id', '=', tenantId)
+          .executeTakeFirst();
+      });
 
       if (!job) {
         throw new AppError(404, 'JOB_NOT_FOUND', 'El trabajo de importación no existe');

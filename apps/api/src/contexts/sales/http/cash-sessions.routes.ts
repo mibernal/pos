@@ -74,11 +74,11 @@ function mapCashSession(
 }
 
 async function assertTerminalBelongsToTenant(
-  app: Parameters<FastifyPluginAsync>[0],
+  trx: any,
   tenantId: string,
   terminalId: string
 ): Promise<void> {
-  const terminal = await app.db
+  const terminal = await trx
     .selectFrom('terminals')
     .select('id')
     .where('tenant_id', '=', tenantId)
@@ -120,10 +120,12 @@ export const cashSessionsRoutes: FastifyPluginAsync = async (app) => {
 
       const payload = openCashSessionBodySchema.parse(request.body);
 
-      ensureUserCanAccessBranch(request.auth, payload.branch_id);
-      await assertTerminalBelongsToTenant(app, request.auth!.tenantId!, payload.terminal_id);
+      ensureUserCanAccessBranch(request.auth!, payload.branch_id);
 
-      const existingOpenSession = await app.db
+      return await request.executeAsTenant(async (trx) => {
+      await assertTerminalBelongsToTenant(trx, request.auth!.tenantId!, payload.terminal_id);
+
+      const existingOpenSession = await trx
         .selectFrom('cash_sessions')
         .select('id')
         .where('tenant_id', '=', request.auth!.tenantId!)
@@ -141,7 +143,7 @@ export const cashSessionsRoutes: FastifyPluginAsync = async (app) => {
 
       let createdSession;
       try {
-        createdSession = await app.db.transaction().execute(async (trx) => {
+        createdSession = await (async () => {
           const insertedSession = await trx
             .insertInto('cash_sessions')
             .values({
@@ -193,7 +195,7 @@ export const cashSessionsRoutes: FastifyPluginAsync = async (app) => {
           });
 
           return insertedSession;
-        });
+        })();
       } catch (error) {
         if (isUniqueViolation(error)) {
           throw new AppError(
@@ -221,6 +223,7 @@ export const cashSessionsRoutes: FastifyPluginAsync = async (app) => {
       return reply.code(201).send({
         cash_session: mapCashSession(createdSession)
       });
+      });
     }
   );
 
@@ -243,7 +246,7 @@ export const cashSessionsRoutes: FastifyPluginAsync = async (app) => {
       const params = closeCashSessionParamsSchema.parse(request.params);
       const payload = auditCashSessionBodySchema.parse(request.body);
 
-      const result = await app.db.transaction().execute(async (trx) => {
+      const result = await request.executeAsTenant(async (trx) => {
         const currentSession = await trx
           .selectFrom('cash_sessions')
           .select([
@@ -264,7 +267,7 @@ export const cashSessionsRoutes: FastifyPluginAsync = async (app) => {
           throw new AppError(404, 'CASH_SESSION_NOT_FOUND', 'Sesión de caja no encontrada');
         }
 
-        ensureUserCanAccessBranch(request.auth, currentSession.branch_id);
+        ensureUserCanAccessBranch(request.auth!, currentSession.branch_id);
 
         if (currentSession.closed_at) {
           throw new AppError(409, 'CASH_SESSION_ALREADY_CLOSED', 'La sesión de caja ya está cerrada');
@@ -364,7 +367,7 @@ export const cashSessionsRoutes: FastifyPluginAsync = async (app) => {
       const params = closeCashSessionParamsSchema.parse(request.params);
       const payload = closeCashSessionBodySchema.parse(request.body);
 
-      const result = await app.db.transaction().execute(async (trx) => {
+      const result = await request.executeAsTenant(async (trx) => {
         const currentSession = await trx
           .selectFrom('cash_sessions')
           .select([
@@ -586,9 +589,11 @@ export const cashSessionsRoutes: FastifyPluginAsync = async (app) => {
       }
 
       const query = currentCashSessionQuerySchema.parse(request.query);
-      await assertTerminalBelongsToTenant(app, request.auth!.tenantId!, query.terminal_id);
+      
+      return await request.executeAsTenant(async (trx) => {
+      await assertTerminalBelongsToTenant(trx, request.auth!.tenantId!, query.terminal_id);
 
-      const currentSession = await app.db
+      const currentSession = await trx
         .selectFrom('cash_sessions')
         .select([
           'id',
@@ -613,6 +618,7 @@ export const cashSessionsRoutes: FastifyPluginAsync = async (app) => {
       return {
         cash_session: currentSession ? mapCashSession(currentSession) : null
       };
+      });
     }
   );
 
@@ -635,7 +641,7 @@ export const cashSessionsRoutes: FastifyPluginAsync = async (app) => {
       const params = closeCashSessionParamsSchema.parse(request.params);
       const payload = cashMovementBodySchema.parse(request.body);
 
-      const createdMovement = await app.db.transaction().execute(async (trx) => {
+      const createdMovement = await request.executeAsTenant(async (trx) => {
         const session = await trx
           .selectFrom('cash_sessions')
           .select(['id', 'closed_at', 'branch_id', 'opened_by_user_id', 'terminal_id'])
@@ -658,7 +664,7 @@ export const cashSessionsRoutes: FastifyPluginAsync = async (app) => {
           throw new AppError(400, 'SESSION_CLOSED', 'La sesión ya está cerrada');
         }
 
-        ensureUserCanAccessBranch(request.auth, session.branch_id);
+        ensureUserCanAccessBranch(request.auth!, session.branch_id);
 
         const movement = await trx
           .insertInto('cash_movements')
@@ -723,7 +729,7 @@ export const cashSessionsRoutes: FastifyPluginAsync = async (app) => {
       const params = closeCashSessionParamsSchema.parse(request.params);
       const payload = reconcileCashSessionBodySchema.parse(request.body);
 
-      const result = await app.db.transaction().execute(async (trx) => {
+      const result = await request.executeAsTenant(async (trx) => {
         const currentSession = await trx
           .selectFrom('cash_sessions')
           .select([
@@ -743,7 +749,7 @@ export const cashSessionsRoutes: FastifyPluginAsync = async (app) => {
           throw new AppError(404, 'CASH_SESSION_NOT_FOUND', 'Sesión de caja no encontrada');
         }
 
-        ensureUserCanAccessBranch(request.auth, currentSession.branch_id);
+        ensureUserCanAccessBranch(request.auth!, currentSession.branch_id);
 
         if (currentSession.status !== 'CLOSED') {
           throw new AppError(400, 'SESSION_NOT_CLOSED', 'La sesión debe estar cerrada para conciliarse');
@@ -793,7 +799,8 @@ export const cashSessionsRoutes: FastifyPluginAsync = async (app) => {
 
       const params = closeCashSessionParamsSchema.parse(request.params);
 
-      const session = await app.db
+      return await request.executeAsTenant(async (trx) => {
+      const session = await trx
         .selectFrom('cash_sessions')
         .select([
           'id', 'tenant_id', 'branch_id', 'terminal_id', 'opened_by_user_id',
@@ -808,9 +815,9 @@ export const cashSessionsRoutes: FastifyPluginAsync = async (app) => {
         throw new AppError(404, 'CASH_SESSION_NOT_FOUND', 'Sesión de caja no encontrada');
       }
 
-      ensureUserCanAccessBranch(request.auth, session.branch_id);
+      ensureUserCanAccessBranch(request.auth!, session.branch_id);
 
-      const salePayments = await app.db
+      const salePayments = await trx
         .selectFrom('sales')
         .select(['payment_json', 'total_cents'])
         .where('tenant_id', '=', request.auth!.tenantId!)
@@ -819,7 +826,7 @@ export const cashSessionsRoutes: FastifyPluginAsync = async (app) => {
         .where('status', '=', 'COMPLETED')
         .execute();
 
-      const cashMovements = await app.db
+      const cashMovements = await trx
         .selectFrom('cash_movements')
         .select(['type', 'amount_cents'])
         .where('tenant_id', '=', request.auth!.tenantId!)
@@ -867,6 +874,7 @@ export const cashSessionsRoutes: FastifyPluginAsync = async (app) => {
             return acc;
           }, { in: 0, out: 0 })
         }
+      });
       });
     }
   );

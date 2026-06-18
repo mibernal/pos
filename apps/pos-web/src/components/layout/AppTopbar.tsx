@@ -11,6 +11,7 @@ export function AppTopbar({
   onNavigate,
   onOpenDianConfig,
   onOpenTicketTemplate,
+  onOpenSetPin,
   onOpenCashMovements,
   onCloseRegister,
   onSyncPendingSales,
@@ -28,6 +29,7 @@ export function AppTopbar({
   onNavigate: (route: AppRoute) => void;
   onOpenDianConfig: () => void;
   onOpenTicketTemplate: () => void;
+  onOpenSetPin: () => void;
   onOpenCashMovements: () => void;
   onCloseRegister: () => void;
   onSyncPendingSales: () => void;
@@ -90,9 +92,14 @@ export function AppTopbar({
 
         <div className="topbar-actions" style={{ display: 'flex', gap: '0.5rem' }}>
           {!session.user.isPlatformRole && ['ADMIN', 'TENANT_OWNER', 'MANAGER'].includes(session.user.role) && (
-            <button className="ghost-button" onClick={onOpenTicketTemplate} title="Configuración de negocio">
-              ⚙️
-            </button>
+            <>
+              <button className="ghost-button" onClick={onOpenSetPin} title="Configurar PIN de Aprobación">
+                🔑
+              </button>
+              <button className="ghost-button" onClick={onOpenTicketTemplate} title="Configuración de negocio">
+                ⚙️
+              </button>
+            </>
           )}
           {!session.user.isPlatformRole && ['ADMIN', 'TENANT_OWNER'].includes(session.user.role) && (
             <button className="ghost-button" onClick={onOpenDianConfig} title="Configuración DIAN">

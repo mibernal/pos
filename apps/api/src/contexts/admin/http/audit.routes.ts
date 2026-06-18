@@ -26,7 +26,8 @@ export const auditRoutes: FastifyPluginAsync = async (app) => {
       const { tenantId } = request.auth!;
       const query = request.query;
 
-      let q = app.db
+      return await request.executeAsTenant(async (trx) => {
+      let q = trx
         .selectFrom('audit_logs')
         .where('tenant_id', '=', tenantId)
         .leftJoin('users', 'users.id', 'audit_logs.user_id')
@@ -56,10 +57,10 @@ export const auditRoutes: FastifyPluginAsync = async (app) => {
         .execute();
 
       // Total count (approx or accurate depending on partition sizes, here we do accurate for simplicity assuming filters)
-      let countQ = app.db
+      let countQ = trx
         .selectFrom('audit_logs')
         .where('tenant_id', '=', tenantId)
-        .select(app.db.fn.count<number>('id').as('count'));
+        .select(trx.fn.count<number>('id').as('count'));
       
       if (query.branch_id) countQ = countQ.where('branch_id', '=', query.branch_id);
       if (query.user_id) countQ = countQ.where('user_id', '=', query.user_id);
@@ -72,6 +73,7 @@ export const auditRoutes: FastifyPluginAsync = async (app) => {
         items,
         total: Number(totalResult?.count || 0)
       };
+      });
     }
   );
 
@@ -91,7 +93,8 @@ export const auditRoutes: FastifyPluginAsync = async (app) => {
       const { tenantId } = request.auth!;
       const { correlation_id } = request.params;
 
-      const items = await app.db
+      return await request.executeAsTenant(async (trx) => {
+      const items = await trx
         .selectFrom('audit_logs')
         .where('tenant_id', '=', tenantId)
         .where('correlation_id', '=', correlation_id)
@@ -116,6 +119,7 @@ export const auditRoutes: FastifyPluginAsync = async (app) => {
         correlation_id,
         items
       };
+      });
     }
   );
 };

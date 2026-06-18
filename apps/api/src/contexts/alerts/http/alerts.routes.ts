@@ -24,38 +24,34 @@ export const alertsRoutes: FastifyPluginAsync = async (app) => {
         stream.writeEvent(alertData);
       };
 
-      // Since we don't have Redis configured yet for PubSub, we will simulate SSE push
-      // by periodically checking for new UNREAD alerts, or ideally, we'd hook into an EventEmitter.
-      // For a robust implementation we need PG-Listen or Redis. We will poll DB as a fallback for now.
-      // Optimization: Only poll every 5s if active.
       let lastCheck = new Date();
       
       const pollAlerts = async () => {
         if (!stream.isActive()) return;
         try {
-          // Find alerts created after lastCheck
-          let query = app.db
-            .selectFrom('tenant_alerts')
-            .where('tenant_id', '=', request.auth!.tenantId!)
-            .where('status', '=', 'UNREAD')
-            .where('created_at', '>', lastCheck);
-            
-          // If manager, filter by branches they can access
-          if (request.auth!.role !== 'ADMIN' && request.auth!.role !== 'TENANT_OWNER' && !request.auth!.isPlatformRole) {
-             query = query.where((eb) => 
-               eb.or([
-                 eb('branch_id', 'is', null),
-                 eb('branch_id', 'in', request.auth!.branchIds)
-               ])
-             );
-          }
+          await request.executeAsTenant(async (trx) => {
+            let query = trx
+              .selectFrom('tenant_alerts')
+              .where('status', '=', 'UNREAD')
+              .where('created_at', '>', lastCheck);
+              
+            // If manager, filter by branches they can access
+            if (request.auth!.role !== 'ADMIN' && request.auth!.role !== 'TENANT_OWNER' && !request.auth!.isPlatformRole) {
+               query = query.where((eb) => 
+                 eb.or([
+                   eb('branch_id', 'is', null),
+                   eb('branch_id', 'in', request.auth!.branchIds)
+                 ])
+               );
+            }
 
-          const newAlerts = await query.selectAll().execute();
-          lastCheck = new Date();
+            const newAlerts = await query.selectAll().execute();
+            lastCheck = new Date();
 
-          for (const alert of newAlerts) {
-            pushAlert(alert);
-          }
+            for (const alert of newAlerts) {
+              pushAlert(alert);
+            }
+          });
         } catch (err) {
           app.log.error(err, 'Alert polling error');
         }
@@ -85,41 +81,41 @@ export const alertsRoutes: FastifyPluginAsync = async (app) => {
       
       const { status, severity, limit, offset, branch_id } = request.query;
 
-      let query = app.db
-        .selectFrom('tenant_alerts')
-        .where('tenant_id', '=', request.auth!.tenantId!);
+      return await request.executeAsTenant(async (trx) => {
+        let query = trx.selectFrom('tenant_alerts');
 
-      if (status) query = query.where('status', '=', status);
-      if (severity) query = query.where('severity', '=', severity);
-      
-      if (branch_id) {
-         if (!request.auth.branchIds.includes(branch_id as string) && request.auth.role !== 'ADMIN' && request.auth.role !== 'TENANT_OWNER' && !request.auth.isPlatformRole) {
-            throw new AppError(403, 'FORBIDDEN', 'No autorizado para ver alertas de esta sucursal');
-         }
-         query = query.where('branch_id', '=', branch_id as string);
-      } else if (request.auth.role !== 'ADMIN' && request.auth.role !== 'TENANT_OWNER' && !request.auth.isPlatformRole) {
-         query = query.where((eb) => 
-           eb.or([
-             eb('branch_id', 'is', null),
-             eb('branch_id', 'in', request.auth!.branchIds)
-           ])
-         );
-      }
+        if (status) query = query.where('status', '=', status);
+        if (severity) query = query.where('severity', '=', severity);
+        
+        if (branch_id) {
+           if (!request.auth!.branchIds.includes(branch_id as string) && request.auth!.role !== 'ADMIN' && request.auth!.role !== 'TENANT_OWNER' && !request.auth!.isPlatformRole) {
+              throw new AppError(403, 'FORBIDDEN', 'No autorizado para ver alertas de esta sucursal');
+           }
+           query = query.where('branch_id', '=', branch_id as string);
+        } else if (request.auth!.role !== 'ADMIN' && request.auth!.role !== 'TENANT_OWNER' && !request.auth!.isPlatformRole) {
+           query = query.where((eb) => 
+             eb.or([
+               eb('branch_id', 'is', null),
+               eb('branch_id', 'in', request.auth!.branchIds)
+             ])
+           );
+        }
 
-      const rows = await query
-        .selectAll()
-        .orderBy('created_at', 'desc')
-        .limit(limit)
-        .offset(offset)
-        .execute();
+        const rows = await query
+          .selectAll()
+          .orderBy('created_at', 'desc')
+          .limit(limit)
+          .offset(offset)
+          .execute();
 
-      return {
-        items: rows.map(r => ({
-          ...r,
-          created_at: r.created_at.toISOString(),
-          resolved_at: r.resolved_at?.toISOString() ?? null
-        }))
-      };
+        return {
+          items: rows.map(r => ({
+            ...r,
+            created_at: r.created_at.toISOString(),
+            resolved_at: r.resolved_at?.toISOString() ?? null
+          }))
+        };
+      });
     }
   );
 
@@ -138,38 +134,40 @@ export const alertsRoutes: FastifyPluginAsync = async (app) => {
       if (!request.auth) throw new AppError(401, 'UNAUTHORIZED', 'No autorizado');
       const alertId = (request.params as { id: string }).id;
       
-      const alert = await app.db
-        .selectFrom('tenant_alerts')
-        .where('id', '=', alertId)
-        .where('tenant_id', '=', request.auth!.tenantId!)
-        .selectAll()
-        .executeTakeFirst();
+      return await request.executeAsTenant(async (trx) => {
+        const alert = await trx
+          .selectFrom('tenant_alerts')
+          .where('id', '=', alertId)
+          .selectAll()
+          .executeTakeFirst();
 
-      if (!alert) throw new AppError(404, 'NOT_FOUND', 'Alerta no encontrada');
+        if (!alert) throw new AppError(404, 'NOT_FOUND', 'Alerta no encontrada');
 
-      if (alert.branch_id && request.auth.role !== 'ADMIN' && request.auth.role !== 'TENANT_OWNER' && !request.auth.isPlatformRole && !request.auth.branchIds.includes(alert.branch_id)) {
-         throw new AppError(403, 'FORBIDDEN', 'No tienes permiso para resolver esta alerta');
-      }
+        if (alert.branch_id && request.auth!.role !== 'ADMIN' && request.auth!.role !== 'TENANT_OWNER' && !request.auth!.isPlatformRole && !request.auth!.branchIds.includes(alert.branch_id)) {
+           throw new AppError(403, 'FORBIDDEN', 'No tienes permiso para resolver esta alerta');
+        }
 
-      const updated = await app.db
-        .updateTable('tenant_alerts')
-        .set({
-          status: 'RESOLVED',
-          resolved_at: new Date(),
-          resolved_by_user_id: request.auth.userId,
-          metadata: request.body.resolution_notes 
-             ? sql`metadata || ${JSON.stringify({ resolution_notes: request.body.resolution_notes })}::jsonb`
-             : undefined
-        })
-        .where('id', '=', alertId)
-        .returningAll()
-        .executeTakeFirstOrThrow();
+        const updated = await trx
+          .updateTable('tenant_alerts')
+          .set({
+            status: 'RESOLVED',
+            resolved_at: new Date(),
+            resolved_by_user_id: request.auth!.userId,
+            metadata: request.body.resolution_notes 
+               ? sql`metadata || ${JSON.stringify({ resolution_notes: request.body.resolution_notes })}::jsonb`
+               : undefined
+          })
+          .where('id', '=', alertId)
+          .returningAll()
+          .executeTakeFirstOrThrow();
 
-      return {
-          ...updated,
-          created_at: updated.created_at.toISOString(),
-          resolved_at: updated.resolved_at?.toISOString() ?? null
-      };
+        return {
+            ...updated,
+            created_at: updated.created_at.toISOString(),
+            resolved_at: updated.resolved_at?.toISOString() ?? null
+        };
+      });
     }
   );
 };
+

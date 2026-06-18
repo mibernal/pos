@@ -70,6 +70,7 @@ export interface UsersTable {
   tenant_id: string | null;
   email: string;
   password_hash: string;
+  pin_hash: string | null;
   name: string;
   role: UserRole;
   active: Generated<boolean>;
@@ -596,6 +597,16 @@ export interface TenantSubscriptionsTable {
   starts_at: Date | null;
   expires_at: Date | null;
   trial_ends_at: Date | null;
+  retry_count: Generated<number>;
+  max_retries: Generated<number>;
+  next_billing_at: Date | null;
+  last_payment_attempt_at: Date | null;
+  grace_period_days: Generated<number>;
+  suspended_at: Date | null;
+  cancelled_at: Date | null;
+  cancellation_reason: string | null;
+  payment_method_token: string | null;
+  auto_renew: Generated<boolean>;
   created_at: Generated<Date>;
   updated_at: Generated<Date>;
 }
@@ -622,12 +633,15 @@ export interface SubscriptionEventsTable {
 export interface PaymentTransactionsTable {
   id: string;
   tenant_id: string;
+  subscription_id: string | null;
   amount_cents: number;
   currency: Generated<string>;
   gateway: string;
   gateway_transaction_id: string | null;
   gateway_reference: string;
   status: string;
+  attempt_number: Generated<number>;
+  idempotency_key: string | null;
   metadata_json: NullableJsonColumn;
   created_at: Generated<Date>;
   updated_at: Generated<Date>;

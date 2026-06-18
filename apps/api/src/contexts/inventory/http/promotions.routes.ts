@@ -26,7 +26,8 @@ export const promotionsRoutes: FastifyPluginAsync = async (app) => {
       if (!request.auth) throw new AppError(401, 'UNAUTHORIZED', 'No autorizado');
       const { product_id, active } = request.query;
 
-      let query = app.db
+      return await request.executeAsTenant(async (trx) => {
+      let query = trx
         .selectFrom('promotions')
         .where('tenant_id', '=', request.auth!.tenantId!);
 
@@ -52,6 +53,7 @@ export const promotionsRoutes: FastifyPluginAsync = async (app) => {
           updated_at: r.updated_at.toISOString(),
         }))
       };
+      });
     }
   );
 
@@ -70,8 +72,9 @@ export const promotionsRoutes: FastifyPluginAsync = async (app) => {
       
       const payload = request.body;
 
+      return await request.executeAsTenant(async (trx) => {
       // Verify product exists and belongs to tenant
-      const product = await app.db
+      const product = await trx
         .selectFrom('products')
         .select('id')
         .where('id', '=', payload.product_id)
@@ -84,7 +87,7 @@ export const promotionsRoutes: FastifyPluginAsync = async (app) => {
 
       const id = randomUUID();
 
-      const newPromo = await app.db
+      const newPromo = await trx
         .insertInto('promotions')
         .values({
           id,
@@ -107,6 +110,7 @@ export const promotionsRoutes: FastifyPluginAsync = async (app) => {
         end_date: newPromo.end_date?.toISOString() ?? null,
         created_at: newPromo.created_at.toISOString(),
         updated_at: newPromo.updated_at.toISOString(),
+      });
       });
     }
   );
@@ -135,7 +139,8 @@ export const promotionsRoutes: FastifyPluginAsync = async (app) => {
       if (payload.start_date) values.start_date = new Date(payload.start_date);
       if (payload.end_date !== undefined) values.end_date = payload.end_date ? new Date(payload.end_date) : null;
 
-      const updated = await app.db
+      return await request.executeAsTenant(async (trx) => {
+      const updated = await trx
         .updateTable('promotions')
         .set(values)
         .where('id', '=', id)
@@ -154,6 +159,7 @@ export const promotionsRoutes: FastifyPluginAsync = async (app) => {
         created_at: updated.created_at.toISOString(),
         updated_at: updated.updated_at.toISOString(),
       };
+      });
     }
   );
 
@@ -171,8 +177,9 @@ export const promotionsRoutes: FastifyPluginAsync = async (app) => {
       
       const { id } = request.params as { id: string };
 
+      return await request.executeAsTenant(async (trx) => {
       // Soft delete: set active = false
-      const deactivated = await app.db
+      const deactivated = await trx
         .updateTable('promotions')
         .set({ active: false, updated_at: new Date() })
         .where('id', '=', id)
@@ -185,6 +192,7 @@ export const promotionsRoutes: FastifyPluginAsync = async (app) => {
       }
 
       return reply.code(200).send({ success: true });
+      });
     }
   );
 };

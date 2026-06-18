@@ -63,12 +63,14 @@ export const productsRoutes: FastifyPluginAsync = async (app) => {
         throw new AppError(401, 'AUTH_UNAUTHORIZED', 'No autorizado');
       }
 
+      return await request.executeAsTenant(async (trx) => {
+
       const { query, limit } = productsQuerySchema.parse(request.query);
       const headers = branchHeaderSchema.parse(request.headers);
       const branchId = normalizeBranchHeader(headers['x-branch-id']);
       const searchPattern = buildSearchPattern(query);
 
-      let queryBuilder = app.db
+      let queryBuilder = trx
         .selectFrom('products')
         .leftJoin('product_images', (join) =>
           join
@@ -116,7 +118,7 @@ export const productsRoutes: FastifyPluginAsync = async (app) => {
       if (productRows.length > 0) {
         const productIds = productRows.map(r => r.id);
         
-        const variants = await app.db
+        const variants = await trx
           .selectFrom('product_variants')
           .select(['id', 'product_id', 'name', 'price_cents', 'barcode', 'active'])
           .where('product_id', 'in', productIds)
@@ -135,7 +137,7 @@ export const productsRoutes: FastifyPluginAsync = async (app) => {
           });
         });
 
-        const activePromotions = await app.db
+        const activePromotions = await trx
           .selectFrom('promotions')
           .selectAll()
           .where('product_id', 'in', productIds)
@@ -183,6 +185,7 @@ export const productsRoutes: FastifyPluginAsync = async (app) => {
           hasMore
         }
       };
+      });
     }
   );
 
@@ -202,6 +205,8 @@ export const productsRoutes: FastifyPluginAsync = async (app) => {
         throw new AppError(401, 'AUTH_UNAUTHORIZED', 'No autorizado');
       }
 
+      return await request.executeAsTenant(async (trx) => {
+
       const headers = branchHeaderSchema.parse(request.headers);
       const branchIdFromHeader = normalizeBranchHeader(headers['x-branch-id']);
       const payload = createProductBodySchema.parse(request.body);
@@ -209,15 +214,15 @@ export const productsRoutes: FastifyPluginAsync = async (app) => {
       const resolvedBranchId = resolveBranchIdForCreate(branchIdFromHeader, payload.branchId);
 
       if (resolvedBranchId) {
-        await ensureBranchBelongsToTenant(app.db, request.auth.tenantId!, resolvedBranchId);
-        ensureUserCanAccessBranch(request.auth, resolvedBranchId);
+        await ensureBranchBelongsToTenant(trx as any, request.auth!.tenantId!, resolvedBranchId);
+        ensureUserCanAccessBranch(request.auth!, resolvedBranchId);
       }
 
-      const createdProduct = await app.db
+      const createdProduct = await trx
         .insertInto('products')
         .values({
           id: randomUUID(),
-          tenant_id: request.auth.tenantId!,
+          tenant_id: request.auth!.tenantId!,
           branch_id: resolvedBranchId,
           name: payload.name,
           category: payload.category,
@@ -261,6 +266,7 @@ export const productsRoutes: FastifyPluginAsync = async (app) => {
         createdAt: createdProduct.created_at.toISOString(),
         updatedAt: createdProduct.updated_at.toISOString()
       });
+      });
     }
   );
 
@@ -281,6 +287,8 @@ export const productsRoutes: FastifyPluginAsync = async (app) => {
         throw new AppError(401, 'AUTH_UNAUTHORIZED', 'No autorizado');
       }
 
+      return await request.executeAsTenant(async (trxParent) => {
+
       const headers = branchHeaderSchema.parse(request.headers);
       const params = patchProductParamsSchema.parse(request.params);
       const payload = patchProductBodySchema.parse(request.body);
@@ -289,7 +297,7 @@ export const productsRoutes: FastifyPluginAsync = async (app) => {
         throw new AppError(400, 'VALIDATION_ERROR', 'Debes enviar al menos un campo');
       }
 
-      const updatedProduct = await app.db.transaction().execute(async (trx) => {
+      const updatedProduct = await trxParent.transaction().execute(async (trx) => {
         const currentProduct = await trx
           .selectFrom('products')
           .select([
@@ -326,8 +334,8 @@ export const productsRoutes: FastifyPluginAsync = async (app) => {
         );
 
         if (resolvedBranchId) {
-          await ensureBranchBelongsToTenant(trx, request.auth!.tenantId!, resolvedBranchId);
-          ensureUserCanAccessBranch(request.auth, resolvedBranchId);
+          await ensureBranchBelongsToTenant(trx as any, request.auth!.tenantId!, resolvedBranchId);
+          ensureUserCanAccessBranch(request.auth!, resolvedBranchId);
         }
 
         const nextProduct = await trx
@@ -426,6 +434,7 @@ export const productsRoutes: FastifyPluginAsync = async (app) => {
         createdAt: updatedProduct.created_at.toISOString(),
         updatedAt: updatedProduct.updated_at.toISOString()
       };
+      });
     }
   );
 
@@ -445,11 +454,13 @@ export const productsRoutes: FastifyPluginAsync = async (app) => {
         throw new AppError(401, 'AUTH_UNAUTHORIZED', 'No autorizado');
       }
 
+      return await request.executeAsTenant(async (trx) => {
+
       const headers = branchHeaderSchema.parse(request.headers);
       const params = patchProductParamsSchema.parse(request.params);
       const branchIdFromHeader = normalizeBranchHeader(headers['x-branch-id']);
 
-      const currentProduct = await app.db
+      const currentProduct = await trx
         .selectFrom('products')
         .select(['id', 'tenant_id', 'branch_id', 'active'])
         .where('tenant_id', '=', request.auth!.tenantId!)
@@ -464,7 +475,7 @@ export const productsRoutes: FastifyPluginAsync = async (app) => {
         ensureUserCanAccessBranch(request.auth, currentProduct.branch_id);
       }
 
-      const updatedProduct = await app.db
+      const updatedProduct = await trx
         .updateTable('products')
         .set({
           active: !currentProduct.active
@@ -503,6 +514,7 @@ export const productsRoutes: FastifyPluginAsync = async (app) => {
         createdAt: updatedProduct.created_at.toISOString(),
         updatedAt: updatedProduct.updated_at.toISOString()
       };
+      });
     }
   );
 
@@ -521,8 +533,9 @@ export const productsRoutes: FastifyPluginAsync = async (app) => {
     async (request) => {
       if (!request.auth) throw new AppError(401, 'AUTH_UNAUTHORIZED', 'No autorizado');
 
-      const images = await app.db
-        .selectFrom('product_images')
+      return await request.executeAsTenant(async (trx) => {
+        const images = await trx
+          .selectFrom('product_images')
         .select(['id', 'product_id', 'filename', 'is_primary', 'created_at', 'width', 'height', 'size_bytes'])
         .where('tenant_id', '=', request.auth!.tenantId!)
         .where('product_id', '=', request.params.id)
@@ -541,6 +554,7 @@ export const productsRoutes: FastifyPluginAsync = async (app) => {
         url: `/api/v1/products/images/${img.id}`,
         createdAt: img.created_at.toISOString()
       }));
+      });
     }
   );
 
@@ -563,21 +577,23 @@ export const productsRoutes: FastifyPluginAsync = async (app) => {
       }
 
       const buffer = await data.toBuffer();
-      const image = await processAndUploadProductImage(
-        app.db,
-        request.auth.tenantId!,
-        request.params.id,
-        request.auth.userId,
-        buffer,
-        data.filename
-      );
+      return await request.executeAsTenant(async (trx) => {
+        const image = await processAndUploadProductImage(
+          trx as any,
+          request.auth!.tenantId!,
+          request.params.id,
+          request.auth!.userId,
+          buffer,
+          data.filename
+        );
 
-      return reply.code(201).send({
+        return reply.code(201).send({
         id: image.id,
         productId: image.product_id,
         filename: image.filename,
         isPrimary: image.is_primary,
         url: `/api/v1/products/images/${image.id}`
+        });
       });
     }
   );
@@ -631,15 +647,17 @@ export const productsRoutes: FastifyPluginAsync = async (app) => {
     async (request, reply) => {
       if (!request.auth) throw new AppError(401, 'AUTH_UNAUTHORIZED', 'No autorizado');
 
-      await deleteProductImage(
-        app.db,
-        request.auth.tenantId!,
+      return await request.executeAsTenant(async (trx) => {
+        await deleteProductImage(
+          trx as any,
+          request.auth!.tenantId!,
         request.params.id,
         request.params.imageId,
-        request.auth.userId
+        request.auth!.userId
       );
 
-      return reply.code(204).send();
+        return reply.code(204).send();
+      });
     }
   );
 
@@ -656,15 +674,17 @@ export const productsRoutes: FastifyPluginAsync = async (app) => {
     async (request, reply) => {
       if (!request.auth) throw new AppError(401, 'AUTH_UNAUTHORIZED', 'No autorizado');
 
-      await setPrimaryProductImage(
-        app.db,
-        request.auth.tenantId!,
+      return await request.executeAsTenant(async (trx) => {
+        await setPrimaryProductImage(
+          trx as any,
+          request.auth!.tenantId!,
         request.params.id,
         request.params.imageId,
-        request.auth.userId
+        request.auth!.userId
       );
 
-      return reply.code(204).send();
+        return reply.code(204).send();
+      });
     }
   );
 };

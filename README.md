@@ -22,8 +22,9 @@ Este proyecto está construido como un monorepo administrado con `pnpm` workspac
 ## 🚀 Capacidades
 
 ### Core Operativo & SaaS
-- **SuperAdmin Control Center:** Gestión transversal de todos los Tenants, con capacidad del `PLATFORM_OWNER` para suspender/reactivar cuentas, cambiar planes y gestionar el CRUD de usuarios de cualquier Tenant sin salir de la plataforma.
-- **SaaS Billing & Subscriptions:** Control de planes prepago, integración con pasarelas de pago (Wompi, MercadoPago) vía webhooks y suspensión automática. Auto-gestión habilitada para roles `ADMIN`.
+- **SuperAdmin Control Center:** Gestión transversal de todos los Tenants, con capacidad del `PLATFORM_OWNER` para suspender/reactivar cuentas, cambiar planes y gestionar el CRUD de usuarios de cualquier Tenant sin salir de la plataforma. Dashboard optimizado con **Caché en Redis** (TTL y Patrones SCAN) para queries analíticos pesados de ARR, MRR y Growth.
+- **SaaS Billing & Subscriptions:** Control de planes prepago, integración con pasarelas de pago (Wompi, MercadoPago, Stripe) vía webhooks y suspensión automática administrada por un **RenewalEngine** de procesos en background.
+- **Notificaciones Centralizadas:** Servicio transaccional desacoplado utilizando patrón Strategy. Actualmente configurado con **Resend** para emails de bienvenida, cobranza y alertas de bajo stock (`StockLowEvent`).
 - **Multi-Tenant & Roles Granulares:** Cada negocio opera aislado lógicamente (PostgreSQL RLS). Roles: `PLATFORM_OWNER`, `PLATFORM_ADMIN`, `ADMIN`, `MANAGER`, `CASHIER`, `AUDITOR`.
 - **Fuerte Consistencia de Inventario:** Mix de *Optimistic Locking* (para ajustes manuales) y *Pessimistic Locking* (para ventas de alta frecuencia) garantizando que no haya sobreventas.
 - **Carga Masiva Enterprise:** Importación asíncrona de hasta 50k productos usando `BullMQ`, procesamiento en batch multipart y feedback en vivo.
@@ -54,9 +55,10 @@ Este proyecto está construido como un monorepo administrado con `pnpm` workspac
 - **Báscula Serial:** Integración con básculas por Web Serial API (baudRate 9600, compatible Mettler/CAS). Botón por ítem en el carrito.
 
 ### Observabilidad Distribuida
-- **OpenTelemetry SDK** instrumentado en `apps/api` (trazas HTTP, DB y métricas de negocio).
-- **Stack completo:** OpenTelemetry Collector → Prometheus → Grafana + Tempo (trazas) + Loki (logs).
-- **Métricas de negocio custom:** `pos.sales.count`, etc. exportadas vía OTLP.
+- **OpenTelemetry SDK** instrumentado nativamente en `apps/api`.
+- **Trazas de Negocio Semánticas:** Contexto profundo inyectado en flujos críticos (Ventas, Webhooks de Pagos, Renovaciones y Cargas Masivas de Inventario) usando `TracerHelper.withSpan()`. Propagación de trazas W3C habilitada en workers **BullMQ**.
+- **Stack completo (Local & Nube):** OpenTelemetry Collector → Prometheus → Grafana + Tempo (trazas) + Loki (logs).
+- **Métricas de negocio custom:** `pos.sales.count`, latencias y contadores DIAN exportadas vía OTLP.
 
 ---
 

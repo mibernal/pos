@@ -1,7 +1,7 @@
 import { FastifyPluginAsync } from 'fastify';
 import { z } from 'zod';
 import { ZodTypeProvider } from 'fastify-type-provider-zod';
-import { PlatformAdminRepository } from '../../infra/platform-admin.repository.js';
+import { CachedPlatformAdminRepository } from '../../infra/cached-platform-admin.repository.js';
 import { GetDashboardMetricsUseCase } from '../../application/metrics/get-dashboard-metrics.use-case.js';
 import { GetRecentActivityUseCase } from '../../application/metrics/get-recent-activity.use-case.js';
 import { GetGrowthMetricsUseCase } from '../../application/metrics/get-growth-metrics.use-case.js';
@@ -9,7 +9,7 @@ import { GetPlatformHealthUseCase } from '../../application/metrics/get-platform
 
 export const platformMetricsRoutes: FastifyPluginAsync = async (app) => {
   const typedApp = app.withTypeProvider<ZodTypeProvider>();
-  const repo = new PlatformAdminRepository(app.db);
+  const repo = new CachedPlatformAdminRepository(app.db, app.redis);
 
   typedApp.get('/platform/dashboard', {
     schema: {
@@ -53,7 +53,9 @@ export const platformMetricsRoutes: FastifyPluginAsync = async (app) => {
       summary: 'Aggregated platform health status'
     }
   }, async () => {
-    const useCase = new GetPlatformHealthUseCase();
+    // Cast `app` to any to access the dynamically decorated bulkImportQueue
+    const queue = (app as any).bulkImportQueue;
+    const useCase = new GetPlatformHealthUseCase(app.db, app.redis, queue);
     return useCase.execute();
   });
 

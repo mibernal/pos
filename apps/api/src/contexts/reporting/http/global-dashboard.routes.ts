@@ -25,8 +25,9 @@ export const globalDashboardRoutes: FastifyPluginAsync = async (app) => {
       const todayStart = new Date();
       todayStart.setHours(0, 0, 0, 0);
 
+      return await request.executeAsTenant(async (trx) => {
       // Top-Level KPIs
-      let todaySalesQuery = app.db
+      let todaySalesQuery = trx
         .selectFrom('daily_branch_sales_rollup')
         .where('tenant_id', '=', tenantId)
         .where('date', '=', todayStr as any); // eslint-disable-line @typescript-eslint/no-explicit-any
@@ -43,7 +44,7 @@ export const globalDashboardRoutes: FastifyPluginAsync = async (app) => {
         ])
         .executeTakeFirst();
 
-      let valuationQuery = app.db
+      let valuationQuery = trx
         .selectFrom('inventory_valuation_snapshot')
         .where('tenant_id', '=', tenantId);
 
@@ -62,7 +63,7 @@ export const globalDashboardRoutes: FastifyPluginAsync = async (app) => {
         .executeTakeFirst();
 
       // Branch Health (Open sessions, discrepancies)
-      let openSessionsQuery = app.db
+      let openSessionsQuery = trx
         .selectFrom('cash_sessions')
         .where('tenant_id', '=', tenantId)
         .where('status', '=', 'OPEN');
@@ -75,7 +76,7 @@ export const globalDashboardRoutes: FastifyPluginAsync = async (app) => {
         .select([sql<number>`COUNT(*)`.as('open_sessions_count')])
         .executeTakeFirst();
 
-      let closedSessionsTodayQuery = app.db
+      let closedSessionsTodayQuery = trx
         .selectFrom('cash_sessions')
         .where('tenant_id', '=', tenantId)
         .where('status', '=', 'CLOSED')
@@ -90,7 +91,7 @@ export const globalDashboardRoutes: FastifyPluginAsync = async (app) => {
         .executeTakeFirst();
 
       // Top Branches Today
-      let topBranchesQuery = app.db
+      let topBranchesQuery = trx
         .selectFrom('daily_branch_sales_rollup as r')
         .innerJoin('branches as b', 'b.id', 'r.branch_id')
         .where('r.tenant_id', '=', tenantId)
@@ -123,6 +124,7 @@ export const globalDashboardRoutes: FastifyPluginAsync = async (app) => {
           sales_count: b.sales_count
         }))
       };
+      });
     }
   );
 
@@ -150,8 +152,8 @@ export const globalDashboardRoutes: FastifyPluginAsync = async (app) => {
       const sendDashboardData = async () => {
         if (!stream.isActive()) return;
         try {
-          // Top-Level KPIs
-          let todaySalesQuery = app.db
+          await request.executeAsTenant(async (trx) => {
+          let todaySalesQuery = trx
             .selectFrom('daily_branch_sales_rollup')
             .where('tenant_id', '=', tenantId)
             .where('date', '=', todayStr as any); // eslint-disable-line @typescript-eslint/no-explicit-any
@@ -168,7 +170,7 @@ export const globalDashboardRoutes: FastifyPluginAsync = async (app) => {
             ])
             .executeTakeFirst();
 
-          let valuationQuery = app.db
+          let valuationQuery = trx
             .selectFrom('inventory_valuation_snapshot')
             .where('tenant_id', '=', tenantId);
 
@@ -187,7 +189,7 @@ export const globalDashboardRoutes: FastifyPluginAsync = async (app) => {
             .executeTakeFirst();
 
           // Branch Health (Open sessions, discrepancies)
-          let openSessionsQuery = app.db
+          let openSessionsQuery = trx
             .selectFrom('cash_sessions')
             .where('tenant_id', '=', tenantId)
             .where('status', '=', 'OPEN');
@@ -200,7 +202,7 @@ export const globalDashboardRoutes: FastifyPluginAsync = async (app) => {
             .select([sql<number>`COUNT(*)`.as('open_sessions_count')])
             .executeTakeFirst();
 
-          let closedSessionsTodayQuery = app.db
+          let closedSessionsTodayQuery = trx
             .selectFrom('cash_sessions')
             .where('tenant_id', '=', tenantId)
             .where('status', '=', 'CLOSED')
@@ -215,7 +217,7 @@ export const globalDashboardRoutes: FastifyPluginAsync = async (app) => {
             .executeTakeFirst();
 
           // Top Branches Today
-          let topBranchesQuery = app.db
+          let topBranchesQuery = trx
             .selectFrom('daily_branch_sales_rollup as r')
             .innerJoin('branches as b', 'b.id', 'r.branch_id')
             .where('r.tenant_id', '=', tenantId)
@@ -250,6 +252,7 @@ export const globalDashboardRoutes: FastifyPluginAsync = async (app) => {
           };
 
           stream.writeEvent(data);
+          });
         } catch (error) {
           console.error('Error generating dashboard stream data:', error);
         }
@@ -275,8 +278,9 @@ export const globalDashboardRoutes: FastifyPluginAsync = async (app) => {
       if (!request.auth) throw new AppError(401, 'UNAUTHORIZED', 'No autorizado');
       const { tenantId } = request.auth;
 
+      return await request.executeAsTenant(async (trx) => {
       // Outbox Status
-      const outboxStats = await app.db
+      const outboxStats = await trx
         .selectFrom('outbox_events')
         .where('tenant_id', '=', tenantId)
         .select([
@@ -295,6 +299,7 @@ export const globalDashboardRoutes: FastifyPluginAsync = async (app) => {
           status: 'HEALTHY' // In a real scenario, check heartbeat table
         }
       };
+      });
     }
   );
 };

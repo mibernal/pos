@@ -8,6 +8,8 @@ import { ensureUserCanAccessBranch } from '../../../shared/infra/security/permis
 import { writeAuditLog } from '../../../shared/domain/audit/write-audit-log.js';
 import { randomUUID } from 'node:crypto';
 import { normalizeBranchHeader } from '../services/products/scope.js';
+import { TracerHelper } from '../../../shared/infra/tracing/Tracer.js';
+import { SemanticAttributes } from '../../../shared/infra/tracing/SemanticAttributes.js';
 
 const bulkImportItemSchema = z.object({
   id: z.string().uuid().optional(),
@@ -48,7 +50,7 @@ export const bulkRoutes: FastifyPluginAsync = async (app) => {
       if (!branchIdFromHeader) {
         throw new AppError(400, 'BRANCH_REQUIRED', 'Se requiere seleccionar una sucursal para la carga masiva');
       }
-      ensureUserCanAccessBranch(request.auth, branchIdFromHeader);
+      ensureUserCanAccessBranch(request.auth!, branchIdFromHeader);
 
       const payload = bulkImportRequestSchema.parse(request.body);
 
@@ -58,8 +60,12 @@ export const bulkRoutes: FastifyPluginAsync = async (app) => {
 
       const tenantId = request.auth!.tenantId!;
 
-      await app.db.transaction().execute(async (trx) => {
-        for (const item of payload.items) {
+      return TracerHelper.withSpan('inventory', 'inventory.bulk_import', {
+        [SemanticAttributes.TENANT_ID]: tenantId,
+        'inventory.bulk_items_count': payload.items.length
+      }, async (span) => {
+        await request.executeAsTenant(async (trx) => {
+          for (const item of payload.items) {
           let productId = item.id;
           let isNew = false;
 
@@ -170,11 +176,13 @@ export const bulkRoutes: FastifyPluginAsync = async (app) => {
              payloadJson: { source: 'BULK_IMPORT', ...item }
           });
         }
-      });
+        });
 
-      return reply.code(200).send({
-        success: true,
-        imported: payload.items.length
+        span.setAttribute('inventory.imported_count', payload.items.length);
+        return reply.code(200).send({
+          success: true,
+          imported: payload.items.length
+        });
       });
     }
   );

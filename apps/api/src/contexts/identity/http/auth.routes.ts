@@ -25,6 +25,7 @@ import {
   getUserForAuth,
   buildUserDto
 } from './auth.utils.js';
+import { NotificationService } from '../../../shared/infra/notifications/NotificationService.js';
 
 const registerBodySchema = z.object({
   email: z.string().trim().email().transform((value) => value.toLowerCase()),
@@ -113,12 +114,12 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
         payloadJson: { current: { plan: payload.plan, status: 'TRIAL', tax_mode: payload.tax_mode } }
       });
 
-      // Simular envío de notificación (email) al administrador inicial
-      app.log.info({
-        event: 'EMAIL_SENT',
-        to: payload.email,
-        subject: 'Bienvenido al POS',
-        body: `Hola ${payload.name}, tu negocio ${payload.tenant_business_name} ha sido registrado exitosamente con el plan ${payload.plan}.`
+      // Enviar notificación (email) al administrador inicial
+      const notificationService = new NotificationService(app.db);
+      await notificationService.notifyTenantWelcome(tenantId, payload.email, {
+        tenantName: payload.tenant_business_name,
+        ownerName: payload.name,
+        planName: payload.plan
       });
 
       return reply.code(201).send({ success: true, message: 'Registro exitoso' });
@@ -258,8 +259,9 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
         throw new AppError(401, 'AUTH_UNAUTHORIZED', 'No autorizado');
       }
 
-      const tenantIdParam = !request.auth.isPlatformRole ? request.auth.tenantId! : undefined;
-      const user = await getUserForAuth(app.db, request.auth.userId, tenantIdParam);
+      return await request.executeAsTenant(async (trx) => {
+      const tenantIdParam = !request.auth!.isPlatformRole ? request.auth!.tenantId! : undefined;
+      const user = await getUserForAuth(trx, request.auth!.userId, tenantIdParam);
 
       if (!user) {
         throw new AppError(401, 'AUTH_UNAUTHORIZED', 'Usuario no encontrado o inactivo');
@@ -269,15 +271,52 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
         throw new AppError(403, 'AUTH_FORBIDDEN', 'El negocio se encuentra suspendido. Contacta al administrador de la plataforma.');
       }
 
-      const branchIds = await getUserBranchIds(app.db, user.id, user.tenant_id);
+      const branchIds = await getUserBranchIds(trx, user.id, user.tenant_id);
       const permissions = getPermissionsForRole(user.role);
       const isPlatformRole = user.role === 'PLATFORM_OWNER';
 
       return {
-        user: buildUserDto(user, branchIds, permissions, isPlatformRole, { isImpersonating: request.auth.isImpersonating })
+        user: buildUserDto(user, branchIds, permissions, isPlatformRole, { isImpersonating: request.auth!.isImpersonating })
       };
+      });
     }
   );
+
+  typedApp.put(
+    '/auth/profile/pin',
+    {
+      preHandler: [app.authenticate],
+      schema: {
+        tags: ['auth'],
+        security: [{ bearerAuth: [] }],
+        body: z.object({
+          new_pin: z.string().min(4).max(10)
+        })
+      }
+    },
+    async (request, reply) => {
+      const { new_pin } = request.body;
+      const { userId, role } = request.auth!;
+
+      if (!['PLATFORM_OWNER', 'TENANT_OWNER', 'ADMIN', 'MANAGER'].includes(role)) {
+        throw new AppError(403, 'FORBIDDEN', 'Solo administradores o mánagers pueden configurar un PIN de aprobación');
+      }
+
+      return await request.executeAsTenant(async (trx) => {
+      const pinHash = await hashPassword(new_pin);
+
+      await trx
+        .updateTable('users')
+        .set({ pin_hash: pinHash })
+        .where('id', '=', userId)
+        .execute();
+
+      return reply.code(200).send({ message: 'PIN actualizado correctamente' });
+      });
+    }
+  );
+
+
 
   typedApp.post(
     '/auth/logout',

@@ -16,13 +16,13 @@ describe('PostgreSQL Row Level Security (RLS) Enterprise Validation', () => {
   beforeAll(async () => {
     // 1. Crear Tenants directamente (bypass RLS localmente en testing para setup)
     const tA = await db.insertInto('tenants')
-      .values({ id: randomUUID(), address: 'addr', name: 'Tenant A', nit: 'NIT-A', business_name: 'B A', plan: 'PRO' })
+      .values({ id: randomUUID(), address: 'addr', name: 'Tenant A', nit: 'NIT-A', business_name: 'B A' })
       .returning('id')
       .executeTakeFirstOrThrow();
     tenantA = tA.id;
 
     const tB = await db.insertInto('tenants')
-      .values({ id: randomUUID(), address: 'addr', name: 'Tenant B', nit: 'NIT-B', business_name: 'B B', plan: 'PRO' })
+      .values({ id: randomUUID(), address: 'addr', name: 'Tenant B', nit: 'NIT-B', business_name: 'B B' })
       .returning('id')
       .executeTakeFirstOrThrow();
     tenantB = tB.id;

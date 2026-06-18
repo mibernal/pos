@@ -40,6 +40,7 @@ import { billingRoutes } from '../contexts/billing/http/billing.routes.js';
 import { webhooksRoutes } from '../contexts/billing/http/webhooks.routes.js';
 import { auditContextStorage } from '../shared/infra/audit/audit-context.js';
 import { createDb } from '../shared/infra/db/connection.js';
+import { executeAsTenant } from '../shared/infra/db/rls.js';
 import { env } from './env.js';
 import { resolveCorsAllowedOrigins } from './cors.js';
 
@@ -196,6 +197,13 @@ export async function buildApp() {
   // el outbox en DB es el mecanismo de comunicación con el worker.
   app.decorate('redis', redisClient);
   app.decorate('bulkImportQueue', bulkImportQueue);
+
+  app.decorateRequest('executeAsTenant', function (callback: any) {
+    if (!this.auth?.tenantId) {
+      throw new Error('Tenant context required but no tenantId found in request.auth');
+    }
+    return executeAsTenant(this.server.db, this.auth.tenantId, callback);
+  });
 
   await app.register(import('@fastify/multipart').then((m) => m.default), {
     limits: {
