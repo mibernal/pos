@@ -37,7 +37,7 @@ export function ProductsScreen({
   const [loadingImages, setLoadingImages] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const isAdmin = role === 'ADMIN' || role === 'TENANT_OWNER';
+  const canManageProducts = role === 'ADMIN' || role === 'TENANT_OWNER' || role === 'MANAGER';
   const [showForm, setShowForm] = useState(false);
 
   const loadProducts = useCallback(async () => {
@@ -80,7 +80,7 @@ export function ProductsScreen({
 
   async function handleSaveProduct(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!isAdmin) return;
+    if (!canManageProducts) return;
 
     setError(null);
     setMessage(null);
@@ -156,7 +156,7 @@ export function ProductsScreen({
   }
 
   async function handleToggleActive(productId: string) {
-    if (!isAdmin) return;
+    if (!canManageProducts) return;
 
     setError(null);
     setMessage(null);

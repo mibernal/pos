@@ -24,6 +24,9 @@ function mapTenantProfile(tenant: {
   phone: string | null;
   footer_message: string | null;
   tax_mode: 'IVA' | 'INC_RESTAURANT' | 'REGIMEN_SIMPLIFICADO';
+  business_type: string | null;
+  custom_business_type: string | null;
+  enable_tables: boolean | null;
   created_at: Date;
 }) {
   return {
@@ -35,6 +38,9 @@ function mapTenantProfile(tenant: {
     phone: tenant.phone,
     footerMessage: tenant.footer_message,
     taxMode: tenant.tax_mode,
+    businessType: tenant.business_type as any,
+    customBusinessType: tenant.custom_business_type,
+    enableTables: tenant.enable_tables ?? false,
     createdAt: tenant.created_at.toISOString()
   };
 }
@@ -57,27 +63,30 @@ export const adminTenantsRoutes: FastifyPluginAsync = async (app) => {
       }
 
       return await request.executeAsTenant(async (trx) => {
-      const tenant = await trx
-        .selectFrom('tenants')
-        .select([
-          'id',
-          'name',
-          'nit',
-          'business_name',
-          'address',
-          'phone',
-          'footer_message',
-          'tax_mode',
-          'created_at'
-        ])
-        .where('id', '=', request.auth!.tenantId!)
-        .executeTakeFirst();
+        const tenant = await trx
+          .selectFrom('tenants')
+          .select([
+            'id',
+            'name',
+            'nit',
+            'business_name',
+            'address',
+            'phone',
+            'footer_message',
+            'tax_mode',
+            'business_type',
+            'custom_business_type',
+            'enable_tables',
+            'created_at'
+          ])
+          .where('id', '=', request.auth!.tenantId!)
+          .executeTakeFirst();
 
-      if (!tenant) {
-        throw new AppError(404, 'TENANT_NOT_FOUND', 'Tenant no encontrado');
-      }
+        if (!tenant) {
+          throw new AppError(404, 'TENANT_NOT_FOUND', 'Tenant no encontrado');
+        }
 
-      return tenantProfileSchema.parse(mapTenantProfile(tenant));
+        return tenantProfileSchema.parse(mapTenantProfile(tenant));
       });
     }
   );
@@ -111,6 +120,9 @@ export const adminTenantsRoutes: FastifyPluginAsync = async (app) => {
             'phone',
             'footer_message',
             'tax_mode',
+            'business_type',
+            'custom_business_type',
+            'enable_tables',
             'created_at'
           ])
           .where('id', '=', request.auth!.tenantId!)
@@ -145,6 +157,9 @@ export const adminTenantsRoutes: FastifyPluginAsync = async (app) => {
             'phone',
             'footer_message',
             'tax_mode',
+            'business_type',
+            'custom_business_type',
+            'enable_tables',
             'created_at'
           ])
           .executeTakeFirstOrThrow();
@@ -234,6 +249,9 @@ export const adminTenantsRoutes: FastifyPluginAsync = async (app) => {
             'phone',
             'footer_message',
             'tax_mode',
+            'business_type',
+            'custom_business_type',
+            'enable_tables',
             'created_at'
           ])
           .executeTakeFirstOrThrow();

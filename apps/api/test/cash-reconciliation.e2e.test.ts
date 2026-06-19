@@ -76,6 +76,7 @@ describe('Cash Reconciliation Flow E2E', () => {
           }
         ],
         discount_cents: 0,
+        tip_cents: 0,
         payments: [
           {
             method: 'CASH',

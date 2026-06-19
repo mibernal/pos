@@ -5,6 +5,8 @@ import { LoginScreen, RequireSession, SessionProvider, useSession, PermissionGua
 import { CloseCashSessionModal, CashControlScreen, CashMovementModal } from '../features/cash-sessions';
 import { BranchSetupScreen } from '../features/branches';
 import { PosScreen } from '../features/sales';
+const TablesScreen = lazy(() => import('../features/tables/TablesScreen').then(m => ({ default: m.TablesScreen })));
+const DeliveryScreen = lazy(() => import('../features/sales').then(m => ({ default: m.DeliveryScreen })));
 import { DianConfigModal, TicketTemplateModal, SetPinModal } from '../features/settings';
 import { BillingScreen } from '../features/billing/BillingScreen';
 import { UpgradePlanModal } from '../features/billing/components/UpgradePlanModal';
@@ -110,6 +112,7 @@ function AppShell() {
                 ticketTemplate={ticketTemplate}
                 tenantTaxMode={tenantTaxMode}
                 isOnline={isOnline}
+                onNavigate={navigate}
                 onSaleQueued={async () => {
                   await refreshPendingSalesCount();
                 }}
@@ -138,6 +141,18 @@ function AppShell() {
                 branchId={posContext.branchId}
                 cashSessionId={posContext.cashSessionId}
               />
+            );
+          } else if (activeRoute === 'tables' && posContext) {
+            currentScreen = (
+              <PermissionGuard allowedPermissions={['sales:create']} requireAll={false}>
+                <TablesScreen onNavigate={navigate} />
+              </PermissionGuard>
+            );
+          } else if (activeRoute === 'delivery' && posContext) {
+            currentScreen = (
+              <PermissionGuard allowedPermissions={['sales:create']} requireAll={false}>
+                <DeliveryScreen />
+              </PermissionGuard>
             );
           } else if (activeRoute === 'products' && posContext) {
             currentScreen = (

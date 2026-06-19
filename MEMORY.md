@@ -27,7 +27,14 @@ Este documento centraliza las decisiones de arquitectura, lecciones aprendidas y
 - Implementado con patrón Strategy en `NotificationService`. 
 - Desacoplamiento de proveedores de email. Por defecto se usa **Resend** para notificaciones transaccionales (Bienvenida, Alertas de Stock, Vencimientos de suscripción y recibos).
 
+### 6. Especialización por Vertical (Restaurantes vs Retail)
+- El esquema de Tenants ahora incluye `business_type` y `enable_tables` permitiendo habilitar features específicas dinámicamente.
+- **Módulo de Mesas:** Ruteo táctil inteligente por salones. Implementamos **WebSockets (Socket.io)** para sincronización de estados de mesa en tiempo real. Esto elimina la necesidad de HTTP polling, reduciendo significativamente la carga en la base de datos.
+- **Módulo de Domicilios (Deliveries):** Ciclo de vida propio (Pendiente -> Preparación -> En Camino -> Entregado). La facturación fiscal se difiere hasta la entrega efectiva.
+
 ## Lecciones Aprendidas & Gotchas
-- **Drift de Precios:** Ventas hechas desde IndexedDB offline pueden diferir del precio online. Implementamos validaciones que avisan si la diferencia supera el 10% y el backend corrige sutilmente el descuento para que el monto de la transacción (`total_cents`) coincida exactamente con lo ingresado a caja.
+- **Drift de Precios y Propinas:** Las ventas offline o con propinas manuales (`tip_cents`) pueden diferir del precio calculado en backend. Se implementaron validaciones donde el `snapshot.total_cents` enviado desde frontend *debe* incluir explícitamente el `tipCents`, de lo contrario, el backend lanza un `PRICE_DRIFT_EXCEEDED` al fallar la validación anti-tampering.
+- **Temporizadores de Mesas:** En POS para restaurantes, el tiempo de ocupación visual debe guiarse por la inserción del primer ítem (`orderCreatedAt` o min `created_at` del order_item), no por el `statusUpdatedAt` de la mesa, ya que cambiar el estado a medio servicio reinicia el reloj erróneamente.
+- **Fastify & Socket.io Lifecycle:** Al usar `fastify-socket.io`, el binding de eventos de WS dentro de `app.ready()` debe situarse **al final** del registro principal para evitar el crash crítico `FastifyError: Root plugin has already booted`.
 - **Stock Guards:** Las validaciones de inventario negativo deben correr como último paso en el transaction de ventas para minimizar conflictos de bloqueo pesimista (Pessimistic Locking).
 - **TypeScript y ESM:** Configuración en ES Modules implica el uso constante de extensiones `.js` en importaciones relativas dentro del código TypeScript para evitar errores de transpilación.

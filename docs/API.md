@@ -7,12 +7,15 @@ Esta documentación refleja el **estado actual real** de las APIs del Backend de
 1. [Arquitectura de Seguridad](#1-arquitectura-de-seguridad)
 2. [Módulo: Autenticación y Sesión](#2-módulo-autenticación-y-sesión)
 3. [Módulo: Identidad (Usuarios y Sucursales)](#3-módulo-identidad-usuarios-y-sucursales)
-4. [Módulo: Ventas (Sales)](#4-módulo-ventas)
-5. [Módulo: Cajas (Cash Sessions)](#5-módulo-cajas)
-6. [Módulo: Inventario y Carga Masiva](#6-módulo-inventario-y-carga-masiva)
-7. [Módulo: SaaS Billing & Webhooks](#7-módulo-saas-billing--webhooks)
-8. [Módulo: Dashboard y Reportes](#8-módulo-dashboard-y-reportes)
-9. [Módulo: Auditoría y Alertas](#9-módulo-auditoría-y-alertas)
+4. [Módulo: Identidad & Branches](#4-módulo-identidad--branches)
+5. [Módulo: Ventas (Sales)](#5-módulo-ventas)
+6. [Módulo: Mesas (Tables)](#6-módulo-mesas)
+7. [Módulo: Cajas (Cash Sessions)](#7-módulo-cajas)
+8. [Módulo: Inventario y Carga Masiva](#8-módulo-inventario-y-carga-masiva)
+9. [Módulo: SaaS Billing & Webhooks](#9-módulo-saas-billing--webhooks)
+10. [Módulo: Dashboard y Reportes](#10-módulo-dashboard-y-reportes)
+11. [Módulo: Auditoría y Alertas](#11-módulo-auditoría-y-alertas)
+12. [Módulo: Platform (SuperAdmin)](#12-módulo-platform-superadmin)
 
 ---
 
@@ -169,7 +172,47 @@ Anula (void) una venta existente.
 
 ---
 
-## 6. Módulo: Cajas
+## 6. Módulo: Mesas (Tables)
+
+### `GET /api/pos/v1/tables`
+Lista los salones y mesas de una sucursal específica.
+* **Permisos Requeridos:** `sales:create`
+* **Query Params:** `branch_id`
+
+### `GET /api/pos/v1/tables/:tableId/order`
+Obtiene el pedido actual activo de una mesa.
+* **Permisos Requeridos:** `sales:create`
+
+### `POST /api/pos/v1/tables/:tableId/order`
+Guarda/Sincroniza un pedido en curso a una mesa. Si se guardan items, la mesa cambia a estado `OCCUPIED`.
+* **Permisos Requeridos:** `sales:create`
+* **Request Schema:**
+  ```json
+  {
+    "branch_id": "uuid",
+    "subtotal_cents": 30000,
+    "discount_cents": 0,
+    "total_cents": 35700,
+    "items": [
+      {
+        "product_id": "uuid",
+        "variant_id": null,
+        "qty": 2,
+        "price_cents": 15000,
+        "line_total_cents": 30000
+      }
+    ]
+  }
+  ```
+
+### `DELETE /api/pos/v1/tables/:tableId/order`
+Limpia el pedido actual de la mesa (cambiándola a `AVAILABLE`). Usado tras cobrar exitosamente.
+* **Permisos Requeridos:** `sales:create`
+* **Query Params:** `branch_id`
+
+---
+
+## 7. Módulo: Cajas
 
 ### `POST /api/v1/cash-sessions`
 Apertura una caja.
@@ -186,7 +229,7 @@ Cierra la sesión de caja actualizando la conciliación (arqueo).
 
 ---
 
-## 6. Módulo: Inventario y Carga Masiva
+## 8. Módulo: Inventario y Carga Masiva
 
 ### `GET /api/v1/products`
 Catálogo de productos.
@@ -220,7 +263,7 @@ Endpoint optimizado para buscar productos mediante código de barras en POS.
 
 ---
 
-## 7. Módulo: SaaS Billing & Webhooks
+## 9. Módulo: SaaS Billing & Webhooks
 
 ### `GET /api/v1/billing/checkout/:gateway`
 Genera un enlace o sesión de pago para realizar el cobro del servicio SaaS al Tenant.
@@ -233,7 +276,7 @@ Webhook público asíncrono para recibir actualizaciones de las transacciones (a
 
 ---
 
-## 8. Módulo: Dashboard y Reportes
+## 10. Módulo: Dashboard y Reportes
 
 ### `GET /api/v1/dashboard/global`
 Dashboard financiero para dueños/socios.
@@ -247,7 +290,7 @@ Stream en tiempo real (SSE) de métricas de la sucursal activa.
 
 ---
 
-## 9. Módulo: Auditoría y Alertas
+## 11. Módulo: Auditoría y Alertas
 
 ### `GET /api/v1/audit`
 Registro de acciones inmutables del sistema.
@@ -261,7 +304,7 @@ Bandeja de alertas del sistema (Bajo Stock, Cierre con Descuadre, Error DIAN).
 
 ---
 
-## 10. Módulo: Platform (SuperAdmin)
+## 12. Módulo: Platform (SuperAdmin)
 
 ### `GET /api/v1/platform/tenants`
 Lista todos los tenants del sistema con sus estados, planes de suscripción y métricas de uso.

@@ -531,6 +531,7 @@ describe('POST /sales fiscal persistence', () => {
         cash_session_id: fixture.cashSessionId,
         items: [{ product_id: fixture.productId, qty: 1 }],
         discount_cents: 0,
+        tip_cents: 0,
         payments: [{ method: 'CASH', amount_cents: fixture.linePriceCents }]
       }
     });
@@ -543,6 +544,7 @@ describe('POST /sales fiscal persistence', () => {
       sale: {
         subtotal_cents: number;
         discount_cents: number;
+        tip_cents: number;
         total_cents: number;
         tax_total_cents: number;
         tax_lines_json: Array<{
@@ -573,6 +575,7 @@ describe('POST /sales fiscal persistence', () => {
       total_cents: number;
       subtotal_cents: number;
       discount_cents: number;
+        tip_cents: number;
     };
 
     expect(persistedSale.tax_total_cents).toBe(1900);
@@ -621,6 +624,7 @@ describe('POST /sales fiscal persistence', () => {
         cash_session_id: fixture.cashSessionId,
         items: [{ product_id: fixture.productId, qty: 1 }],
         discount_cents: 0,
+        tip_cents: 0,
         payments: [{ method: 'CASH', amount_cents: fixture.linePriceCents }]
       }
     });
@@ -631,6 +635,7 @@ describe('POST /sales fiscal persistence', () => {
       sale: {
         subtotal_cents: number;
         discount_cents: number;
+        tip_cents: number;
         total_cents: number;
         tax_total_cents: number;
         tax_lines_json: Array<{
@@ -660,6 +665,7 @@ describe('POST /sales fiscal persistence', () => {
       total_cents: number;
       subtotal_cents: number;
       discount_cents: number;
+        tip_cents: number;
     };
 
     expect(persistedSale.tax_total_cents).toBe(800);
@@ -700,6 +706,7 @@ describe('POST /sales fiscal persistence', () => {
           }
         ],
         discount_cents: 0,
+        tip_cents: 0,
         payments: [{ method: 'CASH', amount_cents: fixture.linePriceCents }]
       }
     });
@@ -744,6 +751,7 @@ describe('POST /sales fiscal persistence', () => {
             status: 'COMPLETED',
             subtotal_cents: fixture.linePriceCents,
             discount_cents: 0,
+        tip_cents: 0,
             total_cents: fixture.linePriceCents,
             tax_total_cents: 1900,
             tax_lines_json: [],
@@ -797,6 +805,7 @@ describe('POST /sales fiscal persistence', () => {
         cash_session_id: fixture.cashSessionId,
         items: [{ product_id: fixture.productId, qty: 1 }],
         discount_cents: 0,
+        tip_cents: 0,
         payments: [{ method: 'CASH', amount_cents: fixture.linePriceCents }]
       }
     });
@@ -844,6 +853,7 @@ describe('POST /sales fiscal persistence', () => {
       cash_session_id: fixture.cashSessionId,
       items: [{ product_id: fixture.productId, qty: 1 }],
       discount_cents: 0,
+        tip_cents: 0,
       payments: [{ method: 'CASH', amount_cents: fixture.linePriceCents }]
     };
 
@@ -928,6 +938,7 @@ describe('POST /sales fiscal persistence', () => {
         cash_session_id: fixture.cashSessionId,
         items: [{ product_id: fixture.productId, qty: 1 }],
         discount_cents: 0,
+        tip_cents: 0,
         payments: [{ method: 'CASH', amount_cents: fixture.linePriceCents }]
       }
     });

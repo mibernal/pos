@@ -24,6 +24,7 @@ describe('sales routes access', () => {
         cash_session_id: '55555555-5555-4555-8555-555555555555',
         items: [{ product_id: '44444444-4444-4444-8444-444444444444', qty: 1 }],
         discount_cents: 0,
+        tip_cents: 0,
         payments: [{ method: 'CASH', amount_cents: 1000 }]
       }
     });

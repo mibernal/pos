@@ -5,3 +5,4 @@ export * from './usePosNavigation';
 export * from './useTenantTaxMode';
 export * from './useTicketTemplate';
 export * from './usePosStore';
+export * from './useBusinessModules';

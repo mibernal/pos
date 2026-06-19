@@ -77,6 +77,7 @@ export interface PlatformTenantSearchResult {
   owner_email: string | null;
   expires_at: string | null;
   created_at: string;
+  business_type: string | null;
 }
 
 export interface CreatePlatformTenantInput {
@@ -86,6 +87,9 @@ export interface CreatePlatformTenantInput {
   owner_email: string;
   owner_name: string;
   plan_id: string;
+  business_type?: string;
+  custom_business_type?: string | null;
+  enable_tables?: boolean;
 }
 
 export interface UpdatePlatformTenantInput {
@@ -94,6 +98,9 @@ export interface UpdatePlatformTenantInput {
   nit?: string;
   address?: string;
   phone?: string;
+  business_type?: string;
+  custom_business_type?: string | null;
+  enable_tables?: boolean;
 }
 
 export interface PlatformTenantUser {

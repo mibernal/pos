@@ -28,10 +28,12 @@ export function useCheckout({
   const processSale = useCallback(async (
     cartItems: CartItem[],
     discountCents: number,
+    tipCents: number,
     subtotalCents: number,
     totalCents: number,
     payments: CreateSaleRequest['payments'],
-    customerId: string | null
+    customerId: string | null,
+    tableOrderId?: string | null
   ) => {
     setCheckoutLoading(true);
     setSaleError(null);
@@ -49,7 +51,9 @@ export function useCheckout({
       customer_id: customerId ?? undefined,
       branch_id: branchId,
       cash_session_id: cashSessionId,
+      table_order_id: tableOrderId ?? undefined,
       discount_cents: discountCents,
+      tip_cents: tipCents,
       items: cartItems.map((item) => ({
         product_id: item.productId,
         qty: item.qty,
@@ -59,8 +63,11 @@ export function useCheckout({
       snapshot: {
         subtotal_cents: subtotalCents,
         discount_cents: discountCents,
+        tip_cents: tipCents,
         tax_total_cents: 0, // Frontend does not calculate taxes yet
-        total_cents: totalCents
+        // total_cents must include the tip so the backend drift check compares apples to apples.
+        // Backend computes: totalCents = subtotal - discount + tip, so the snapshot must match.
+        total_cents: totalCents + tipCents
       }
     };
 

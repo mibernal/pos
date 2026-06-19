@@ -23,6 +23,7 @@ export interface TicketPrintInput {
   items: TicketPrintItem[];
   subtotalCents: number;
   discountCents: number;
+  tipCents: number;
   totalCents: number;
   payments: TicketPrintPayment[];
   taxMode?: 'IVA' | 'INC_RESTAURANT' | 'REGIMEN_SIMPLIFICADO' | null;
@@ -461,7 +462,8 @@ export function buildTicketHtml(input: TicketPrintInput): string {
       <hr class="divider" />
       <section class="totals">
         <div class="row"><span>Subtotal</span><strong>${formatMoneyFromCents(input.subtotalCents)}</strong></div>
-        <div class="row"><span>Descuento</span><strong>-${formatMoneyFromCents(input.discountCents)}</strong></div>
+        ${input.discountCents > 0 ? `<div class="row"><span>Descuento</span><strong>-${formatMoneyFromCents(input.discountCents)}</strong></div>` : ''}
+        ${input.tipCents > 0 ? `<div class="row"><span>Propina</span><strong>${formatMoneyFromCents(input.tipCents)}</strong></div>` : ''}
         <div class="row total-row"><span>Total</span><strong>${formatMoneyFromCents(input.totalCents)}</strong></div>
       </section>
       <hr class="divider" />
@@ -791,6 +793,9 @@ export async function printSaleTicketESCPOS(input: TicketPrintInput): Promise<vo
   pushLine(`Subtotal:  ${formatMoneyFromCents(input.subtotalCents)}`);
   if (input.discountCents > 0) {
     pushLine(`Descuento: -${formatMoneyFromCents(input.discountCents)}`);
+  }
+  if (input.tipCents > 0) {
+    pushLine(`Propina:    ${formatMoneyFromCents(input.tipCents)}`);
   }
   pushCmd(boldOn);
   pushLine(`TOTAL:     ${formatMoneyFromCents(input.totalCents)}`);

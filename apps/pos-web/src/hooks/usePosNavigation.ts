@@ -1,8 +1,10 @@
 import { useCallback, useState } from 'react';
-import { APP_ROUTE_DEFINITIONS } from '../app/routes';
+import { APP_ROUTE_DEFINITIONS, type EnhancedRouteDefinition } from '../app/routes';
 import type { AppRoute } from '../types';
+import { useBusinessModules } from './useBusinessModules';
 
 export function usePosNavigation(user: { role?: string; permissions?: string[] } | null, initialRoute: AppRoute = 'pos') {
+  const { hasModule } = useBusinessModules();
   const isPlatformOwner = user?.role === 'PLATFORM_OWNER';
   const isTenantAdmin = user?.role === 'ADMIN' || user?.role === 'TENANT_OWNER';
   
@@ -18,12 +20,22 @@ export function usePosNavigation(user: { role?: string; permissions?: string[] }
       return r.id !== 'platform';
     }
     
-    if (!r.requiredPermissions) return true;
-    return user?.permissions && r.requiredPermissions.some(p => user.permissions?.includes(p));
+    if (!r.requiredPermissions) {
+      if ((r as EnhancedRouteDefinition).requiredModule && !hasModule((r as EnhancedRouteDefinition).requiredModule!)) return false;
+      return true;
+    }
+    
+    const hasPerms = user?.permissions && r.requiredPermissions.some(p => user.permissions?.includes(p));
+    if (!hasPerms) return false;
+    
+    if ((r as EnhancedRouteDefinition).requiredModule && !hasModule((r as EnhancedRouteDefinition).requiredModule!)) return false;
+    
+    return true;
   });
   
-  // If the initial route is not allowed, default to the first allowed route
-  let defaultRoute = allowedRoutes.find(r => r.id === initialRoute) ? initialRoute : allowedRoutes[0]?.id ?? 'pos';
+  // Si tiene el módulo TABLES, priorizamos 'tables' como ruta por defecto, sino 'pos'
+  const targetDefault = hasModule('tables') ? 'tables' : 'pos';
+  let defaultRoute = allowedRoutes.find(r => r.id === targetDefault) ? targetDefault : allowedRoutes[0]?.id ?? 'pos';
   
   if (isPlatformOwner) {
     defaultRoute = 'platform';

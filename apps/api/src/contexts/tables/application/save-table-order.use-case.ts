@@ -1,0 +1,36 @@
+import { TableOrdersRepository } from '../infra/table-orders.repository.js';
+import { z } from 'zod';
+import { SaveTableOrderPayloadSchema, TableOrderWithItems } from '@pos-dian/shared';
+
+type Payload = z.infer<typeof SaveTableOrderPayloadSchema>;
+
+export class SaveTableOrderUseCase {
+  constructor(private readonly repo: TableOrdersRepository) {}
+
+  async execute(tenantId: string, branchId: string, tableId: string, payload: Payload): Promise<TableOrderWithItems> {
+    const result = await this.repo.saveTableOrder(tenantId, branchId, tableId, payload);
+    
+    return {
+      order: {
+        id: result.order.id,
+        tenantId: result.order.tenant_id,
+        branchId: result.order.branch_id,
+        tableId: result.order.table_id,
+        status: result.order.status,
+        subtotalCents: result.order.subtotal_cents,
+        discountCents: result.order.discount_cents,
+        totalCents: result.order.total_cents,
+        createdAt: result.order.created_at.toISOString(),
+        updatedAt: result.order.updated_at.toISOString()
+      },
+      items: result.items.map(item => ({
+        id: item.id,
+        productId: item.product_id,
+        variantId: item.variant_id,
+        qty: item.qty,
+        priceCents: item.price_cents,
+        lineTotalCents: item.line_total_cents
+      }))
+    };
+  }
+}

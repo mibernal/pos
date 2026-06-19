@@ -280,7 +280,8 @@ export async function createSaleService(input: CreateSaleServiceInput) {
         );
       }
 
-      const totalCents = subtotalCents - payload.discount_cents;
+      const tipCents = payload.tip_cents ?? 0;
+      const totalCents = subtotalCents - payload.discount_cents + tipCents;
       const computedTaxes = computeTaxes({
         taxMode: tenant.tax_mode as any, // eslint-disable-line @typescript-eslint/no-explicit-any
         items: taxItemsForCalculation,
@@ -303,20 +304,20 @@ export async function createSaleService(input: CreateSaleServiceInput) {
             server_calculated: {
                subtotal: subtotalCents,
                discount: payload.discount_cents,
+               tip: tipCents,
                taxes: computedTaxes.tax_total_cents,
-               total: computedTaxes.total_cents
+               total: computedTaxes.total_cents + tipCents
             }
           },
           'Drift detectado entre los cálculos del frontend y del backend. El backend prevalecerá.'
         );
       }
 
-      // Validar que los pagos cubran el total calculado por el BACKEND, no por el frontend.
-      if (normalizedPayments.total_amount_cents < computedTaxes.total_cents) {
+      if (normalizedPayments.total_amount_cents < (computedTaxes.total_cents + tipCents)) {
         throw new AppError(
           400,
           'PAYMENTS_INSUFFICIENT',
-          `Los pagos (${normalizedPayments.total_amount_cents}) no cubren el total de la venta calculado por el servidor (${computedTaxes.total_cents})`
+          `Los pagos (${normalizedPayments.total_amount_cents}) no cubren el total de la venta calculado por el servidor (${computedTaxes.total_cents + tipCents})`
         );
       }
 
@@ -385,10 +386,12 @@ export async function createSaleService(input: CreateSaleServiceInput) {
           customer_id: payload.customer_id ?? null,
           branch_id: payload.branch_id,
           cash_session_id: payload.cash_session_id,
+          table_order_id: payload.table_order_id ?? null,
           sale_number: nextSaleNumber,
           status: 'COMPLETED',
           subtotal_cents: finalSubtotalCents,
           discount_cents: finalDiscountCents,
+          tip_cents: tipCents,
           total_cents: finalTotalCents,
           tax_total_cents: finalTaxTotalCents,
           tax_lines_json: serializeJsonArrayForDb(computedTaxes.tax_lines_json),

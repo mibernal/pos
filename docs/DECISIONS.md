@@ -135,3 +135,18 @@
 - Se adopta la configuración `inject-workspace-packages=true` globalmente a través del archivo `.npmrc`.
 - Las dependencias locales (como `@pos-dian/shared`) son inyectadas en lugar de enlazadas por symlinks durante la compilación.
 - **Motivo:** A partir de pnpm v10, el comando `pnpm deploy` exige que los workspaces estén inyectados para asegurar el aislamiento estricto y la inmutabilidad de los contenedores Docker en producción, eliminando el uso de hacks como la bandera `--legacy`.
+
+## D-026 — Ruteo táctil de Salones y Categorías en el POS
+- Los tenants con el módulo `tables` inician la sesión de caja en una vista de Salones en lugar de ir directamente al POS.
+- Al ingresar al POS sin una búsqueda activa, se muestra un `CategoryGrid` táctil priorizado (Bebidas, Entradas, etc.) en vez del listado completo.
+- **Motivo:** Maximizar la agilidad en escenarios gastronómicos (restaurantes, bares) que operan con tablets, donde escribir en un teclado virtual es lento y la navegación por jerarquía visual es fundamental.
+
+## D-027 — Desacople de Facturación en Domicilios (Deliveries)
+- Un domicilio transita por estados operativos (`PENDING`, `PREPARATION`, `ON_WAY`) sin emitir factura electrónica ni rebajar el stock central inmediatamente.
+- La creación de la entidad `Sale` (y posterior emisión DIAN) se dispara exclusivamente cuando el domicilio pasa a estado `DELIVERED`, o cuando es pagado por anticipado.
+- **Motivo:** Prevenir facturación de pedidos cancelados o rechazados en puerta, reduciendo dramáticamente el volumen de Notas Crédito operativas.
+
+## D-028 — Sincronización backend de pedidos en mesas (table_orders)
+- Los pedidos asignados a una mesa se persisten explícitamente en base de datos (`table_orders` y `table_order_items`) y no solo localmente (IndexedDB/State).
+- Cada mesa (`tables`) mantiene una referencia opcional `current_order_id`.
+- **Motivo:** Asegura que distintos cajeros/meseros puedan ver las cuentas en vivo de las mesas. Previene la mezcla local de pedidos y centraliza la totalización real de la cuenta de restaurante.

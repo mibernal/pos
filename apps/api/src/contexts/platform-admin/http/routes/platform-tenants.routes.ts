@@ -21,7 +21,10 @@ const createTenantBodySchema = z.object({
   tenant_document_type: z.enum(['NIT', 'CC', 'CE', 'PASSPORT']),
   tenant_document_number: z.string().min(1),
   tax_mode: z.enum(['IVA', 'INC_RESTAURANT', 'REGIMEN_SIMPLIFICADO']).default('IVA'),
-  plan: z.string().default('STARTER')
+  plan: z.string().default('STARTER'),
+  business_type: z.enum(['RESTAURANT','CAFETERIA','BAKERY','FAST_FOOD','BAR','NIGHTCLUB','BUTCHER','MINIMARKET','SUPERMARKET','CORNER_STORE','HARDWARE_STORE','PHARMACY','STATIONERY','BOUTIQUE','OTHER']).default('OTHER'),
+  custom_business_type: z.string().trim().min(2).max(80).nullable().optional(),
+  enable_tables: z.boolean().optional().default(false)
 });
 
 const updateTenantBodySchema = z.object({
@@ -30,7 +33,10 @@ const updateTenantBodySchema = z.object({
   nit: z.string().optional(),
   tax_mode: z.enum(['IVA', 'INC_RESTAURANT', 'REGIMEN_SIMPLIFICADO']).optional(),
   owner_name: z.string().optional(),
-  owner_email: z.string().email().optional()
+  owner_email: z.string().email().optional(),
+  business_type: z.enum(['RESTAURANT','CAFETERIA','BAKERY','FAST_FOOD','BAR','NIGHTCLUB','BUTCHER','MINIMARKET','SUPERMARKET','CORNER_STORE','HARDWARE_STORE','PHARMACY','STATIONERY','BOUTIQUE','OTHER']).optional(),
+  custom_business_type: z.string().trim().min(2).max(80).nullable().optional(),
+  enable_tables: z.boolean().optional()
 });
 
 const changePlanBodySchema = z.object({

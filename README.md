@@ -26,6 +26,7 @@ Este proyecto está construido como un monorepo administrado con `pnpm` workspac
 - **SaaS Billing & Subscriptions:** Control de planes prepago, integración con pasarelas de pago (Wompi, MercadoPago, Stripe) vía webhooks y suspensión automática administrada por un **RenewalEngine** de procesos en background.
 - **Notificaciones Centralizadas:** Servicio transaccional desacoplado utilizando patrón Strategy. Actualmente configurado con **Resend** para emails de bienvenida, cobranza y alertas de bajo stock (`StockLowEvent`).
 - **Multi-Tenant & Roles Granulares:** Cada negocio opera aislado lógicamente (PostgreSQL RLS). Roles: `PLATFORM_OWNER`, `PLATFORM_ADMIN`, `ADMIN`, `MANAGER`, `CASHIER`, `AUDITOR`.
+- **Gestión de Mesas y Domicilios:** Soporte integrado para flujos de restaurantes. Ruteo táctil inteligente por salones, selección de mesas activas en tiempo real vía **WebSockets (Socket.io)**, y un módulo completo de entregas con estados de preparación, tracking y facturación diferida tras entrega.
 - **Fuerte Consistencia de Inventario:** Mix de *Optimistic Locking* (para ajustes manuales) y *Pessimistic Locking* (para ventas de alta frecuencia) garantizando que no haya sobreventas.
 - **Carga Masiva Enterprise:** Importación asíncrona de hasta 50k productos usando `BullMQ`, procesamiento en batch multipart y feedback en vivo.
 - **Control de Efectivo Avanzado:** Apertura/cierre de caja, arqueos intermedios (ciegos para cajeros), cierres Z y reportes por turno.
@@ -47,6 +48,7 @@ Este proyecto está construido como un monorepo administrado con `pnpm` workspac
   - `Enter` → Confirmar cobro (cuando el formulario es válido)
   - `Ctrl+K` → Foco en búsqueda de producto
 - **Multiplicador de Escáner:** Sintaxis `CANTIDAD*CÓDIGO` (ej. `5*7701234567890`) desde teclado o escáner físico para agregar múltiples unidades en un paso.
+- **Navegación Visual Táctil:** Selector de categorías dinámico (CategoryGrid) con grandes tarjetas jerárquicas optimizadas para tablets (Bebidas, Entradas, Platos Fuertes, etc.) que desaparecen automáticamente al hacer búsquedas directas.
 - **Botones Rápidos de Billetes:** `Exacto`, `$20.000`, `$50.000`, `$100.000` en el panel de efectivo con auto-foco en el campo de monto.
 - **Responsive Táctil:** Tap targets ≥ 40px. Layout app-like en tablets (768px) con `grid-template-rows: 1fr auto` — sin scroll de página.
 
@@ -139,6 +141,20 @@ El script de inicialización (`pnpm db:seed`) crea un entorno multi-tenant para 
 |---|---|
 | `ADMIN` | `admin2@demo.posdian.local` |
 | `CASHIER`| `cashier2@demo.posdian.local` |
+
+### Tenant 3: Pizzería Napoli (Plan Pro)
+| Rol | Email |
+|---|---|
+| `ADMIN` | `admin3@demo.posdian.local` |
+| `MANAGER`| `manager3@demo.posdian.local` |
+| `CASHIER`| `cashier3@demo.posdian.local` |
+
+### Tenant 4: Tokyo Sushi (Plan Pro)
+| Rol | Email |
+|---|---|
+| `ADMIN` | `admin4@demo.posdian.local` |
+| `MANAGER`| `manager4@demo.posdian.local` |
+| `CASHIER`| `cashier4@demo.posdian.local` |
 
 ---
 

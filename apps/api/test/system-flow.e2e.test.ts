@@ -65,6 +65,7 @@ async function createSale(
         }
       ],
       discount_cents: 0,
+        tip_cents: 0,
       payments: [
         {
           method: 'CASH',
@@ -86,6 +87,7 @@ async function createSale(
       status: 'COMPLETED' | 'VOID';
       subtotal_cents: number;
       discount_cents: number;
+        tip_cents: number;
       total_cents: number;
       tax_total_cents: number;
       tax_lines_json: Array<Record<string, unknown>>;

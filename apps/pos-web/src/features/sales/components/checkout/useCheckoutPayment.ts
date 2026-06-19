@@ -29,11 +29,16 @@ export function createMixedPaymentLine(method: SimplePaymentMethod, amountCents:
   };
 }
 
-export function buildDefaultMixedLines(totalCents: number): MixedPaymentLine[] {
-  return [
-    createMixedPaymentLine('CASH', totalCents),
-    createMixedPaymentLine('CARD', 0)
-  ];
+export function buildDefaultMixedLines(totalCents: number, parts: number = 2): MixedPaymentLine[] {
+  if (parts <= 1) parts = 2;
+  const splitAmount = Math.round(totalCents / parts);
+  const lines: MixedPaymentLine[] = [];
+  for (let i = 0; i < parts; i++) {
+    // Para compensar errores de redondeo, la última línea ajusta la diferencia
+    const amount = i === parts - 1 ? totalCents - (splitAmount * (parts - 1)) : splitAmount;
+    lines.push(createMixedPaymentLine('CASH', amount));
+  }
+  return lines;
 }
 
 export function suggestNextMethod(lines: ReadonlyArray<MixedPaymentLine>): SimplePaymentMethod {
@@ -43,8 +48,8 @@ export function suggestNextMethod(lines: ReadonlyArray<MixedPaymentLine>): Simpl
   return 'CASH';
 }
 
-export function useCheckoutPayment(totalCents: number, isOpen: boolean) {
-  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('CASH');
+export function useCheckoutPayment(totalCents: number, isOpen: boolean, initialSplitParts?: number) {
+  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>(initialSplitParts ? 'MIXED' : 'CASH');
   const [cashReceivedDraft, setCashReceivedDraft] = useState('0');
   const [cardApprovalCode, setCardApprovalCode] = useState('');
   
@@ -55,7 +60,7 @@ export function useCheckoutPayment(totalCents: number, isOpen: boolean) {
   
   // Mixed state
   const [mixedLines, setMixedLines] = useState<MixedPaymentLine[]>(() =>
-    buildDefaultMixedLines(totalCents)
+    buildDefaultMixedLines(totalCents, initialSplitParts)
   );
 
   const cashInputRef = useRef<HTMLInputElement | null>(null);
@@ -66,11 +71,11 @@ export function useCheckoutPayment(totalCents: number, isOpen: boolean) {
     if (!isOpen) return;
     setCashReceivedDraft(formatEditableMoneyFromCents(totalCents));
     setCardApprovalCode('');
-    setMixedLines(buildDefaultMixedLines(totalCents));
+    setMixedLines(buildDefaultMixedLines(totalCents, initialSplitParts));
     setTerminalProcessing(false);
     setTerminalError(null);
     setTerminalSuccess(false);
-  }, [isOpen, totalCents]);
+  }, [isOpen, totalCents, initialSplitParts]);
 
   useEffect(() => {
     if (!isOpen) return;

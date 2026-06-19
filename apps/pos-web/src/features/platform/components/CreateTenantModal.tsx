@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Button, Input, Label } from '../../../components/ui';
+import { Button, Input, Label, BusinessTypeSelector } from '../../../components/ui';
 
 import { BillingPlan } from '../../../lib/api/client';
 
@@ -21,7 +21,10 @@ export function CreateTenantModal({ api, onClose, onSuccess }: CreateTenantModal
     password: '',
     name: '',
     tax_mode: 'IVA',
-    plan: 'STARTER'
+    plan: 'STARTER',
+    business_type: 'OTHER',
+    custom_business_type: '',
+    enable_tables: false
   });
   const [error, setError] = useState<string | null>(null);
 
@@ -40,7 +43,10 @@ export function CreateTenantModal({ api, onClose, onSuccess }: CreateTenantModal
         nit: formData.tenant_document_number,
         owner_email: formData.email,
         owner_name: formData.name,
-        plan_id: formData.plan
+        plan_id: formData.plan,
+        business_type: formData.business_type,
+        custom_business_type: formData.business_type === 'OTHER' ? formData.custom_business_type : undefined,
+        enable_tables: formData.business_type === 'OTHER' ? formData.enable_tables : false
       });
       onSuccess();
     } catch (err: unknown) {
@@ -128,6 +134,17 @@ export function CreateTenantModal({ api, onClose, onSuccess }: CreateTenantModal
                   <option value="REGIMEN_SIMPLIFICADO">Régimen Simplificado</option>
                 </select>
               </div>
+            </div>
+            <div className="pt-4 border-t border-slate-100">
+              <BusinessTypeSelector 
+                value={formData.business_type as any} 
+                onChange={(v) => setFormData(prev => ({ ...prev, business_type: v }))}
+                customValue={formData.custom_business_type}
+                onCustomValueChange={(v) => setFormData(prev => ({ ...prev, custom_business_type: v }))}
+                enableTables={formData.enable_tables}
+                onEnableTablesChange={(v) => setFormData(prev => ({ ...prev, enable_tables: v }))}
+                layout="select"
+              />
             </div>
           </div>
 

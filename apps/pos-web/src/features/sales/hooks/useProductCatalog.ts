@@ -21,20 +21,46 @@ export function useProductCatalog({ api, branchId }: UseProductCatalogOptions) {
   const [productsError, setProductsError] = useState<string | null>(null);
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [highlightedProductId, setHighlightedProductId] = useState<string | null>(null);
+  const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
 
   const hasSearchQuery = query.trim().length > 0;
 
+  const availableCategories = useMemo(() => {
+    const rawCategories = Array.from(new Set(cachedProducts.map(p => p.category?.trim()).filter(Boolean) as string[]));
+    const priorityOrder = ['Bebidas', 'Entradas', 'Platos Fuertes', 'Postres', 'Adicionales', 'Promociones'];
+    
+    // Sort logic: exact match in priorityOrder first, then alphabetical
+    return rawCategories.sort((a, b) => {
+      const idxA = priorityOrder.indexOf(a);
+      const idxB = priorityOrder.indexOf(b);
+      
+      if (idxA !== -1 && idxB !== -1) return idxA - idxB;
+      if (idxA !== -1) return -1;
+      if (idxB !== -1) return 1;
+      return a.localeCompare(b);
+    });
+  }, [cachedProducts]);
+
   const products = useMemo(() => {
-    if (!hasSearchQuery) return cachedProducts;
-    const q = query.trim().toLowerCase();
-    return cachedProducts
-      .filter(
-        (p) =>
-          p.name.toLowerCase().includes(q) ||
-          (p.barcode && p.barcode.toLowerCase().includes(q))
-      )
-      .slice(0, 120);
-  }, [cachedProducts, hasSearchQuery, query]);
+    if (hasSearchQuery) {
+      const q = query.trim().toLowerCase();
+      return cachedProducts
+        .filter(
+          (p) =>
+            p.name.toLowerCase().includes(q) ||
+            (p.barcode && p.barcode.toLowerCase().includes(q))
+        )
+        .slice(0, 120);
+    }
+    
+    if (selectedCategory) {
+      return cachedProducts.filter(p => p.category?.trim() === selectedCategory).slice(0, 120);
+    }
+    
+    // Si no hay busqueda ni categoria, retornamos todos por compatibilidad
+    // (aunque el UI deberia ocultarlos si prefiere mostrar categorias primero)
+    return cachedProducts.slice(0, 120);
+  }, [cachedProducts, hasSearchQuery, query, selectedCategory]);
 
   const highlightedProduct = useMemo(
     () => products.find((product) => product.id === highlightedProductId) ?? products[0] ?? null,
@@ -171,6 +197,9 @@ export function useProductCatalog({ api, branchId }: UseProductCatalogOptions) {
     loadProducts,
     highlightedProduct,
     setHighlightedProductId,
-    moveHighlightedProduct
+    moveHighlightedProduct,
+    availableCategories,
+    selectedCategory,
+    setSelectedCategory
   };
 }

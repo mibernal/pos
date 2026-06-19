@@ -27,6 +27,9 @@ export class CreateTenantUseCase {
         nit: payload.tenant_document_number,
         address: 'No especificada',
         tax_mode: payload.tax_mode,
+        business_type: payload.business_type ?? 'OTHER',
+        custom_business_type: payload.business_type === 'OTHER' ? (payload.custom_business_type ?? null) : null,
+        enable_tables: payload.business_type === 'OTHER' ? (payload.enable_tables ?? false) : false,
         status: 'ACTIVE',
         owner_user_id: userId
       }).execute();

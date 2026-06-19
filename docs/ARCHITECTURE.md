@@ -25,6 +25,8 @@
 - **`users` / `user_branches`**: RBAC (PlatformOwner, TenantOwner, Admin, Cashier, Manager).
 - **`inventory_balances` / `inventory_ledger` / `inventory_adjustments`**: Fuerte consistencia de inventario (Optimistic Locking & Ledger inmutable).
 - **`sales` / `sale_items` / `sales_ledger`**: Venta operativa con protección por idempotencia (`client_uuid`).
+- **`deliveries` / `delivery_items` / `delivery_persons`**: Módulo de domicilios con seguimiento de estados (Pending, En Camino, etc.) y facturación asíncrona.
+- **`rooms` / `tables` / `table_orders` / `table_order_items`**: Módulo de gestión de mesas y pedidos presenciales (sincronizados con backend para control centralizado de cuentas).
 - **`payment_transactions`**: Transacciones de pago y webhooks de pasarelas (Wompi, MercadoPago).
 - **`bulk_import_jobs`**: Control de cargas masivas de catálogo procesadas en background.
 - **`idempotency_records`**: Tracking de peticiones seguras (ej. creación de ventas) con TTL de 24h.
@@ -116,6 +118,16 @@ POST /sales/:id/void (solo ADMIN, requiere motivo)
 4. Validación de firma criptográfica
 5. Actualización atómica de `payment_transactions` y `tenants.plan`
 ```
+
+### 8. Flujo de Domicilios (Delivery Module)
+
+```
+1. Cajero o Toma-pedidos crea un domicilio con datos del cliente y productos.
+2. Estado inicial: PENDING.
+3. Cocina toma el pedido → PREPARATION.
+4. Se asigna repartidor (DeliveryPerson) → ON_WAY.
+5. Repartidor entrega → DELIVERED → Se dispara la facturación electrónica/creación de Sale.
+6. Si el cliente paga por adelantado, la facturación se asocia de inmediato y el cobro se asegura antes del envío.
 ```
 
 ---
@@ -162,6 +174,12 @@ POST /sales/:id/void (solo ADMIN, requiere motivo)
 Sintaxis: `CANTIDAD*CÓDIGO_DE_BARRAS`  
 Ejemplo: teclear o escanear `5*7701234567890` → agrega 5 unidades directamente.  
 Funciona tanto desde teclado (campo de búsqueda) como desde escáner físico de hardware.
+
+### Flujo Táctil Inteligente
+
+- **Mesas Primero**: Si el módulo de mesas está activo, el cajero es recibido por la pantalla de Salones, desde donde con 1 tap ingresa al carrito de esa mesa en el POS.
+- **Categorías Táctiles**: Sin texto en la barra de búsqueda, el POS muestra un `CategoryGrid` de botones grandes (optimizado para tablets) priorizando *Bebidas, Entradas, Platos Fuertes*, etc. Al seleccionar una, el grid de productos se filtra al instante.
+- Al escribir en el buscador, el filtro táctil se interrumpe para priorizar la búsqueda global y de código de barras sin romper la agilidad.
 
 ### Responsive Táctil
 
@@ -262,6 +280,10 @@ flowchart LR
   N --> O["Cola offline IndexedDB\n(pos-dian-offline)"]
   O --> P["Sync automático\nonline event"]
   P --> G
+  U["Tables Screen"] --> V["POST /tables/:id/order"]
+  V --> W["table_orders (DB)"]
+  W --> X["POS Checkout\n(Cargar Pedido)"]
+  X --> G
   Q["Admin Web"] --> R["Subir CSV/XLSX"]
   R --> S["Worker BullMQ (Bulk Import)"]
   S --> T["inventory_balances\n(Optimistic Lock)"]

@@ -10,7 +10,8 @@ const baseSession: AuthSession = {
     role: 'ADMIN',
     email: 'admin@demo.posdian.local',
     name: 'Admin Demo',
-    active: true
+    active: true,
+    enableTables: true
   }
 };
 
@@ -119,7 +120,8 @@ describe('api-client DIAN/product contract', () => {
           role: 'CASHIER',
           email: 'cashier@demo.posdian.local',
           name: 'Caja Uno',
-          active: true
+          active: true,
+          enableTables: true
         }
       })
     );

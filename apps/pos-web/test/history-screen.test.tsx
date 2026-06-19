@@ -17,7 +17,8 @@ function seedSession(role: 'ADMIN' | 'CASHIER' = 'ADMIN') {
       role,
       email: 'admin@demo.posdian.local',
       name: 'Admin Demo',
-      active: true
+      active: true,
+      enableTables: true
     }
   });
 }
@@ -37,7 +38,8 @@ function mockSessionFetch(role: 'ADMIN' | 'CASHIER' = 'ADMIN') {
             role,
             email: 'admin@demo.posdian.local',
             name: 'Admin Demo',
-            active: true
+            active: true,
+            enableTables: true
           }
         }),
         { status: 200, headers: { 'content-type': 'application/json' } }
@@ -62,6 +64,7 @@ function buildApiMock() {
       status: 'COMPLETED' | 'VOID';
       subtotal_cents: number;
       discount_cents: number;
+      tip_cents: number;
       total_cents: number;
       tax_total_cents: number;
       tax_lines_json: [];
@@ -100,6 +103,7 @@ function buildApiMock() {
       status: 'COMPLETED',
       subtotal_cents: 2000,
       discount_cents: 100,
+      tip_cents: 0,
       total_cents: 1900,
       tax_total_cents: 190,
       tax_lines_json: [],

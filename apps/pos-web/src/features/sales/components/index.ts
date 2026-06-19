@@ -1,4 +1,7 @@
 export * from './CheckoutModal';
 export * from './CartPanel';
 export * from './ProductGrid';
+export * from './CategoryGrid';
 export * from './VariantSelectorModal';
+export * from './SplitBillModal';
+export * from './SplitBillByProductsModal';

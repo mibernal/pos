@@ -29,7 +29,8 @@ function seedSession(role: 'ADMIN' | 'CASHIER' = 'ADMIN') {
       role,
       email: 'admin@demo.posdian.local',
       name: 'Admin Demo',
-      active: true
+      active: true,
+      enableTables: true
     }
   });
 
@@ -59,7 +60,8 @@ function mockAuthenticatedAppFetch(role: 'ADMIN' | 'CASHIER' = 'ADMIN') {
               role,
               email: 'admin@demo.posdian.local',
               name: 'Admin Demo',
-              active: true
+              active: true,
+              enableTables: true
           }
         }),
         { status: 200, headers: { 'content-type': 'application/json' } }
@@ -77,7 +79,8 @@ function mockAuthenticatedAppFetch(role: 'ADMIN' | 'CASHIER' = 'ADMIN') {
               role,
               email: 'admin@demo.posdian.local',
               name: 'Admin Demo',
-              active: true
+              active: true,
+              enableTables: true
           }
         }),
         { status: 200, headers: { 'content-type': 'application/json' } }
@@ -173,6 +176,7 @@ function buildCreatedSaleResponse(totalCents: number) {
       status: 'COMPLETED' as const,
       subtotal_cents: totalCents,
       discount_cents: 0,
+      tip_cents: 0,
       total_cents: totalCents,
       tax_total_cents: 0,
       tax_lines_json: [],
@@ -203,6 +207,7 @@ function buildPendingSalePayload(clientUuid: string) {
     branch_id: '33333333-3333-4333-8333-333333333333',
     cash_session_id: '44444444-4444-4444-8444-444444444444',
     discount_cents: 0,
+    tip_cents: 0,
     items: [
       {
         product_id: 'product-1',
@@ -237,7 +242,8 @@ function mockAuthenticatedPosFetch(options?: {
             role: 'ADMIN',
             email: 'admin@demo.posdian.local',
             name: 'Admin Demo',
-            active: true
+            active: true,
+            enableTables: true
           }
         }),
         { status: 200, headers: { 'content-type': 'application/json' } }
@@ -255,7 +261,8 @@ function mockAuthenticatedPosFetch(options?: {
             role: 'ADMIN',
             email: 'admin@demo.posdian.local',
             name: 'Admin Demo',
-            active: true
+            active: true,
+            enableTables: true
           }
         }),
         { status: 200, headers: { 'content-type': 'application/json' } }
@@ -373,7 +380,8 @@ function mockLoginFlowFetch() {
             role: 'CASHIER',
             email: 'cashier@demo.posdian.local',
             name: 'Caja Uno',
-            active: true
+            active: true,
+            enableTables: true
           }
         }),
         { status: 200, headers: { 'content-type': 'application/json' } }

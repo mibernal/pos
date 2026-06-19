@@ -31,4 +31,7 @@ Things like:
 
 ### Credenciales Demo (SaaS Backoffice)
 - **SuperAdmin:** `superadmin@demo.posdian.local` / `Password123*`
-- **Tenant Admin:** `admin@demo.posdian.local` / `Password123*`
+- **Tenant 1 Admin (Restaurante):** `admin@demo.posdian.local` / `Password123*`
+- **Tenant 2 Admin (Retail):** `admin2@demo.posdian.local` / `Password123*`
+- **Tenant 3 Admin (Pizzería):** `admin3@demo.posdian.local` / `Password123*`
+- **Tenant 4 Admin (Sushi):** `admin4@demo.posdian.local` / `Password123*`

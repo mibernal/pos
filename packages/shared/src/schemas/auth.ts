@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { businessTypeSchema } from './business-type.js';
 
 export const userRoleSchema = z.enum(['PLATFORM_OWNER', 'TENANT_OWNER', 'ADMIN', 'MANAGER', 'CASHIER', 'AUDITOR']);
 export const tenantTaxModeSchema = z.enum(['IVA', 'INC_RESTAURANT', 'REGIMEN_SIMPLIFICADO']);
@@ -14,6 +15,8 @@ export const authUserSchema = z.object({
   tenantId: z.string().uuid().optional().nullable(),
   tenantPlan: z.string().optional().nullable(),
   taxMode: tenantTaxModeSchema.optional().nullable(),
+  businessType: businessTypeSchema.optional().nullable(),
+  enableTables: z.boolean().optional().default(false),
   role: userRoleSchema,
   email: z.string().email(),
   name: z.string().min(1),
@@ -49,6 +52,8 @@ export const jwtClaimsSchema = z.object({
   role: userRoleSchema,
   email: z.string().email(),
   name: z.string().min(1),
+  businessType: businessTypeSchema.optional().nullable(),
+  enableTables: z.boolean().optional().default(false),
   branchIds: z.array(z.string().uuid()).optional(),
   permissions: z.array(z.string()).optional(),
   isPlatformRole: z.boolean().optional(),

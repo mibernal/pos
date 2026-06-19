@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Banner, Button, Card, Input, Label } from '../../components/ui';
+import { Banner, Button, Card, Input, Label, BusinessTypeSelector } from '../../components/ui';
 import type { PosApiClient } from '../../types';
 
 interface RegisterScreenProps {
@@ -24,16 +24,19 @@ export function RegisterScreen({ api, login, onBack }: RegisterScreenProps) {
     tenant_document_number: '',
     tax_mode: 'IVA',
     plan: 'STARTER',
+    business_type: 'OTHER',
+    custom_business_type: '',
+    enable_tables: false,
   });
 
-  const [plans, setPlans] = useState<{ id: string; name: string; priceCents: number }[]>([]);
-  
+  const [plans, setPlans] = useState<{ id: string; name: string; price_cents: number }[]>([]);
+
   useEffect(() => {
     void api.getBillingPlans().then(res => setPlans(res.plans)).catch(() => {
       setPlans([
-        { id: 'STARTER', name: 'Starter', priceCents: 0 },
-        { id: 'BASIC', name: 'Pro', priceCents: 5000000 },
-        { id: 'PRO', name: 'Enterprise', priceCents: 15000000 }
+        { id: 'STARTER', name: 'Starter', price_cents: 0 },
+        { id: 'BASIC', name: 'Pro', price_cents: 5000000 },
+        { id: 'PRO', name: 'Enterprise', price_cents: 15000000 }
       ]);
     });
   }, [api]);
@@ -46,14 +49,19 @@ export function RegisterScreen({ api, login, onBack }: RegisterScreenProps) {
     try {
       setTimeout(() => setSimulationState(2), 1500);
       setTimeout(() => setSimulationState(3), 3000);
-      
-      await api.register(formData);
-      
+
+      const payload = { ...formData };
+      if (payload.business_type !== 'OTHER' || !payload.custom_business_type) {
+        delete (payload as any).custom_business_type;
+      }
+
+      await api.register(payload);
+
       setSimulationState(4);
       setTimeout(async () => {
         await login({ email: formData.email, password: formData.password });
       }, 1000);
-      
+
     } catch (err: any) { // eslint-disable-line @typescript-eslint/no-explicit-any
       setError(err.message || 'Error al crear la cuenta. Por favor verifica los datos.');
       setSimulationState(0);
@@ -80,7 +88,7 @@ export function RegisterScreen({ api, login, onBack }: RegisterScreenProps) {
             <h2 className="text-xl font-bold text-foreground">Configurando tu entorno</h2>
             <p className="text-muted-foreground text-sm mt-1">Estamos preparando todo para ti...</p>
           </div>
-          
+
           <ul className="w-full flex flex-col gap-4">
             <li className={`flex items-center gap-3 transition-all duration-300 ${simulationState >= 1 ? 'text-foreground opacity-100' : 'text-muted-foreground opacity-50'}`}>
               <CheckCircle active={simulationState >= 2} /> Creando organización
@@ -100,13 +108,13 @@ export function RegisterScreen({ api, login, onBack }: RegisterScreenProps) {
   return (
     <main className="min-h-screen flex items-center justify-center bg-muted/20 p-6 font-sans">
       <Card className={`w-full ${step === 3 ? 'max-w-4xl' : 'max-w-lg'} p-8 sm:p-10 transition-all duration-500 shadow-xl border-border bg-card`}>
-        
+
         {/* Wizard Header */}
         <header className="mb-10">
           <div className="flex justify-between items-center mb-6">
-            <button 
-              type="button" 
-              onClick={step === 1 ? onBack : () => setStep(step - 1)} 
+            <button
+              type="button"
+              onClick={step === 1 ? onBack : () => setStep(step - 1)}
               className="text-muted-foreground hover:text-foreground text-sm flex items-center gap-1 font-medium transition-colors"
             >
               &larr; Volver
@@ -115,7 +123,7 @@ export function RegisterScreen({ api, login, onBack }: RegisterScreenProps) {
               Paso {step} de 3
             </div>
           </div>
-          
+
           <div className="flex gap-2 mb-8">
             <div className={`flex-1 h-1.5 rounded-full transition-colors duration-300 ${step >= 1 ? 'bg-primary' : 'bg-muted'}`} />
             <div className={`flex-1 h-1.5 rounded-full transition-colors duration-300 ${step >= 2 ? 'bg-primary' : 'bg-muted'}`} />
@@ -141,7 +149,7 @@ export function RegisterScreen({ api, login, onBack }: RegisterScreenProps) {
         )}
 
         <form onSubmit={nextStep} className="flex flex-col gap-6">
-          
+
           {step === 1 && (
             <div className="flex flex-col gap-5 animate-in fade-in slide-in-from-bottom-4 duration-500">
               <div className="grid gap-2">
@@ -191,6 +199,17 @@ export function RegisterScreen({ api, login, onBack }: RegisterScreenProps) {
                   <option value="NO_RESPONSIBLE">No responsable de IVA</option>
                 </select>
               </div>
+              <div className="pt-4 border-t border-border">
+                <BusinessTypeSelector
+                  value={formData.business_type as any}
+                  onChange={(v) => setFormData(prev => ({ ...prev, business_type: v }))}
+                  customValue={formData.custom_business_type}
+                  onCustomValueChange={(v) => setFormData(prev => ({ ...prev, custom_business_type: v }))}
+                  enableTables={formData.enable_tables}
+                  onEnableTablesChange={(v) => setFormData(prev => ({ ...prev, enable_tables: v }))}
+                  layout="grid"
+                />
+              </div>
             </div>
           )}
 
@@ -200,8 +219,8 @@ export function RegisterScreen({ api, login, onBack }: RegisterScreenProps) {
                 {plans.map(p => {
                   const isSelected = formData.plan === p.id;
                   return (
-                    <div 
-                      key={p.id} 
+                    <div
+                      key={p.id}
                       onClick={() => setFormData(prev => ({ ...prev, plan: p.id }))}
                       className={`relative p-6 rounded-2xl cursor-pointer transition-all duration-200 border-2 ${isSelected ? 'border-primary bg-primary/5 shadow-md' : 'border-border bg-card hover:border-primary/50 hover:shadow-sm'}`}
                     >
@@ -212,7 +231,7 @@ export function RegisterScreen({ api, login, onBack }: RegisterScreenProps) {
                       )}
                       <h3 className="text-lg font-bold text-foreground mb-1">{p.name}</h3>
                       <div className="text-3xl font-extrabold text-foreground mb-4">
-                        ${(p.priceCents / 100).toLocaleString('es-CO')}
+                        ${(p.price_cents / 100).toLocaleString('es-CO')}
                         <span className="text-sm text-muted-foreground font-normal">/mes</span>
                       </div>
                       <ul className="text-sm text-muted-foreground flex flex-col gap-2">

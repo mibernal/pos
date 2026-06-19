@@ -1,6 +1,13 @@
 import type { AppRouteDefinition } from '../types';
+import type { BusinessModule } from '@pos-dian/shared';
 
-export const APP_ROUTE_DEFINITIONS: readonly AppRouteDefinition[] = [
+// Se extiende localmente el tipo (o se asume que AppRouteDefinition soporta esto)
+// Para no romper la interfaz exportada en types, lo definimos aquí temporalmente o la actualizamos.
+export type EnhancedRouteDefinition = AppRouteDefinition & {
+  requiredModule?: BusinessModule;
+};
+
+export const APP_ROUTE_DEFINITIONS: readonly EnhancedRouteDefinition[] = [
   {
     id: 'pos',
     label: 'POS',
@@ -15,6 +22,18 @@ export const APP_ROUTE_DEFINITIONS: readonly AppRouteDefinition[] = [
     id: 'cash-control',
     label: 'Control de Caja',
     requiredPermissions: ['cash:open', 'cash:close']
+  },
+  {
+    id: 'tables',
+    label: 'Mesas',
+    requiredPermissions: ['sales:create'],
+    requiredModule: 'tables'
+  },
+  {
+    id: 'delivery',
+    label: 'Domicilios',
+    requiredPermissions: ['sales:create'],
+    requiredModule: 'delivery'
   },
   {
     id: 'products',

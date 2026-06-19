@@ -35,7 +35,9 @@ import type {
   PlatformTenantSearchResult as SharedPlatformTenantSearchResult,
   CreatePlatformTenantInput as SharedCreatePlatformTenantInput,
   UpdatePlatformTenantInput as SharedUpdatePlatformTenantInput,
-  PlatformTenantUser as SharedPlatformTenantUser
+  PlatformTenantUser as SharedPlatformTenantUser,
+  TableOrderWithItems as SharedTableOrderWithItems,
+  SaveTableOrderPayload as SharedSaveTableOrderPayload,
 } from '@pos-dian/shared';
 
 export type UserRole = SharedAuthUser['role'];
@@ -54,6 +56,8 @@ export type PlatformTenantSearchResult = SharedPlatformTenantSearchResult;
 export type CreatePlatformTenantInput = SharedCreatePlatformTenantInput;
 export type UpdatePlatformTenantInput = SharedUpdatePlatformTenantInput;
 export type PlatformTenantUser = SharedPlatformTenantUser;
+export type TableOrderWithItems = SharedTableOrderWithItems;
+export type SaveTableOrderPayload = SharedSaveTableOrderPayload;
 
 export interface AuthSession {
   accessToken: string;
@@ -369,7 +373,20 @@ export function createApiClient({ baseUrl, getSession, setSession, onReauthRequi
         body: JSON.stringify({ closing_cash_real_cents: closingCashRealCents })
       }),
     getZReport: (sessionId: string) =>
-      requestJson<Record<string, unknown>>(`/cash-sessions/${sessionId}/z-report`),
+      requestJson<{
+        cash_session: {
+          opened_at: string;
+          closed_at: string | null;
+          status: string;
+        };
+        summary: {
+          completed_sales_count: number;
+          completed_sales_total_cents: number;
+          payment_breakdown: Record<string, number>;
+          expected_cash_cents: number;
+          diff_cents: number;
+        };
+      }>(`/cash-sessions/${sessionId}/z-report`),
     addCashMovement: (sessionId: string, type: 'IN' | 'OUT', amountCents: number, reason: string) =>
       requestJson<{ movement: { id: string; cash_session_id: string; type: 'IN' | 'OUT'; amount_cents: number; reason: string; created_at: string } }>(`/cash-sessions/${sessionId}/movements`, {
         method: 'POST',

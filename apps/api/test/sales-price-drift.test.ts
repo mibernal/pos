@@ -86,6 +86,7 @@ describe('Sales - Price Drift & Snapshots', () => {
         price_cents: fixture.productPriceCents
       }],
       discount_cents: 0,
+        tip_cents: 0,
       payments: [{
         method: 'CASH',
         amount_cents: fixture.productPriceCents * qty
@@ -93,6 +94,7 @@ describe('Sales - Price Drift & Snapshots', () => {
       snapshot: {
         subtotal_cents: fixture.productPriceCents * qty,
         discount_cents: 0,
+        tip_cents: 0,
         tax_total_cents: 3193,
         total_cents: fixture.productPriceCents * qty
       }
@@ -142,6 +144,7 @@ describe('Sales - Price Drift & Snapshots', () => {
         price_cents: clientPrice
       }],
       discount_cents: 0,
+        tip_cents: 0,
       payments: [{
         method: 'CASH',
         amount_cents: expectedSubtotal
@@ -149,6 +152,7 @@ describe('Sales - Price Drift & Snapshots', () => {
       snapshot: {
         subtotal_cents: expectedSubtotal,
         discount_cents: 0,
+        tip_cents: 0,
         tax_total_cents: 3353,
         total_cents: expectedSubtotal
       }
@@ -201,6 +205,7 @@ describe('Sales - Price Drift & Snapshots', () => {
         price_cents: clientPrice
       }],
       discount_cents: 0,
+        tip_cents: 0,
       payments: [{
         method: 'CASH',
         amount_cents: expectedSubtotal
@@ -208,6 +213,7 @@ describe('Sales - Price Drift & Snapshots', () => {
       snapshot: {
         subtotal_cents: expectedSubtotal,
         discount_cents: 0,
+        tip_cents: 0,
         tax_total_cents: 3832,
         total_cents: expectedSubtotal
       }

@@ -40,6 +40,12 @@ export interface TenantsTable {
   /** C3: Si TRUE (default), las ventas pueden dejar el inventario en negativo.
    *  Si FALSE, la API bloquea ventas sin stock suficiente. Migration 010. */
   allow_negative_stock: Generated<boolean>;
+  /** Tipo de negocio seleccionado en el registro. Migration 059. */
+  business_type: Generated<string>;
+  /** Nombre libre cuando business_type = 'OTHER'. Migration 059. */
+  custom_business_type: string | null;
+  /** Si TRUE, habilita módulos de gestión de mesas aunque el tipo sea 'OTHER'. Migration 059. */
+  enable_tables: Generated<boolean>;
   status: Generated<string>;
   suspended_at: Date | null;
   suspended_reason: string | null;
@@ -229,10 +235,12 @@ export interface SalesTable {
   customer_id: string | null;
   branch_id: string;
   cash_session_id: string;
+  table_order_id: string | null;
   sale_number: number;
   status: SaleStatus;
   subtotal_cents: number;
   discount_cents: number;
+  tip_cents: Generated<number>;
   total_cents: number;
   tax_total_cents: Generated<number>;
   tax_lines_json: JsonArrayColumn;
@@ -674,6 +682,99 @@ export interface IdempotencyRecordsTable {
   expires_at: Date;
 }
 
+export interface RoomsTable {
+  id: string;
+  tenant_id: string;
+  branch_id: string;
+  name: string;
+  is_active: Generated<boolean>;
+  created_at: Generated<Date>;
+  updated_at: Generated<Date>;
+}
+
+export interface TablesTable {
+  id: string;
+  tenant_id: string;
+  branch_id: string;
+  room_id: string;
+  name: string;
+  capacity: Generated<number>;
+  status: Generated<string>;
+  current_order_id: string | null;
+  status_updated_at: Generated<Date>;
+  is_active: Generated<boolean>;
+  created_at: Generated<Date>;
+  updated_at: Generated<Date>;
+}
+
+export interface TableOrdersTable {
+  id: string;
+  tenant_id: string;
+  branch_id: string;
+  table_id: string;
+  status: Generated<string>; // OPEN, COMPLETED
+  subtotal_cents: Generated<number>;
+  discount_cents: Generated<number>;
+  tip_cents: Generated<number>;
+  total_cents: Generated<number>;
+  created_at: Generated<Date>;
+  updated_at: Generated<Date>;
+}
+
+export interface TableOrderItemsTable {
+  id: string;
+  tenant_id: string;
+  branch_id: string;
+  table_order_id: string;
+  product_id: string;
+  variant_id: string | null;
+  qty: number;
+  price_cents: number;
+  line_total_cents: number;
+  created_at: Generated<Date>;
+}
+
+export interface DeliveryPersonsTable {
+  id: string;
+  tenant_id: string;
+  branch_id: string;
+  name: string;
+  phone: string;
+  is_active: Generated<boolean>;
+  created_at: Generated<Date>;
+  updated_at: Generated<Date>;
+}
+
+export interface DeliveriesTable {
+  id: string;
+  tenant_id: string;
+  branch_id: string;
+  sale_id: string | null;
+  status: string; // PENDING, PREPARING, ON_THE_WAY, DELIVERED, CANCELLED
+  customer_name: string;
+  customer_phone: string;
+  delivery_address: string;
+  delivery_neighborhood: string | null;
+  delivery_notes: string | null;
+  delivery_person_id: string | null;
+  total_cents: number;
+  status_updated_at: Generated<Date>;
+  created_at: Generated<Date>;
+  updated_at: Generated<Date>;
+}
+
+export interface DeliveryItemsTable {
+  id: string;
+  tenant_id: string;
+  branch_id: string;
+  delivery_id: string;
+  product_id: string;
+  variant_id: string | null;
+  qty: string;
+  price_cents: number;
+  line_total_cents: number;
+}
+
 export interface Database {
   tenants: TenantsTable;
   branches: BranchesTable;
@@ -725,4 +826,11 @@ export interface Database {
   platform_events: PlatformEventsTable;
   subscription_events: SubscriptionEventsTable;
   product_images: ProductImagesTable;
+  rooms: RoomsTable;
+  tables: TablesTable;
+  table_orders: TableOrdersTable;
+  table_order_items: TableOrderItemsTable;
+  delivery_persons: DeliveryPersonsTable;
+  deliveries: DeliveriesTable;
+  delivery_items: DeliveryItemsTable;
 }

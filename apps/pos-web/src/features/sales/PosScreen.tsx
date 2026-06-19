@@ -5,15 +5,19 @@ import { extractTicketPayments, printSaleTicket, printSaleTicketESCPOS } from '.
 import type { PendingSaleRecord } from '../../lib/offline-queue';
 import type { TenantTaxMode, ProductItem } from '../../lib/api';
 import type { TicketTemplateConfig } from '../../lib/ticket-template';
-import type { PosApiClient } from '../../types';
-import { CheckoutModal, CartPanel, ProductGrid, VariantSelectorModal } from './components';
+import type { PosApiClient, AppRoute, CartItem } from '../../types';
+import { CheckoutModal, CartPanel, ProductGrid, CategoryGrid, VariantSelectorModal, SplitBillModal, SplitBillByProductsModal } from './components';
 import { inferTaxModeFromSale } from './utils';
 import { useState } from 'react';
 
 import { useBarcodeScanner } from '../../hooks/useBarcodeScanner';
+import { useBusinessModules } from '../../hooks/useBusinessModules';
 import { useProductCatalog } from './hooks/useProductCatalog';
 import { useCart } from './hooks/useCart';
 import { useCheckout } from './hooks/useCheckout';
+import { useTablesStore } from '../tables/store/useTablesStore';
+import { useGetTableOrder, useSaveTableOrder, useClearTableOrder } from '../tables/api/tables.api';
+import { TransferTableModal } from '../tables/components/TransferTableModal';
 
 export function PosScreen({
   api,
@@ -29,7 +33,8 @@ export function PosScreen({
   tenantTaxMode,
   onRetryPendingSale: _onRetryPendingSale,
   onSaleQueued,
-  onSyncPendingSales
+  onSyncPendingSales,
+  onNavigate
 }: {
   api: PosApiClient;
   branchId: string;
@@ -45,6 +50,7 @@ export function PosScreen({
   onRetryPendingSale?: (recordId: string) => Promise<void> | void;
   onSaleQueued: () => Promise<void> | void;
   onSyncPendingSales?: () => Promise<void> | void;
+  onNavigate?: (route: AppRoute) => void;
 }) {
   const searchInputRef = useRef<HTMLInputElement | null>(null);
   const [variantSelectionProduct, setVariantSelectionProduct] = useState<ProductItem | null>(null);
@@ -62,8 +68,31 @@ export function PosScreen({
     loadProducts,
     highlightedProduct,
     setHighlightedProductId,
-    moveHighlightedProduct
+    moveHighlightedProduct,
+    availableCategories,
+    selectedCategory,
+    setSelectedCategory
   } = useProductCatalog({ api, branchId });
+
+  const { isRestaurantNative } = useBusinessModules();
+
+  // Access active table if any
+  const { activeTable, setActiveTable } = useTablesStore();
+
+  const [viewMode, setViewMode] = useState<'categories' | 'products'>(
+    isRestaurantNative ? 'categories' : 'products'
+  );
+
+  useEffect(() => {
+    if (activeTable) {
+      setViewMode('categories');
+      setSelectedCategory(null);
+    }
+  }, [activeTable, setSelectedCategory]);
+
+  const { data: tableOrderData, isLoading: isLoadingTableOrder } = useGetTableOrder(branchId, activeTable?.id);
+  const { mutateAsync: saveTableOrder, isPending: isSavingTableOrder } = useSaveTableOrder();
+  const { mutateAsync: clearTableOrder } = useClearTableOrder();
 
   // 2. Cart Hook
   const {
@@ -80,11 +109,59 @@ export function PosScreen({
     updateCartQty,
     resetCartState,
     parkCart,
-    restoreCart
+    restoreCart,
+    setCartItems
   } = useCart();
+
+  useEffect(() => {
+    if (activeTable && activeTable.currentOrderId && tableOrderData && cartItems.length === 0) {
+      const items: typeof cartItems = tableOrderData.items.map(i => ({
+        productId: i.productId,
+        variantId: i.variantId,
+        name: i.productId, // We should lookup name from cachedProducts ideally, but minimal approach for now
+        category: '',
+        barcode: null,
+        priceCents: i.priceCents,
+        imageUrl: null,
+        qty: i.qty
+      }));
+      // Map names from catalog if possible
+      items.forEach(i => {
+        const p = cachedProducts.find(cp => cp.id === i.productId);
+        if (p) {
+          i.name = p.name;
+          i.category = p.category;
+          i.barcode = p.barcode;
+          i.imageUrl = p.imageUrl;
+          if (i.variantId) {
+            const v = p.variants?.find(v => v.id === i.variantId);
+            if (v) i.variantName = v.name;
+          }
+        }
+      });
+      setCartItems(items);
+    }
+  }, [activeTable, tableOrderData, cartItems.length, setCartItems, cachedProducts]);
 
   const canOpenCheckout = cartItems.length > 0 && totalCents > 0;
   const hasPendingSales = pendingSales.length > 0;
+
+  const [isSplitBillModalOpen, setIsSplitBillModalOpen] = useState(false);
+  const [isSplitBillByProductsModalOpen, setIsSplitBillByProductsModalOpen] = useState(false);
+  const [isTransferTableModalOpen, setIsTransferTableModalOpen] = useState(false);
+  const [initialSplitParts, setInitialSplitParts] = useState<number | undefined>(undefined);
+  const [checkoutOverrideItems, setCheckoutOverrideItems] = useState<CartItem[] | null>(null);
+  const checkoutOverrideItemsRef = useRef<CartItem[] | null>(null);
+
+  // Sync ref with state
+  useEffect(() => {
+    checkoutOverrideItemsRef.current = checkoutOverrideItems;
+  }, [checkoutOverrideItems]);
+
+  const checkoutItems = checkoutOverrideItems || cartItems;
+  const currentSubtotalCents = checkoutOverrideItems ? checkoutItems.reduce((acc, i) => acc + (i.qty * i.priceCents), 0) : subtotalCents;
+  const currentTotalCents = checkoutOverrideItems ? currentSubtotalCents : totalCents;
+  const currentDiscountCents = checkoutOverrideItems ? 0 : discountCents;
 
   // 3. Checkout Hook
   const {
@@ -101,10 +178,51 @@ export function PosScreen({
     api,
     branchId,
     cashSessionId,
-    onSaleSuccess: () => {
-      resetCartState();
-      searchInputRef.current?.focus();
-      void loadProducts();
+    onSaleSuccess: async () => {
+      if (checkoutOverrideItemsRef.current) {
+         const overrideItems = checkoutOverrideItemsRef.current;
+         // Refetch current cart items to be safe
+         setCartItems(prev => {
+           const newCartItems = [...prev];
+           for (const item of overrideItems) {
+              const index = newCartItems.findIndex(i => i.productId === item.productId && i.variantId === item.variantId);
+              if (index !== -1) {
+                 const existingItem = newCartItems[index];
+                 if (existingItem) {
+                   newCartItems[index] = { ...existingItem, qty: existingItem.qty - item.qty };
+                   if (newCartItems[index]!.qty <= 0) {
+                     newCartItems.splice(index, 1);
+                   }
+                 }
+              }
+           }
+           
+           if (activeTable) {
+             saveTableOrder({
+                branchId,
+                tableId: activeTable.id,
+                payload: { items: newCartItems.map(i => ({ productId: i.productId, variantId: i.variantId ?? null, qty: i.qty, priceCents: i.priceCents, lineTotalCents: i.qty * i.priceCents })) }
+             }).catch(e => console.error('Failed to update table order after split bill', e));
+           }
+
+           return newCartItems;
+         });
+         
+         setCheckoutOverrideItems(null);
+      } else {
+        resetCartState();
+        searchInputRef.current?.focus();
+        void loadProducts();
+        if (activeTable) {
+          try {
+            await clearTableOrder({ branchId, tableId: activeTable.id });
+            setActiveTable(null);
+            onNavigate?.('tables');
+          } catch (e) {
+            console.error('Failed to clear table order', e);
+          }
+        }
+      }
     },
     onSaleQueued: async () => {
       await onSaleQueued();
@@ -163,6 +281,7 @@ export function PosScreen({
       items: lastPrintedSaleSnapshot.items,
       subtotalCents: lastPrintedSaleSnapshot.sale.subtotal_cents,
       discountCents: lastPrintedSaleSnapshot.sale.discount_cents,
+      tipCents: lastPrintedSaleSnapshot.sale.tip_cents ?? 0,
       totalCents: lastPrintedSaleSnapshot.sale.total_cents,
       payments: extractTicketPayments(lastPrintedSaleSnapshot.sale.payment_json),
       taxMode: tenantTaxMode ?? inferTaxModeFromSale(lastPrintedSaleSnapshot.sale),
@@ -188,6 +307,7 @@ export function PosScreen({
         items: lastPrintedSaleSnapshot.items,
         subtotalCents: lastPrintedSaleSnapshot.sale.subtotal_cents,
         discountCents: lastPrintedSaleSnapshot.sale.discount_cents,
+        tipCents: lastPrintedSaleSnapshot.sale.tip_cents ?? 0,
         totalCents: lastPrintedSaleSnapshot.sale.total_cents,
         payments: extractTicketPayments(lastPrintedSaleSnapshot.sale.payment_json),
         taxMode: tenantTaxMode ?? inferTaxModeFromSale(lastPrintedSaleSnapshot.sale),
@@ -336,7 +456,7 @@ export function PosScreen({
       <section className="products-panel">
         <header className="section-heading pos-heading">
           <div className="heading-copy">
-            <h2>Panel de Ventas</h2>
+            <h2>{activeTable ? `Mesa: ${activeTable.name}` : 'Panel de Ventas'}</h2>
             <p>Búsqueda rápida y catálogo táctil</p>
           </div>
           <div className="pos-metrics">
@@ -353,6 +473,41 @@ export function PosScreen({
               <strong style={{ color: '#ffffff' }}>{formatMoneyFromCents(totalCents)}</strong>
             </div>
           </div>
+          {activeTable && (
+            <div style={{ marginLeft: '1rem' }}>
+              <button
+                className="primary-button"
+                style={{ padding: '0.5rem 1rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}
+                disabled={cartItems.length === 0 || isSavingTableOrder}
+                onClick={async () => {
+                  try {
+                    await saveTableOrder({
+                      branchId,
+                      tableId: activeTable.id,
+                      payload: {
+                        items: cartItems.map(item => ({
+                          productId: item.productId,
+                          variantId: item.variantId,
+                          qty: item.qty,
+                          priceCents: item.priceCents,
+                          lineTotalCents: item.priceCents * item.qty
+                        }))
+                      }
+                    });
+                    setSaleMessage(`Pedido guardado en mesa ${activeTable.name}`);
+                    setTimeout(() => {
+                      setActiveTable(null);
+                      onNavigate?.('tables');
+                    }, 1500);
+                  } catch (e) {
+                    setSaleError('Error al guardar en la mesa');
+                  }
+                }}
+              >
+                {isSavingTableOrder ? 'Guardando...' : '💾 Guardar en Mesa'}
+              </button>
+            </div>
+          )}
         </header>
 
         <div className="pos-search-panel">
@@ -419,105 +574,66 @@ export function PosScreen({
         {productsLoading && <Banner tone="info">Cargando catálogo de productos...</Banner>}
         {productsError && <Banner tone="error">{productsError}</Banner>}
 
-        <div className="quick-product-card">
-          {highlightedProduct ? (
-            <div className="quick-product-main" style={{ 
-              position: 'relative', 
-              borderRadius: '16px', 
-              overflow: 'hidden', 
-              minHeight: '160px',
-              display: 'flex',
-              alignItems: 'stretch',
-              padding: 0
-            }}>
-              {/* Full background image/placeholder */}
-              <div style={{ position: 'absolute', inset: 0, zIndex: 1 }}>
-                {highlightedProduct.imageUrl ? (
-                  <img src={highlightedProduct.imageUrl} alt={highlightedProduct.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                ) : (
-                  <PlaceholderImage name={highlightedProduct.name} category={highlightedProduct.category} size="xl" style={{ width: '100%', height: '100%', borderRadius: 0 }} />
-                )}
-              </div>
-              
-              {/* Dark overlay for contrast */}
-              <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(to right, rgba(15,23,42,0.95) 0%, rgba(15,23,42,0.8) 40%, rgba(15,23,42,0.4) 100%)', zIndex: 2 }} />
 
-              <div style={{ position: 'relative', zIndex: 3, display: 'flex', flex: 1, padding: '1.5rem', alignItems: 'center', gap: '1.5rem' }}>
-                <div className="quick-product-copy" style={{ flex: 1, color: '#ffffff' }}>
-                  <span style={{ 
-                    display: 'inline-block', 
-                    background: 'var(--color-primary-600)', 
-                    color: '#ffffff', 
-                    padding: '0.2rem 0.6rem', 
-                    borderRadius: '1rem', 
-                    fontSize: '0.7rem', 
-                    fontWeight: 700, 
-                    textTransform: 'uppercase', 
-                    letterSpacing: '0.05em',
-                    marginBottom: '0.5rem',
-                    boxShadow: '0 2px 4px rgba(0,0,0,0.2)'
-                  }}>
-                    Destacado
-                  </span>
-                  <h3 style={{ margin: 0, fontSize: '1.75rem', fontWeight: 800, textShadow: '0 2px 4px rgba(0,0,0,0.5)' }}>{highlightedProduct.name}</h3>
-                  <div style={{ display: 'flex', gap: '0.75rem', marginTop: '0.25rem', opacity: 0.9, fontSize: '0.875rem' }}>
-                    <span>{highlightedProduct.category || 'S/C'}</span>
-                    {highlightedProduct.barcode && <span style={{ opacity: 0.7 }}>Cod. {highlightedProduct.barcode}</span>}
-                  </div>
-                  {highlightedProduct.description && (
-                    <p style={{ marginTop: '0.75rem', fontSize: '0.875rem', color: '#cbd5e1', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
-                      {highlightedProduct.description}
-                    </p>
-                  )}
-                </div>
-                <div className="quick-product-actions" style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '0.75rem' }}>
-                  <strong style={{ fontSize: '2rem', color: '#4ade80', textShadow: '0 2px 4px rgba(0,0,0,0.5)', lineHeight: 1 }}>
-                    {formatMoneyFromCents(highlightedProduct.price_cents)}
-                  </strong>
-                  <button
-                    aria-label="Agregar destacado"
-                    type="button"
-                    style={{ 
-                      background: '#ffffff', 
-                      color: '#0f172a',
-                      fontWeight: 700,
-                      padding: '0.75rem 2rem',
-                      borderRadius: '12px',
-                      border: 'none',
-                      cursor: 'pointer',
-                      fontSize: '1rem',
-                      boxShadow: '0 4px 6px rgba(0,0,0,0.1)'
-                    }}
-                    onMouseEnter={(e) => { e.currentTarget.style.background = '#f8fafc'; e.currentTarget.style.transform = 'translateY(-1px)'; }}
-                    onMouseLeave={(e) => { e.currentTarget.style.background = '#ffffff'; e.currentTarget.style.transform = 'none'; }}
-                    onClick={() => {
-                      addProduct(highlightedProduct);
-                      setQuery('');
-                      searchInputRef.current?.focus();
-                    }}
-                  >
-                    Agregar (Enter)
-                  </button>
-                </div>
-              </div>
-            </div>
-          ) : (
-            <div className="empty-state" style={{ padding: '2rem', textAlign: 'center', color: 'var(--color-slate-500)' }}>
-              {hasSearchQuery
-                ? 'No se encontraron productos coincidentes.'
-                : 'Usa la búsqueda o selecciona un producto del catálogo.'}
-            </div>
-          )}
-        </div>
+        {selectedCategory && !hasSearchQuery && (
+          <div style={{ marginBottom: '1rem', padding: '0 0.5rem' }}>
+            <button
+              onClick={() => setSelectedCategory(null)}
+              style={{
+                background: 'none',
+                border: 'none',
+                color: 'var(--color-primary-600)',
+                fontWeight: 600,
+                fontSize: '1rem',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '0.5rem',
+                padding: '0.5rem 0'
+              }}
+            >
+              ⬅ Volver a Categorías
+            </button>
+            <h3 style={{ margin: '0.5rem 0 1rem 0', fontSize: '1.5rem', fontWeight: 700 }}>
+              {selectedCategory}
+            </h3>
+          </div>
+        )}
 
-        <ProductGrid
-          products={products}
-          productsLoading={productsLoading}
-          hasSearchQuery={hasSearchQuery}
-          highlightedProductId={highlightedProduct?.id ?? null}
-          setHighlightedProductId={setHighlightedProductId}
-          addProduct={(p) => handleProductSelect(p)}
-        />
+        {!hasSearchQuery && !selectedCategory && availableCategories.length > 0 && (
+          <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1rem', padding: '0 0.5rem' }}>
+            <button 
+              className={viewMode === 'categories' ? 'primary-button' : 'secondary-button'} 
+              onClick={() => setViewMode('categories')}
+              style={{ padding: '0.5rem 1rem', borderRadius: 'var(--radius-full)', flex: 1 }}
+            >
+              🗂 Categorías
+            </button>
+            <button 
+              className={viewMode === 'products' ? 'primary-button' : 'secondary-button'} 
+              onClick={() => setViewMode('products')}
+              style={{ padding: '0.5rem 1rem', borderRadius: 'var(--radius-full)', flex: 1 }}
+            >
+              📦 Todos los Productos
+            </button>
+          </div>
+        )}
+
+        {!hasSearchQuery && !selectedCategory && viewMode === 'categories' ? (
+          <CategoryGrid 
+            categories={availableCategories} 
+            onSelectCategory={setSelectedCategory} 
+          />
+        ) : (
+          <ProductGrid
+            products={products}
+            productsLoading={productsLoading}
+            hasSearchQuery={hasSearchQuery}
+            highlightedProductId={highlightedProduct?.id ?? null}
+            setHighlightedProductId={setHighlightedProductId}
+            addProduct={(p) => handleProductSelect(p)}
+          />
+        )}
       </section>
 
       <CartPanel
@@ -596,31 +712,94 @@ export function PosScreen({
             <span>{formatMoneyFromCents(totalCents)}</span>
           </div>
 
-          <button
-            className={`checkout-button ${canOpenCheckout ? 'is-active' : ''}`}
-            disabled={!canOpenCheckout || checkoutLoading}
-            onClick={() => {
-              setSaleError(null);
-              setIsCheckoutModalOpen(true);
-            }}
-          >
-            {checkoutLoading ? 'Procesando...' : `Cobrar ${formatMoneyFromCents(totalCents)} (F12)`}
-          </button>
+          <div style={{ display: 'flex', gap: '0.5rem', marginTop: '1rem' }}>
+            {activeTable && canOpenCheckout ? (
+              <>
+                <button
+                  className="secondary-button"
+                  disabled={checkoutLoading || isSavingTableOrder}
+                  onClick={() => setIsTransferTableModalOpen(true)}
+                  style={{ flex: 1, padding: '1rem', borderRadius: '8px' }}
+                >
+                  Cambio de Mesa
+                </button>
+                <button
+                  className="secondary-button"
+                  disabled={checkoutLoading || isSavingTableOrder}
+                  onClick={() => {
+                    setSaleError(null);
+                    setIsSplitBillModalOpen(true);
+                  }}
+                  style={{ flex: 1, padding: '1rem', borderRadius: '8px' }}
+                >
+                  Dividir Cuenta
+                </button>
+              </>
+            ) : null}
+            <button
+              className={`checkout-button ${canOpenCheckout ? 'is-active' : ''}`}
+              disabled={!canOpenCheckout || checkoutLoading}
+              style={{ flex: 2, padding: '1rem', borderRadius: '8px' }}
+              onClick={() => {
+                setSaleError(null);
+                setInitialSplitParts(undefined);
+                setCheckoutOverrideItems(null);
+                setIsCheckoutModalOpen(true);
+              }}
+            >
+              {checkoutLoading ? 'Procesando...' : `Cobrar ${formatMoneyFromCents(totalCents)} (F12)`}
+            </button>
+          </div>
         </div>
       </div>
 
       <CheckoutModal
         isOpen={isCheckoutModalOpen}
-        onClose={() => setIsCheckoutModalOpen(false)}
-        cartItems={cartItems}
-        totalCents={totalCents}
-        discountCents={discountCents}
+        onClose={() => {
+          setIsCheckoutModalOpen(false);
+          setInitialSplitParts(undefined);
+          setCheckoutOverrideItems(null);
+        }}
+        cartItems={checkoutItems}
+        totalCents={currentTotalCents}
+        discountCents={currentDiscountCents}
         customers={customers}
-        onConfirm={async (payments, customerId) => {
-          await processSale(cartItems, discountCents, subtotalCents, totalCents, payments, customerId);
+        initialSplitParts={initialSplitParts}
+        onConfirm={async (payments, customerId, tipCents) => {
+          await processSale(checkoutItems, currentDiscountCents, tipCents ?? 0, currentSubtotalCents, currentTotalCents, payments, customerId, activeTable?.currentOrderId);
         }}
         isSubmitting={checkoutLoading}
         error={saleError}
+      />
+
+      <SplitBillModal
+        isOpen={isSplitBillModalOpen}
+        onClose={() => setIsSplitBillModalOpen(false)}
+        cartItems={cartItems}
+        totalCents={totalCents}
+        onSelectMode={(mode, payload) => {
+          setIsSplitBillModalOpen(false);
+          if (mode === 'EQUAL') {
+            setInitialSplitParts(payload.parts);
+            setIsCheckoutModalOpen(true);
+          } else if (mode === 'PERCENTAGE') {
+            setInitialSplitParts(undefined);
+            setIsCheckoutModalOpen(true);
+          } else if (mode === 'PRODUCTS') {
+            setIsSplitBillByProductsModalOpen(true);
+          }
+        }}
+      />
+
+      <SplitBillByProductsModal
+        isOpen={isSplitBillByProductsModalOpen}
+        onClose={() => setIsSplitBillByProductsModalOpen(false)}
+        cartItems={cartItems}
+        onConfirm={(selectedItems) => {
+          setIsSplitBillByProductsModalOpen(false);
+          setCheckoutOverrideItems(selectedItems);
+          setIsCheckoutModalOpen(true);
+        }}
       />
 
       <VariantSelectorModal
@@ -637,6 +816,20 @@ export function PosScreen({
           }
         }}
       />
+
+      {activeTable && (
+        <TransferTableModal
+          isOpen={isTransferTableModalOpen}
+          onClose={() => setIsTransferTableModalOpen(false)}
+          sourceTable={activeTable}
+          items={tableOrderData?.items || []}
+          onTransferComplete={() => {
+            setIsTransferTableModalOpen(false);
+            setActiveTable(null);
+            onNavigate?.('tables');
+          }}
+        />
+      )}
     </div>
   );
 }

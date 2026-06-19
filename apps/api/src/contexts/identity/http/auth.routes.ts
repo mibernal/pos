@@ -37,6 +37,9 @@ const registerBodySchema = z.object({
   tenant_document_number: z.string().min(1),
   tax_mode: z.enum(['IVA', 'INC_RESTAURANT']).default('IVA'),
   plan: z.string().default('STARTER'),
+  business_type: z.enum(['RESTAURANT','CAFETERIA','BAKERY','FAST_FOOD','BAR','NIGHTCLUB','BUTCHER','MINIMARKET','SUPERMARKET','CORNER_STORE','HARDWARE_STORE','PHARMACY','STATIONERY','BOUTIQUE','OTHER']),
+  custom_business_type: z.string().trim().min(2).max(80).nullable().optional(),
+  enable_tables: z.boolean().optional().default(false),
 });
 
 export const authRoutes: FastifyPluginAsync = async (app) => {
@@ -75,6 +78,9 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
           nit: payload.tenant_document_number,
           address: 'No especificada',
           tax_mode: payload.tax_mode,
+          business_type: payload.business_type,
+          custom_business_type: payload.business_type === 'OTHER' ? (payload.custom_business_type ?? null) : null,
+          enable_tables: payload.business_type === 'OTHER' ? (payload.enable_tables ?? false) : false,
           status: 'TRIAL',
           owner_user_id: userId
         }).execute();
@@ -154,6 +160,8 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
           'tenants.name as tenant_name',
           'tenants.business_name as tenant_business_name',
           'tenants.tax_mode as tax_mode',
+          'tenants.business_type as business_type',
+          'tenants.enable_tables as enable_tables',
           'tenants.status as tenant_status',
           'ts.plan_id as tenant_plan',
           'users.email as email',

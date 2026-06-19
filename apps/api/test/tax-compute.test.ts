@@ -12,6 +12,7 @@ describe('tax compute service', () => {
     expect(result).toEqual({
       subtotal_cents: 11900,
       discount_cents: 0,
+        tip_cents: 0,
       tax_total_cents: 1900,
       total_cents: 11900,
       tax_lines_json: [
@@ -36,6 +37,7 @@ describe('tax compute service', () => {
     expect(result).toEqual({
       subtotal_cents: 10500,
       discount_cents: 0,
+        tip_cents: 0,
       tax_total_cents: 500,
       total_cents: 10500,
       tax_lines_json: [
@@ -63,6 +65,7 @@ describe('tax compute service', () => {
     expect(result).toEqual({
       subtotal_cents: 15000,
       discount_cents: 0,
+        tip_cents: 0,
       tax_total_cents: 0,
       total_cents: 15000,
       tax_lines_json: [
@@ -94,6 +97,7 @@ describe('tax compute service', () => {
     expect(result).toEqual({
       subtotal_cents: 10800,
       discount_cents: 0,
+        tip_cents: 0,
       tax_total_cents: 800,
       total_cents: 10800,
       tax_lines_json: [
@@ -121,6 +125,7 @@ describe('tax compute service', () => {
     expect(result).toEqual({
       subtotal_cents: 22400,
       discount_cents: 2400,
+        tip_cents: 0,
       tax_total_cents: 2142,
       total_cents: 20000,
       tax_lines_json: [

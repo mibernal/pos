@@ -90,6 +90,7 @@ describe('cash isolation e2e', () => {
       cash_session_id: sessionAId, // The isolated session
       items: [{ product_id: fixture.productId, qty: 1, price_cents: fixture.productPriceCents }],
       discount_cents: 0,
+        tip_cents: 0,
       payments: [{ method: 'CASH', amount_cents: Math.round(fixture.productPriceCents * 1.19) }]
     };
 

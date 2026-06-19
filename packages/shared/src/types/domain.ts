@@ -1,5 +1,22 @@
 export type UserRole = 'ADMIN' | 'MANAGER' | 'CASHIER' | 'AUDITOR';
 
+export type BusinessType =
+  | 'RESTAURANT'
+  | 'CAFETERIA'
+  | 'BAKERY'
+  | 'FAST_FOOD'
+  | 'BAR'
+  | 'NIGHTCLUB'
+  | 'BUTCHER'
+  | 'MINIMARKET'
+  | 'SUPERMARKET'
+  | 'CORNER_STORE'
+  | 'HARDWARE_STORE'
+  | 'PHARMACY'
+  | 'STATIONERY'
+  | 'BOUTIQUE'
+  | 'OTHER';
+
 export type DianStatus = 'PENDING' | 'SENT' | 'ACCEPTED' | 'REJECTED';
 export type DianDocumentType = 'INVOICE' | 'CREDIT_NOTE';
 
@@ -16,14 +33,17 @@ export type SaleTaxCategory = ProductTaxCategory | 'INC';
 export interface AuthUser {
   id: string;
   tenantId: string;
-  taxMode?: 'IVA' | 'INC_RESTAURANT';
+  taxMode?: 'IVA' | 'INC_RESTAURANT' | 'REGIMEN_SIMPLIFICADO';
   role: UserRole;
   email: string;
   name: string;
   active: boolean;
+  businessType?: BusinessType;
+  enableTables?: boolean;
   branchIds?: string[];
   permissions?: string[];
   isImpersonating?: boolean;
+  isPlatformRole?: boolean;
 }
 
 export interface Product {

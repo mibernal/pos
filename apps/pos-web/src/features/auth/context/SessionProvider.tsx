@@ -13,6 +13,7 @@ import { ApiClientError, createApiClient, type AuthSession, type UserRole } from
 import { API_BASE_URL } from '../../../lib/env';
 import { readAuthUser, writeAuthUser } from '../../../lib/session';
 import { usePosStore } from '../../../hooks/usePosStore';
+import { useCartStore } from '../../sales/hooks/useCartStore';
 
 const SESSION_EXPIRED_MESSAGE = 'Tu sesión expiró o ya no es válida. Inicia sesión de nuevo.';
 
@@ -63,6 +64,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
 
     if (currentFingerprint !== nextFingerprint) {
       usePosStore.getState().commitPosContext(null);
+      useCartStore.getState().resetCart();
       queryClient.clear();
     }
     sessionRef.current = nextSession;
@@ -84,6 +86,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       setUser(null);
       writeAuthUser(null);
       usePosStore.getState().commitPosContext(null);
+      useCartStore.getState().resetCart();
       setAuthMessage(reason ?? null);
       setAuthState('unauthenticated');
       // Clear react query cache and memory by reloading the application

@@ -1,16 +1,59 @@
 import { useCallback, useMemo } from 'react';
 import { useCartStore } from './useCartStore';
+import { useTablesStore } from '../../tables/store/useTablesStore';
 import type { CartItem } from '../../../types';
 import type { ProductItem } from '../../../lib/api';
 
 export function useCart() {
-  const cartItems = useCartStore((state) => state.cartItems);
-  const selectedCartIndex = useCartStore((state) => state.selectedCartIndex);
+  const activeTable = useTablesStore((state) => state.activeTable);
+  const isTableMode = !!activeTable;
+  const tableId = activeTable?.id;
+
+  const globalCartItems = useCartStore((state) => state.cartItems);
+  const globalSelectedIndex = useCartStore((state) => state.selectedCartIndex);
+  
+  const tableCarts = useCartStore((state) => state.tableCarts);
+  const tableCartIndices = useCartStore((state) => state.tableCartIndices);
+
   const parkedCarts = useCartStore((state) => state.parkedCarts);
-  const setCartItems = useCartStore((state) => state.setCartItems);
-  const setSelectedCartIndex = useCartStore((state) => state.setSelectedCartIndex);
+  
+  const setGlobalCartItems = useCartStore((state) => state.setCartItems);
+  const setTableCartItems = useCartStore((state) => state.setTableCartItems);
+  
+  const setGlobalSelectedIndex = useCartStore((state) => state.setSelectedCartIndex);
+  const setTableCartIndex = useCartStore((state) => state.setTableCartIndex);
+  
   const setParkedCarts = useCartStore((state) => state.setParkedCarts);
-  const resetCartStoreState = useCartStore((state) => state.resetCart);
+  
+  const resetGlobalCart = useCartStore((state) => state.resetCart);
+  const resetTableCart = useCartStore((state) => state.resetTableCart);
+
+  const cartItems = isTableMode ? (tableCarts[tableId!] || []) : globalCartItems;
+  const selectedCartIndex = isTableMode ? (tableCartIndices[tableId!] ?? -1) : globalSelectedIndex;
+
+  const setCartItems = useCallback((items: CartItem[] | ((curr: CartItem[]) => CartItem[])) => {
+    if (isTableMode) {
+      setTableCartItems(tableId!, items);
+    } else {
+      setGlobalCartItems(items);
+    }
+  }, [isTableMode, tableId, setTableCartItems, setGlobalCartItems]);
+
+  const setSelectedCartIndex = useCallback((index: number | ((curr: number) => number)) => {
+    if (isTableMode) {
+      setTableCartIndex(tableId!, index);
+    } else {
+      setGlobalSelectedIndex(index);
+    }
+  }, [isTableMode, tableId, setTableCartIndex, setGlobalSelectedIndex]);
+
+  const resetCartState = useCallback(() => {
+    if (isTableMode) {
+      resetTableCart(tableId!);
+    } else {
+      resetGlobalCart();
+    }
+  }, [isTableMode, tableId, resetTableCart, resetGlobalCart]);
 
   const subtotalCents = useMemo(
     () => cartItems.reduce((sum, item) => sum + item.qty * item.priceCents, 0),
@@ -80,7 +123,7 @@ export function useCart() {
       setSelectedCartIndex(existingIndex);
       return nextCartItems;
     });
-  }, []);
+  }, [setCartItems, setSelectedCartIndex]);
 
   const removeSelectedItem = useCallback(() => {
     if (selectedCartIndex < 0 || selectedCartIndex >= cartItems.length) {
@@ -92,7 +135,7 @@ export function useCart() {
     setSelectedCartIndex(
       nextCartItems.length === 0 ? -1 : Math.min(selectedCartIndex, nextCartItems.length - 1)
     );
-  }, [cartItems, selectedCartIndex]);
+  }, [cartItems, selectedCartIndex, setCartItems, setSelectedCartIndex]);
 
   const updateCartQty = useCallback((index: number, qty: number) => {
     if (qty <= 0) {
@@ -108,17 +151,13 @@ export function useCart() {
       }
       return next;
     });
-  }, []);
-
-  const resetCartState = useCallback(() => {
-    resetCartStoreState();
-  }, [resetCartStoreState]);
+  }, [setCartItems]);
 
   const parkCart = useCallback(() => {
     if (cartItems.length === 0) return;
     setParkedCarts((current) => [...current, cartItems]);
     resetCartState();
-  }, [cartItems, resetCartState]);
+  }, [cartItems, resetCartState, setParkedCarts]);
 
   const restoreCart = useCallback((index: number) => {
     setParkedCarts((current) => {
@@ -130,7 +169,7 @@ export function useCart() {
       
       return current.filter((_, i) => i !== index);
     });
-  }, []);
+  }, [setCartItems, setSelectedCartIndex, setParkedCarts]);
 
   return {
     cartItems,
@@ -146,6 +185,7 @@ export function useCart() {
     updateCartQty,
     resetCartState,
     parkCart,
-    restoreCart
+    restoreCart,
+    setCartItems
   };
 }

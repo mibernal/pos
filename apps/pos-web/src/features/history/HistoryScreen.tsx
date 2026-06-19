@@ -215,6 +215,7 @@ export function HistoryScreen({
       })),
       subtotalCents: sale.subtotal_cents,
       discountCents: sale.discount_cents,
+      tipCents: sale.tip_cents ?? 0,
       totalCents: sale.total_cents,
       payments: selectedSalePayments,
       taxMode: tenantTaxMode ?? inferTaxModeFromSale(sale),

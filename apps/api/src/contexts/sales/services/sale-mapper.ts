@@ -7,10 +7,12 @@ export const saleColumnList = [
   'customer_id',
   'branch_id',
   'cash_session_id',
+  'table_order_id',
   'sale_number',
   'status',
   'subtotal_cents',
   'discount_cents',
+  'tip_cents',
   'total_cents',
   'tax_total_cents',
   'tax_lines_json',
@@ -50,10 +52,12 @@ export function mapSaleRow(row: {
   customer_id: string | null;
   branch_id: string;
   cash_session_id: string;
+  table_order_id: string | null;
   sale_number: number;
   status: 'COMPLETED' | 'VOID';
   subtotal_cents: number;
   discount_cents: number;
+  tip_cents: number;
   total_cents: number;
   tax_total_cents: number;
   tax_lines_json: unknown;
@@ -71,10 +75,12 @@ export function mapSaleRow(row: {
     customer_id: row.customer_id ?? null,
     branch_id: row.branch_id,
     cash_session_id: row.cash_session_id,
+    table_order_id: row.table_order_id ?? null,
     sale_number: parseSaleNumber(row.sale_number),
     status: row.status,
     subtotal_cents: row.subtotal_cents,
     discount_cents: row.discount_cents,
+    tip_cents: row.tip_cents,
     total_cents: row.total_cents,
     tax_total_cents: row.tax_total_cents,
     tax_lines_json: row.tax_lines_json,

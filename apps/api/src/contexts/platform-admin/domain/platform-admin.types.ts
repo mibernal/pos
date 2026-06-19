@@ -27,6 +27,9 @@ export interface CreateTenantCommand {
   tenant_document_number: string;
   tax_mode: TaxMode;
   plan: string;
+  business_type?: string;
+  custom_business_type?: string | null;
+  enable_tables?: boolean;
 }
 
 export interface UpdateTenantCommand {
@@ -36,6 +39,9 @@ export interface UpdateTenantCommand {
   tax_mode?: TaxMode;
   owner_name?: string;
   owner_email?: string;
+  business_type?: string;
+  custom_business_type?: string | null;
+  enable_tables?: boolean;
 }
 
 export interface CreatePlanCommand {

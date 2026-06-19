@@ -8,6 +8,7 @@ import { useCheckoutPayment } from './checkout/useCheckoutPayment';
 import { CashPaymentPanel } from './checkout/CashPaymentPanel';
 import { TerminalPaymentPanel } from './checkout/TerminalPaymentPanel';
 import { MixedPaymentPanel } from './checkout/MixedPaymentPanel';
+import { TipSelector } from './checkout/TipSelector';
 
 const SIMPLE_PAYMENT_OPTIONS: ReadonlyArray<{ label: string; method: PaymentMethod; shortcut: string }> = [
   { method: 'CASH', label: 'Efectivo', shortcut: 'F1' },
@@ -25,7 +26,8 @@ export function CheckoutModal({
   isSubmitting,
   onClose,
   onConfirm,
-  totalCents
+  totalCents,
+  initialSplitParts
 }: {
   cartItems: CartItem[];
   customers: Customer[];
@@ -34,11 +36,13 @@ export function CheckoutModal({
   isOpen: boolean;
   isSubmitting: boolean;
   onClose: () => void;
-  onConfirm: (payments: CreateSaleRequest['payments'], customerId: string | null) => Promise<void> | void;
+  onConfirm: (payments: CreateSaleRequest['payments'], customerId: string | null, tipCents: number) => Promise<void> | void;
   totalCents: number;
+  initialSplitParts?: number;
 }) {
   const [selectedCustomerId, setSelectedCustomerId] = useState<string>('');
   const [customerSearchText, setCustomerSearchText] = useState<string>('');
+  const [tipCents, setTipCents] = useState<number>(0);
 
   const {
     paymentMethod,
@@ -71,7 +75,7 @@ export function CheckoutModal({
     mixedFirstInputRef,
     
     canSubmit
-  } = useCheckoutPayment(totalCents, isOpen);
+  } = useCheckoutPayment(totalCents + tipCents, isOpen, initialSplitParts);
 
   const subtotalCents = useMemo(
     () => cartItems.reduce((sum, item) => sum + item.qty * item.priceCents, 0),
@@ -104,18 +108,19 @@ export function CheckoutModal({
         : [
             {
               method: paymentMethod,
-              amount_cents: totalCents,
+              amount_cents: totalCents + tipCents,
               ...(paymentMethod === 'CARD' ? { approval_code: cardApprovalCode.trim() || 'TERM-APPV' } : {})
             }
           ];
 
-    void onConfirm(payments, selectedCustomerId || null);
+    void onConfirm(payments, selectedCustomerId || null, tipCents);
   }, [
     canSubmit,
     paymentMethod,
     positiveMixedLines,
     mixedChangeCents,
     totalCents,
+    tipCents,
     cardApprovalCode,
     selectedCustomerId,
     onConfirm
@@ -180,7 +185,7 @@ export function CheckoutModal({
           <section className="checkout-summary-card">
             <div className="checkout-total-block">
               <span>Total a cobrar</span>
-              <strong>{formatMoneyFromCents(totalCents)}</strong>
+              <strong>{formatMoneyFromCents(totalCents + tipCents)}</strong>
             </div>
 
             <div className="totals-box totals-box-strong" style={{ marginBottom: '1rem' }}>
@@ -192,7 +197,19 @@ export function CheckoutModal({
                 <span>Descuento</span>
                 <strong>-{formatMoneyFromCents(discountCents)}</strong>
               </div>
+              {tipCents > 0 && (
+                <div>
+                  <span>Propina</span>
+                  <strong>{formatMoneyFromCents(tipCents)}</strong>
+                </div>
+              )}
             </div>
+
+            <TipSelector 
+              subtotalCents={subtotalCents}
+              tipCents={tipCents}
+              onTipChange={setTipCents}
+            />
 
             <label className="field" style={{ marginBottom: '1.5rem', background: 'var(--color-bg)', padding: '1rem', borderRadius: '8px', border: '1px solid var(--color-slate-200)' }}>
               <span style={{ fontWeight: 600, color: 'var(--color-slate-900)' }}>Asociar Cliente (Opcional)</span>

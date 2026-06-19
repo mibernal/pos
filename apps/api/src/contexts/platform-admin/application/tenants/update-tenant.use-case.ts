@@ -9,8 +9,15 @@ export class UpdateTenantUseCase {
     const { owner_name, owner_email, ...tenantData } = payload;
 
     if (Object.keys(tenantData).length > 0) {
+      // Si se está cambiando el tipo de negocio y no es 'OTHER', limpiar custom_business_type
+      const updatePayload: Record<string, unknown> = { ...tenantData };
+      if (tenantData.business_type && tenantData.business_type !== 'OTHER') {
+        updatePayload.custom_business_type = null;
+        updatePayload.enable_tables = false;
+      }
+
       await this.db.updateTable('tenants')
-        .set(tenantData)
+        .set(updatePayload as any) // eslint-disable-line @typescript-eslint/no-explicit-any
         .where('id', '=', tenantId)
         .execute();
     }

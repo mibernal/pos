@@ -19,7 +19,7 @@ export const simpleSalePaymentSchema = z.object({
 
 export const mixedSalePaymentSchema = z.object({
   method: z.literal('MIXED'),
-  payments: z.array(simpleSalePaymentSchema).min(2).max(4)
+  payments: z.array(simpleSalePaymentSchema).min(2).max(15)
 }).strict();
 
 export const salePaymentSchema = z.union([simpleSalePaymentSchema, mixedSalePaymentSchema]);
@@ -37,12 +37,15 @@ export const createSaleSchema = z.object({
   customer_id: z.string().uuid().optional().nullable(),
   branch_id: z.string().uuid(),
   cash_session_id: z.string().uuid(),
+  table_order_id: z.string().uuid().optional().nullable(),
   items: z.array(saleItemInputSchema).min(1).max(200),
   discount_cents: centsSchema.default(0),
-  payments: z.array(salePaymentSchema).min(1).max(4),
+  tip_cents: centsSchema.default(0),
+  payments: z.array(salePaymentSchema).min(1).max(15),
   snapshot: z.object({
     subtotal_cents: centsSchema,
     discount_cents: centsSchema,
+    tip_cents: centsSchema.optional(),
     tax_total_cents: centsSchema,
     total_cents: centsSchema
   }).optional()
@@ -81,10 +84,12 @@ export const saleSchema = z.object({
   customer_id: z.string().uuid().nullable(),
   branch_id: z.string().uuid(),
   cash_session_id: z.string().uuid(),
+  table_order_id: z.string().uuid().nullable().optional(),
   sale_number: z.number().int().nonnegative(),
   status: saleStatusSchema,
   subtotal_cents: z.number().int().nonnegative(),
   discount_cents: z.number().int().nonnegative(),
+  tip_cents: z.number().int().nonnegative(),
   total_cents: z.number().int().nonnegative(),
   tax_total_cents: z.number().int().nonnegative(),
   tax_lines_json: z.array(saleTaxLineSchema),

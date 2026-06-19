@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { readPosContext, writePosContext, type PosContext } from '../lib/session';
+import { useCartStore } from '../features/sales/hooks/useCartStore';
 
 interface PosState {
   posContext: PosContext | null;
@@ -15,8 +16,17 @@ interface PosState {
 export const usePosStore = create<PosState>((set) => ({
   posContext: readPosContext(),
   commitPosContext: (context) => {
-    writePosContext(context);
-    set({ posContext: context });
+    set((state) => {
+      // If branch or terminal changes, clear the cart to prevent state leakage
+      if (
+        state.posContext?.branchId !== context?.branchId ||
+        state.posContext?.terminalId !== context?.terminalId
+      ) {
+        useCartStore.getState().resetCart();
+      }
+      writePosContext(context);
+      return { posContext: context };
+    });
   },
 
   isUpgradeModalOpen: false,

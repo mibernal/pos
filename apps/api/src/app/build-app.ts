@@ -38,6 +38,8 @@ import { auditRoutes } from '../contexts/admin/http/audit.routes.js';
 import { terminalsRoutes } from '../contexts/sales/http/terminals.routes.js';
 import { billingRoutes } from '../contexts/billing/http/billing.routes.js';
 import { webhooksRoutes } from '../contexts/billing/http/webhooks.routes.js';
+import { tablesRoutes } from '../contexts/tables/presentation/tables.routes.js';
+import { deliveriesRoutes } from '../contexts/deliveries/http/deliveries.routes.js';
 import { auditContextStorage } from '../shared/infra/audit/audit-context.js';
 import { createDb } from '../shared/infra/db/connection.js';
 import { executeAsTenant } from '../shared/infra/db/rls.js';
@@ -243,6 +245,15 @@ export async function buildApp() {
   await app.register(idempotencyPlugin);
   await app.register(registerSwagger);
   await app.register(authPlugin);
+
+  // Register Socket.io
+  await app.register(import('fastify-socket.io').then(m => m.default || m), {
+    cors: {
+      origin: Array.from(allowedOrigins),
+      credentials: true
+    }
+  });
+
   await app.register(healthRoutes, { prefix: '/api/v1' });
   await app.register(platformAdminRoutes, { prefix: '/api/v1' });
   await app.register(authRoutes, { prefix: '/api/v1' });
@@ -267,6 +278,8 @@ export async function buildApp() {
   await app.register(journalRoutes, { prefix: '/api/v1' });
   await app.register(billingRoutes, { prefix: '/api/v1' });
   await app.register(webhooksRoutes, { prefix: '/api/v1' });
+  await app.register(tablesRoutes, { prefix: '/api/v1' });
+  await app.register(deliveriesRoutes, { prefix: '/api/v1' });
 
   // Add prometheus metrics
   // eslint-disable-next-line @typescript-eslint/ban-ts-comment
@@ -283,6 +296,22 @@ export async function buildApp() {
     await instance.bulkImportQueue.close();
     await instance.redis.quit();
     await instance.db.destroy();
+  });
+
+  // Handle WS connections after all plugins are loaded
+  app.ready().then(() => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (app as any).io.on('connection', (socket: any) => {
+      const branchId = socket.handshake.query.branchId as string;
+      if (branchId) {
+        socket.join(`branch:${branchId}`);
+        app.log.info(`Socket ${socket.id} joined branch:${branchId}`);
+      }
+      
+      socket.on('disconnect', () => {
+        app.log.info(`Socket ${socket.id} disconnected`);
+      });
+    });
   });
 
   return app;

@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { tenantTaxModeSchema } from './auth.js';
+import { businessTypeSchema } from './business-type.js';
 
 const nullablePhoneSchema = z
   .string()
@@ -24,6 +25,9 @@ export const tenantProfileSchema = z.object({
   phone: nullablePhoneSchema,
   footerMessage: nullableFooterMessageSchema,
   taxMode: tenantTaxModeSchema,
+  businessType: businessTypeSchema.nullable(),
+  customBusinessType: z.string().trim().min(2).max(80).nullable().optional(),
+  enableTables: z.boolean().optional().default(false),
   createdAt: z.string().min(1)
 });
 

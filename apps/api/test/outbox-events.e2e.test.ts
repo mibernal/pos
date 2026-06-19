@@ -63,6 +63,7 @@ describe('Outbox Events E2E', () => {
         cash_session_id: sessionId,
         items: [{ product_id: fixture.productId, qty: 1, price_cents: fixture.productPriceCents }],
         discount_cents: 0,
+        tip_cents: 0,
         payments: [{ method: 'CASH', amount_cents: fixture.productPriceCents }]
       }
     });
@@ -114,6 +115,7 @@ describe('Outbox Events E2E', () => {
         cash_session_id: sessionId,
         items: [{ product_id: fixture.productId, qty: 1, price_cents: fixture.productPriceCents }],
         discount_cents: 0,
+        tip_cents: 0,
         payments: [{ method: 'CASH', amount_cents: fixture.productPriceCents }]
       }
     });
@@ -185,6 +187,7 @@ describe('Outbox Events E2E', () => {
         cash_session_id: sessionId,
         items: [{ product_id: fixture.productId, qty: 2, price_cents: fixture.productPriceCents }],
         discount_cents: 0,
+        tip_cents: 0,
         payments: [{ method: 'CASH', amount_cents: fixture.productPriceCents * 2 }]
       }
     });

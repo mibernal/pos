@@ -121,7 +121,7 @@ export class PlatformAdminRepository {
       .leftJoin('billing_plans as bp', 'bp.id', 'ts.plan_id')
       .select([
         't.id', 't.name', 't.business_name', 't.nit as document_number',
-        't.status', 't.created_at',
+        't.status', 't.created_at', 't.business_type',
         'bp.name as plan_name', 'bp.price_cents as plan_price_cents',
         'ts.status as subscription_status', 'ts.expires_at',
         'u.email as owner_email'
