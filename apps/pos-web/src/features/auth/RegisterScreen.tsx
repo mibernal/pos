@@ -26,7 +26,22 @@ export function RegisterScreen({ api, login, onBack }: RegisterScreenProps) {
     plan: 'STARTER',
     business_type: 'OTHER',
     custom_business_type: '',
-    enable_tables: false,
+    modules: {
+      enable_tables: false,
+      enable_delivery: false,
+      enable_waiters: false,
+      enable_split_bill: false,
+      enable_tips: false,
+      enable_kitchen: false,
+      enable_kitchen_display: false,
+      enable_kitchen_tickets: false,
+      enable_kitchen_printing: false,
+      enable_order_rounds: false,
+      enable_product_modifiers: false,
+      enable_reservations: false,
+      enable_waiter_shifts: false,
+      enable_qr_menu: false
+    }
   });
 
   const [plans, setPlans] = useState<{ id: string; name: string; price_cents: number }[]>([]);
@@ -50,10 +65,14 @@ export function RegisterScreen({ api, login, onBack }: RegisterScreenProps) {
       setTimeout(() => setSimulationState(2), 1500);
       setTimeout(() => setSimulationState(3), 3000);
 
-      const payload = { ...formData };
+      const payload = { 
+        ...formData,
+        ...(formData.business_type === 'OTHER' ? formData.modules : {})
+      };
       if (payload.business_type !== 'OTHER' || !payload.custom_business_type) {
         delete (payload as any).custom_business_type;
       }
+      delete (payload as any).modules;
 
       await api.register(payload);
 
@@ -205,8 +224,8 @@ export function RegisterScreen({ api, login, onBack }: RegisterScreenProps) {
                   onChange={(v) => setFormData(prev => ({ ...prev, business_type: v }))}
                   customValue={formData.custom_business_type}
                   onCustomValueChange={(v) => setFormData(prev => ({ ...prev, custom_business_type: v }))}
-                  enableTables={formData.enable_tables}
-                  onEnableTablesChange={(v) => setFormData(prev => ({ ...prev, enable_tables: v }))}
+                  modules={formData.modules}
+                  onModulesChange={(v) => setFormData(prev => ({ ...prev, modules: v }))}
                   layout="grid"
                 />
               </div>

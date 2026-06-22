@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useSession } from '../../auth';
-import { RoomWithTables, CreateRoomPayload, CreateTablePayload, UpdateTableStatusPayload, Table, Room, TableOrderWithItems, SaveTableOrderPayload, TransferTablePayload } from '@pos-dian/shared';
+import { RoomWithTables, CreateRoomPayload, CreateTablePayload, UpdateTableStatusPayload, Table, Room, TableOrderWithItems, SaveTableOrderPayload, TransferTablePayload, TableOrderItem } from '@pos-dian/shared';
 
 const getRoomsWithTables = async (token: string, branchId: string): Promise<RoomWithTables[]> => {
   const response = await fetch(`${import.meta.env.VITE_API_URL}/branches/${branchId}/rooms`, {
@@ -76,6 +76,16 @@ const transferTableOrder = async (token: string, branchId: string, tableId: stri
   return response.json();
 };
 
+const sendTableOrderToKitchen = async (token: string, branchId: string, tableId: string): Promise<{ order: TableOrderWithItems['order'], itemsSent: TableOrderItem[] }> => {
+  const response = await fetch(`${import.meta.env.VITE_API_URL}/branches/${branchId}/tables/${tableId}/orders/kitchen-print`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify({})
+  });
+  if (!response.ok) throw new Error('Failed to send order to kitchen');
+  return response.json();
+};
+
 export const useGetRooms = (branchId?: string) => {
   const { token } = useSession();
   return useQuery({
@@ -139,7 +149,8 @@ export const useSaveTableOrder = () => {
   return useMutation({
     mutationFn: ({ branchId, tableId, payload }: { branchId: string; tableId: string; payload: SaveTableOrderPayload }) =>
       saveTableOrder(token!, branchId, tableId, payload),
-    onSuccess: (_, { branchId, tableId }) => {
+    onSuccess: (data, { branchId, tableId }) => {
+      queryClient.setQueryData(['table-order', branchId, tableId], data);
       queryClient.invalidateQueries({ queryKey: ['table-order', branchId, tableId] });
       queryClient.invalidateQueries({ queryKey: ['rooms', branchId] });
     }
@@ -153,6 +164,23 @@ export const useClearTableOrder = () => {
     mutationFn: ({ branchId, tableId }: { branchId: string; tableId: string }) =>
       clearTableOrder(token!, branchId, tableId),
     onSuccess: (_, { branchId, tableId }) => {
+      // Optimistically clear the table order data
+      queryClient.setQueryData(['table-order', branchId, tableId], null);
+      
+      // Optimistically update the table status in the rooms cache
+      queryClient.setQueryData(['rooms', branchId], (oldData: RoomWithTables[] | undefined) => {
+        if (!oldData) return oldData;
+        return oldData.map(room => ({
+          ...room,
+          tables: room.tables.map(table => {
+            if (table.id === tableId) {
+              return { ...table, status: 'AVAILABLE', currentOrderId: null };
+            }
+            return table;
+          })
+        }));
+      });
+      
       queryClient.invalidateQueries({ queryKey: ['table-order', branchId, tableId] });
       queryClient.invalidateQueries({ queryKey: ['rooms', branchId] });
     }
@@ -169,6 +197,18 @@ export const useTransferTableOrder = () => {
       queryClient.invalidateQueries({ queryKey: ['table-order', branchId, tableId] });
       queryClient.invalidateQueries({ queryKey: ['table-order', branchId, payload.destinationTableId] });
       queryClient.invalidateQueries({ queryKey: ['rooms', branchId] });
+    }
+  });
+};
+
+export const useSendTableOrderToKitchen = () => {
+  const { token } = useSession();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ branchId, tableId }: { branchId: string; tableId: string }) =>
+      sendTableOrderToKitchen(token!, branchId, tableId),
+    onSuccess: (_, { branchId, tableId }) => {
+      queryClient.invalidateQueries({ queryKey: ['table-order', branchId, tableId] });
     }
   });
 };

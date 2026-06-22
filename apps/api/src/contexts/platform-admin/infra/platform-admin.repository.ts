@@ -124,7 +124,13 @@ export class PlatformAdminRepository {
         't.status', 't.created_at', 't.business_type',
         'bp.name as plan_name', 'bp.price_cents as plan_price_cents',
         'ts.status as subscription_status', 'ts.expires_at',
-        'u.email as owner_email'
+        'u.email as owner_email',
+        't.enable_tables', 't.enable_delivery', 't.enable_waiters',
+        't.enable_split_bill', 't.enable_tips', 't.enable_kitchen',
+        't.enable_kitchen_display', 't.enable_kitchen_tickets',
+        't.enable_kitchen_printing', 't.enable_order_rounds',
+        't.enable_product_modifiers', 't.enable_reservations',
+        't.enable_waiter_shifts', 't.enable_qr_menu'
       ]);
 
     if (opts.query) {

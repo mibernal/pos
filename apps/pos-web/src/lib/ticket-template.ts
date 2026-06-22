@@ -6,6 +6,8 @@ export interface TicketTemplateConfig {
   footerMessage: string;
   logoUrl: string;
   printerWidth: '58mm' | '80mm';
+  businessType?: string;
+  customBusinessType?: string;
 }
 
 interface TicketTemplateFallback {
@@ -31,7 +33,8 @@ function buildDefaultTemplate(fallback?: TicketTemplateFallback): TicketTemplate
     phone: '',
     footerMessage: '',
     logoUrl: '',
-    printerWidth: '80mm'
+    printerWidth: '80mm',
+    businessType: 'OTHER'
   };
 }
 
@@ -59,7 +62,9 @@ export function readTicketTemplate(
       phone: normalizeText(parsed.phone ?? defaultTemplate.phone),
       footerMessage: normalizeText(parsed.footerMessage ?? defaultTemplate.footerMessage),
       logoUrl: normalizeText(parsed.logoUrl ?? defaultTemplate.logoUrl),
-      printerWidth: parsed.printerWidth === '58mm' ? '58mm' : '80mm'
+      printerWidth: parsed.printerWidth === '58mm' ? '58mm' : '80mm',
+      businessType: parsed.businessType ?? defaultTemplate.businessType,
+      customBusinessType: parsed.customBusinessType ?? defaultTemplate.customBusinessType
     };
   } catch {
     return defaultTemplate;
@@ -74,7 +79,9 @@ export function writeTicketTemplate(tenantId: string, template: TicketTemplateCo
     phone: normalizeText(template.phone),
     footerMessage: normalizeText(template.footerMessage),
     logoUrl: normalizeText(template.logoUrl),
-    printerWidth: template.printerWidth === '58mm' ? '58mm' : '80mm'
+    printerWidth: template.printerWidth === '58mm' ? '58mm' : '80mm',
+    businessType: template.businessType,
+    customBusinessType: template.customBusinessType
   };
 
   if (typeof window !== 'undefined') {

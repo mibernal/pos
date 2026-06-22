@@ -18,6 +18,9 @@ export class GetTableOrderUseCase {
         subtotalCents: result.order.subtotal_cents,
         discountCents: result.order.discount_cents,
         totalCents: result.order.total_cents,
+        waiterId: result.order.waiter_id,
+        guestsCount: result.order.guests_count,
+        orderType: result.order.order_type,
         createdAt: result.order.created_at.toISOString(),
         updatedAt: result.order.updated_at.toISOString()
       },

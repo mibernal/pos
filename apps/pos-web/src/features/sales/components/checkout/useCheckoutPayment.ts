@@ -29,7 +29,11 @@ export function createMixedPaymentLine(method: SimplePaymentMethod, amountCents:
   };
 }
 
-export function buildDefaultMixedLines(totalCents: number, parts: number = 2): MixedPaymentLine[] {
+export function buildDefaultMixedLines(totalCents: number, parts: number = 2, amounts?: number[]): MixedPaymentLine[] {
+  if (amounts && amounts.length > 0) {
+    return amounts.map(amount => createMixedPaymentLine('CASH', amount));
+  }
+  
   if (parts <= 1) parts = 2;
   const splitAmount = Math.round(totalCents / parts);
   const lines: MixedPaymentLine[] = [];
@@ -48,8 +52,8 @@ export function suggestNextMethod(lines: ReadonlyArray<MixedPaymentLine>): Simpl
   return 'CASH';
 }
 
-export function useCheckoutPayment(totalCents: number, isOpen: boolean, initialSplitParts?: number) {
-  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>(initialSplitParts ? 'MIXED' : 'CASH');
+export function useCheckoutPayment(totalCents: number, isOpen: boolean, initialSplitParts?: number, initialSplitAmounts?: number[]) {
+  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>(initialSplitParts || (initialSplitAmounts && initialSplitAmounts.length > 0) ? 'MIXED' : 'CASH');
   const [cashReceivedDraft, setCashReceivedDraft] = useState('0');
   const [cardApprovalCode, setCardApprovalCode] = useState('');
   
@@ -60,7 +64,7 @@ export function useCheckoutPayment(totalCents: number, isOpen: boolean, initialS
   
   // Mixed state
   const [mixedLines, setMixedLines] = useState<MixedPaymentLine[]>(() =>
-    buildDefaultMixedLines(totalCents, initialSplitParts)
+    buildDefaultMixedLines(totalCents, initialSplitParts, initialSplitAmounts)
   );
 
   const cashInputRef = useRef<HTMLInputElement | null>(null);
@@ -71,11 +75,11 @@ export function useCheckoutPayment(totalCents: number, isOpen: boolean, initialS
     if (!isOpen) return;
     setCashReceivedDraft(formatEditableMoneyFromCents(totalCents));
     setCardApprovalCode('');
-    setMixedLines(buildDefaultMixedLines(totalCents, initialSplitParts));
+    setMixedLines(buildDefaultMixedLines(totalCents, initialSplitParts, initialSplitAmounts));
     setTerminalProcessing(false);
     setTerminalError(null);
     setTerminalSuccess(false);
-  }, [isOpen, totalCents, initialSplitParts]);
+  }, [isOpen, totalCents, initialSplitParts, initialSplitAmounts]);
 
   useEffect(() => {
     if (!isOpen) return;

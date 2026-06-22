@@ -8,14 +8,47 @@ import { RoomManagerModal } from './components/RoomManagerModal';
 import { TableManagerModal } from './components/TableManagerModal';
 import { Plus, Settings } from 'lucide-react';
 import { Button } from '../../components/ui/Button';
+import { AssignWaiterModal } from './components/AssignWaiterModal';
+import { OpenTableModal } from './components/OpenTableModal';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useSaveTableOrder } from './api/tables.api';
+import { useSession } from '../auth/context/SessionProvider';
 
 import type { AppRoute } from '../../types';
 
 export const TablesScreen: React.FC<{ onNavigate?: (route: AppRoute) => void }> = ({ onNavigate }) => {
+  const queryClient = useQueryClient();
+  const { api } = useSession();
   const posContext = usePosStore((state) => state.posContext);
   const currentBranchId = posContext?.branchId;
   const { data: rooms, isLoading, error } = useGetRooms(currentBranchId);
+  const { data: users = [] } = useQuery({
+    queryKey: ['users'],
+    queryFn: () => api.listUsers(),
+    enabled: !!currentBranchId
+  });
   
+  const [waiterModalTableId, setWaiterModalTableId] = useState<string | null>(null);
+  const [openTableModalId, setOpenTableModalId] = useState<string | null>(null);
+
+  const { mutateAsync: saveTableOrder } = useSaveTableOrder();
+
+  const assignWaiterMutation = useMutation({
+    mutationFn: async ({ tableId, waiterId }: { tableId: string; waiterId: string | null }) => {
+      if (!currentBranchId) throw new Error("No branch selected");
+      return api.assignTableWaiter(currentBranchId, tableId, waiterId);
+    },
+    onSuccess: () => {
+      // toast.success('Mesero asignado exitosamente');
+      queryClient.invalidateQueries({ queryKey: ['rooms', currentBranchId] });
+      setWaiterModalTableId(null);
+    },
+    onError: (err: Error) => {
+      // toast.error(`Error al asignar mesero: ${err.message}`);
+      alert(`Error al asignar mesero: ${err.message}`);
+    }
+  });
+
   // Conectar a WebSockets para actualizaciones en tiempo real
   useTablesWebSocket(currentBranchId);
   
@@ -115,11 +148,17 @@ export const TablesScreen: React.FC<{ onNavigate?: (route: AppRoute) => void }> 
                   <TableCard 
                     key={table.id} 
                     table={table} 
+                    waiterName={table.waiterName}
+                    onAssignWaiter={(id) => setWaiterModalTableId(id)}
                     onClick={(id) => {
                       const t = activeRoom.tables.find(x => x.id === id);
                       if (t) {
-                        setActiveTable(t);
-                        onNavigate?.('pos');
+                        if (t.status === 'AVAILABLE') {
+                          setOpenTableModalId(t.id);
+                        } else {
+                          setActiveTable(t);
+                          onNavigate?.('pos');
+                        }
                       }
                     }} 
                   />
@@ -134,6 +173,52 @@ export const TablesScreen: React.FC<{ onNavigate?: (route: AppRoute) => void }> 
       <RoomManagerModal />
       <TableManagerModal />
       {/* <TableActionsModal /> */}
+      
+      {waiterModalTableId && (
+        <AssignWaiterModal 
+          isOpen={true}
+          onClose={() => setWaiterModalTableId(null)}
+          onAssign={async (waiterId) => {
+            await assignWaiterMutation.mutateAsync({ tableId: waiterModalTableId, waiterId });
+          }}
+          users={users}
+          currentWaiterId={activeRoom?.tables.find(t => t.id === waiterModalTableId)?.waiterId}
+          tableName={activeRoom?.tables.find(t => t.id === waiterModalTableId)?.name || 'Mesa'}
+        />
+      )}
+      
+      {openTableModalId && (
+        <OpenTableModal
+          isOpen={true}
+          tableName={activeRoom?.tables.find(t => t.id === openTableModalId)?.name || 'Mesa'}
+          branchId={currentBranchId}
+          onClose={() => setOpenTableModalId(null)}
+          onConfirm={async (waiterId, guestsCount) => {
+            try {
+              await saveTableOrder({
+                branchId: currentBranchId,
+                tableId: openTableModalId,
+                payload: {
+                  items: [],
+                  waiterId,
+                  guestsCount,
+                  orderType: 'DINE_IN'
+                }
+              });
+              const t = activeRoom?.tables.find(x => x.id === openTableModalId);
+              if (t) {
+                // Table might need to be refetched, but we can optimistically navigate
+                // and the POS screen will fetch the fresh table order.
+                setActiveTable({ ...t, status: 'OCCUPIED' });
+                onNavigate?.('pos');
+              }
+              setOpenTableModalId(null);
+            } catch (err) {
+              alert(`Error al abrir mesa: ${(err as Error).message}`);
+            }
+          }}
+        />
+      )}
     </div>
   );
 };

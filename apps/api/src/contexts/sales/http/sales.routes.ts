@@ -74,6 +74,11 @@ export const salesRoutes: FastifyPluginAsync = async (app) => {
         'Sale created'
       );
 
+      if (payload.table_order_id && request.user?.enableKitchenDisplay) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (request.server as any).io?.to(`branch:${payload.branch_id}`).emit('KITCHEN_TICKETS_UPDATED');
+      }
+
       return reply.code(201).send(result.sale);
     }
   );

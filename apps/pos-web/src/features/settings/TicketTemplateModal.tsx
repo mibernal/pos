@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
-import { updateTenantBusinessProfileBodySchema } from '@pos-dian/shared';
-import { Banner, Modal } from '../../components/ui';
+import { updateTenantBusinessProfileBodySchema, BUSINESS_TYPE_CATALOG } from '@pos-dian/shared';
+import { Banner, Modal, BusinessTypeSelector } from '../../components/ui';
 import type { PosApiClient } from '../../types';
+import type { AuthSession } from '../../lib/api/client';
 import type { TicketTemplateConfig } from '../../lib/ticket-template';
 
 export function TicketTemplateModal({
@@ -9,15 +10,34 @@ export function TicketTemplateModal({
   isOpen,
   onClose,
   onSave,
-  template
+  template,
+  session
 }: {
   api: PosApiClient;
   isOpen: boolean;
   onClose: () => void;
   onSave: (template: TicketTemplateConfig) => void;
   template: TicketTemplateConfig;
+  session: AuthSession;
 }) {
-  const [draft, setDraft] = useState<TicketTemplateConfig>(template);
+  const [draft, setDraft] = useState<TicketTemplateConfig & { businessType?: string, customBusinessType?: string }>(template);
+  const [modules, setModules] = useState({
+    enable_tables: session.user.enableTables || false,
+    enable_delivery: session.user.enableDelivery || false,
+    enable_waiters: session.user.enableWaiters || false,
+    enable_split_bill: session.user.enableSplitBill || false,
+    enable_tips: session.user.enableTips || false,
+    enable_kitchen: session.user.enableKitchen || false,
+    enable_kitchen_display: session.user.enableKitchenDisplay || false,
+    enable_kitchen_tickets: session.user.enableKitchenTickets || false,
+    enable_kitchen_printing: session.user.enableKitchenPrinting || false,
+    enable_order_rounds: session.user.enableOrderRounds || false,
+    enable_product_modifiers: session.user.enableProductModifiers || false,
+    enable_reservations: session.user.enableReservations || false,
+    enable_waiter_shifts: session.user.enableWaiterShifts || false,
+    enable_qr_menu: session.user.enableQrMenu || false
+  });
+
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -47,7 +67,9 @@ export function TicketTemplateModal({
       nit: draft.nit.trim(),
       address: draft.address.trim(),
       phone: draft.phone.trim() || null,
-      footerMessage: draft.footerMessage.trim() || null
+      footerMessage: draft.footerMessage.trim() || null,
+      businessType: draft.businessType || undefined,
+      customBusinessType: draft.customBusinessType?.trim() || undefined
     };
 
     const parsed = updateTenantBusinessProfileBodySchema.safeParse(payload);
@@ -61,6 +83,12 @@ export function TicketTemplateModal({
     setMessage(null);
 
     try {
+      // Update Modules via new TMM endpoint
+      await api.updateTenantModules({
+        modules,
+        reason: 'Actualización de configuración por el administrador'
+      });
+
       const updated = await api.updateTenantBusinessProfile(parsed.data);
       onSave({
         businessName: updated.businessName,
@@ -69,16 +97,22 @@ export function TicketTemplateModal({
         phone: updated.phone ?? '',
         footerMessage: updated.footerMessage ?? '',
         logoUrl: draft.logoUrl.trim(),
-        printerWidth: draft.printerWidth
+        printerWidth: draft.printerWidth,
+        businessType: updated.businessType ?? 'OTHER',
+        customBusinessType: updated.customBusinessType ?? undefined
       });
       setMessage('Configuración comercial actualizada.');
       onClose();
-    } catch (saveError) {
-      setError(
-        saveError instanceof Error
-          ? saveError.message
-          : 'No fue posible guardar la configuración del negocio'
-      );
+    } catch (saveError: any) {
+      if (saveError.body?.code === 'MODULE_DEACTIVATION_CONFLICT') {
+        setError(saveError.body.message || 'No se pueden desactivar los módulos porque están en uso.');
+      } else {
+        setError(
+          saveError instanceof Error
+            ? saveError.message
+            : 'No fue posible guardar la configuración del negocio'
+        );
+      }
     } finally {
       setSaving(false);
     }
@@ -96,6 +130,8 @@ export function TicketTemplateModal({
       <div className="stack-md">
         <p className="subtle-text">
           Estos datos se usan en el ticket y en la demo comercial del POS.
+          <br />
+          <strong>Nota:</strong> Si cambias el tipo de negocio, cierra sesión y vuelve a entrar para actualizar tus permisos de módulos.
         </p>
         {error ? <Banner tone="error">{error}</Banner> : null}
         {message ? <Banner tone="success">{message}</Banner> : null}
@@ -154,6 +190,31 @@ export function TicketTemplateModal({
               style={{ resize: 'none' }}
             />
           </label>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '1rem', marginTop: '0.5rem' }}>
+            <label className="field">
+              <span>Tipo de Negocio y Módulos</span>
+            </label>
+            <BusinessTypeSelector
+              value={draft.businessType as any || 'OTHER'}
+              onChange={(value) => updateDraft('businessType', value)}
+              modules={modules}
+              onModulesChange={setModules}
+              layout="grid"
+            />
+
+            {draft.businessType === 'OTHER' ? (
+              <label className="field" style={{ marginTop: '0.5rem' }}>
+                <span>Especificar Tipo</span>
+                <input
+                  placeholder="Ej. Barbería"
+                  value={draft.customBusinessType || ''}
+                  onChange={(event) => updateDraft('customBusinessType', event.target.value)}
+                  disabled={saving}
+                />
+              </label>
+            ) : null}
+          </div>
 
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
             <label className="field">

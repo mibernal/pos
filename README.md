@@ -1,8 +1,8 @@
-# POS DIAN - Colombia (Multi-Tenant)
+# POS DIAN - Colombia (SaaS Multi-Tenant)
 
-Un Punto de Venta (POS) multi-tenant de alto rendimiento con emisión de facturación electrónica (DIAN) en Colombia. Diseñado con una arquitectura desacoplada asíncrona, capacidades Offline-First PWA, observabilidad distribuida y empaquetamiento listo para la Nube.
+Un Sistema de Punto de Venta (POS) y Gestión Hospitalaria (Hospitality & Retail) multi-tenant de alto rendimiento con emisión de facturación electrónica (DIAN) en Colombia. Diseñado con una arquitectura modular habilitable (Feature Flags), asíncrona, capacidades Offline-First PWA, observabilidad distribuida y preparado para la nube.
 
-> **Estado actual (Junio 2026):** Sistema operativo en desarrollo activo. Observabilidad distribuida implementada. UX de alta velocidad para cajero implementada. Catálogo offline-resiliente con Dexie + fallback en memoria activo.
+> **Estado actual (Junio 2026):** Sistema Enterprise activo. Transición de polling HTTP a WebSockets en tiempo real completada. Arquitectura de Módulos (TMM) implementada. Catálogo offline-resiliente con Dexie activo.
 
 ---
 
@@ -12,35 +12,45 @@ Este proyecto está construido como un monorepo administrado con `pnpm` workspac
 
 | Módulo | Descripción |
 |---|---|
-| `apps/api` | Backend principal en **Fastify + Kysely + TypeScript + Zod**. Maneja la lógica core, seguridad (JWT + RLS), trazas OTLP y expone la API RESTful. |
-| `apps/worker` | Servidor de Background Jobs en **BullMQ**. Extrae eventos desde la base de datos (patrón *Transactional Outbox*) para emisión a la DIAN, con reintentos y backoff exponencial. |
-| `apps/pos-web` | Frontend PWA en **React + Vite**. Interfaz de caja con catálogo precargado en IndexedDB (Dexie), cola local de ventas pendientes, atajos de teclado y soporte táctil. |
+| `apps/api` | Backend principal en **Fastify + Kysely + TypeScript + Zod**. Maneja la lógica core, seguridad (JWT + RLS), trazas OTLP y WebSockets (Socket.io). |
+| `apps/worker` | Servidor de Background Jobs en **BullMQ**. Extrae eventos desde la base de datos (patrón *Transactional Outbox*) para emisión DIAN y cargas masivas. |
+| `apps/pos-web` | Frontend PWA en **React + Vite**. Renderizado condicional inteligente (ModuleGuard), offline-first y soporte táctil avanzado. |
 | `packages/shared` | Tipos, esquemas Zod y contratos compartidos en todo el monorepo. |
 
 ---
 
-## 🚀 Capacidades
+## 🚀 Ecosistema de Módulos (Feature Flags)
 
-### Core Operativo & SaaS
-- **SuperAdmin Control Center:** Gestión transversal de todos los Tenants, con capacidad del `PLATFORM_OWNER` para suspender/reactivar cuentas, cambiar planes y gestionar el CRUD de usuarios de cualquier Tenant sin salir de la plataforma. Dashboard optimizado con **Caché en Redis** (TTL y Patrones SCAN) para queries analíticos pesados de ARR, MRR y Growth.
-- **SaaS Billing & Subscriptions:** Control de planes prepago, integración con pasarelas de pago (Wompi, MercadoPago, Stripe) vía webhooks y suspensión automática administrada por un **RenewalEngine** de procesos en background.
-- **Notificaciones Centralizadas:** Servicio transaccional desacoplado utilizando patrón Strategy. Actualmente configurado con **Resend** para emails de bienvenida, cobranza y alertas de bajo stock (`StockLowEvent`).
-- **Multi-Tenant & Roles Granulares:** Cada negocio opera aislado lógicamente (PostgreSQL RLS). Roles: `PLATFORM_OWNER`, `PLATFORM_ADMIN`, `ADMIN`, `MANAGER`, `CASHIER`, `AUDITOR`.
-- **Gestión de Mesas y Domicilios:** Soporte integrado para flujos de restaurantes. Ruteo táctil inteligente por salones, selección de mesas activas en tiempo real vía **WebSockets (Socket.io)**, y un módulo completo de entregas con estados de preparación, tracking y facturación diferida tras entrega.
-- **Fuerte Consistencia de Inventario:** Mix de *Optimistic Locking* (para ajustes manuales) y *Pessimistic Locking* (para ventas de alta frecuencia) garantizando que no haya sobreventas.
-- **Carga Masiva Enterprise:** Importación asíncrona de hasta 50k productos usando `BullMQ`, procesamiento en batch multipart y feedback en vivo.
-- **Control de Efectivo Avanzado:** Apertura/cierre de caja, arqueos intermedios (ciegos para cajeros), cierres Z y reportes por turno.
+El SaaS escala dinámicamente mediante 14 Feature Flags granulares, ajustando la UI y conexiones (ej: Lazy Sockets) sin cargar recursos innecesarios.
 
-### Emisión Fiscal
-- **Emisión Asíncrona Robusta:** La venta se persiste atómicamente (PostgreSQL) junto al evento Outbox. El Worker reintenta contra el provider DIAN sin bloquear al cajero.
-- **Anulaciones y Notas Crédito:** Soporte completo `SALE_VOIDED` → `CREDIT_NOTE` vinculada vía `parent_document_id`. El inventario se repone atómicamente.
-- **Idempotencia Comercial:** `client_uuid` garantiza que reintentos de red nunca dupliquen ventas.
+- **Flujo Retail:** Operación ultrarrápida para minimarkets y farmacias. Multiplicador por escáner (`5*770...`), atajos de teclado globales y báscula serial.
+- **Flujo Restaurante (Restaurant Core):** Ruteo inteligente por salones y mesas, transferencias, asignación de meseros (`waiter_id`), cantidad de comensales, división de cuentas (`split_bill`) y gestión de propinas (`tips`).
+- **Flujo Kitchen Display System (KDS):** Back of House (BOH). Visualización asíncrona de tickets con WebSockets, cálculo de deltas ("Fire to Kitchen") y actualización de estados (`PENDING`, `PREPARING`, `DONE`).
+- **Flujo Delivery:** Ciclo de vida propio para domicilios (Pendiente -> Preparación -> En Camino -> Entregado) con facturación diferida.
 
-### Offline-First PWA
-- **Catálogo Persistente:** Dexie.js cachea hasta 5.000 SKUs en IndexedDB con TTL de 12 horas por `branch_id`. Al expirar o fallar la red, carga desde caché sin interrumpir al cajero.
-- **Cola de Ventas Offline:** Las ventas pendientes sobreviven cierres del navegador en IndexedDB con reintentos automáticos al reconectar (`navigator.onLine`).
-- **Almacenamiento Persistente:** Solicita `navigator.storage.persist()` al iniciar para prevenir evicción del SO en tablets con poco espacio.
-- **Service Worker (Workbox):** Assets cacheados para funcionamiento sin red.
+---
+
+## 🌍 Arquitectura Multi-Tenant & SaaS Core
+
+- **Seguridad RLS:** Aislamiento lógico de base de datos inyectando `app.current_tenant_id` en Kysely, bloqueando cruces de información a nivel nativo.
+- **Roles:** Gestión cruzada (`PLATFORM_OWNER`, `PLATFORM_ADMIN`) y roles granulares de negocio (`ADMIN`, `MANAGER`, `CASHIER`, `AUDITOR`).
+- **SuperAdmin Dashboard:** Gestión transversal con queries analíticas pesadas (ARR, MRR) cacheadas en **Redis** con patrones de invalidación (SCAN+DEL).
+- **Billing:** Motor `RenewalEngine` en background (BullMQ) integrado con Webhooks para cobros recurrentes de planes SaaS.
+
+---
+
+## ⚡ Rendimiento Cloud y UX de Alta Velocidad
+
+### Optimizaciones Base de Datos e IPC
+- **WebSockets Reactivos:** Las mesas y tickets de cocina se sincronizan instantáneamente evitando el estrangulamiento de Base de Datos causado por HTTP Polling.
+- **Partial Indexes:** Índices parciales en PostgreSQL (`status = 'OPEN'`) para escanear en microsegundos sólo las transacciones vivas.
+- **Emisión Asíncrona Robusta:** La venta se persiste atómicamente con el evento Outbox. El Worker reintenta contra la DIAN sin bloquear al cajero.
+- **Idempotencia:** `client_uuid` protege contra ventas duplicadas por redes intermitentes.
+
+### UX Cajero (Offline-First)
+- **Catálogo Persistente:** Dexie.js cachea hasta 5.000 SKUs localmente (TTL de 12 horas).
+- **Cola Offline:** Sobrevive cierres de app en IndexedDB y se reintenta automáticamente (`navigator.onLine`).
+- **Billetes Rápidos:** Botones dinámicos ($20.000, $50.000) y navegación táctil de categoría grande (CategoryGrid).
 
 ### UX de Alta Velocidad
 - **Atajos de Teclado Globales (Checkout):**

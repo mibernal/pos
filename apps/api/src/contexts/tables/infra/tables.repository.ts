@@ -34,11 +34,27 @@ export class TablesRepository {
     if (rooms.length === 0) return [];
 
     const tables = await this.db.selectFrom('tables')
-      .where('tenant_id', '=', tenantId)
-      .where('branch_id', '=', branchId)
-      .where('is_active', '=', true)
-      .selectAll()
-      .orderBy('name', 'asc')
+      .leftJoin('users', 'users.id', 'tables.waiter_id')
+      .where('tables.tenant_id', '=', tenantId)
+      .where('tables.branch_id', '=', branchId)
+      .where('tables.is_active', '=', true)
+      .select([
+        'tables.id',
+        'tables.tenant_id',
+        'tables.branch_id',
+        'tables.room_id',
+        'tables.name',
+        'tables.capacity',
+        'tables.status',
+        'tables.current_order_id',
+        'tables.waiter_id',
+        'tables.status_updated_at',
+        'tables.is_active',
+        'tables.created_at',
+        'tables.updated_at',
+        'users.name as waiter_name'
+      ])
+      .orderBy('tables.name', 'asc')
       .execute();
 
     // Sum total_cents for active orders associated with tables
@@ -115,6 +131,21 @@ export class TablesRepository {
     return this.mapTable(result);
   }
 
+  async assignWaiter(tenantId: string, branchId: string, tableId: string, waiterId: string | null): Promise<Table> {
+    const result = await this.db.updateTable('tables')
+      .set({
+        waiter_id: waiterId,
+        updated_at: new Date()
+      })
+      .where('tenant_id', '=', tenantId)
+      .where('branch_id', '=', branchId)
+      .where('id', '=', tableId)
+      .returningAll()
+      .executeTakeFirstOrThrow();
+
+    return this.mapTable(result);
+  }
+
   private mapRoom(row: any): Room {
     return {
       id: row.id,
@@ -137,6 +168,8 @@ export class TablesRepository {
       capacity: row.capacity,
       status: row.status as any,
       currentOrderId: row.current_order_id,
+      waiterId: row.waiter_id,
+      waiterName: row.waiter_name,
       statusUpdatedAt: row.status_updated_at.toISOString(),
       isActive: row.is_active,
       createdAt: row.created_at.toISOString(),

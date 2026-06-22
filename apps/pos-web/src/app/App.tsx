@@ -6,10 +6,13 @@ import { CloseCashSessionModal, CashControlScreen, CashMovementModal } from '../
 import { BranchSetupScreen } from '../features/branches';
 import { PosScreen } from '../features/sales';
 const TablesScreen = lazy(() => import('../features/tables/TablesScreen').then(m => ({ default: m.TablesScreen })));
+const WaitersScreen = lazy(() => import('../features/tables/WaitersScreen').then(m => ({ default: m.WaitersScreen })));
+const KitchenScreen = lazy(() => import('../features/kds/KitchenScreen').then(m => ({ default: m.KitchenScreen })));
 const DeliveryScreen = lazy(() => import('../features/sales').then(m => ({ default: m.DeliveryScreen })));
 import { DianConfigModal, TicketTemplateModal, SetPinModal } from '../features/settings';
 import { BillingScreen } from '../features/billing/BillingScreen';
 import { UpgradePlanModal } from '../features/billing/components/UpgradePlanModal';
+import { FeatureModuleProvider, ModuleGuard } from '../features/modules';
 
 // Lazy Loaded Screens
 const CustomersScreen = lazy(() => import('../features/customers').then(m => ({ default: m.CustomersScreen })));
@@ -145,13 +148,25 @@ function AppShell() {
           } else if (activeRoute === 'tables' && posContext) {
             currentScreen = (
               <PermissionGuard allowedPermissions={['sales:create']} requireAll={false}>
-                <TablesScreen onNavigate={navigate} />
+                <ModuleGuard module="tables">
+                  <TablesScreen onNavigate={navigate} />
+                </ModuleGuard>
+              </PermissionGuard>
+            );
+          } else if (activeRoute === 'kds' && posContext) {
+            currentScreen = (
+              <PermissionGuard allowedPermissions={['sales:create']} requireAll={false}>
+                <ModuleGuard module="kitchen">
+                  <KitchenScreen branchId={posContext.branchId} />
+                </ModuleGuard>
               </PermissionGuard>
             );
           } else if (activeRoute === 'delivery' && posContext) {
             currentScreen = (
               <PermissionGuard allowedPermissions={['sales:create']} requireAll={false}>
-                <DeliveryScreen />
+                <ModuleGuard module="delivery">
+                  <DeliveryScreen />
+                </ModuleGuard>
               </PermissionGuard>
             );
           } else if (activeRoute === 'products' && posContext) {
@@ -205,6 +220,14 @@ function AppShell() {
             currentScreen = (
               <PermissionGuard allowedPermissions={['branches:manage']}>
                 <BranchesScreen api={api} />
+              </PermissionGuard>
+            );
+          } else if (activeRoute === 'waiters') {
+            currentScreen = (
+              <PermissionGuard allowedPermissions={['branches:manage']}>
+                <ModuleGuard module="waiters">
+                  <WaitersScreen />
+                </ModuleGuard>
               </PermissionGuard>
             );
           } else if (activeRoute === 'users') {
@@ -267,6 +290,7 @@ function AppShell() {
                 onClose={() => setIsTicketTemplateModalOpen(false)}
                 onSave={saveTicketTemplate}
                 template={ticketTemplate}
+                session={session!}
               />
 
               <DianConfigModal
@@ -323,7 +347,9 @@ function AppShell() {
 export default function App() {
   return (
     <SessionProvider>
-      <AppShell />
+      <FeatureModuleProvider>
+        <AppShell />
+      </FeatureModuleProvider>
     </SessionProvider>
   );
 }

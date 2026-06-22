@@ -8,7 +8,9 @@ const formatCurrency = (amount: number) => {
 
 interface TableCardProps {
   table: Table & { currentTotalCents?: number | null; orderCreatedAt?: string | null };
+  waiterName?: string | null;
   onClick: (tableId: string) => void;
+  onAssignWaiter?: (tableId: string) => void;
 }
 
 const statusColors: Record<TableStatus, string> = {
@@ -19,6 +21,45 @@ const statusColors: Record<TableStatus, string> = {
   OUT_OF_ORDER: 'bg-gray-100 border-gray-400 text-gray-800 shadow-gray-200'
 };
 
+// --- Shared Global Timer Optimization ---
+let globalTimerListeners: Array<(now: number) => void> = [];
+let globalTimerInterval: NodeJS.Timeout | null = null;
+
+const startGlobalTimer = () => {
+  if (!globalTimerInterval) {
+    globalTimerInterval = setInterval(() => {
+      const now = Date.now();
+      globalTimerListeners.forEach(listener => listener(now));
+    }, 1000);
+  }
+};
+
+const stopGlobalTimer = () => {
+  if (globalTimerListeners.length === 0 && globalTimerInterval) {
+    clearInterval(globalTimerInterval);
+    globalTimerInterval = null;
+  }
+};
+
+const useGlobalTimer = (active: boolean) => {
+  const [now, setNow] = useState(Date.now());
+  
+  useEffect(() => {
+    if (!active) return;
+    const listener = (time: number) => setNow(time);
+    globalTimerListeners.push(listener);
+    startGlobalTimer();
+    
+    return () => {
+      globalTimerListeners = globalTimerListeners.filter(l => l !== listener);
+      stopGlobalTimer();
+    };
+  }, [active]);
+  
+  return now;
+};
+// ----------------------------------------
+
 const statusLabels: Record<TableStatus, string> = {
   AVAILABLE: 'Libre',
   OCCUPIED: 'Ocupada',
@@ -27,11 +68,13 @@ const statusLabels: Record<TableStatus, string> = {
   OUT_OF_ORDER: 'Fuera de Servicio'
 };
 
-export const TableCard: React.FC<TableCardProps> = ({ table, onClick }) => {
+export const TableCard: React.FC<TableCardProps> = ({ table, waiterName, onClick, onAssignWaiter }) => {
   const [elapsedTime, setElapsedTime] = useState<string>('');
+  const isTimerActive = table.status === 'OCCUPIED' || table.status === 'BILLING' || table.status === 'RESERVED';
+  const now = useGlobalTimer(isTimerActive);
 
   useEffect(() => {
-    if (table.status === 'AVAILABLE' || table.status === 'OUT_OF_ORDER') {
+    if (!isTimerActive) {
       setElapsedTime('');
       return;
     }
@@ -45,24 +88,22 @@ export const TableCard: React.FC<TableCardProps> = ({ table, onClick }) => {
 
     const start = new Date(timerRef).getTime();
     
-    const updateTime = () => {
-      const now = new Date().getTime();
-      const diff = Math.floor((now - start) / 1000);
-      const hours = Math.floor(diff / 3600);
-      const minutes = Math.floor((diff % 3600) / 60);
-      const seconds = diff % 60;
+    const diff = Math.floor((now - start) / 1000);
+    if (diff < 0) {
+      setElapsedTime('0m 0s');
+      return;
+    }
+    
+    const hours = Math.floor(diff / 3600);
+    const minutes = Math.floor((diff % 3600) / 60);
+    const seconds = diff % 60;
 
-      if (hours > 0) {
-        setElapsedTime(`${hours}h ${minutes}m`);
-      } else {
-        setElapsedTime(`${minutes}m ${seconds}s`);
-      }
-    };
-
-    updateTime();
-    const interval = setInterval(updateTime, 1000);
-    return () => clearInterval(interval);
-  }, [table.status, table.statusUpdatedAt, table.orderCreatedAt]);
+    if (hours > 0) {
+      setElapsedTime(`${hours}h ${minutes}m`);
+    } else {
+      setElapsedTime(`${minutes}m ${seconds}s`);
+    }
+  }, [table.status, table.statusUpdatedAt, table.orderCreatedAt, now, isTimerActive]);
 
   const colorClass = statusColors[table.status];
 
@@ -94,7 +135,26 @@ export const TableCard: React.FC<TableCardProps> = ({ table, onClick }) => {
         )}
       </div>
 
-      <div className="h-6 flex items-end justify-center">
+      <div className="h-6 flex items-end justify-between px-1">
+        <div 
+          className={`flex items-center space-x-1 text-xs opacity-80 truncate max-w-[60%] ${onAssignWaiter ? 'cursor-pointer hover:text-blue-700 hover:opacity-100 z-10 bg-white/50 rounded px-1 -ml-1' : ''}`}
+          onClick={(e) => {
+            if (onAssignWaiter) {
+              e.stopPropagation();
+              onAssignWaiter(table.id);
+            }
+          }}
+          title={onAssignWaiter ? "Asignar mesero" : undefined}
+        >
+          {waiterName ? (
+            <>
+              <Users size={12} />
+              <span className="truncate font-medium">{waiterName}</span>
+            </>
+          ) : (
+            <span className="opacity-50 italic text-[10px] hover:not-italic hover:opacity-80 transition-all">+ Asignar mesero</span>
+          )}
+        </div>
         {(table.status === 'OCCUPIED' || table.status === 'BILLING') && table.currentTotalCents != null && (
           <div className="flex items-center space-x-1 font-bold">
             <Receipt size={14} />

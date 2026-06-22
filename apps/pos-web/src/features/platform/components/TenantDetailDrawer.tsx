@@ -2,7 +2,9 @@ import React, { useState, useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { queryKeys } from '../../../shared/query-keys';
 import { Button, Input, Label } from '../../../components/ui';
+import { BUSINESS_TYPE_CATALOG } from '@pos-dian/shared';
 import { X, CheckCircle, AlertTriangle, AlertCircle, Eye, LogIn, Edit, Trash2, Plus } from 'lucide-react';
+import { BusinessTypeSelector } from '../../../components/ui';
 
 import {
   PlatformTenantSearchResult,
@@ -45,8 +47,25 @@ export function TenantDetailDrawer({ api, tenant, isOpen, onClose, onSuccess }: 
     nit: tenant?.document_number || '',
     tax_mode: 'IVA',
     plan: tenant?.plan_name || 'STARTER',
+    business_type: tenant?.business_type || 'OTHER',
     owner_email: tenant?.owner_email || '',
-    owner_name: '' 
+    owner_name: '',
+    modules: {
+      enable_tables: tenant?.enable_tables || false,
+      enable_delivery: tenant?.enable_delivery || false,
+      enable_waiters: tenant?.enable_waiters || false,
+      enable_split_bill: tenant?.enable_split_bill || false,
+      enable_tips: tenant?.enable_tips || false,
+      enable_kitchen: tenant?.enable_kitchen || false,
+      enable_kitchen_display: tenant?.enable_kitchen_display || false,
+      enable_kitchen_tickets: tenant?.enable_kitchen_tickets || false,
+      enable_kitchen_printing: tenant?.enable_kitchen_printing || false,
+      enable_order_rounds: tenant?.enable_order_rounds || false,
+      enable_product_modifiers: tenant?.enable_product_modifiers || false,
+      enable_reservations: tenant?.enable_reservations || false,
+      enable_waiter_shifts: tenant?.enable_waiter_shifts || false,
+      enable_qr_menu: tenant?.enable_qr_menu || false
+    }
   });
 
   useEffect(() => {
@@ -57,8 +76,25 @@ export function TenantDetailDrawer({ api, tenant, isOpen, onClose, onSuccess }: 
         nit: tenant.document_number || '',
         tax_mode: 'IVA',
         plan: tenant.plan_name || 'STARTER',
+        business_type: tenant.business_type || 'OTHER',
         owner_email: tenant.owner_email || '',
-        owner_name: ''
+        owner_name: '',
+        modules: {
+          enable_tables: tenant.enable_tables || false,
+          enable_delivery: tenant.enable_delivery || false,
+          enable_waiters: tenant.enable_waiters || false,
+          enable_split_bill: tenant.enable_split_bill || false,
+          enable_tips: tenant.enable_tips || false,
+          enable_kitchen: tenant.enable_kitchen || false,
+          enable_kitchen_display: tenant.enable_kitchen_display || false,
+          enable_kitchen_tickets: tenant.enable_kitchen_tickets || false,
+          enable_kitchen_printing: tenant.enable_kitchen_printing || false,
+          enable_order_rounds: tenant.enable_order_rounds || false,
+          enable_product_modifiers: tenant.enable_product_modifiers || false,
+          enable_reservations: tenant.enable_reservations || false,
+          enable_waiter_shifts: tenant.enable_waiter_shifts || false,
+          enable_qr_menu: tenant.enable_qr_menu || false
+        }
       });
     }
   }, [tenant]);
@@ -76,7 +112,15 @@ export function TenantDetailDrawer({ api, tenant, isOpen, onClose, onSuccess }: 
         name: formData.name,
         business_name: formData.business_name,
         nit: formData.nit,
+        business_type: formData.business_type,
       });
+
+      // Update modules explicitly using the new TMM endpoint
+      await api.updatePlatformTenantModules(tenant.id, {
+        modules: formData.modules,
+        reason: 'Actualización de configuración desde Platform Admin'
+      });
+
       if (formData.plan !== tenant.plan_name) {
         await api.changeTenantPlan(tenant.id, formData.plan);
       }
@@ -417,6 +461,17 @@ export function TenantDetailDrawer({ api, tenant, isOpen, onClose, onSuccess }: 
                     <option value="REGIMEN_SIMPLIFICADO">Régimen Simplificado</option>
                   </select>
                 </div>
+
+                <div className="space-y-2">
+                  <Label>Tipo de Negocio y Módulos</Label>
+                  <BusinessTypeSelector
+                    value={formData.business_type as any}
+                    onChange={v => setFormData({...formData, business_type: v})}
+                    modules={formData.modules}
+                    onModulesChange={v => setFormData({...formData, modules: v})}
+                    layout="select"
+                  />
+                </div>
                 
                 <div className="space-y-2">
                   <Label htmlFor="tenantPlan">Plan de Suscripción</Label>
@@ -439,6 +494,12 @@ export function TenantDetailDrawer({ api, tenant, isOpen, onClose, onSuccess }: 
                 </div>
                 
                 <div className="pt-4 border-t border-border mt-6">
+                  {error && (
+                    <div className="p-3 bg-destructive/10 text-destructive rounded-lg mb-4 text-sm flex items-start gap-3 border border-destructive/20 animate-in fade-in">
+                      <AlertCircle size={18} className="shrink-0 mt-0.5" />
+                      <div className="font-medium">{error}</div>
+                    </div>
+                  )}
                   <Button type="submit" disabled={loading} className="w-full">
                     {loading ? 'Guardando...' : 'Guardar Cambios'}
                   </Button>

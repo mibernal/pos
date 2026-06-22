@@ -46,6 +46,19 @@ export interface TenantsTable {
   custom_business_type: string | null;
   /** Si TRUE, habilita módulos de gestión de mesas aunque el tipo sea 'OTHER'. Migration 059. */
   enable_tables: Generated<boolean>;
+  enable_delivery: Generated<boolean>;
+  enable_waiters: Generated<boolean>;
+  enable_split_bill: Generated<boolean>;
+  enable_tips: Generated<boolean>;
+  enable_kitchen: Generated<boolean>;
+  enable_kitchen_display: Generated<boolean>;
+  enable_kitchen_tickets: Generated<boolean>;
+  enable_kitchen_printing: Generated<boolean>;
+  enable_order_rounds: Generated<boolean>;
+  enable_product_modifiers: Generated<boolean>;
+  enable_reservations: Generated<boolean>;
+  enable_waiter_shifts: Generated<boolean>;
+  enable_qr_menu: Generated<boolean>;
   status: Generated<string>;
   suspended_at: Date | null;
   suspended_reason: string | null;
@@ -66,6 +79,56 @@ export interface TerminalsTable {
   tenant_id: string;
   branch_id: string;
   name: string;
+  is_active: Generated<boolean>;
+  created_at: Generated<Date>;
+  updated_at: Generated<Date>;
+}
+
+export interface OrderRoundsTable {
+  id: string;
+  tenant_id: string;
+  branch_id: string;
+  table_order_id: string;
+  waiter_id: string | null;
+  round_number: number;
+  status: Generated<string>;
+  created_at: Generated<Date>;
+  updated_at: Generated<Date>;
+}
+
+export interface KitchenTicketsTable {
+  id: string;
+  tenant_id: string;
+  branch_id: string;
+  round_id: string;
+  table_order_id: string;
+  status: Generated<string>;
+  printed_at: Date | null;
+  created_at: Generated<Date>;
+  updated_at: Generated<Date>;
+}
+
+export interface KitchenTicketItemsTable {
+  id: string;
+  tenant_id: string;
+  branch_id: string;
+  kitchen_ticket_id: string;
+  table_order_id: string;
+  product_id: string;
+  variant_id: string | null;
+  qty: number;
+  item_status: Generated<string>;
+  notes: string | null;
+  created_at: Generated<Date>;
+}
+
+export interface WaitersTable {
+  id: string;
+  tenant_id: string;
+  branch_id: string;
+  user_id: string | null;
+  name: string;
+  pin: string | null;
   is_active: Generated<boolean>;
   created_at: Generated<Date>;
   updated_at: Generated<Date>;
@@ -124,6 +187,7 @@ export interface ProductsTable {
   active: Generated<boolean>;
   image_url: string | null;
   description: string | null;
+  preparation_station: Generated<string>;
   created_at: Generated<Date>;
   updated_at: Generated<Date>;
 }
@@ -246,6 +310,7 @@ export interface SalesTable {
   tax_lines_json: JsonArrayColumn;
   payment_json: JsonColumn;
   created_by_user_id: string;
+  waiter_id: string | null;
   void_reason: string | null;
   voided_by_user_id: string | null;
   voided_at: Date | null;
@@ -262,6 +327,7 @@ export interface SaleItemsTable {
   qty: string;
   price_cents: number;
   line_total_cents: number;
+  notes: string | null;
   created_at: Generated<Date>;
 }
 
@@ -701,6 +767,7 @@ export interface TablesTable {
   capacity: Generated<number>;
   status: Generated<string>;
   current_order_id: string | null;
+  waiter_id: string | null;
   status_updated_at: Generated<Date>;
   is_active: Generated<boolean>;
   created_at: Generated<Date>;
@@ -717,6 +784,10 @@ export interface TableOrdersTable {
   discount_cents: Generated<number>;
   tip_cents: Generated<number>;
   total_cents: Generated<number>;
+  waiter_id: string | null;
+  customer_id: string | null;
+  guests_count: number | null;
+  order_type: Generated<string>;
   created_at: Generated<Date>;
   updated_at: Generated<Date>;
 }
@@ -726,11 +797,17 @@ export interface TableOrderItemsTable {
   tenant_id: string;
   branch_id: string;
   table_order_id: string;
+  round_id: string | null;
+  seat_number: number | null;
+  item_status: Generated<string>;
+  modifiers: unknown | null; // JSONB
   product_id: string;
   variant_id: string | null;
   qty: number;
   price_cents: number;
   line_total_cents: number;
+  notes: string | null;
+  sent_to_kitchen_at: Date | null;
   created_at: Generated<Date>;
 }
 
@@ -773,6 +850,18 @@ export interface DeliveryItemsTable {
   qty: string;
   price_cents: number;
   line_total_cents: number;
+}
+
+export interface TenantModuleAuditLogsTable {
+  id: Generated<string>;
+  tenant_id: string;
+  performed_by: string;
+  module_name: string;
+  previous_state: boolean;
+  new_state: boolean;
+  reason: string;
+  is_cascade: Generated<boolean>;
+  created_at: Generated<Date>;
 }
 
 export interface Database {
@@ -830,7 +919,12 @@ export interface Database {
   tables: TablesTable;
   table_orders: TableOrdersTable;
   table_order_items: TableOrderItemsTable;
+  order_rounds: OrderRoundsTable;
+  kitchen_tickets: KitchenTicketsTable;
+  kitchen_ticket_items: KitchenTicketItemsTable;
   delivery_persons: DeliveryPersonsTable;
   deliveries: DeliveriesTable;
   delivery_items: DeliveryItemsTable;
+  waiters: WaitersTable;
+  tenant_module_audit_logs: TenantModuleAuditLogsTable;
 }

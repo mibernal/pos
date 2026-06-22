@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { persist } from 'zustand/middleware';
 import type { Table } from '@pos-dian/shared';
 
 interface TablesState {
@@ -17,26 +18,37 @@ interface TablesState {
   setActiveTable: (table: Table | null) => void;
 }
 
-export const useTablesStore = create<TablesState>((set) => ({
-  selectedRoomId: null,
-  isCreateRoomModalOpen: false,
-  isCreateTableModalOpen: false,
-  activeTableIdForModal: null,
+export const useTablesStore = create<TablesState>()(
+  persist(
+    (set) => ({
+      selectedRoomId: null,
+      isCreateRoomModalOpen: false,
+      isCreateTableModalOpen: false,
+      activeTableIdForModal: null,
 
-  setSelectedRoomId: (id) => set({ selectedRoomId: id }),
-  
-  openCreateRoomModal: () => set({ isCreateRoomModalOpen: true }),
-  closeCreateRoomModal: () => set({ isCreateRoomModalOpen: false }),
-  
-  openCreateTableModal: (roomId) => set({ 
-    isCreateTableModalOpen: true, 
-    selectedRoomId: roomId || null 
-  }),
-  closeCreateTableModal: () => set({ isCreateTableModalOpen: false }),
+      setSelectedRoomId: (id) => set({ selectedRoomId: id }),
+      
+      openCreateRoomModal: () => set({ isCreateRoomModalOpen: true }),
+      closeCreateRoomModal: () => set({ isCreateRoomModalOpen: false }),
+      
+      openCreateTableModal: (roomId) => set({ 
+        isCreateTableModalOpen: true, 
+        selectedRoomId: roomId || null 
+      }),
+      closeCreateTableModal: () => set({ isCreateTableModalOpen: false }),
 
-  openTableDetails: (tableId) => set({ activeTableIdForModal: tableId }),
-  closeTableDetails: () => set({ activeTableIdForModal: null }),
+      openTableDetails: (tableId) => set({ activeTableIdForModal: tableId }),
+      closeTableDetails: () => set({ activeTableIdForModal: null }),
 
-  activeTable: null,
-  setActiveTable: (table) => set({ activeTable: table })
-}));
+      activeTable: null,
+      setActiveTable: (table) => set({ activeTable: table })
+    }),
+    {
+      name: 'pos-tables-store',
+      partialize: (state) => ({ 
+        activeTable: state.activeTable,
+        selectedRoomId: state.selectedRoomId
+      }),
+    }
+  )
+);

@@ -30,6 +30,12 @@ export const APP_ROUTE_DEFINITIONS: readonly EnhancedRouteDefinition[] = [
     requiredModule: 'tables'
   },
   {
+    id: 'kds',
+    label: 'Cocina (KDS)',
+    requiredPermissions: ['sales:create'],
+    requiredModule: 'tables'
+  },
+  {
     id: 'delivery',
     label: 'Domicilios',
     requiredPermissions: ['sales:create'],
@@ -90,5 +96,11 @@ export const APP_ROUTE_DEFINITIONS: readonly EnhancedRouteDefinition[] = [
     id: 'billing',
     label: 'Facturación / Plan',
     requiredPermissions: ['tenant:settings:manage']
+  },
+  {
+    id: 'waiters',
+    label: 'Meseros',
+    requiredPermissions: ['branches:manage'],
+    requiredModule: 'tables'
   }
 ] as const;

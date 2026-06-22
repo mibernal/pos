@@ -1,7 +1,8 @@
 import type { FastifyPluginAsync } from 'fastify';
 import { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { sql } from 'kysely';
-import { salesReportQuerySchema, kardexQuerySchema } from '@pos-dian/shared';
+import { salesReportQuerySchema, kardexQuerySchema, waiterReportQuerySchema } from '@pos-dian/shared';
+import { WaiterReportsUseCase } from '../application/waiter-reports.use-case.js';
 
 import { AppError } from '../../../shared/infra/errors/app-error.js';
 import { ensureUserCanAccessBranch } from '../../../shared/infra/security/permissions.js';
@@ -109,6 +110,26 @@ export const reportsRoutes: FastifyPluginAsync = async (app) => {
         revenue_by_method
       };
       });
+    }
+  );
+
+  typedApp.get(
+    '/reports/waiters',
+    {
+      preHandler: [app.requirePermissions(['reports:view'])],
+      schema: {
+        tags: ['reports'],
+        security: [{ bearerAuth: [] }],
+        querystring: waiterReportQuerySchema
+      }
+    },
+    async (request) => {
+      if (!request.auth) throw new AppError(401, 'UNAUTHORIZED', 'No autorizado');
+      const { branch_id } = request.query;
+      if (branch_id) ensureUserCanAccessBranch(request.auth, branch_id);
+
+      const useCase = new WaiterReportsUseCase(app.db);
+      return await useCase.execute(request.auth.tenantId!, request.query);
     }
   );
 

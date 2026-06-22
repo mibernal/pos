@@ -5,3 +5,5 @@ export * from './CategoryGrid';
 export * from './VariantSelectorModal';
 export * from './SplitBillModal';
 export * from './SplitBillByProductsModal';
+export * from './WaiterSelector';
+export * from './GuestsInput';

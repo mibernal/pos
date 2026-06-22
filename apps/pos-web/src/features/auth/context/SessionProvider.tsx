@@ -89,6 +89,13 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       useCartStore.getState().resetCart();
       setAuthMessage(reason ?? null);
       setAuthState('unauthenticated');
+      
+      // Limpiar el estado local persistido para no cruzar info entre tenants/usuarios
+      if (typeof window !== 'undefined') {
+        window.localStorage.removeItem('pos-tables-store');
+        window.localStorage.removeItem('pos-draft-sale-v1');
+      }
+
       // Clear react query cache and memory by reloading the application
       if (typeof window !== 'undefined' && !skipReload) {
         window.location.reload();

@@ -23,6 +23,8 @@ export const TableSchema = z.object({
   capacity: z.number().int().min(1).max(100),
   status: z.enum(TABLE_STATUS),
   currentOrderId: z.string().uuid().nullable(),
+  waiterId: z.string().uuid().nullable().optional(),
+  waiterName: z.string().nullable().optional(),
   statusUpdatedAt: z.string(),
   isActive: z.boolean(),
   createdAt: z.string(),
@@ -62,6 +64,11 @@ export const UpdateTableStatusSchema = z.object({
 });
 export type UpdateTableStatusPayload = z.infer<typeof UpdateTableStatusSchema>;
 
+export const UpdateTableWaiterSchema = z.object({
+  waiterId: z.string().uuid().nullable()
+});
+export type UpdateTableWaiterPayload = z.infer<typeof UpdateTableWaiterSchema>;
+
 export const TableOrderItemSchema = z.object({
   id: z.string().uuid(),
   productId: z.string().uuid(),
@@ -72,7 +79,9 @@ export const TableOrderItemSchema = z.object({
   description: z.string().nullable().optional(), // For UI
   qty: z.number().int().positive(),
   priceCents: z.number().int().nonnegative(),
-  lineTotalCents: z.number().int().nonnegative()
+  lineTotalCents: z.number().int().nonnegative(),
+  notes: z.string().nullable().optional(),
+  sentToKitchenAt: z.string().nullable().optional()
 });
 export type TableOrderItem = z.infer<typeof TableOrderItemSchema>;
 
@@ -85,6 +94,9 @@ export const TableOrderSchema = z.object({
   subtotalCents: z.number().int().nonnegative(),
   discountCents: z.number().int().nonnegative(),
   totalCents: z.number().int().nonnegative(),
+  waiterId: z.string().uuid().nullable().optional(),
+  guestsCount: z.number().int().nullable().optional(),
+  orderType: z.string(),
   createdAt: z.string(),
   updatedAt: z.string()
 });
@@ -102,8 +114,13 @@ export const SaveTableOrderPayloadSchema = z.object({
     variantId: z.string().uuid().nullable().optional(),
     qty: z.number().int().positive(),
     priceCents: z.number().int().nonnegative(),
-    lineTotalCents: z.number().int().nonnegative()
-  }))
+    lineTotalCents: z.number().int().nonnegative(),
+    notes: z.string().nullable().optional()
+  })),
+  tipCents: z.number().int().nonnegative().optional(),
+  guestsCount: z.number().int().nullable().optional(),
+  waiterId: z.string().uuid().nullable().optional(),
+  orderType: z.string().optional()
 });
 export type SaveTableOrderPayload = z.infer<typeof SaveTableOrderPayloadSchema>;
 

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { Banner } from '../../components/ui';
 import { formatMoneyFromCents } from '../../lib/format';
 import type { PosApiClient } from '../../types';
-import type { SalesReportResponse } from '../../lib/api';
+import type { SalesReportResponse, WaitersReportResponse } from '../../lib/api';
 
 import type { TicketTemplateConfig } from '../../lib/ticket-template';
 import { printZReportTicket } from '../../lib/ticket-printer';
@@ -37,7 +37,8 @@ export function ReportsScreen({
   const [error, setError] = useState<string | null>(null);
 
   const [shiftsData, setShiftsData] = useState<Awaited<ReturnType<PosApiClient['getShiftsReport']>> | null>(null);
-  const [activeTab, setActiveTab] = useState<'METRICS' | 'SHIFTS'>('METRICS');
+  const [waitersData, setWaitersData] = useState<WaitersReportResponse | null>(null);
+  const [activeTab, setActiveTab] = useState<'METRICS' | 'SHIFTS' | 'WAITERS'>('METRICS');
 
   const fetchReport = useCallback(async () => {
     setLoading(true);
@@ -66,9 +67,12 @@ export function ReportsScreen({
       if (activeTab === 'METRICS') {
         const res = await api.getSalesReport({ branchId, from, to });
         setReportData(res);
-      } else {
+      } else if (activeTab === 'SHIFTS') {
         const res = await api.getShiftsReport({ branchId, from, to });
         setShiftsData(res);
+      } else if (activeTab === 'WAITERS') {
+        const res = await api.getWaitersReport({ branchId, from, to });
+        setWaitersData(res);
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Error al cargar reporte');
@@ -114,6 +118,16 @@ export function ReportsScreen({
             onClick={() => setActiveTab('SHIFTS')}
           >
             <span className="mr-2">👤</span> Turnos y Cajeros
+          </button>
+          <button
+            className={`px-4 py-2 rounded-lg text-sm font-semibold transition-all duration-200 ${
+              activeTab === 'WAITERS'
+                ? 'bg-background text-foreground shadow-sm'
+                : 'text-muted-foreground hover:text-foreground hover:bg-background/50'
+            }`}
+            onClick={() => setActiveTab('WAITERS')}
+          >
+            <span className="mr-2">🍽️</span> Rendimiento Meseros
           </button>
         </div>
 
@@ -297,6 +311,48 @@ export function ReportsScreen({
                     </div>
                   </div>
                 ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Waiters View */}
+        {activeTab === 'WAITERS' && waitersData && !loading && (
+          <div className="bg-card border border-border rounded-xl p-6 shadow-sm animate-in slide-in-from-bottom-4 duration-500">
+            <h3 className="text-lg font-bold text-foreground mb-4">Rendimiento por Mesero</h3>
+            {waitersData.items.length === 0 ? (
+              <p className="text-muted-foreground text-sm">No hay ventas registradas para meseros en este periodo.</p>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-left border-collapse">
+                  <thead>
+                    <tr className="border-b border-border/50 text-xs uppercase tracking-wider text-muted-foreground">
+                      <th className="py-3 px-4 font-semibold">Mesero</th>
+                      <th className="py-3 px-4 font-semibold text-right">Ventas Totales</th>
+                      <th className="py-3 px-4 font-semibold text-right">Cantidad Ventas</th>
+                      <th className="py-3 px-4 font-semibold text-right">Ticket Promedio</th>
+                      <th className="py-3 px-4 font-semibold text-right text-primary">Propinas</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {waitersData.items.map((waiter) => (
+                      <tr key={waiter.waiter_id || 'unassigned'} className="border-b border-border/10 hover:bg-muted/30 transition-colors">
+                        <td className="py-4 px-4">
+                          <div className="flex items-center gap-3">
+                            <div className="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center text-blue-700 font-bold">
+                              {waiter.waiter_name.charAt(0).toUpperCase()}
+                            </div>
+                            <span className="font-medium">{waiter.waiter_name}</span>
+                          </div>
+                        </td>
+                        <td className="py-4 px-4 text-right font-medium">{formatMoneyFromCents(waiter.total_revenue_cents)}</td>
+                        <td className="py-4 px-4 text-right">{waiter.total_sales_count}</td>
+                        <td className="py-4 px-4 text-right text-muted-foreground">{formatMoneyFromCents(waiter.average_ticket_cents)}</td>
+                        <td className="py-4 px-4 text-right font-bold text-primary">{formatMoneyFromCents(waiter.total_tips_cents)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
             )}
           </div>

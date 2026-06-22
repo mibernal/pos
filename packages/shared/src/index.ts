@@ -13,6 +13,10 @@ export * from './schemas/inventory.js';
 export * from './schemas/tenant-profile.js';
 export * from './schemas/reports.js';
 export * from './schemas/returns.js';
+
+export * from './schemas/waiters.js';
+export * from './schemas/kds.js';
 export * from './schemas/alerts.js';
 export * from './schemas/promotions.js';
 export * from './schemas/deliveries.js';
+export * from './schemas/tenant-modules.js';

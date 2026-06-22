@@ -52,7 +52,9 @@ export function useTicketTemplate({
           phone: profile.phone ?? '',
           footerMessage: profile.footerMessage ?? '',
           logoUrl: storedTemplate.logoUrl,
-          printerWidth: storedTemplate.printerWidth
+          printerWidth: storedTemplate.printerWidth,
+          businessType: profile.businessType ?? 'OTHER',
+          customBusinessType: profile.customBusinessType ?? undefined
         });
 
         setTicketTemplate(mergedTemplate);

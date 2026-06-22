@@ -13,7 +13,6 @@ export class UpdateTenantUseCase {
       const updatePayload: Record<string, unknown> = { ...tenantData };
       if (tenantData.business_type && tenantData.business_type !== 'OTHER') {
         updatePayload.custom_business_type = null;
-        updatePayload.enable_tables = false;
       }
 
       await this.db.updateTable('tenants')

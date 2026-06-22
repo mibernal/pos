@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { businessTypeSchema } from './business-type.js';
 
-export const userRoleSchema = z.enum(['PLATFORM_OWNER', 'TENANT_OWNER', 'ADMIN', 'MANAGER', 'CASHIER', 'AUDITOR']);
+export const userRoleSchema = z.enum(['PLATFORM_OWNER', 'TENANT_OWNER', 'ADMIN', 'MANAGER', 'CASHIER', 'AUDITOR', 'WAITER']);
 export const tenantTaxModeSchema = z.enum(['IVA', 'INC_RESTAURANT', 'REGIMEN_SIMPLIFICADO']);
 
 export const loginBodySchema = z.object({
@@ -17,6 +17,19 @@ export const authUserSchema = z.object({
   taxMode: tenantTaxModeSchema.optional().nullable(),
   businessType: businessTypeSchema.optional().nullable(),
   enableTables: z.boolean().optional().default(false),
+  enableDelivery: z.boolean().optional().default(false),
+  enableWaiters: z.boolean().optional().default(false),
+  enableSplitBill: z.boolean().optional().default(false),
+  enableTips: z.boolean().optional().default(false),
+  enableKitchen: z.boolean().optional().default(false),
+  enableKitchenDisplay: z.boolean().optional().default(false),
+  enableKitchenTickets: z.boolean().optional().default(false),
+  enableKitchenPrinting: z.boolean().optional().default(false),
+  enableOrderRounds: z.boolean().optional().default(false),
+  enableProductModifiers: z.boolean().optional().default(false),
+  enableReservations: z.boolean().optional().default(false),
+  enableWaiterShifts: z.boolean().optional().default(false),
+  enableQrMenu: z.boolean().optional().default(false),
   role: userRoleSchema,
   email: z.string().email(),
   name: z.string().min(1),
@@ -54,6 +67,19 @@ export const jwtClaimsSchema = z.object({
   name: z.string().min(1),
   businessType: businessTypeSchema.optional().nullable(),
   enableTables: z.boolean().optional().default(false),
+  enableDelivery: z.boolean().optional().default(false),
+  enableWaiters: z.boolean().optional().default(false),
+  enableSplitBill: z.boolean().optional().default(false),
+  enableTips: z.boolean().optional().default(false),
+  enableKitchen: z.boolean().optional().default(false),
+  enableKitchenDisplay: z.boolean().optional().default(false),
+  enableKitchenTickets: z.boolean().optional().default(false),
+  enableKitchenPrinting: z.boolean().optional().default(false),
+  enableOrderRounds: z.boolean().optional().default(false),
+  enableProductModifiers: z.boolean().optional().default(false),
+  enableReservations: z.boolean().optional().default(false),
+  enableWaiterShifts: z.boolean().optional().default(false),
+  enableQrMenu: z.boolean().optional().default(false),
   branchIds: z.array(z.string().uuid()).optional(),
   permissions: z.array(z.string()).optional(),
   isPlatformRole: z.boolean().optional(),

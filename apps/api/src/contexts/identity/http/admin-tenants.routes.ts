@@ -2,10 +2,12 @@ import type { FastifyPluginAsync } from 'fastify';
 import { ZodTypeProvider } from 'fastify-type-provider-zod';
 import {
   tenantProfileSchema,
-  updateTenantBusinessProfileBodySchema
+  updateTenantBusinessProfileBodySchema,
+  UpdateTenantModulesSchema
 } from '@pos-dian/shared';
 import { AppError } from '../../../shared/infra/errors/app-error.js';
 import { writeAuditLog } from '../../../shared/domain/audit/write-audit-log.js';
+import { UpdateTenantModulesUseCase } from '../../platform-admin/application/tenants/update-tenant-modules.use-case.js';
 
 const updateTenantTaxProfileParamsSchema = tenantProfileSchema.pick({
   id: true
@@ -145,7 +147,17 @@ export const adminTenantsRoutes: FastifyPluginAsync = async (app) => {
               : {}),
             ...(Object.prototype.hasOwnProperty.call(payload, 'footerMessage')
               ? { footer_message: payload.footerMessage ?? null }
-              : {})
+              : {}),
+            ...(payload.businessType ? {
+              business_type: payload.businessType,
+              // Limpiamos estos si no es OTHER
+              ...(payload.businessType !== 'OTHER' ? {
+                custom_business_type: null,
+                enable_tables: false
+              } : {
+                custom_business_type: payload.customBusinessType ?? currentTenant.custom_business_type
+              })
+            } : {})
           })
           .where('id', '=', request.auth!.tenantId!)
           .returning([
@@ -276,6 +288,27 @@ export const adminTenantsRoutes: FastifyPluginAsync = async (app) => {
       }
 
       return tenantProfileSchema.parse(mapTenantProfile(updatedTenant));
+    }
+  );
+  typedApp.patch(
+    '/admin/tenants/current/modules',
+    {
+      preHandler: [app.requirePermissions(['tenant:settings:manage'])],
+      schema: {
+        tags: ['admin-tenants'],
+        security: [{ bearerAuth: [] }],
+        body: UpdateTenantModulesSchema
+      }
+    },
+    async (request) => {
+      if (!request.auth) {
+        throw new AppError(401, 'AUTH_UNAUTHORIZED', 'No autorizado');
+      }
+
+      const useCase = new UpdateTenantModulesUseCase(app.db);
+      await useCase.execute(request.auth!.tenantId!, request.body, request.auth!.userId);
+
+      return { success: true };
     }
   );
 };

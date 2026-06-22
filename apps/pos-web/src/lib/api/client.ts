@@ -21,6 +21,7 @@ import type {
   InventoryBalance as SharedInventoryBalance,
   CreateInventoryTransactionInput as SharedCreateInventoryTransactionInput,
   SalesReportResponse as SharedSalesReportResponse,
+  WaitersReportResponse as SharedWaitersReportResponse,
   ConsolidatedInventoryResponse as SharedConsolidatedInventoryResponse,
   Promotion as SharedPromotion,
   CreatePromotion as SharedCreatePromotion,
@@ -101,6 +102,7 @@ export type CreateSaleRequest = SharedCreateSaleInput;
 export type Customer = SharedCustomer;
 export type InventoryBalance = SharedInventoryBalance;
 export type SalesReportResponse = SharedSalesReportResponse;
+export type WaitersReportResponse = SharedWaitersReportResponse;
 export type ConsolidatedInventoryResponse = SharedConsolidatedInventoryResponse;
 
 export type Promotion = SharedPromotion;
@@ -342,6 +344,11 @@ export function createApiClient({ baseUrl, getSession, setSession, onReauthRequi
         method: 'PATCH',
         body: JSON.stringify({ branch_ids: branchIds })
       }),
+    assignTableWaiter: (branchId: string, tableId: string, waiterId: string | null) =>
+      requestJson<{ success: boolean }>(`/branches/${branchId}/tables/${tableId}/waiter`, {
+        method: 'PATCH',
+        body: JSON.stringify({ waiterId })
+      }),
     listTerminals: (branchId: string) => 
       requestJson<{ terminals: TerminalItem[] }>(`/terminals?${toQueryString({ branch_id: branchId })}`),
     createTerminal: (payload: { branch_id: string; name: string }) =>
@@ -570,6 +577,13 @@ export function createApiClient({ baseUrl, getSession, setSession, onReauthRequi
       if (params.to) searchParams.set('to', params.to);
       return requestJson<SalesReportResponse>(`/reports/sales?${searchParams.toString()}`);
     },
+    getWaitersReport: (params: { branchId: string; from?: string; to?: string }) => {
+      const searchParams = new URLSearchParams();
+      searchParams.set('branch_id', params.branchId);
+      if (params.from) searchParams.set('from', params.from);
+      if (params.to) searchParams.set('to', params.to);
+      return requestJson<WaitersReportResponse>(`/reports/waiters?${searchParams.toString()}`);
+    },
     getShiftsReport: (params: { branchId: string; from?: string; to?: string }) => {
       const searchParams = new URLSearchParams();
       searchParams.set('branch_id', params.branchId);
@@ -738,6 +752,22 @@ export function createApiClient({ baseUrl, getSession, setSession, onReauthRequi
       const res = await requestJson<{ success: boolean }>(`/platform/tenants/${tenantId}/plan`, {
         method: 'POST',
         body: JSON.stringify({ new_plan: newPlan })
+      });
+      return res.success;
+    },
+
+    updatePlatformTenantModules: async (tenantId: string, payload: any) => {
+      const res = await requestJson<{ success: boolean }>(`/platform/tenants/${tenantId}/modules`, {
+        method: 'PATCH',
+        body: JSON.stringify(payload)
+      });
+      return res.success;
+    },
+
+    updateTenantModules: async (payload: any) => {
+      const res = await requestJson<{ success: boolean }>('/admin/tenants/current/modules', {
+        method: 'PATCH',
+        body: JSON.stringify(payload)
       });
       return res.success;
     },

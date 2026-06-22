@@ -11,6 +11,7 @@ export interface CartPanelProps {
   clearCart: () => void;
   setSelectedCartIndex: (index: number) => void;
   updateCartQty: (index: number, qty: number) => void;
+  updateCartNotes: (index: number, notes: string) => void;
   removeCartItem: (index: number) => void;
 }
 
@@ -21,6 +22,7 @@ export function CartPanel({
   clearCart,
   setSelectedCartIndex,
   updateCartQty,
+  updateCartNotes,
   removeCartItem
 }: CartPanelProps) {
   const [scaleReadingIndex, setScaleReadingIndex] = useState<number | null>(null);
@@ -83,6 +85,11 @@ export function CartPanel({
                       <span>{formatMoneyFromCents(item.priceCents)} c/u</span>
                       {item.barcode && <span className="tag-muted">{item.barcode}</span>}
                     </div>
+                    {item.notes && (
+                      <div style={{ fontSize: '0.75rem', color: 'var(--color-slate-500)', marginTop: '0.25rem' }}>
+                        Nota: {item.notes}
+                      </div>
+                    )}
                   </div>
                 </div>
                 <strong style={{ color: 'var(--color-slate-900)' }}>{formatMoneyFromCents(item.priceCents * item.qty)}</strong>
@@ -139,6 +146,21 @@ export function CartPanel({
                     </button>
                   )}
                 </div>
+                <button
+                  type="button"
+                  className="ghost-button"
+                  style={{ border: 'none', color: 'var(--color-slate-600)', background: 'transparent', boxShadow: 'none', padding: '0.25rem', marginLeft: '0.25rem' }}
+                  title="Añadir nota"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    const newNotes = window.prompt('Añadir nota al producto:', item.notes || '');
+                    if (newNotes !== null) {
+                      updateCartNotes(index, newNotes);
+                    }
+                  }}
+                >
+                  📝
+                </button>
                 <button
                   type="button"
                   className="ghost-button"

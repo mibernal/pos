@@ -20,6 +20,7 @@ export interface CartItem {
     buy_qty: number | null;
     get_qty: number | null;
   } | null;
+  notes?: string;
 }
 
 export interface LastPrintedSaleSnapshot {

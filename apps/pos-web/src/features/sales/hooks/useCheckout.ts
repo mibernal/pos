@@ -43,7 +43,8 @@ export function useCheckout({
       name: item.name,
       qty: item.qty,
       priceCents: item.priceCents,
-      lineTotalCents: item.priceCents * item.qty
+      lineTotalCents: item.priceCents * item.qty,
+      notes: item.notes
     }));
 
     const salePayload: CreateSaleRequest = {
@@ -57,7 +58,8 @@ export function useCheckout({
       items: cartItems.map((item) => ({
         product_id: item.productId,
         qty: item.qty,
-        price_cents: item.priceCents
+        price_cents: item.priceCents,
+        notes: item.notes
       })),
       payments,
       snapshot: {

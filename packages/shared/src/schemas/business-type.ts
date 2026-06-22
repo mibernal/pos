@@ -56,6 +56,8 @@ export const BUSINESS_TYPE_CATALOG: BusinessTypeMeta[] = [
 const TABLE_NATIVE_TYPES: ReadonlySet<BusinessType> = new Set([
   'RESTAURANT',
   'CAFETERIA',
+  'BAKERY',
+  'FAST_FOOD',
   'BAR',
   'NIGHTCLUB',
 ]);
@@ -63,12 +65,22 @@ const TABLE_NATIVE_TYPES: ReadonlySet<BusinessType> = new Set([
 // ─── Módulos del sistema ──────────────────────────────────────────────────────
 
 export type BusinessModule =
-  | 'tables'        // Gestión de mesas
-  | 'table_transfer'// Cambio de mesa
-  | 'delivery'      // Domicilios
-  | 'split_bill'    // División de cuenta
-  | 'pre_check'     // Precuenta
-  | 'tips';         // Propinas
+  | 'tables'
+  | 'delivery'
+  | 'waiters'
+  | 'split_bill'
+  | 'tips'
+  | 'kitchen'
+  | 'kitchen_display'
+  | 'kitchen_tickets'
+  | 'kitchen_printing'
+  | 'order_rounds'
+  | 'product_modifiers'
+  | 'reservations'
+  | 'waiter_shifts'
+  | 'qr_menu'
+  | 'table_transfer'
+  | 'pre_check';
 
 /** All modules that compose the "restaurant experience". */
 export const RESTAURANT_MODULES: BusinessModule[] = [
@@ -120,6 +132,19 @@ export const businessTypeFieldSchema = z.object({
   business_type: businessTypeSchema,
   custom_business_type: z.string().trim().min(2).max(80).optional().nullable(),
   enable_tables: z.boolean().optional().default(false),
+  enable_delivery: z.boolean().optional().default(false),
+  enable_waiters: z.boolean().optional().default(false),
+  enable_split_bill: z.boolean().optional().default(false),
+  enable_tips: z.boolean().optional().default(false),
+  enable_kitchen: z.boolean().optional().default(false),
+  enable_kitchen_display: z.boolean().optional().default(false),
+  enable_kitchen_tickets: z.boolean().optional().default(false),
+  enable_kitchen_printing: z.boolean().optional().default(false),
+  enable_order_rounds: z.boolean().optional().default(false),
+  enable_product_modifiers: z.boolean().optional().default(false),
+  enable_reservations: z.boolean().optional().default(false),
+  enable_waiter_shifts: z.boolean().optional().default(false),
+  enable_qr_menu: z.boolean().optional().default(false),
 });
 
 export type BusinessTypeField = z.infer<typeof businessTypeFieldSchema>;

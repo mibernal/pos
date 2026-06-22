@@ -31,6 +31,7 @@ export const TransferTableModal: React.FC<TransferTableModalProps> = ({
   
   // State for partial transfer: map of itemId -> qty to transfer
   const [partialQty, setPartialQty] = useState<Record<string, number>>({});
+  const [error, setError] = useState<string | null>(null);
 
   // Initialize partial qty when modal opens
   React.useEffect(() => {
@@ -42,6 +43,7 @@ export const TransferTableModal: React.FC<TransferTableModalProps> = ({
         initialQty[item.id] = 0;
       });
       setPartialQty(initialQty);
+      setError(null);
     }
   }, [isOpen, items]);
 
@@ -56,8 +58,9 @@ export const TransferTableModal: React.FC<TransferTableModalProps> = ({
   };
 
   const handleConfirm = async () => {
+    setError(null);
     if (!currentBranchId || !destinationTableId) {
-      window.alert('Seleccione una mesa destino');
+      setError('Seleccione una mesa destino');
       return;
     }
 
@@ -74,7 +77,7 @@ export const TransferTableModal: React.FC<TransferTableModalProps> = ({
           }));
         
         if (itemsToMove.length === 0) {
-          window.alert('No ha seleccionado productos para transferir');
+          setError('No ha seleccionado productos para transferir');
           return;
         }
         payloadItems = itemsToMove;
@@ -91,8 +94,8 @@ export const TransferTableModal: React.FC<TransferTableModalProps> = ({
 
       onTransferComplete?.();
       onClose();
-    } catch (error) {
-      window.alert('Error al transferir la mesa');
+    } catch (err) {
+      setError('Error al transferir la mesa');
     }
   };
 
@@ -203,6 +206,7 @@ export const TransferTableModal: React.FC<TransferTableModalProps> = ({
         )}
 
         {/* Footer Actions */}
+        {error && <div className="text-red-600 bg-red-50 p-3 rounded-lg border border-red-200">{error}</div>}
         <div className="flex justify-end gap-3 pt-4 border-t">
           <Button variant="outline" onClick={onClose} disabled={isPending}>
             Cancelar

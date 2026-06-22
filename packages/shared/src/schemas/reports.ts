@@ -53,3 +53,25 @@ export type SalesReportQuery = z.infer<typeof salesReportQuerySchema>;
 export type SalesReportResponse = z.infer<typeof salesReportResponseSchema>;
 export type ShiftsReportQuery = z.infer<typeof shiftsReportQuerySchema>;
 export type ShiftsReportResponse = z.infer<typeof shiftsReportResponseSchema>;
+
+export const waiterReportQuerySchema = z.object({
+  branch_id: z.string().uuid('branch_id debe ser un UUID válido'),
+  from: z.string().datetime().optional(),
+  to: z.string().datetime().optional()
+});
+
+export const waiterReportItemSchema = z.object({
+  waiter_id: z.string().uuid().nullable(),
+  waiter_name: z.string(),
+  total_revenue_cents: z.number(),
+  total_sales_count: z.number(),
+  total_tips_cents: z.number(),
+  average_ticket_cents: z.number()
+});
+
+export const waitersReportResponseSchema = z.object({
+  items: z.array(waiterReportItemSchema)
+});
+
+export type WaiterReportQuery = z.infer<typeof waiterReportQuerySchema>;
+export type WaitersReportResponse = z.infer<typeof waitersReportResponseSchema>;

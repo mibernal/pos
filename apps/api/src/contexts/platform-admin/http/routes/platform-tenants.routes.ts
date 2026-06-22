@@ -9,6 +9,8 @@ import { ImpersonateTenantUseCase } from '../../application/tenants/impersonate-
 import { CreateTenantUseCase } from '../../application/tenants/create-tenant.use-case.js';
 import { UpdateTenantUseCase } from '../../application/tenants/update-tenant.use-case.js';
 import { ChangeTenantPlanUseCase } from '../../application/tenants/change-tenant-plan.use-case.js';
+import { UpdateTenantModulesUseCase } from '../../application/tenants/update-tenant-modules.use-case.js';
+import { UpdateTenantModulesSchema } from '@pos-dian/shared';
 import { TaxMode } from '../../domain/platform-admin.types.js';
 import { invalidateDashboardCache } from '../../../../shared/infra/cache/invalidate-dashboard-cache.js';
 
@@ -24,7 +26,20 @@ const createTenantBodySchema = z.object({
   plan: z.string().default('STARTER'),
   business_type: z.enum(['RESTAURANT','CAFETERIA','BAKERY','FAST_FOOD','BAR','NIGHTCLUB','BUTCHER','MINIMARKET','SUPERMARKET','CORNER_STORE','HARDWARE_STORE','PHARMACY','STATIONERY','BOUTIQUE','OTHER']).default('OTHER'),
   custom_business_type: z.string().trim().min(2).max(80).nullable().optional(),
-  enable_tables: z.boolean().optional().default(false)
+  enable_tables: z.boolean().optional(),
+  enable_delivery: z.boolean().optional(),
+  enable_waiters: z.boolean().optional(),
+  enable_split_bill: z.boolean().optional(),
+  enable_tips: z.boolean().optional(),
+  enable_kitchen: z.boolean().optional(),
+  enable_kitchen_display: z.boolean().optional(),
+  enable_kitchen_tickets: z.boolean().optional(),
+  enable_kitchen_printing: z.boolean().optional(),
+  enable_order_rounds: z.boolean().optional(),
+  enable_product_modifiers: z.boolean().optional(),
+  enable_reservations: z.boolean().optional(),
+  enable_waiter_shifts: z.boolean().optional(),
+  enable_qr_menu: z.boolean().optional()
 });
 
 const updateTenantBodySchema = z.object({
@@ -36,7 +51,20 @@ const updateTenantBodySchema = z.object({
   owner_email: z.string().email().optional(),
   business_type: z.enum(['RESTAURANT','CAFETERIA','BAKERY','FAST_FOOD','BAR','NIGHTCLUB','BUTCHER','MINIMARKET','SUPERMARKET','CORNER_STORE','HARDWARE_STORE','PHARMACY','STATIONERY','BOUTIQUE','OTHER']).optional(),
   custom_business_type: z.string().trim().min(2).max(80).nullable().optional(),
-  enable_tables: z.boolean().optional()
+  enable_tables: z.boolean().optional(),
+  enable_delivery: z.boolean().optional(),
+  enable_waiters: z.boolean().optional(),
+  enable_split_bill: z.boolean().optional(),
+  enable_tips: z.boolean().optional(),
+  enable_kitchen: z.boolean().optional(),
+  enable_kitchen_display: z.boolean().optional(),
+  enable_kitchen_tickets: z.boolean().optional(),
+  enable_kitchen_printing: z.boolean().optional(),
+  enable_order_rounds: z.boolean().optional(),
+  enable_product_modifiers: z.boolean().optional(),
+  enable_reservations: z.boolean().optional(),
+  enable_waiter_shifts: z.boolean().optional(),
+  enable_qr_menu: z.boolean().optional()
 });
 
 const changePlanBodySchema = z.object({
@@ -146,6 +174,20 @@ export const platformTenantsRoutes: FastifyPluginAsync = async (app) => {
   }, async (request) => {
     const useCase = new ChangeTenantPlanUseCase(app.db);
     await useCase.execute(request.params.id, request.body.new_plan, request.auth!.userId, request.auth!.email);
+    await invalidateDashboardCache(app.redis);
+    return { success: true };
+  });
+
+  typedApp.patch('/platform/tenants/:id/modules', {
+    schema: {
+      tags: ['Platform Admin'],
+      summary: 'Update feature modules for a tenant',
+      params: z.object({ id: z.string() }),
+      body: UpdateTenantModulesSchema
+    }
+  }, async (request) => {
+    const useCase = new UpdateTenantModulesUseCase(app.db);
+    await useCase.execute(request.params.id, request.body, request.auth!.userId);
     await invalidateDashboardCache(app.redis);
     return { success: true };
   });

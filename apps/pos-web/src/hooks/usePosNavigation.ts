@@ -14,10 +14,11 @@ export function usePosNavigation(user: { role?: string; permissions?: string[] }
       return r.id === 'platform';
     }
 
-    // TENANT ADMIN / OWNER ve todo EXCEPTO la vista global de plataforma
-    // Su gestión de suscripción la hacen en 'billing'
+    // TENANT ADMIN / OWNER ve todo EXCEPTO la vista global de plataforma, pero respetando los módulos habilitados
     if (isTenantAdmin) {
-      return r.id !== 'platform';
+      if (r.id === 'platform') return false;
+      if ((r as EnhancedRouteDefinition).requiredModule && !hasModule((r as EnhancedRouteDefinition).requiredModule!)) return false;
+      return true;
     }
     
     if (!r.requiredPermissions) {

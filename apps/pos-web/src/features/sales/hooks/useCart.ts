@@ -153,6 +153,17 @@ export function useCart() {
     });
   }, [setCartItems]);
 
+  const updateCartNotes = useCallback((index: number, notes: string) => {
+    setCartItems((current) => {
+      const next = [...current];
+      const item = next[index];
+      if (item) {
+        next[index] = { ...item, notes };
+      }
+      return next;
+    });
+  }, [setCartItems]);
+
   const parkCart = useCallback(() => {
     if (cartItems.length === 0) return;
     setParkedCarts((current) => [...current, cartItems]);
@@ -183,6 +194,7 @@ export function useCart() {
     addProduct,
     removeSelectedItem,
     updateCartQty,
+    updateCartNotes,
     resetCartState,
     parkCart,
     restoreCart,

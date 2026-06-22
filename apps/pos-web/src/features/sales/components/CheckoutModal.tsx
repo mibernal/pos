@@ -27,7 +27,8 @@ export function CheckoutModal({
   onClose,
   onConfirm,
   totalCents,
-  initialSplitParts
+  initialSplitParts,
+  initialSplitAmounts
 }: {
   cartItems: CartItem[];
   customers: Customer[];
@@ -39,6 +40,7 @@ export function CheckoutModal({
   onConfirm: (payments: CreateSaleRequest['payments'], customerId: string | null, tipCents: number) => Promise<void> | void;
   totalCents: number;
   initialSplitParts?: number;
+  initialSplitAmounts?: number[];
 }) {
   const [selectedCustomerId, setSelectedCustomerId] = useState<string>('');
   const [customerSearchText, setCustomerSearchText] = useState<string>('');

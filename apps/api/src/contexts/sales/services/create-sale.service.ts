@@ -250,7 +250,8 @@ export async function createSaleService(input: CreateSaleServiceInput) {
           variant_id: item.variant_id ?? null,
           qty: item.qty.toString(),
           price_cents: effectivePriceCents,
-          line_total_cents: lineTotalCents
+          line_total_cents: lineTotalCents,
+          notes: item.notes ?? null
         };
       });
 
@@ -387,6 +388,7 @@ export async function createSaleService(input: CreateSaleServiceInput) {
           branch_id: payload.branch_id,
           cash_session_id: payload.cash_session_id,
           table_order_id: payload.table_order_id ?? null,
+          waiter_id: payload.waiterId ?? null,
           sale_number: nextSaleNumber,
           status: 'COMPLETED',
           subtotal_cents: finalSubtotalCents,
@@ -417,15 +419,19 @@ export async function createSaleService(input: CreateSaleServiceInput) {
       span.setAttribute(SemanticAttributes.SALE_TOTAL_CENTS, finalTotalCents);
       span.setAttribute(SemanticAttributes.SALE_PAYMENT_MODE, normalizedPayments.mode);
 
+      const sessionLedger = await trx.selectFrom('cash_ledger')
+        .select(trx.fn.sum('amount_cents').as('current_balance'))
+        .where('cash_session_id', '=', payload.cash_session_id)
+        .executeTakeFirst();
+      const currentCashBalance = Number(sessionLedger?.current_balance || 0);
+
       await LedgerService.appendCashLedger(trx, {
         tenantId,
         cashSessionId: payload.cash_session_id,
         terminalId: cashSession.terminal_id,
         type: 'CASH_SALE',
         amountCents: finalTotalCents,
-        // En una implementación real, balance_after_cents vendría de calcular sumatorias.
-        // Simularemos 0 por ahora para el PoC, pero en prop se debe traer el balance de la session.
-        balanceAfterCents: 0 
+        balanceAfterCents: currentCashBalance + finalTotalCents 
       });
 
       await trx.insertInto('sale_items').values(saleItemsToInsert).execute();
@@ -443,6 +449,7 @@ export async function createSaleService(input: CreateSaleServiceInput) {
         });
       }
 
+      let balanceByKey = new Map<string, number>();
       const keysWithStock = [...qtyByKey.keys()];
       if (keysWithStock.length > 0) {
         const uniqueProductIds = [...new Set([...qtyByKey.values()].map(x => x.productId))];
@@ -457,7 +464,7 @@ export async function createSaleService(input: CreateSaleServiceInput) {
           .forUpdate()
           .execute();
 
-        const balanceByKey = new Map(
+        balanceByKey = new Map(
           currentBalances.map((b) => [`${b.product_id}|${b.variant_id ?? ''}`, Number(b.on_hand_qty)])
         );
 
@@ -525,11 +532,9 @@ export async function createSaleService(input: CreateSaleServiceInput) {
         const txId = randomUUID();
         const key = `${item.product_id}|${item.variant_id ?? ''}`; // eslint-disable-line @typescript-eslint/no-unused-vars
         
-        // Obtenemos el saldo actual. Si no existe en la base de datos, es 0.
-        // A este saldo le restamos lo que se vendió en ESTA línea.
-        // Para calcular el balance_after exacto necesitamos saber si hay múltiples líneas del mismo producto.
-        // Para simplificar, usaremos un saldo inicial temporal que vamos reduciendo en memoria
-        // pero lo ideal sería leer el valor actualizado de balanceByKey.
+        const currentQty = balanceByKey.get(key) ?? 0;
+        const newBalance = currentQty - Number(item.qty);
+        balanceByKey.set(key, newBalance);
 
         await trx
           .insertInto('inventory_transactions')
@@ -542,7 +547,7 @@ export async function createSaleService(input: CreateSaleServiceInput) {
             operation: 'SALE',
             reference_id: saleId,
             qty_change: (-Number(item.qty)).toString(),
-            balance_after: null, // Podríamos calcularlo pero requeriría actualizar balanceByKey en memoria por cada línea iterada
+            balance_after: newBalance.toString(),
             notes: `Venta #${nextSaleNumber}`,
             created_by_user_id: userId
           })
@@ -594,6 +599,15 @@ export async function createSaleService(input: CreateSaleServiceInput) {
           provider_response_json: null
         })
         .execute();
+
+      if (payload.table_order_id) {
+        await trx.updateTable('kitchen_tickets')
+          .set({ status: 'DELIVERED', updated_at: new Date() })
+          .where('table_order_id', '=', payload.table_order_id)
+          .where('tenant_id', '=', tenantId)
+          .where('status', '!=', 'DELIVERED')
+          .execute();
+      }
 
       const saleCreatedEvent = new SaleCreatedEvent({
         sale_id: saleId,

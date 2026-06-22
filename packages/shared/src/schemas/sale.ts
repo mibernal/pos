@@ -29,7 +29,8 @@ export const saleItemInputSchema = z.object({
   variant_id: z.string().uuid().optional().nullable(),
   qty: saleQtySchema,
   price_cents: centsSchema.optional(),
-  tax_category: productTaxCategorySchema.optional()
+  tax_category: productTaxCategorySchema.optional(),
+  notes: z.string().nullable().optional()
 }).strict();
 
 export const createSaleSchema = z.object({
@@ -38,6 +39,7 @@ export const createSaleSchema = z.object({
   branch_id: z.string().uuid(),
   cash_session_id: z.string().uuid(),
   table_order_id: z.string().uuid().optional().nullable(),
+  waiterId: z.string().uuid().optional().nullable(),
   items: z.array(saleItemInputSchema).min(1).max(200),
   discount_cents: centsSchema.default(0),
   tip_cents: centsSchema.default(0),
@@ -85,6 +87,7 @@ export const saleSchema = z.object({
   branch_id: z.string().uuid(),
   cash_session_id: z.string().uuid(),
   table_order_id: z.string().uuid().nullable().optional(),
+  waiterId: z.string().uuid().nullable().optional(),
   sale_number: z.number().int().nonnegative(),
   status: saleStatusSchema,
   subtotal_cents: z.number().int().nonnegative(),

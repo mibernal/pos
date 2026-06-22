@@ -7,10 +7,12 @@ interface SplitBillByProductsModalProps {
   isOpen: boolean;
   onClose: () => void;
   cartItems: CartItem[];
-  onConfirm: (selectedItems: CartItem[], discountCents: number, subtotalCents: number, totalCents: number) => void;
+  globalSubtotalCents: number;
+  globalDiscountCents: number;
+  onConfirm: (selectedItems: CartItem[]) => void;
 }
 
-export function SplitBillByProductsModal({ isOpen, onClose, cartItems, onConfirm }: SplitBillByProductsModalProps) {
+export function SplitBillByProductsModal({ isOpen, onClose, cartItems, globalSubtotalCents, globalDiscountCents, onConfirm }: SplitBillByProductsModalProps) {
   const [selectedQuantities, setSelectedQuantities] = useState<Record<string, number>>({});
 
   const handleQtyChange = (itemId: string, qty: number, maxQty: number) => {
@@ -34,11 +36,16 @@ export function SplitBillByProductsModal({ isOpen, onClose, cartItems, onConfirm
   }, [cartItems, selectedQuantities]);
 
   const subtotalCents = useMemo(() => selectedItems.reduce((acc, item) => acc + (item.priceCents * item.qty), 0), [selectedItems]);
-  const totalCents = subtotalCents; // Simplificado: no descontamos proporcionalmente aún
+  const proratedDiscountCents = useMemo(() => {
+    return globalSubtotalCents > 0 
+      ? Math.round((subtotalCents / globalSubtotalCents) * globalDiscountCents) 
+      : 0;
+  }, [subtotalCents, globalSubtotalCents, globalDiscountCents]);
+  const totalCents = subtotalCents - proratedDiscountCents;
 
   const handleConfirm = () => {
     if (selectedItems.length === 0) return;
-    onConfirm(selectedItems, 0, subtotalCents, totalCents);
+    onConfirm(selectedItems);
   };
 
   if (!isOpen) return null;
@@ -93,6 +100,11 @@ export function SplitBillByProductsModal({ isOpen, onClose, cartItems, onConfirm
         </div>
 
         <div className="checkout-actions" style={{ marginTop: '1.5rem', borderTop: '1px solid var(--color-slate-200)', paddingTop: '1rem' }}>
+          {proratedDiscountCents > 0 && (
+            <div className="pos-totals-row" style={{ flex: 1, margin: 0, padding: '0 0 0.5rem 0', color: 'var(--color-slate-500)' }}>
+              <span>Subtotal: {formatMoneyFromCents(subtotalCents)} | Descuento Proporcional: -{formatMoneyFromCents(proratedDiscountCents)}</span>
+            </div>
+          )}
           <div className="pos-totals-row is-total" style={{ flex: 1, margin: 0, padding: 0 }}>
             <span>Total a Cobrar:</span>
             <span>{formatMoneyFromCents(totalCents)}</span>

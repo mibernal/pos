@@ -30,6 +30,19 @@ export interface CreateTenantCommand {
   business_type?: string;
   custom_business_type?: string | null;
   enable_tables?: boolean;
+  enable_delivery?: boolean;
+  enable_waiters?: boolean;
+  enable_split_bill?: boolean;
+  enable_tips?: boolean;
+  enable_kitchen?: boolean;
+  enable_kitchen_display?: boolean;
+  enable_kitchen_tickets?: boolean;
+  enable_kitchen_printing?: boolean;
+  enable_order_rounds?: boolean;
+  enable_product_modifiers?: boolean;
+  enable_reservations?: boolean;
+  enable_waiter_shifts?: boolean;
+  enable_qr_menu?: boolean;
 }
 
 export interface UpdateTenantCommand {
@@ -42,6 +55,19 @@ export interface UpdateTenantCommand {
   business_type?: string;
   custom_business_type?: string | null;
   enable_tables?: boolean;
+  enable_delivery?: boolean;
+  enable_waiters?: boolean;
+  enable_split_bill?: boolean;
+  enable_tips?: boolean;
+  enable_kitchen?: boolean;
+  enable_kitchen_display?: boolean;
+  enable_kitchen_tickets?: boolean;
+  enable_kitchen_printing?: boolean;
+  enable_order_rounds?: boolean;
+  enable_product_modifiers?: boolean;
+  enable_reservations?: boolean;
+  enable_waiter_shifts?: boolean;
+  enable_qr_menu?: boolean;
 }
 
 export interface CreatePlanCommand {

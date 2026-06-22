@@ -1,18 +1,24 @@
 import { useEffect, useState } from 'react';
 import { io, Socket } from 'socket.io-client';
 import { useQueryClient } from '@tanstack/react-query';
+import { useSession } from '../../auth/context/SessionProvider';
+import { useModules } from '../../modules';
 
 export const useTablesWebSocket = (branchId?: string) => {
   const [isConnected, setIsConnected] = useState(false);
   const queryClient = useQueryClient();
+  const { token } = useSession();
+  const { hasModule } = useModules();
 
   useEffect(() => {
-    if (!branchId) return;
+    if (!branchId || !token) return;
+    if (!hasModule('tables')) return;
 
     // Conectar a la raíz pero pasando el branchId en el query para unirnos a la sala
     const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:3000';
     const socket: Socket = io(apiUrl, {
       query: { branchId },
+      auth: { token },
       transports: ['websocket', 'polling'], // Prefer WS but fallback to polling
       withCredentials: true
     });
@@ -36,7 +42,7 @@ export const useTablesWebSocket = (branchId?: string) => {
     return () => {
       socket.disconnect();
     };
-  }, [branchId, queryClient]);
+  }, [branchId, queryClient, token]);
 
   return { isConnected };
 };

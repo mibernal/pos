@@ -145,7 +145,7 @@ export function DashboardScreen({
                 <h3 className="text-lg font-bold text-foreground">Ventas por Hora</h3>
                 <p className="text-sm text-muted-foreground">Evolución de ingresos en la jornada actual</p>
               </div>
-              <div className="h-[350px] w-full">
+              <div className="h-[350px] w-full" style={{ minWidth: 0, minHeight: 350 }}>
                 <ResponsiveContainer width="100%" height="100%">
                   <AreaChart data={stats.chart_data} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
                     <defs>

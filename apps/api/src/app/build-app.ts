@@ -39,6 +39,8 @@ import { terminalsRoutes } from '../contexts/sales/http/terminals.routes.js';
 import { billingRoutes } from '../contexts/billing/http/billing.routes.js';
 import { webhooksRoutes } from '../contexts/billing/http/webhooks.routes.js';
 import { tablesRoutes } from '../contexts/tables/presentation/tables.routes.js';
+import { waitersRoutes } from '../contexts/tables/presentation/waiters.routes.js';
+import { kdsRoutes } from '../contexts/tables/presentation/kds.routes.js';
 import { deliveriesRoutes } from '../contexts/deliveries/http/deliveries.routes.js';
 import { auditContextStorage } from '../shared/infra/audit/audit-context.js';
 import { createDb } from '../shared/infra/db/connection.js';
@@ -279,6 +281,8 @@ export async function buildApp() {
   await app.register(billingRoutes, { prefix: '/api/v1' });
   await app.register(webhooksRoutes, { prefix: '/api/v1' });
   await app.register(tablesRoutes, { prefix: '/api/v1' });
+  await app.register(waitersRoutes, { prefix: '/api/v1' });
+  await app.register(kdsRoutes, { prefix: '/api/v1' });
   await app.register(deliveriesRoutes, { prefix: '/api/v1' });
 
   // Add prometheus metrics
@@ -303,9 +307,30 @@ export async function buildApp() {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (app as any).io.on('connection', (socket: any) => {
       const branchId = socket.handshake.query.branchId as string;
-      if (branchId) {
-        socket.join(`branch:${branchId}`);
-        app.log.info(`Socket ${socket.id} joined branch:${branchId}`);
+      const token = socket.handshake.auth?.token;
+      
+      if (!token) {
+        app.log.warn(`Socket ${socket.id} rejected: No token provided`);
+        socket.disconnect(true);
+        return;
+      }
+      
+      try {
+        const payload = app.jwt.verify(token) as { branchIds?: string[] };
+        
+        if (branchId) {
+          if (!payload.branchIds?.includes(branchId)) {
+            app.log.warn(`Socket ${socket.id} rejected: No access to branch ${branchId}`);
+            socket.disconnect(true);
+            return;
+          }
+          socket.join(`branch:${branchId}`);
+          app.log.info(`Socket ${socket.id} joined branch:${branchId}`);
+        }
+      } catch (err) {
+        app.log.warn(`Socket ${socket.id} rejected: Invalid token`);
+        socket.disconnect(true);
+        return;
       }
       
       socket.on('disconnect', () => {

@@ -24,7 +24,22 @@ export function CreateTenantModal({ api, onClose, onSuccess }: CreateTenantModal
     plan: 'STARTER',
     business_type: 'OTHER',
     custom_business_type: '',
-    enable_tables: false
+    modules: {
+      enable_tables: false,
+      enable_delivery: false,
+      enable_waiters: false,
+      enable_split_bill: false,
+      enable_tips: false,
+      enable_kitchen: false,
+      enable_kitchen_display: false,
+      enable_kitchen_tickets: false,
+      enable_kitchen_printing: false,
+      enable_order_rounds: false,
+      enable_product_modifiers: false,
+      enable_reservations: false,
+      enable_waiter_shifts: false,
+      enable_qr_menu: false
+    }
   });
   const [error, setError] = useState<string | null>(null);
 
@@ -46,7 +61,7 @@ export function CreateTenantModal({ api, onClose, onSuccess }: CreateTenantModal
         plan_id: formData.plan,
         business_type: formData.business_type,
         custom_business_type: formData.business_type === 'OTHER' ? formData.custom_business_type : undefined,
-        enable_tables: formData.business_type === 'OTHER' ? formData.enable_tables : false
+        ...(formData.business_type === 'OTHER' ? formData.modules : {})
       });
       onSuccess();
     } catch (err: unknown) {
@@ -141,8 +156,8 @@ export function CreateTenantModal({ api, onClose, onSuccess }: CreateTenantModal
                 onChange={(v) => setFormData(prev => ({ ...prev, business_type: v }))}
                 customValue={formData.custom_business_type}
                 onCustomValueChange={(v) => setFormData(prev => ({ ...prev, custom_business_type: v }))}
-                enableTables={formData.enable_tables}
-                onEnableTablesChange={(v) => setFormData(prev => ({ ...prev, enable_tables: v }))}
+                modules={formData.modules}
+                onModulesChange={(v) => setFormData(prev => ({ ...prev, modules: v }))}
                 layout="select"
               />
             </div>
