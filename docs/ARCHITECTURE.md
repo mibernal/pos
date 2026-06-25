@@ -297,7 +297,120 @@ flowchart LR
 |---|---|
 | Provider DIAN real (PAC) certificado | ⏳ Pendiente |
 | Consulta/webhook para documentos en estado `SENT` | ⏳ Pendiente |
-| Despliegue HTTPS, secretos, backups, multi-instancia | ⏳ Pendiente |
+| Despliegue HTTPS, secretos, multi-instancia | ⏳ Pendiente |
 | Políticas operativas: soporte, rotación de usuarios, recuperación | ⏳ Pendiente |
 | Observabilidad centralizada (stack Grafana) | ✅ Implementado localmente |
 | Integración hardware (impresoras, báscula) | ✅ Implementado (Web Serial API) |
+| **Backup automático PostgreSQL + GCS** | ✅ Implementado (GitHub Actions) |
+| **Medición SaaS (billing metrics)** | ✅ Implementado (snapshot scheduler) |
+| **Feature Flags Jerárquicos** | ✅ Implementado (macro + micro) |
+
+---
+
+## Sistema de Feature Flags (D-029)
+
+El SaaS gestiona las funcionalidades de cada tenant mediante un sistema jerárquico de dos capas almacenado en `tenants.modules_json`.
+
+### Flags Macro (habilitación de módulo completo)
+
+| Flag | Módulo |
+|---|---|
+| `enable_restaurant` | Flujo de restaurante (mesas, meseros) |
+| `enable_kds` | Kitchen Display System |
+| `enable_delivery` | Módulo de domicilios |
+| `enable_inventory` | Inventario avanzado |
+| `enable_reservations` | Reservas de mesas |
+| `enable_fiscal` | Facturación electrónica DIAN |
+| `enable_loyalty` | Programa de fidelización |
+| `enable_advanced_reports` | Reportes avanzados |
+
+### Flags Micro (granulares por módulo)
+
+Activables solo cuando su Macro padre está activo. Al desactivar el Macro, los Micro se desactivan en cascada preservando su estado para reactivación futura.
+
+```
+enable_restaurant
+  ├── enable_tables
+  ├── enable_split_bill
+  ├── enable_guests_count
+  ├── enable_tips
+  ├── enable_modifiers
+  ├── enable_courses
+  ├── enable_kds           (también Macro)
+  └── enable_kitchen_printing
+```
+
+---
+
+## Medición SaaS / Billing Metrics (D-031, D-034)
+
+### Arquitectura de Medición
+
+```
+Fastify onResponse hook
+  └── billingUsagePlugin
+        └── RAM counter (Map<tenant_id, count>)
+              └── [cada 50 requests] → INSERT outbox_events (api_metric_tick)
+
+Worker nocturno [rollupBillingUsage]
+  ├── COUNT(sales) WHERE status='COMPLETED' AND period
+  ├── COUNT(DISTINCT user_id) FROM user_branches
+  ├── COUNT(branches) WHERE tenant_id
+  ├── SUM(size_bytes) FROM product_images
+  ├── COUNT(outbox_events) WHERE type != 'api_metric_tick'
+  └── SUM(payload_json->>'count') FROM outbox_events WHERE type='api_metric_tick'
+        └── INSERT subscription_events (USAGE_SNAPSHOT, metadata JSON)
+```
+
+### Consulta del último snapshot
+
+```sql
+SELECT metadata
+FROM subscription_events
+WHERE subscription_id = $1
+  AND type = 'USAGE_SNAPSHOT'
+ORDER BY created_at DESC
+LIMIT 1;
+```
+
+---
+
+## Estrategia de Backup y Recuperación (D-032, D-033)
+
+### PostgreSQL
+
+| Parámetro | Valor |
+|---|---|
+| Herramienta | `pg_dump` formato custom |
+| Frecuencia | Diario a las 02:00 UTC |
+| Almacenamiento | Google Cloud Storage |
+| Retención | 30 días (purga automática) |
+| RPO (pérdida máxima) | ~24 horas |
+| RTO (tiempo de recuperación) | ~30–60 minutos |
+| Validación | Semanal (domingos, instancia efímera) |
+| Costo | ~$0.35 USD/mes |
+
+### Scripts de Operación
+
+```bash
+# Backup manual
+bash infra/scripts/pg-backup-gcs.sh
+
+# Restore desde GCS
+bash infra/scripts/pg-restore.sh gs://pos-dian-backups/postgres/pos_dian_YYYYMMDD.dump
+
+# Validación de integridad
+bash infra/scripts/pg-validate-restore.sh
+```
+
+### GitHub Actions
+
+- **`backup-database.yml`**: Cron diario (`0 2 * * *`) + validación dominical (`0 3 * * 0`).
+- Requiere 3 secrets: `DATABASE_URL_PRODUCTION`, `GCS_BACKUP_BUCKET`, `GCP_SA_KEY`.
+
+### Redis
+
+Configurado con persistencia dual:
+- **AOF** (`appendfsync everysec`): máxima pérdida de 1 segundo de datos.
+- **RDB** (`save 900 1 / 300 10 / 60 1000`): snapshots automáticos para backup.
+

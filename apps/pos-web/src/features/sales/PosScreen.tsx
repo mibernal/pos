@@ -6,7 +6,7 @@ import type { PendingSaleRecord } from '../../lib/offline-queue';
 import type { TenantTaxMode, ProductItem } from '../../lib/api';
 import type { TicketTemplateConfig } from '../../lib/ticket-template';
 import type { PosApiClient, AppRoute, CartItem } from '../../types';
-import { CheckoutModal, CartPanel, ProductGrid, CategoryGrid, VariantSelectorModal, SplitBillModal, SplitBillByProductsModal, WaiterSelector, GuestsInput } from './components';
+import { CheckoutModal, CartPanel, ProductGrid, CategoryGrid, VariantSelectorModal, ModifierSelectorModal, SplitBillModal, SplitBillByProductsModal, WaiterSelector, GuestsInput } from './components';
 import { inferTaxModeFromSale } from './utils';
 import { useState } from 'react';
 
@@ -18,7 +18,7 @@ import { useCart } from './hooks/useCart';
 import { useCheckout } from './hooks/useCheckout';
 import { usePosKeyboardShortcuts } from './hooks/usePosKeyboardShortcuts';
 import { useTablesStore } from '../tables/store/useTablesStore';
-import { useGetTableOrder, useSaveTableOrder, useClearTableOrder, useSendTableOrderToKitchen } from '../tables/api/tables.api';
+import { useGetTableOrder, useSaveTableOrder, useClearTableOrder, useSendTableOrderToKitchen, useFireKitchenCourse } from '../tables/api/tables.api';
 import { TransferTableModal } from '../tables/components/TransferTableModal';
 
 export function PosScreen({
@@ -56,6 +56,9 @@ export function PosScreen({
 }) {
   const searchInputRef = useRef<HTMLInputElement | null>(null);
   const [variantSelectionProduct, setVariantSelectionProduct] = useState<ProductItem | null>(null);
+  const [modifierSelectionProduct, setModifierSelectionProduct] = useState<ProductItem | null>(null);
+  const [modifierSelectionVariant, setModifierSelectionVariant] = useState<{ id: string, name: string, price_cents: number } | undefined>(undefined);
+  const [modifierSelectionQty, setModifierSelectionQty] = useState<number>(1);
 
   // 1. Catalog Hook
   const {
@@ -76,13 +79,14 @@ export function PosScreen({
     setSelectedCategory
   } = useProductCatalog({ api, branchId });
 
-  const { isRestaurantNative } = useBusinessModules();
+  const { hasModule } = useBusinessModules();
 
   // Access active table if any
-  const { activeTable, setActiveTable } = useTablesStore();
+  const activeTable = useTablesStore(state => state.activeTable);
+  const setActiveTable = useTablesStore(state => state.setActiveTable);
 
   const [viewMode, setViewMode] = useState<'categories' | 'products'>(
-    isRestaurantNative ? 'categories' : 'products'
+    hasModule('tables') ? 'categories' : 'products'
   );
 
   const [waiterId, setWaiterId] = useState<string | null>(null);
@@ -100,6 +104,7 @@ export function PosScreen({
   const { data: tableOrderData, isLoading: isLoadingTableOrder } = useGetTableOrder(branchId, activeTable?.id);
   const { mutateAsync: saveTableOrder, isPending: isSavingTableOrder } = useSaveTableOrder();
   const { mutateAsync: sendToKitchen, isPending: isSendingToKitchen } = useSendTableOrderToKitchen();
+  const { mutateAsync: fireKitchenCourse, isPending: isFiringCourse } = useFireKitchenCourse();
   const { mutateAsync: clearTableOrder } = useClearTableOrder();
 
   // 2. Cart Hook
@@ -119,12 +124,11 @@ export function PosScreen({
     resetCartState,
     parkCart,
     restoreCart,
-    setCartItems
+    setCartItems,
+    updateItemCourse
   } = useCart();
 
   const [tableSyncedId, setTableSyncedId] = useState<string | null>(null);
-
-  const { hasModule } = useBusinessModules();
 
   useEffect(() => {
     // Reset sync state if we leave the table
@@ -144,7 +148,8 @@ export function PosScreen({
           priceCents: i.priceCents,
           imageUrl: null,
           qty: i.qty,
-          notes: i.notes || undefined
+          notes: i.notes || undefined,
+          course: i.course
         }));
         // Map names from catalog if already available
         items.forEach(i => {
@@ -265,7 +270,7 @@ export function PosScreen({
               saveTableOrder({
                 branchId,
                 tableId: activeTable.id,
-                payload: { items: newCartItems.map(i => ({ productId: i.productId, variantId: i.variantId ?? null, qty: i.qty, priceCents: i.priceCents, lineTotalCents: i.qty * i.priceCents })) }
+                payload: { items: newCartItems.map(i => ({ productId: i.productId, variantId: i.variantId ?? null, qty: i.qty, priceCents: i.priceCents, lineTotalCents: i.qty * i.priceCents, course: i.course ?? 1, notes: i.notes })) }
               }).catch(e => console.error('Failed to update table order after split bill', e));
             }
           }
@@ -320,6 +325,10 @@ export function PosScreen({
     if (product.variants && product.variants.length > 0) {
       setVariantSelectionProduct(product);
       setVariantSelectionQty(qty);
+    } else if (product.modifierGroups && product.modifierGroups.length > 0) {
+      setModifierSelectionProduct(product);
+      setModifierSelectionQty(qty);
+      setModifierSelectionVariant(undefined);
     } else {
       addProduct(product, undefined, qty);
       setQuery('');
@@ -327,11 +336,17 @@ export function PosScreen({
     }
   }, [addProduct, setQuery]);
 
+
   const clearCart = useCallback(() => {
     resetCartState();
     setSaleError(null);
     setSaleMessage(null);
   }, [resetCartState, setSaleError, setSaleMessage]);
+
+  const handleRemoveCartItem = useCallback((index: number) => {
+    setSelectedCartIndex(index);
+    removeSelectedItem();
+  }, [setSelectedCartIndex, removeSelectedItem]);
 
   function handlePrintLastSale() { // eslint-disable-line react-hooks/exhaustive-deps
     if (!lastPrintedSaleSnapshot) return;
@@ -427,10 +442,12 @@ export function PosScreen({
                     onChange={setWaiterId}
                   />
                 </ModuleGuard>
-                <GuestsInput
-                  value={guestsCount}
-                  onChange={setGuestsCount}
-                />
+                <ModuleGuard module="guests_count">
+                  <GuestsInput
+                    value={guestsCount}
+                    onChange={setGuestsCount}
+                  />
+                </ModuleGuard>
               </div>
             )}
           </div>
@@ -468,7 +485,8 @@ export function PosScreen({
                           qty: item.qty,
                           priceCents: item.priceCents,
                           lineTotalCents: item.priceCents * item.qty,
-                          notes: item.notes
+                          notes: item.notes,
+                          course: item.course ?? 1
                         }))
                       }
                     });
@@ -481,29 +499,31 @@ export function PosScreen({
 
                       if (itemsSent.length > 0) {
                         setSaleMessage(`Imprimiendo comanda (${itemsSent.length} ítems)...`);
-                        try {
-                          const kitchenItems = itemsSent.map(i => {
-                            const cartItem = cartItems.find(ci => ci.productId === i.productId && ci.variantId === i.variantId);
-                            return {
-                              name: cartItem ? cartItem.name : (i.productName || 'Producto'),
-                              qty: i.qty,
-                              notes: i.notes
-                            };
-                          });
-
-                          const printInput: KitchenTicketInput = {
-                            tableName: activeTable.name,
-                            waiterName: order.waiterId,
-                            createdAt: order.updatedAt || order.createdAt,
-                            items: kitchenItems
+                        const kitchenItems = itemsSent.map(i => {
+                          const cartItem = cartItems.find(ci => ci.productId === i.productId && ci.variantId === i.variantId);
+                          return {
+                            name: cartItem ? cartItem.name : (i.productName || 'Producto'),
+                            qty: i.qty,
+                            notes: i.notes
                           };
+                        });
 
-                          setLastKitchenTicketInput(printInput);
+                        const printInput: KitchenTicketInput = {
+                          tableName: activeTable.name,
+                          waiterName: order.waiterId,
+                          createdAt: order.updatedAt || order.createdAt,
+                          items: kitchenItems
+                        };
 
-                          if ('serial' in navigator) {
-                            await printKitchenTicketESCPOS(printInput);
-                          } else {
-                            printKitchenTicket(printInput);
+                        setLastKitchenTicketInput(printInput);
+
+                        try {
+                          if (hasModule('kitchen_printing')) {
+                            if ('serial' in navigator && (window as any)._escpos_port) {
+                              await printKitchenTicketESCPOS(printInput);
+                            } else {
+                              printKitchenTicket(printInput);
+                            }
                           }
                         } catch (printErr) {
                           setSaleError('Error al imprimir comanda. Verifique la impresora.');
@@ -524,28 +544,47 @@ export function PosScreen({
                 {isSavingTableOrder || isSendingToKitchen ? 'Guardando...' : '💾 Guardar en Mesa'}
               </button>
 
-              {lastKitchenTicketInput && (
-                <>
-                  <button
-                    className="secondary-button"
-                    style={{ padding: '0.5rem', display: 'flex', alignItems: 'center', gap: '0.25rem' }}
-                    title="Reimprimir Comanda HTML"
-                    onClick={() => printKitchenTicket(lastKitchenTicketInput)}
-                  >
-                    🖨️ HTML
-                  </button>
-                  {'serial' in navigator && (
+              <ModuleGuard module="kitchen_printing">
+                {lastKitchenTicketInput && (
+                  <>
                     <button
                       className="secondary-button"
                       style={{ padding: '0.5rem', display: 'flex', alignItems: 'center', gap: '0.25rem' }}
-                      title="Reimprimir Comanda ESC/POS"
-                      onClick={() => void printKitchenTicketESCPOS(lastKitchenTicketInput)}
+                      title="Reimprimir Comanda HTML"
+                      onClick={() => printKitchenTicket(lastKitchenTicketInput)}
                     >
-                      🖨️ ESC/POS
+                      🖨️ HTML
                     </button>
-                  )}
-                </>
-              )}
+                    {'serial' in navigator && (
+                      <button
+                        className="secondary-button"
+                        style={{ padding: '0.5rem', display: 'flex', alignItems: 'center', gap: '0.25rem' }}
+                        title="Reimprimir Comanda ESC/POS"
+                        onClick={() => void printKitchenTicketESCPOS(lastKitchenTicketInput)}
+                      >
+                        🖨️ ESC/POS
+                      </button>
+                    )}
+                  </>
+                )}
+              </ModuleGuard>
+
+              <ModuleGuard module="order_rounds">
+                <button
+                  className="secondary-button"
+                  style={{ padding: '0.5rem 1rem', display: 'flex', alignItems: 'center', gap: '0.5rem', background: 'transparent', color: '#f59e0b', borderColor: '#f59e0b' }}
+                  disabled={isSavingTableOrder || isSendingToKitchen || isFiringCourse}
+                  onClick={async () => {
+                    try {
+                      await fireKitchenCourse({ branchId, tableId: activeTable.id });
+                    } catch (e) {
+                      setSaleError('Error al marchar tiempos');
+                    }
+                  }}
+                >
+                  🔥 Marchar
+                </button>
+              </ModuleGuard>
 
               <button
                 className="secondary-button"
@@ -690,7 +729,11 @@ export function PosScreen({
             hasSearchQuery={hasSearchQuery}
             highlightedProductId={highlightedProduct?.id ?? null}
             setHighlightedProductId={setHighlightedProductId}
-            addProduct={(p) => handleProductSelect(p)}
+            addProduct={(p) => {
+              handleProductSelect(p, 1);
+              setQuery('');
+              searchInputRef.current?.focus();
+            }}
           />
         )}
       </section>
@@ -703,10 +746,8 @@ export function PosScreen({
         setSelectedCartIndex={setSelectedCartIndex}
         updateCartQty={updateCartQty}
         updateCartNotes={updateCartNotes}
-        removeCartItem={(index) => {
-          setSelectedCartIndex(index);
-          removeSelectedItem();
-        }}
+        updateCartCourse={updateItemCourse}
+        removeCartItem={handleRemoveCartItem}
       />
 
       <div className="pos-footer">
@@ -875,13 +916,33 @@ export function PosScreen({
         product={variantSelectionProduct}
         onClose={() => setVariantSelectionProduct(null)}
         onSelect={(variant) => {
-          if (variantSelectionProduct) {
-            addProduct(variantSelectionProduct, variant, variantSelectionQty);
+          if (variantSelectionProduct?.modifierGroups && variantSelectionProduct.modifierGroups.length > 0) {
+            setModifierSelectionProduct(variantSelectionProduct);
+            setModifierSelectionQty(variantSelectionQty);
+            setModifierSelectionVariant(variant);
             setVariantSelectionProduct(null);
-            setVariantSelectionQty(1);
+          } else {
+            addProduct(variantSelectionProduct!, variant, variantSelectionQty);
+            setVariantSelectionProduct(null);
             setQuery('');
             searchInputRef.current?.focus();
           }
+        }}
+      />
+
+      <ModifierSelectorModal
+        isOpen={!!modifierSelectionProduct}
+        product={modifierSelectionProduct}
+        onClose={() => {
+          setModifierSelectionProduct(null);
+          setModifierSelectionVariant(undefined);
+        }}
+        onConfirm={(modifiers) => {
+          addProduct(modifierSelectionProduct!, modifierSelectionVariant, modifierSelectionQty, modifiers);
+          setModifierSelectionProduct(null);
+          setModifierSelectionVariant(undefined);
+          setQuery('');
+          searchInputRef.current?.focus();
         }}
       />
 

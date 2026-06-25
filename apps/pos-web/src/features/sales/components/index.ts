@@ -7,3 +7,4 @@ export * from './SplitBillModal';
 export * from './SplitBillByProductsModal';
 export * from './WaiterSelector';
 export * from './GuestsInput';
+export * from './ModifierSelectorModal';

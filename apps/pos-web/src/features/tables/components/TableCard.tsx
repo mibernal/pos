@@ -11,6 +11,7 @@ interface TableCardProps {
   waiterName?: string | null;
   onClick: (tableId: string) => void;
   onAssignWaiter?: (tableId: string) => void;
+  reservationTime?: string | null;
 }
 
 const statusColors: Record<TableStatus, string> = {
@@ -68,7 +69,7 @@ const statusLabels: Record<TableStatus, string> = {
   OUT_OF_ORDER: 'Fuera de Servicio'
 };
 
-export const TableCard: React.FC<TableCardProps> = ({ table, waiterName, onClick, onAssignWaiter }) => {
+export const TableCard: React.FC<TableCardProps> = ({ table, waiterName, onClick, onAssignWaiter, reservationTime }) => {
   const [elapsedTime, setElapsedTime] = useState<string>('');
   const isTimerActive = table.status === 'OCCUPIED' || table.status === 'BILLING' || table.status === 'RESERVED';
   const now = useGlobalTimer(isTimerActive);
@@ -116,9 +117,17 @@ export const TableCard: React.FC<TableCardProps> = ({ table, waiterName, onClick
         <h3 className="font-bold text-lg leading-tight truncate pr-2" title={table.name}>
           {table.name}
         </h3>
-        <div className="flex items-center space-x-1 text-sm font-medium opacity-80 shrink-0">
-          <Users size={14} />
-          <span>{table.capacity}</span>
+        <div className="flex items-center gap-2">
+          {reservationTime && (
+            <div className="flex items-center space-x-1 text-xs font-bold bg-amber-500 text-white px-2 py-0.5 rounded-full shadow-sm" title="Próxima Reserva">
+              <Clock size={10} />
+              <span>{reservationTime}</span>
+            </div>
+          )}
+          <div className="flex items-center space-x-1 text-sm font-medium opacity-80 shrink-0">
+            <Users size={14} />
+            <span>{table.capacity}</span>
+          </div>
         </div>
       </div>
 

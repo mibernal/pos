@@ -15,31 +15,31 @@ export class TenantModuleValidator {
 
     // Check if enable_tables is being deactivated
     if (currentState.enable_tables && !newState.enable_tables) {
-      const openOrders = await this.db
-        .selectFrom('table_orders')
+      const activeTables = await this.db
+        .selectFrom('tables')
         .select('id')
         .where('tenant_id', '=', tenantId)
-        .where('status', '=', 'OPEN')
+        .where('current_order_id', 'is not', null)
         .limit(1)
         .execute();
 
-      if (openOrders.length > 0) {
+      if (activeTables.length > 0) {
         errors.push('No se puede desactivar Mesas y Salones mientras haya órdenes de mesa activas.');
       }
     }
 
     // Check if enable_waiters is being deactivated
     if (currentState.enable_waiters && !newState.enable_waiters) {
-      const openOrdersWithWaiters = await this.db
-        .selectFrom('table_orders')
-        .select('id')
-        .where('tenant_id', '=', tenantId)
-        .where('status', '=', 'OPEN')
-        .where('waiter_id', 'is not', null)
+      const activeTablesWithWaiters = await this.db
+        .selectFrom('tables')
+        .innerJoin('table_orders', 'table_orders.id', 'tables.current_order_id')
+        .select('tables.id')
+        .where('tables.tenant_id', '=', tenantId)
+        .where('table_orders.waiter_id', 'is not', null)
         .limit(1)
         .execute();
 
-      if (openOrdersWithWaiters.length > 0) {
+      if (activeTablesWithWaiters.length > 0) {
         errors.push('No se puede desactivar Meseros mientras haya órdenes activas asignadas a un mesero.');
       }
     }

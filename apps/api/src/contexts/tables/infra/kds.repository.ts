@@ -1,12 +1,14 @@
 import { Kysely } from 'kysely';
 import { Database } from '../../../shared/infra/db/schema.js';
 import { KitchenTicketWithItems } from '@pos-dian/shared';
+import { executeAsTenant } from '../../../shared/infra/db/rls.js';
 
 export class KdsRepository {
   constructor(private db: Kysely<Database>) {}
 
   async getActiveTickets(tenantId: string, branchId: string): Promise<KitchenTicketWithItems[]> {
-    const tickets = await this.db
+    return await executeAsTenant(this.db, tenantId, async (trx) => {
+      const tickets = await trx
       .selectFrom('kitchen_tickets as kt')
       .innerJoin('table_orders as to', 'to.id', 'kt.table_order_id')
       .innerJoin('tables as t', 't.id', 'to.table_id')
@@ -30,11 +32,11 @@ export class KdsRepository {
 
     if (tickets.length === 0) return [];
 
-    const ticketIds = tickets.map(t => t.id);
+      const ticketIds = tickets.map(t => t.id);
 
-    // Fetch items for these tickets
-    const items = await this.db
-      .selectFrom('kitchen_ticket_items as kti')
+      // Fetch items for these tickets
+      const items = await trx
+        .selectFrom('kitchen_ticket_items as kti')
       .leftJoin('products as p', 'p.id', 'kti.product_id')
       .leftJoin('product_variants as v', 'v.id', 'kti.variant_id')
       .select([
@@ -88,19 +90,21 @@ export class KdsRepository {
             item_status: item.item_status,
             modifiers: null, // Modifiers not currently stored in KTI
             notes: item.notes,
-            productName: item.product_name ?? undefined,
             variantName: item.variant_name ?? undefined
           }))
-      };
+        };
+      });
     });
   }
 
   async updateTicketStatus(tenantId: string, ticketId: string, status: string): Promise<void> {
-    await this.db
-      .updateTable('kitchen_tickets')
-      .set({ status, updated_at: new Date() })
-      .where('tenant_id', '=', tenantId)
-      .where('id', '=', ticketId)
-      .execute();
+    await executeAsTenant(this.db, tenantId, async (trx) => {
+      await trx
+        .updateTable('kitchen_tickets')
+        .set({ status, updated_at: new Date() })
+        .where('tenant_id', '=', tenantId)
+        .where('id', '=', ticketId)
+        .execute();
+    });
   }
 }

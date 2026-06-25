@@ -30,7 +30,11 @@ export class GetTableOrderUseCase {
         variantId: item.variant_id,
         qty: item.qty,
         priceCents: item.price_cents,
-        lineTotalCents: item.line_total_cents
+        lineTotalCents: item.line_total_cents,
+        notes: item.notes,
+        course: item.course,
+        modifiers: item.modifiers,
+        sentToKitchenAt: item.sent_to_kitchen_at?.toISOString() ?? null
       }))
     };
   }

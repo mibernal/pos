@@ -10,6 +10,7 @@ export interface PosContext {
   terminalId: string;
   terminalName: string;
   cashSessionId: string;
+  modules?: Record<string, boolean>;
 }
 
 export function readAuthUser(): AuthUser | null {

@@ -14,9 +14,11 @@ export const useKitchenWebSocket = (branchId?: string) => {
     if (!branchId || !token) return;
     if (!hasModule('kitchen_display') && !hasModule('qr_menu')) return;
 
-    // Connect to the root but pass the branchId in the query to join the room
+    // Extraer el origen de la URL (ej. de "/api/v1" a "http://localhost:5173", o "https://api.pos.com/api/v1" a "https://api.pos.com")
     const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:3000';
-    const socket: Socket = io(apiUrl, {
+    const baseUrl = new URL(apiUrl, window.location.origin).origin;
+
+    const socket: Socket = io(baseUrl, {
       query: { branchId },
       auth: { token: token },
       transports: ['websocket', 'polling'], // Prefer WS but fallback to polling

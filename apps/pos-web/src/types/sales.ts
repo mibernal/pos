@@ -20,7 +20,14 @@ export interface CartItem {
     buy_qty: number | null;
     get_qty: number | null;
   } | null;
+  modifiers?: {
+    id: string; // Option ID
+    groupId: string;
+    name: string;
+    priceCents: number;
+  }[];
   notes?: string;
+  course?: number;
 }
 
 export interface LastPrintedSaleSnapshot {

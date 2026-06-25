@@ -18,8 +18,7 @@ describe('usePosNavigation', () => {
     // Arrange: Mock the business modules for a RESTAURANT
     vi.spyOn(useBusinessModulesModule, 'useBusinessModules').mockReturnValue({
       enabledModules: new Set<BusinessModule>(['tables', 'delivery']),
-      hasModule: (m: BusinessModule) => ['tables', 'delivery'].includes(m),
-      isRestaurantNative: true
+      hasModule: (m: BusinessModule) => ['tables', 'delivery'].includes(m)
     });
 
     const mockUser = {
@@ -40,8 +39,7 @@ describe('usePosNavigation', () => {
     // Arrange: Mock the business modules for a standard RETAIL
     vi.spyOn(useBusinessModulesModule, 'useBusinessModules').mockReturnValue({
       enabledModules: new Set<BusinessModule>([]),
-      hasModule: (m: BusinessModule) => false,
-      isRestaurantNative: false
+      hasModule: (m: BusinessModule) => false
     });
 
     const mockUser = {
@@ -61,8 +59,7 @@ describe('usePosNavigation', () => {
   it('should show Platform Admin view for PLATFORM_OWNER', () => {
     vi.spyOn(useBusinessModulesModule, 'useBusinessModules').mockReturnValue({
       enabledModules: new Set<BusinessModule>([]),
-      hasModule: () => false,
-      isRestaurantNative: false
+      hasModule: () => false
     });
 
     const mockUser = {

@@ -18,6 +18,13 @@ export interface BusinessModulesConfig {
   enable_reservations: boolean;
   enable_waiter_shifts: boolean;
   enable_qr_menu: boolean;
+  enable_guests_count: boolean;
+  enable_restaurant: boolean;
+  enable_kds: boolean;
+  enable_inventory: boolean;
+  enable_fiscal: boolean;
+  enable_loyalty: boolean;
+  enable_advanced_reports: boolean;
 }
 
 interface BusinessTypeSelectorProps {
@@ -95,7 +102,8 @@ export function BusinessTypeSelector({
                   enable_product_modifiers: 'Modificadores',
                   enable_reservations: 'Reservaciones',
                   enable_waiter_shifts: 'Turnos de Meseros',
-                  enable_qr_menu: 'Menú QR'
+                  enable_qr_menu: 'Menú QR',
+                  enable_guests_count: 'Control de Comensales'
                 }).map(([key, label]) => (
                   <div key={key} className="flex items-center gap-2">
                     <input 
@@ -174,7 +182,14 @@ export function BusinessTypeSelector({
                 enable_product_modifiers: 'Modificadores',
                 enable_reservations: 'Reservaciones',
                 enable_waiter_shifts: 'Turnos de Meseros',
-                enable_qr_menu: 'Menú QR'
+                enable_qr_menu: 'Menú QR',
+                enable_guests_count: 'Control de Comensales',
+                enable_restaurant: 'Módulo de Restaurante',
+                enable_kds: 'Módulo KDS (Kitchen Display System)',
+                enable_inventory: 'Módulo de Inventario',
+                enable_fiscal: 'Facturación Electrónica (DIAN)',
+                enable_loyalty: 'Fidelización de Clientes',
+                enable_advanced_reports: 'Reportes Avanzados'
               }).map(([key, label]) => (
                 <div key={key} className="flex items-center gap-2">
                   <input 

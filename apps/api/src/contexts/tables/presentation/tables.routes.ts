@@ -48,7 +48,7 @@ export const tablesRoutes: FastifyPluginAsyncZod = async (app) => {
         body: CreateRoomSchema,
         response: { 201: RoomSchema }
       },
-      preHandler: [app.authenticate]
+      preHandler: [app.requireModule(['tables'])]
     },
     async (request, reply) => {
       const tenantId = request.auth!.tenantId!;
@@ -69,7 +69,7 @@ export const tablesRoutes: FastifyPluginAsyncZod = async (app) => {
         params: z.object({ branchId: z.string().uuid() }),
         response: { 200: z.array(RoomWithTablesSchema) }
       },
-      preHandler: [app.authenticate]
+      preHandler: [app.requireModule(['tables'])]
     },
     async (request, reply) => {
       const tenantId = request.auth!.tenantId!;
@@ -93,7 +93,7 @@ export const tablesRoutes: FastifyPluginAsyncZod = async (app) => {
         body: CreateTableSchema,
         response: { 201: TableSchema }
       },
-      preHandler: [app.authenticate]
+      preHandler: [app.requireModule(['tables'])]
     },
     async (request, reply) => {
       const tenantId = request.auth!.tenantId!;
@@ -118,7 +118,7 @@ export const tablesRoutes: FastifyPluginAsyncZod = async (app) => {
         body: UpdateTableStatusSchema,
         response: { 200: TableSchema }
       },
-      preHandler: [app.authenticate]
+      preHandler: [app.requireModule(['tables'])]
     },
     async (request, reply) => {
       const tenantId = request.auth!.tenantId!;
@@ -143,7 +143,7 @@ export const tablesRoutes: FastifyPluginAsyncZod = async (app) => {
         body: UpdateTableWaiterSchema,
         response: { 200: TableSchema }
       },
-      preHandler: [app.authenticate]
+      preHandler: [app.requireModule(['tables'])]
     },
     async (request, reply) => {
       const tenantId = request.auth!.tenantId!;
@@ -169,7 +169,7 @@ export const tablesRoutes: FastifyPluginAsyncZod = async (app) => {
           200: TableOrderWithItemsSchema.nullable()
         }
       },
-      preHandler: [app.authenticate]
+      preHandler: [app.requireModule(['tables'])]
     },
     async (request, reply) => {
       const tenantId = request.auth!.tenantId!;
@@ -193,7 +193,7 @@ export const tablesRoutes: FastifyPluginAsyncZod = async (app) => {
         body: SaveTableOrderPayloadSchema,
         response: { 200: TableOrderWithItemsSchema }
       },
-      preHandler: [app.authenticate]
+      preHandler: [app.requireModule(['tables'])]
     },
     async (request, reply) => {
       const tenantId = request.auth!.tenantId!;
@@ -217,7 +217,7 @@ export const tablesRoutes: FastifyPluginAsyncZod = async (app) => {
         }),
         response: { 204: z.null() }
       },
-      preHandler: [app.authenticate]
+      preHandler: [app.requireModule(['tables'])]
     },
     async (request, reply) => {
       const tenantId = request.auth!.tenantId!;
@@ -248,7 +248,7 @@ export const tablesRoutes: FastifyPluginAsyncZod = async (app) => {
         body: TransferTablePayloadSchema,
         response: { 200: z.object({ success: z.boolean() }) }
       },
-      preHandler: [app.authenticate]
+      preHandler: [app.requireModule(['tables'])]
     },
     async (request, reply) => {
       const tenantId = request.auth!.tenantId!;
@@ -277,7 +277,7 @@ export const tablesRoutes: FastifyPluginAsyncZod = async (app) => {
           })
         }
       },
-      preHandler: [app.authenticate]
+      preHandler: [app.requireModule(['tables'])]
     },
     async (request, reply) => {
       const tenantId = request.auth!.tenantId!;
@@ -286,8 +286,7 @@ export const tablesRoutes: FastifyPluginAsyncZod = async (app) => {
       emitTablesUpdate(request, branchId);
 
       if (request.user?.enableKitchenDisplay) {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        (request.server as any).io?.to(`branch:${branchId}`).emit('KITCHEN_TICKETS_UPDATED');
+        request.server.pubsub.publishKdsEvent(tenantId, branchId, 'KITCHEN_TICKETS_UPDATED');
       }
 
       return reply.send({
@@ -314,9 +313,46 @@ export const tablesRoutes: FastifyPluginAsyncZod = async (app) => {
           priceCents: i.price_cents,
           lineTotalCents: i.line_total_cents,
           notes: i.notes,
+          course: i.course,
           sentToKitchenAt: i.sent_to_kitchen_at?.toISOString() ?? null
         }))
       });
+    }
+  );
+
+  app.post(
+    '/branches/:branchId/tables/:tableId/orders/kitchen-fire',
+    {
+      schema: {
+        summary: 'Fire a specific course for a table order',
+        tags: ['Tables'],
+        security: [{ bearerAuth: [] }],
+        params: z.object({ 
+          branchId: z.string().uuid(),
+          tableId: z.string().uuid()
+        }),
+        body: z.object({
+          course: z.number().int().min(1).optional()
+        }).optional(),
+        response: { 
+          200: z.object({ success: z.boolean() })
+        }
+      },
+      preHandler: [app.requireModule(['tables'])]
+    },
+    async (request, reply) => {
+      const tenantId = request.auth!.tenantId!;
+      const { branchId, tableId } = request.params;
+      const body = request.body as { course?: number } | undefined;
+      const course = body?.course;
+      
+      await tableOrdersRepo.fireTableOrderCourse(tenantId, branchId, tableId, course);
+
+      if (request.user?.enableKitchenDisplay) {
+        request.server.pubsub.publishKdsEvent(tenantId, branchId, 'KITCHEN_TICKETS_UPDATED');
+      }
+
+      return reply.send({ success: true });
     }
   );
 };

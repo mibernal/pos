@@ -16,7 +16,7 @@ export const waitersRoutes: FastifyPluginAsyncZod = async (app) => {
         params: z.object({ branchId: z.string().uuid() }),
         response: { 200: z.array(WaiterSchema) }
       },
-      onRequest: [app.authenticate]
+      preHandler: [app.requireModule(['waiters'])]
     },
     async (request, reply) => {
       const { branchId } = request.params;
@@ -35,7 +35,7 @@ export const waitersRoutes: FastifyPluginAsyncZod = async (app) => {
         body: CreateWaiterSchema,
         response: { 201: WaiterSchema }
       },
-      onRequest: [app.authenticate]
+      preHandler: [app.requireModule(['waiters'])]
     },
     async (request, reply) => {
       const { branchId } = request.params;
@@ -54,7 +54,7 @@ export const waitersRoutes: FastifyPluginAsyncZod = async (app) => {
         body: UpdateWaiterSchema,
         response: { 200: WaiterSchema }
       },
-      onRequest: [app.authenticate]
+      preHandler: [app.requireModule(['waiters'])]
     },
     async (request, reply) => {
       const { id } = request.params;

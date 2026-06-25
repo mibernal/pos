@@ -32,7 +32,7 @@ export const deliveriesRoutes: FastifyPluginAsyncZod = async (app) => {
         body: CreateDeliveryPersonSchema,
         response: { 201: z.object({ id: z.string() }) }
       },
-      preHandler: [app.authenticate]
+      preHandler: [app.requireModule(['delivery'])]
     },
     async (request, reply) => {
       const tenantId = request.auth!.tenantId!;
@@ -53,7 +53,7 @@ export const deliveriesRoutes: FastifyPluginAsyncZod = async (app) => {
         params: z.object({ branchId: z.string().uuid() }),
         response: { 200: z.array(DeliveryPersonSchema) }
       },
-      preHandler: [app.authenticate]
+      preHandler: [app.requireModule(['delivery'])]
     },
     async (request, reply) => {
       const tenantId = request.auth!.tenantId!;
@@ -77,7 +77,7 @@ export const deliveriesRoutes: FastifyPluginAsyncZod = async (app) => {
         body: UpdateDeliveryPersonSchema,
         response: { 204: z.null() }
       },
-      preHandler: [app.authenticate]
+      preHandler: [app.requireModule(['delivery'])]
     },
     async (request, reply) => {
       const tenantId = request.auth!.tenantId!;
@@ -102,7 +102,7 @@ export const deliveriesRoutes: FastifyPluginAsyncZod = async (app) => {
           500: z.null()
         }
       },
-      preHandler: [app.authenticate]
+      preHandler: [app.requireModule(['delivery'])]
     },
     async (request, reply) => {
       const tenantId = request.auth!.tenantId!;
@@ -130,7 +130,7 @@ export const deliveriesRoutes: FastifyPluginAsyncZod = async (app) => {
         params: z.object({ branchId: z.string().uuid() }),
         response: { 200: z.array(DeliveryWithDetailsSchema) }
       },
-      preHandler: [app.authenticate]
+      preHandler: [app.requireModule(['delivery'])]
     },
     async (request, reply) => {
       const tenantId = request.auth!.tenantId!;
@@ -157,7 +157,7 @@ export const deliveriesRoutes: FastifyPluginAsyncZod = async (app) => {
           404: z.null()
         }
       },
-      preHandler: [app.authenticate]
+      preHandler: [app.requireModule(['delivery'])]
     },
     async (request, reply) => {
       const tenantId = request.auth!.tenantId!;
@@ -188,7 +188,7 @@ export const deliveriesRoutes: FastifyPluginAsyncZod = async (app) => {
           404: z.null()
         }
       },
-      preHandler: [app.authenticate]
+      preHandler: [app.requireModule(['delivery'])]
     },
     async (request, reply) => {
       const tenantId = request.auth!.tenantId!;

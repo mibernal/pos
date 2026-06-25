@@ -28,6 +28,12 @@ function mapTenantProfile(tenant: {
   tax_mode: 'IVA' | 'INC_RESTAURANT' | 'REGIMEN_SIMPLIFICADO';
   business_type: string | null;
   custom_business_type: string | null;
+  enable_restaurant: boolean | null;
+  enable_kds: boolean | null;
+  enable_inventory: boolean | null;
+  enable_fiscal: boolean | null;
+  enable_loyalty: boolean | null;
+  enable_advanced_reports: boolean | null;
   enable_tables: boolean | null;
   created_at: Date;
 }) {
@@ -42,6 +48,12 @@ function mapTenantProfile(tenant: {
     taxMode: tenant.tax_mode,
     businessType: tenant.business_type as any,
     customBusinessType: tenant.custom_business_type,
+    enableRestaurant: tenant.enable_restaurant ?? false,
+    enableKds: tenant.enable_kds ?? false,
+    enableInventory: tenant.enable_inventory ?? false,
+    enableFiscal: tenant.enable_fiscal ?? false,
+    enableLoyalty: tenant.enable_loyalty ?? false,
+    enableAdvancedReports: tenant.enable_advanced_reports ?? false,
     enableTables: tenant.enable_tables ?? false,
     createdAt: tenant.created_at.toISOString()
   };
@@ -78,6 +90,12 @@ export const adminTenantsRoutes: FastifyPluginAsync = async (app) => {
             'tax_mode',
             'business_type',
             'custom_business_type',
+            'enable_restaurant',
+            'enable_kds',
+            'enable_inventory',
+            'enable_fiscal',
+            'enable_loyalty',
+            'enable_advanced_reports',
             'enable_tables',
             'created_at'
           ])
@@ -124,6 +142,12 @@ export const adminTenantsRoutes: FastifyPluginAsync = async (app) => {
             'tax_mode',
             'business_type',
             'custom_business_type',
+            'enable_restaurant',
+            'enable_kds',
+            'enable_inventory',
+            'enable_fiscal',
+            'enable_loyalty',
+            'enable_advanced_reports',
             'enable_tables',
             'created_at'
           ])
@@ -171,6 +195,12 @@ export const adminTenantsRoutes: FastifyPluginAsync = async (app) => {
             'tax_mode',
             'business_type',
             'custom_business_type',
+            'enable_restaurant',
+            'enable_kds',
+            'enable_inventory',
+            'enable_fiscal',
+            'enable_loyalty',
+            'enable_advanced_reports',
             'enable_tables',
             'created_at'
           ])
@@ -263,6 +293,12 @@ export const adminTenantsRoutes: FastifyPluginAsync = async (app) => {
             'tax_mode',
             'business_type',
             'custom_business_type',
+            'enable_restaurant',
+            'enable_kds',
+            'enable_inventory',
+            'enable_fiscal',
+            'enable_loyalty',
+            'enable_advanced_reports',
             'enable_tables',
             'created_at'
           ])

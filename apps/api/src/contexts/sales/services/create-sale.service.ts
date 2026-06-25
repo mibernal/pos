@@ -9,12 +9,12 @@ import {
   getNextSaleNumberForBranchInTransaction,
   isSaleNumberUniqueConstraintError
 } from '../domain/sale-numbering-service.js';
-import { writeAuditLog } from '../../../shared/domain/audit/write-audit-log.js';
+
 import { env } from '../../../app/env.js';
 import { mapSaleRow, serializeJsonArrayForDb, saleColumnList } from './sale-mapper.js';
 import { OutboxPublisher } from '../../../shared/infra/outbox/OutboxPublisher.js';
 import { SaleCreatedEvent } from '../domain/events/SaleCreatedEvent.js';
-import { StockLowEvent } from '../../inventory/domain/events/StockLowEvent.js';
+
 import { LedgerService } from '../../../shared/infra/db/ledger-service.js';
 import { executeAsTenant } from '../../../shared/infra/db/rls.js';
 import { TracerHelper } from '../../../shared/infra/tracing/Tracer.js';
@@ -79,582 +79,458 @@ export async function createSaleService(input: CreateSaleServiceInput) {
         // Configurar el contexto RLS para esta transacción
         await sql`SELECT set_config('app.current_tenant', ${tenantId}, true)`.execute(trx);
 
-      const cashSession = await trx
-        .selectFrom('cash_sessions')
-        .select(['id', 'closed_at', 'branch_id', 'opened_by_user_id', 'terminal_id'])
-        .where('tenant_id', '=', tenantId)
-        .where('id', '=', payload.cash_session_id)
-        .forUpdate()
-        .executeTakeFirst();
-
-      if (!cashSession || cashSession.branch_id !== payload.branch_id) {
-        throw new AppError(
-          400,
-          'CASH_SESSION_NOT_FOUND',
-          'La sesión de caja no existe para la sucursal indicada'
-        );
-      }
-
-      if (userRole === 'CASHIER' && cashSession.opened_by_user_id !== userId) {
-        throw new AppError(
-          403,
-          'CASH_SESSION_FORBIDDEN',
-          'No puedes registrar ventas en una caja abierta por otro cajero'
-        );
-      }
-
-      if (cashSession.closed_at) {
-        throw new AppError(409, 'CASH_SESSION_CLOSED', 'La sesión de caja ya fue cerrada');
-      }
-
-      const tenant = await trx
-        .selectFrom('tenants')
-        .select(['id', 'tax_mode', 'allow_negative_stock'])
-        .where('id', '=', tenantId)
-        .executeTakeFirst();
-
-      if (!tenant) {
-        throw new AppError(404, 'TENANT_NOT_FOUND', 'Tenant no encontrado');
-      }
-
-      const uniqueProductIds = [...new Set(payload.items.map((item) => item.product_id))];
-      const products = await trx
-        .selectFrom('products')
-        .select(['id', 'name', 'branch_id', 'price_cents', 'tax_category', 'active', 'min_stock_alert_qty'])
-        .where('tenant_id', '=', tenantId)
-        .where('id', 'in', uniqueProductIds)
-        .where(
-          sql<boolean>`(products.branch_id = ${payload.branch_id} OR products.branch_id IS NULL)`
-        )
-        .execute();
-
-      const productsById = new Map(products.map((product) => [product.id, product]));
-
-      // Pre-fetch variants if needed
-      const requestedVariantIds = payload.items.filter(i => i.variant_id).map(i => i.variant_id as string);
-      const variantsById = new Map<string, { id: string; product_id: string; price_cents: number; active: boolean }>();
-      
-      if (requestedVariantIds.length > 0) {
-        const variants = await trx
-          .selectFrom('product_variants')
-          .select(['id', 'product_id', 'price_cents', 'active'])
+        let cashSession = await trx
+          .selectFrom('cash_sessions')
+          .select(['id', 'closed_at', 'branch_id', 'opened_by_user_id', 'terminal_id'])
           .where('tenant_id', '=', tenantId)
-          .where('id', 'in', requestedVariantIds)
-          .execute();
-          
-        variants.forEach(v => variantsById.set(v.id, v));
-      }
+          .where('id', '=', payload.cash_session_id)
+          .forUpdate()
+          .executeTakeFirst();
 
-      // Pre-fetch active promotions for these products
-      const activePromotions = await trx
-        .selectFrom('promotions')
-        .selectAll()
-        .where('tenant_id', '=', tenantId)
-        .where('product_id', 'in', uniqueProductIds)
-        .where('active', '=', true)
-        .where('start_date', '<=', sql<Date>`CURRENT_TIMESTAMP`)
-        .where(
-          sql<boolean>`(end_date IS NULL OR end_date >= CURRENT_TIMESTAMP)`
-        )
-        .execute();
-        
-      const promotionsByProductId = new Map<string, typeof activePromotions[0]>();
-      for (const promo of activePromotions) {
-        // Simple logic: first active promotion per product applies
-        if (!promotionsByProductId.has(promo.product_id)) {
-          promotionsByProductId.set(promo.product_id, promo);
-        }
-      }
-
-      const saleId = randomUUID();
-      let subtotalCents = 0;
-      let calculatedDiscountCents = 0;
-      const taxItemsForCalculation: ComputeTaxesLineInput[] = [];
-      const saleItemsToInsert: SaleInsertItem[] = payload.items.map((item) => {
-        const product = productsById.get(item.product_id);
-        if (!product) {
+        if (!cashSession || cashSession.branch_id !== payload.branch_id) {
           throw new AppError(
             400,
-            'PRODUCT_NOT_FOUND',
-            `Producto no encontrado o fuera de alcance: ${item.product_id}`
+            'CASH_SESSION_NOT_FOUND',
+            'La sesión de caja no existe para la sucursal indicada'
           );
         }
 
-        if (!product.active) {
-          throw new AppError(400, 'PRODUCT_INACTIVE', `Producto inactivo: ${item.product_id}`);
-        }
+        if (cashSession.closed_at) {
+          // Si la sesión original está cerrada (común en sync offline retrasado), buscar la sesión activa actual
+          const activeSession = await trx
+            .selectFrom('cash_sessions')
+            .select(['id', 'closed_at', 'branch_id', 'opened_by_user_id', 'terminal_id'])
+            .where('tenant_id', '=', tenantId)
+            .where('branch_id', '=', payload.branch_id)
+            .where('opened_by_user_id', '=', userId)
+            .where('closed_at', 'is', null)
+            .forUpdate()
+            .executeTakeFirst();
 
-        let effectivePriceCents = item.price_cents ?? product.price_cents;
-        
-        // Drift validation for offline sales
-        if (item.price_cents !== undefined && item.price_cents !== product.price_cents) {
-           const drift = Math.abs(item.price_cents - product.price_cents) / product.price_cents;
-           if (drift > 0.10) {
-              throw new AppError(400, 'PRICE_DRIFT_EXCEEDED', `El precio del producto ${item.product_id} ha cambiado drásticamente. Por favor, actualiza el catálogo.`);
-           }
-        }
-        
-        if (item.variant_id) {
-          const variant = variantsById.get(item.variant_id);
-          if (!variant || variant.product_id !== product.id) {
-             throw new AppError(400, 'VARIANT_NOT_FOUND', `Variante inválida o no encontrada: ${item.variant_id}`);
-          }
-          if (!variant.active) {
-             throw new AppError(400, 'VARIANT_INACTIVE', `Variante inactiva: ${item.variant_id}`);
-          }
-          
-          effectivePriceCents = item.price_cents ?? variant.price_cents;
-          
-          // Drift validation for variant offline sales
-          if (item.price_cents !== undefined && item.price_cents !== variant.price_cents) {
-             const drift = Math.abs(item.price_cents - variant.price_cents) / variant.price_cents;
-             if (drift > 0.10) {
-                throw new AppError(400, 'PRICE_DRIFT_EXCEEDED', `El precio de la variante ${item.variant_id} ha cambiado drásticamente. Por favor, actualiza el catálogo.`);
-             }
-          }
-        }
-
-        const lineTotalCents = Math.round(item.qty * effectivePriceCents);
-        subtotalCents += lineTotalCents;
-        
-        // Compute line discount
-        let lineDiscountCents = 0;
-        const promo = promotionsByProductId.get(item.product_id);
-        if (promo) {
-           if (promo.type === 'PERCENTAGE') {
-             lineDiscountCents = Math.round((lineTotalCents * promo.value_cents) / 10000);
-           } else if (promo.type === 'FIXED_AMOUNT') {
-             lineDiscountCents = promo.value_cents * item.qty;
-           } else if (promo.type === 'BUY_X_GET_Y' && promo.buy_qty && promo.get_qty) {
-             const timesApplied = Math.floor(item.qty / promo.buy_qty);
-             const freeItems = timesApplied * promo.get_qty;
-             // Ensure we don't discount more items than bought
-             const validFreeItems = Math.min(freeItems, item.qty);
-             lineDiscountCents = validFreeItems * effectivePriceCents;
-           }
-        }
-        calculatedDiscountCents += lineDiscountCents;
-
-        taxItemsForCalculation.push({
-          qty: item.qty,
-          price_cents_final: effectivePriceCents,
-          tax_category: product.tax_category
-        });
-
-        return {
-          id: randomUUID(),
-          tenant_id: tenantId!,
-          branch_id: payload.branch_id,
-          sale_id: saleId,
-          product_id: item.product_id,
-          variant_id: item.variant_id ?? null,
-          qty: item.qty.toString(),
-          price_cents: effectivePriceCents,
-          line_total_cents: lineTotalCents,
-          notes: item.notes ?? null
-        };
-      });
-
-
-      let discountOverrideReason: string | undefined;
-
-      if (payload.discount_cents !== calculatedDiscountCents) {
-        logger.warn(
-          {
-            ...requestLogContext,
-            branchId: payload.branch_id,
-            event: 'sale_discount_override',
-            requested_discount: payload.discount_cents,
-            calculated_discount: calculatedDiscountCents
-          },
-          'El descuento solicitado no coincide con el calculado por las promociones. Se usará el valor del servidor.'
-        );
-        payload.discount_cents = calculatedDiscountCents;
-        discountOverrideReason = 'Ajuste de descuento por promociones activas (Sincronización servidor)';
-      }
-
-      if (payload.discount_cents > subtotalCents) {
-        throw new AppError(
-          400,
-          'SALE_DISCOUNT_INVALID',
-          'discount_cents no puede ser mayor que subtotal_cents'
-        );
-      }
-
-      const tipCents = payload.tip_cents ?? 0;
-      const totalCents = subtotalCents - payload.discount_cents + tipCents;
-      const computedTaxes = computeTaxes({
-        taxMode: tenant.tax_mode as any, // eslint-disable-line @typescript-eslint/no-explicit-any
-        items: taxItemsForCalculation,
-        discount_cents_total: payload.discount_cents
-      });
-
-      // El backend es la fuente de verdad. Si hay desviación, logueamos un warning pero NO bloqueamos 
-      // la venta siempre y cuando los pagos coincidan con el monto requerido por el servidor.
-      if (
-        computedTaxes.subtotal_cents !== subtotalCents ||
-        computedTaxes.total_cents !== payload.snapshot?.total_cents ||
-        computedTaxes.tax_total_cents !== payload.snapshot?.tax_total_cents
-      ) {
-        logger.warn(
-          {
-            ...requestLogContext,
-            branchId: payload.branch_id,
-            event: 'sale_drift_detected',
-            payload_snapshot: payload.snapshot,
-            server_calculated: {
-               subtotal: subtotalCents,
-               discount: payload.discount_cents,
-               tip: tipCents,
-               taxes: computedTaxes.tax_total_cents,
-               total: computedTaxes.total_cents + tipCents
-            }
-          },
-          'Drift detectado entre los cálculos del frontend y del backend. El backend prevalecerá.'
-        );
-      }
-
-      if (normalizedPayments.total_amount_cents < (computedTaxes.total_cents + tipCents)) {
-        throw new AppError(
-          400,
-          'PAYMENTS_INSUFFICIENT',
-          `Los pagos (${normalizedPayments.total_amount_cents}) no cubren el total de la venta calculado por el servidor (${computedTaxes.total_cents + tipCents})`
-        );
-      }
-
-      let finalSubtotalCents = subtotalCents;
-      let finalDiscountCents = payload.discount_cents;
-      let finalTaxTotalCents = computedTaxes.tax_total_cents;
-      let finalTotalCents = totalCents;
-
-      if (payload.snapshot) {
-        if (payload.snapshot.total_cents !== totalCents) {
-          const drift = Math.abs(payload.snapshot.total_cents - totalCents) / totalCents;
-          if (drift > 0.10) {
+          if (!activeSession) {
             throw new AppError(
-              400,
-              'PRICE_DRIFT_EXCEEDED',
-              `El total cobrado offline (${payload.snapshot.total_cents}) difiere más del 10% del total actual (${totalCents}). Actualiza el catálogo.`
+              409, 
+              'CASH_SESSION_CLOSED', 
+              'La sesión de caja original ya fue cerrada y no tienes una sesión abierta actualmente para sincronizar la venta.'
             );
           }
-        }
-        
-        // Override with snapshot totals to prevent cash mismatch
-        finalSubtotalCents = payload.snapshot.subtotal_cents;
-        finalDiscountCents = payload.snapshot.discount_cents;
-        finalTaxTotalCents = payload.snapshot.tax_total_cents;
-        finalTotalCents = payload.snapshot.total_cents;
-      }
-
-      if (normalizedPayments.total_amount_cents !== finalTotalCents) {
-        if (!discountOverrideReason) {
-          throw new AppError(
-            400,
-            'PAYMENTS_TOTAL_MISMATCH',
-            'La suma de payments debe ser igual al total de la venta'
-          );
-        } else {
+          
           logger.warn(
-            {
-              ...requestLogContext,
-              event: 'payment_total_mismatch_allowed',
-              payments_total: normalizedPayments.total_amount_cents,
-              sale_total: finalTotalCents
-            },
-            'Se permite discrepancia en pagos debido a un ajuste automático del descuento'
+            { ...requestLogContext, original_session: cashSession.id, new_session: activeSession.id },
+            'Reasignando venta offline a la sesión de caja actualmente abierta.'
+          );
+          cashSession = activeSession;
+          payload.cash_session_id = activeSession.id;
+        }
+
+        if (userRole === 'CASHIER' && cashSession.opened_by_user_id !== userId) {
+          throw new AppError(
+            403,
+            'CASH_SESSION_FORBIDDEN',
+            'No puedes registrar ventas en una caja abierta por otro cajero'
           );
         }
-      }
 
-      const nextSaleNumber = await getNextSaleNumberForBranchInTransaction(trx, {
-        tenantId,
-        branchId: payload.branch_id
-      });
+        const tenant = await trx
+          .selectFrom('tenants')
+          .select([
+            'id', 
+            'tax_mode', 
+            'allow_negative_stock', 
+            'enable_tips as module_tips',
+            'enable_delivery as module_delivery',
+            'enable_product_modifiers as module_modifiers'
+          ])
+          .where('id', '=', tenantId)
+          .executeTakeFirst();
 
-      const paymentJson = {
-        mode: normalizedPayments.mode,
-        payments: normalizedPayments.payments,
-        amounts: normalizedPayments.amounts,
-        total_cents: normalizedPayments.total_amount_cents
-      };
+        if (!tenant) {
+          throw new AppError(404, 'TENANT_NOT_FOUND', 'Tenant no encontrado');
+        }
 
-      const createdSaleRow = await trx
-        .insertInto('sales')
-        .values({
-          id: saleId,
-          tenant_id: tenantId!,
-          client_uuid: payload.client_uuid,
-          customer_id: payload.customer_id ?? null,
-          branch_id: payload.branch_id,
-          cash_session_id: payload.cash_session_id,
-          table_order_id: payload.table_order_id ?? null,
-          waiter_id: payload.waiterId ?? null,
-          sale_number: nextSaleNumber,
-          status: 'COMPLETED',
-          subtotal_cents: finalSubtotalCents,
-          discount_cents: finalDiscountCents,
-          tip_cents: tipCents,
-          total_cents: finalTotalCents,
-          tax_total_cents: finalTaxTotalCents,
-          tax_lines_json: serializeJsonArrayForDb(computedTaxes.tax_lines_json),
-          payment_json: paymentJson,
-          created_by_user_id: userId,
-          void_reason: null,
-          voided_by_user_id: null,
-          voided_at: null
-        })
-        .returning([...saleColumnList])
-        .executeTakeFirstOrThrow();
-
-      await LedgerService.appendSalesLedger(trx, {
-        tenantId,
-        saleId,
-        type: 'SALE_CREATION',
-        amountCents: finalTotalCents,
-        taxAmountCents: finalTaxTotalCents,
-        userId
-      });
-      
-      span.setAttribute(SemanticAttributes.SALE_ID, saleId);
-      span.setAttribute(SemanticAttributes.SALE_TOTAL_CENTS, finalTotalCents);
-      span.setAttribute(SemanticAttributes.SALE_PAYMENT_MODE, normalizedPayments.mode);
-
-      const sessionLedger = await trx.selectFrom('cash_ledger')
-        .select(trx.fn.sum('amount_cents').as('current_balance'))
-        .where('cash_session_id', '=', payload.cash_session_id)
-        .executeTakeFirst();
-      const currentCashBalance = Number(sessionLedger?.current_balance || 0);
-
-      await LedgerService.appendCashLedger(trx, {
-        tenantId,
-        cashSessionId: payload.cash_session_id,
-        terminalId: cashSession.terminal_id,
-        type: 'CASH_SALE',
-        amountCents: finalTotalCents,
-        balanceAfterCents: currentCashBalance + finalTotalCents 
-      });
-
-      await trx.insertInto('sale_items').values(saleItemsToInsert).execute();
-
-      // C3: Stock guard — verificar saldo disponible antes de descontar inventario.
-      // Se agrupan las cantidades por producto y variante
-      const qtyByKey = new Map<string, { productId: string, variantId: string | null, qty: number }>();
-      for (const item of saleItemsToInsert) {
-        const key = `${item.product_id}|${item.variant_id ?? ''}`;
-        const existing = qtyByKey.get(key);
-        qtyByKey.set(key, {
-          productId: item.product_id,
-          variantId: item.variant_id ?? null,
-          qty: (existing?.qty ?? 0) + Number(item.qty)
-        });
-      }
-
-      let balanceByKey = new Map<string, number>();
-      const keysWithStock = [...qtyByKey.keys()];
-      if (keysWithStock.length > 0) {
-        const uniqueProductIds = [...new Set([...qtyByKey.values()].map(x => x.productId))];
-        const currentBalances = await trx
-          .selectFrom('inventory_balances')
-          .select(['product_id', 'variant_id', 'on_hand_qty'])
+        const uniqueProductIds = [...new Set(payload.items.map((item) => item.product_id))];
+        const products = await trx
+          .selectFrom('products')
+          .select(['id', 'name', 'branch_id', 'price_cents', 'tax_category', 'active', 'min_stock_alert_qty'])
           .where('tenant_id', '=', tenantId)
-          .where('branch_id', '=', payload.branch_id)
-          .where('product_id', 'in', uniqueProductIds)
-          .orderBy('product_id')
-          .orderBy('variant_id')
-          .forUpdate()
+          .where('id', 'in', uniqueProductIds)
+          .where(
+            sql<boolean>`(products.branch_id = ${payload.branch_id} OR products.branch_id IS NULL)`
+          )
           .execute();
 
-        balanceByKey = new Map(
-          currentBalances.map((b) => [`${b.product_id}|${b.variant_id ?? ''}`, Number(b.on_hand_qty)])
-        );
+        const productsById = new Map(products.map((product) => [product.id, product]));
 
-        // Verificar si el tenant permite stock negativo
-        const stockViolations: string[] = [];
-        for (const [key, req] of qtyByKey.entries()) {
-          const currentQty = balanceByKey.get(key) ?? 0;
-          if (currentQty - req.qty < 0) {
-            const productName = productsById.get(req.productId)?.name ?? req.productId;
-            const variantText = req.variantId ? ` (Var: ${req.variantId})` : '';
-            stockViolations.push(`${productName}${variantText}: stock=${currentQty}, solicitado=${req.qty}`);
+        // Pre-fetch variants if needed
+        const requestedVariantIds = payload.items.filter(i => i.variant_id).map(i => i.variant_id as string);
+        const variantsById = new Map<string, { id: string; product_id: string; price_cents: number; active: boolean }>();
+
+        if (requestedVariantIds.length > 0) {
+          const variants = await trx
+            .selectFrom('product_variants')
+            .select(['id', 'product_id', 'price_cents', 'active'])
+            .where('tenant_id', '=', tenantId)
+            .where('id', 'in', requestedVariantIds)
+            .execute();
+
+          variants.forEach(v => variantsById.set(v.id, v));
+        }
+
+        // Pre-fetch modifiers if needed
+        const requestedModifierOptionIds = payload.items.flatMap(i => i.modifiers ?? []);
+        const modifierOptionsById = new Map<string, { id: string; extra_price_cents: number; is_active: boolean }>();
+
+        if (requestedModifierOptionIds.length > 0) {
+          const modifierOptions = await trx
+            .selectFrom('product_modifier_options')
+            .select(['id', 'extra_price_cents', 'is_active'])
+            .where('tenant_id', '=', tenantId)
+            .where('id', 'in', requestedModifierOptionIds)
+            .execute();
+          
+          modifierOptions.forEach(m => modifierOptionsById.set(m.id, m));
+        }
+
+        // Pre-fetch active promotions for these products
+        const activePromotions = await trx
+          .selectFrom('promotions')
+          .selectAll()
+          .where('tenant_id', '=', tenantId)
+          .where('product_id', 'in', uniqueProductIds)
+          .where('active', '=', true)
+          .where('start_date', '<=', sql<Date>`CURRENT_TIMESTAMP`)
+          .where(
+            sql<boolean>`(end_date IS NULL OR end_date >= CURRENT_TIMESTAMP)`
+          )
+          .execute();
+
+        const promotionsByProductId = new Map<string, typeof activePromotions[0]>();
+        for (const promo of activePromotions) {
+          // Simple logic: first active promotion per product applies
+          if (!promotionsByProductId.has(promo.product_id)) {
+            promotionsByProductId.set(promo.product_id, promo);
           }
         }
 
-        if (stockViolations.length > 0) {
-          if (!tenant.allow_negative_stock) {
-             throw new AppError(
-               409,
-               'NEGATIVE_STOCK_NOT_ALLOWED',
-               `Stock insuficiente para completar la venta: ${stockViolations.join(', ')}`
-             );
+        const saleId = randomUUID();
+        let subtotalCents = 0;
+        let calculatedDiscountCents = 0;
+        const taxItemsForCalculation: ComputeTaxesLineInput[] = [];
+        const saleItemsToInsert: SaleInsertItem[] = payload.items.map((item) => {
+          const product = productsById.get(item.product_id);
+          if (!product) {
+            throw new AppError(
+              400,
+              'PRODUCT_NOT_FOUND',
+              `Producto no encontrado o fuera de alcance: ${item.product_id}`
+            );
           }
-          
+
+          if (!product.active) {
+            throw new AppError(400, 'PRODUCT_INACTIVE', `Producto inactivo: ${item.product_id}`);
+          }
+
+          let basePrice = product.price_cents;
+
+          if (item.variant_id) {
+            const variant = variantsById.get(item.variant_id);
+            if (!variant || variant.product_id !== product.id) {
+              throw new AppError(400, 'VARIANT_NOT_FOUND', `Variante inválida o no encontrada: ${item.variant_id}`);
+            }
+            if (!variant.active) {
+              throw new AppError(400, 'VARIANT_INACTIVE', `Variante inactiva: ${item.variant_id}`);
+            }
+            basePrice = variant.price_cents;
+          }
+
+          let effectivePriceCents = item.price_cents ?? basePrice;
+
+          // Drift validation for offline sales (comparing base prices without modifiers)
+          if (item.price_cents !== undefined && item.price_cents !== basePrice) {
+            const drift = Math.abs(item.price_cents - basePrice) / (basePrice || 1);
+            if (drift > 0.10) {
+              throw new AppError(400, 'PRICE_DRIFT_EXCEEDED', `El precio base del producto o variante ha cambiado drásticamente. Por favor, actualiza el catálogo.`);
+            }
+          }
+
+          const modifierSum = (item.modifiers ?? []).reduce((sum, modId) => {
+            const modOpt = modifierOptionsById.get(modId);
+            if (!modOpt || !modOpt.is_active) {
+              throw new AppError(400, 'MODIFIER_NOT_FOUND', `Modificador inválido o inactivo: ${modId}`);
+            }
+            return sum + modOpt.extra_price_cents;
+          }, 0);
+          effectivePriceCents += modifierSum;
+
+          const lineTotalCents = Math.round(item.qty * effectivePriceCents);
+          subtotalCents += lineTotalCents;
+
+          // Compute line discount
+          let lineDiscountCents = 0;
+          const promo = promotionsByProductId.get(item.product_id);
+          if (promo) {
+            if (promo.type === 'PERCENTAGE') {
+              lineDiscountCents = Math.round((lineTotalCents * promo.value_cents) / 10000);
+            } else if (promo.type === 'FIXED_AMOUNT') {
+              lineDiscountCents = promo.value_cents * item.qty;
+            } else if (promo.type === 'BUY_X_GET_Y' && promo.buy_qty && promo.get_qty) {
+              const timesApplied = Math.floor(item.qty / promo.buy_qty);
+              const freeItems = timesApplied * promo.get_qty;
+              // Ensure we don't discount more items than bought
+              const validFreeItems = Math.min(freeItems, item.qty);
+              lineDiscountCents = validFreeItems * effectivePriceCents;
+            }
+          }
+          calculatedDiscountCents += lineDiscountCents;
+
+          taxItemsForCalculation.push({
+            qty: item.qty,
+            price_cents_final: effectivePriceCents,
+            tax_category: product.tax_category
+          });
+
+          return {
+            id: randomUUID(),
+            tenant_id: tenantId!,
+            branch_id: payload.branch_id,
+            sale_id: saleId,
+            product_id: item.product_id,
+            variant_id: item.variant_id ?? null,
+            qty: item.qty.toString(),
+            price_cents: effectivePriceCents,
+            line_total_cents: lineTotalCents,
+            notes: item.notes ?? null,
+            modifiers_json: item.modifiers ? JSON.stringify(item.modifiers) : null
+          };
+        });
+
+
+        let discountOverrideReason: string | undefined;
+
+        if (payload.discount_cents !== calculatedDiscountCents) {
           logger.warn(
             {
               ...requestLogContext,
               branchId: payload.branch_id,
-              saleId,
-              event: 'stock_guard_warning',
-              violations: stockViolations
+              event: 'sale_discount_override',
+              requested_discount: payload.discount_cents,
+              calculated_discount: calculatedDiscountCents
             },
-            'Stock insuficiente detectado — inventario quedará negativo'
+            'El descuento solicitado no coincide con el calculado por las promociones. Se usará el valor del servidor.'
+          );
+          payload.discount_cents = calculatedDiscountCents;
+          discountOverrideReason = 'Ajuste de descuento por promociones activas (Sincronización servidor)';
+        }
+
+        if (payload.discount_cents > subtotalCents) {
+          throw new AppError(
+            400,
+            'SALE_DISCOUNT_INVALID',
+            'discount_cents no puede ser mayor que subtotal_cents'
           );
         }
 
-        // C4: Verificar min_stock_alert_qty para generar alertas
-        for (const [key, req] of qtyByKey.entries()) {
-          const currentQty = balanceByKey.get(key) ?? 0;
-          const finalQty = currentQty - req.qty;
-          const product = productsById.get(req.productId);
-          
-          if (product && product.min_stock_alert_qty !== null && finalQty <= product.min_stock_alert_qty) {
-            const event = new StockLowEvent({
-              product_id: req.productId,
-              variant_id: req.variantId,
-              branch_id: payload.branch_id,
-              current_qty: finalQty,
-              min_stock_alert_qty: product.min_stock_alert_qty,
-              sale_id: saleId
-            }, req.productId, payload.branch_id);
-            
-            const publisher = new OutboxPublisher(trx);
-            await publisher.publish(event, tenantId, userId);
+        const tipCents = payload.tip_cents ?? 0;
+        if (tipCents > 0 && !tenant.module_tips) {
+          throw new AppError(400, 'TIPS_NOT_ENABLED', 'Las propinas no están habilitadas para este comercio');
+        }
+        const totalCents = subtotalCents - payload.discount_cents + tipCents;
+        const computedTaxes = computeTaxes({
+          taxMode: tenant.tax_mode as any, // eslint-disable-line @typescript-eslint/no-explicit-any
+          items: taxItemsForCalculation,
+          discount_cents_total: payload.discount_cents
+        });
+
+        // El backend es la fuente de verdad. Si hay desviación, logueamos un warning pero NO bloqueamos 
+        // la venta siempre y cuando los pagos coincidan con el monto requerido por el servidor.
+        if (
+          computedTaxes.subtotal_cents !== subtotalCents ||
+          computedTaxes.total_cents !== payload.snapshot?.total_cents ||
+          computedTaxes.tax_total_cents !== payload.snapshot?.tax_total_cents
+        ) {
+          logger.warn(
+            {
+              ...requestLogContext,
+              branchId: payload.branch_id,
+              event: 'sale_drift_detected',
+              payload_snapshot: payload.snapshot,
+              server_calculated: {
+                subtotal: subtotalCents,
+                discount: payload.discount_cents,
+                tip: tipCents,
+                taxes: computedTaxes.tax_total_cents,
+                total: computedTaxes.total_cents + tipCents
+              }
+            },
+            'Drift detectado entre los cálculos del frontend y del backend. El backend prevalecerá.'
+          );
+        }
+
+        if (normalizedPayments.total_amount_cents < (computedTaxes.total_cents + tipCents)) {
+          throw new AppError(
+            400,
+            'PAYMENTS_INSUFFICIENT',
+            `Los pagos (${normalizedPayments.total_amount_cents}) no cubren el total de la venta calculado por el servidor (${computedTaxes.total_cents + tipCents})`
+          );
+        }
+
+        let finalSubtotalCents = subtotalCents;
+        let finalDiscountCents = payload.discount_cents;
+        let finalTaxTotalCents = computedTaxes.tax_total_cents;
+        let finalTotalCents = totalCents;
+
+        if (payload.snapshot) {
+          if (payload.snapshot.total_cents !== totalCents) {
+            const drift = Math.abs(payload.snapshot.total_cents - totalCents) / totalCents;
+            if (drift > 0.10) {
+              throw new AppError(
+                400,
+                'PRICE_DRIFT_EXCEEDED',
+                `El total cobrado offline (${payload.snapshot.total_cents}) difiere más del 10% del total actual (${totalCents}). Actualiza el catálogo.`
+              );
+            }
+          }
+
+          // Override with snapshot totals to prevent cash mismatch
+          finalSubtotalCents = payload.snapshot.subtotal_cents;
+          finalDiscountCents = payload.snapshot.discount_cents;
+
+          // Si el frontend no calcula impuestos (tax_total_cents = 0) pero el backend sí,
+          // preservamos el cálculo del backend para no perder el desglose de impuestos en DIAN.
+          if (payload.snapshot.tax_total_cents === 0 && computedTaxes.tax_total_cents > 0) {
+            finalTaxTotalCents = computedTaxes.tax_total_cents;
+          } else {
+            finalTaxTotalCents = payload.snapshot.tax_total_cents;
+          }
+
+          finalTotalCents = payload.snapshot.total_cents;
+        }
+
+        if (normalizedPayments.total_amount_cents !== finalTotalCents) {
+          if (!discountOverrideReason) {
+            throw new AppError(
+              400,
+              'PAYMENTS_TOTAL_MISMATCH',
+              'La suma de payments debe ser igual al total de la venta'
+            );
+          } else {
+            logger.warn(
+              {
+                ...requestLogContext,
+                event: 'payment_total_mismatch_allowed',
+                payments_total: normalizedPayments.total_amount_cents,
+                sale_total: finalTotalCents
+              },
+              'Se permite discrepancia en pagos debido a un ajuste automático del descuento'
+            );
           }
         }
-      }
 
-      const sortedSaleItems = [...saleItemsToInsert].sort((a, b) => {
-        const keyA = `${a.product_id}|${a.variant_id ?? ''}`;
-        const keyB = `${b.product_id}|${b.variant_id ?? ''}`;
-        return keyA.localeCompare(keyB);
-      });
-
-      for (const item of sortedSaleItems) {
-        const txId = randomUUID();
-        const key = `${item.product_id}|${item.variant_id ?? ''}`; // eslint-disable-line @typescript-eslint/no-unused-vars
-        
-        const currentQty = balanceByKey.get(key) ?? 0;
-        const newBalance = currentQty - Number(item.qty);
-        balanceByKey.set(key, newBalance);
-
-        await trx
-          .insertInto('inventory_transactions')
-          .values({
-            id: txId,
-            tenant_id: tenantId!,
-            branch_id: payload.branch_id,
-            product_id: item.product_id,
-            variant_id: item.variant_id,
-            operation: 'SALE',
-            reference_id: saleId,
-            qty_change: (-Number(item.qty)).toString(),
-            balance_after: newBalance.toString(),
-            notes: `Venta #${nextSaleNumber}`,
-            created_by_user_id: userId
-          })
-          .execute();
-
-        const result = await trx.insertInto('inventory_balances')
-          .values({
-            tenant_id: tenantId!,
-            branch_id: payload.branch_id,
-            product_id: item.product_id,
-            variant_id: item.variant_id ?? null,
-            on_hand_qty: (-Number(item.qty)).toString()
-          })
-          .onConflict((oc) => oc.expression(sql`tenant_id, branch_id, product_id, coalesce(variant_id, '00000000-0000-0000-0000-000000000000')`)
-            .doUpdateSet({
-              on_hand_qty: sql`inventory_balances.on_hand_qty + EXCLUDED.on_hand_qty`,
-              updated_at: sql`NOW()`
-            }))
-          .returning('on_hand_qty')
-          .executeTakeFirst();
-
-        await LedgerService.appendInventoryLedger(trx, {
+        const nextSaleNumber = await getNextSaleNumberForBranchInTransaction(trx, {
           tenantId,
-          branchId: payload.branch_id,
-          productId: item.product_id,
-          variantId: item.variant_id ?? null,
-          operation: 'SALE_DISCHARGE',
-          qtyChange: -Number(item.qty),
-          balanceAfter: result ? Number(result.on_hand_qty) : -Number(item.qty),
-          referenceId: saleId
+          branchId: payload.branch_id
         });
-      }
 
-      await trx
-        .insertInto('dian_documents')
-        .values({
-          id: randomUUID(),
-          tenant_id: tenantId!,
+        const paymentJson = {
+          mode: normalizedPayments.mode,
+          payments: normalizedPayments.payments,
+          amounts: normalizedPayments.amounts,
+          total_cents: normalizedPayments.total_amount_cents
+        };
+
+        const createdSaleRow = await trx
+          .insertInto('sales')
+          .values({
+            id: saleId,
+            tenant_id: tenantId!,
+            client_uuid: payload.client_uuid,
+            customer_id: payload.customer_id ?? null,
+            branch_id: payload.branch_id,
+            cash_session_id: payload.cash_session_id,
+            table_order_id: payload.table_order_id ?? null,
+            waiter_id: payload.waiterId ?? null,
+            sale_number: nextSaleNumber,
+            status: 'COMPLETED',
+            subtotal_cents: finalSubtotalCents,
+            discount_cents: finalDiscountCents,
+            tip_cents: tipCents,
+            total_cents: finalTotalCents,
+            tax_total_cents: finalTaxTotalCents,
+            tax_lines_json: serializeJsonArrayForDb(computedTaxes.tax_lines_json),
+            payment_json: paymentJson,
+            created_by_user_id: userId,
+            void_reason: null,
+            voided_by_user_id: null,
+            voided_at: null
+          })
+          .returning([...saleColumnList])
+          .executeTakeFirstOrThrow();
+
+        await LedgerService.appendSalesLedger(trx, {
+          tenantId,
+          saleId,
+          type: 'SALE_CREATION',
+          amountCents: finalTotalCents,
+          taxAmountCents: finalTaxTotalCents,
+          userId
+        });
+
+        span.setAttribute(SemanticAttributes.SALE_ID, saleId);
+        span.setAttribute(SemanticAttributes.SALE_TOTAL_CENTS, finalTotalCents);
+        span.setAttribute(SemanticAttributes.SALE_PAYMENT_MODE, normalizedPayments.mode);
+
+        const sessionLedger = await trx.selectFrom('cash_ledger')
+          .select(trx.fn.sum('amount_cents').as('current_balance'))
+          .where('cash_session_id', '=', payload.cash_session_id)
+          .executeTakeFirst();
+        const currentCashBalance = Number(sessionLedger?.current_balance || 0);
+
+        await LedgerService.appendCashLedger(trx, {
+          tenantId,
+          cashSessionId: payload.cash_session_id,
+          terminalId: cashSession.terminal_id,
+          type: 'CASH_SALE',
+          amountCents: finalTotalCents,
+          balanceAfterCents: currentCashBalance + finalTotalCents
+        });
+
+        await trx.insertInto('sale_items').values(saleItemsToInsert).execute();
+
+        const saleCreatedEvent = new SaleCreatedEvent({
           sale_id: saleId,
-          document_type: 'INVOICE',
-          parent_document_id: null,
-          provider: env.DIAN_PROVIDER,
-          status: 'PENDING',
-          cude: null,
-          provider_payload_json: {
-            sale_id: saleId,
-            sale_number: nextSaleNumber
-          },
-          provider_response_json: null
-        })
-        .execute();
-
-      if (payload.table_order_id) {
-        await trx.updateTable('kitchen_tickets')
-          .set({ status: 'DELIVERED', updated_at: new Date() })
-          .where('table_order_id', '=', payload.table_order_id)
-          .where('tenant_id', '=', tenantId)
-          .where('status', '!=', 'DELIVERED')
-          .execute();
-      }
-
-      const saleCreatedEvent = new SaleCreatedEvent({
-        sale_id: saleId,
-        tenant_id: tenantId!,
-        branch_id: payload.branch_id,
-        cash_session_id: payload.cash_session_id,
-        sale_number: nextSaleNumber,
-        total_cents: finalTotalCents
-      }, saleId, payload.branch_id);
-
-      const publisher = new OutboxPublisher(trx);
-      await publisher.publish(saleCreatedEvent, tenantId, userId);
-
-      await writeAuditLog(trx, {
-        tenantId,
-        branchId: payload.branch_id,
-        userId,
-        entityType: 'SALE',
-        entityId: saleId,
-        action: 'SALE_CREATED',
-        payloadJson: {
-          client_uuid: payload.client_uuid,
+          tenant_id: tenantId!,
+          branch_id: payload.branch_id,
           cash_session_id: payload.cash_session_id,
           sale_number: nextSaleNumber,
-          items_count: saleItemsToInsert.length,
-          subtotal_cents: finalSubtotalCents,
-          discount_cents: finalDiscountCents,
-          tax_total_cents: finalTaxTotalCents,
           total_cents: finalTotalCents,
-          payment_mode: normalizedPayments.mode
-        }
-      });
+          table_order_id: payload.table_order_id,
+          audit_payload: {
+            client_uuid: payload.client_uuid,
+            items_count: saleItemsToInsert.length,
+            subtotal_cents: finalSubtotalCents,
+            discount_cents: finalDiscountCents,
+            tax_total_cents: finalTaxTotalCents,
+            payment_mode: normalizedPayments.mode
+          }
+        }, saleId, payload.branch_id);
 
-      return {
-        sale: mapSaleRow(createdSaleRow),
-        items: saleItemsToInsert.map((item) => ({
-          id: item.id,
-          product_id: item.product_id,
-          variant_id: item.variant_id,
-          qty: Number(item.qty),
-          price_cents: item.price_cents,
-          line_total_cents: item.line_total_cents
-        })),
-        discount_override_reason: discountOverrideReason
-      };
+        const publisher = new OutboxPublisher(trx);
+        await publisher.publish(saleCreatedEvent, tenantId, userId);
+
+        return {
+          sale: mapSaleRow(createdSaleRow),
+          items: saleItemsToInsert.map((item) => ({
+            id: item.id,
+            product_id: item.product_id,
+            variant_id: item.variant_id,
+            qty: Number(item.qty),
+            price_cents: item.price_cents,
+            line_total_cents: item.line_total_cents
+          })),
+          discount_override_reason: discountOverrideReason
+        };
+      });
     });
-  });
 
   for (let attempt = 1; attempt <= maxNumberingAttempts; attempt += 1) {
     try {

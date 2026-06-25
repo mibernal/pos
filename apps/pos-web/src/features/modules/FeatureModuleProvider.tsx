@@ -5,7 +5,6 @@ import { useSession } from '../auth';
 export type FeatureModuleContextType = {
   hasModule: (module: BusinessModule) => boolean;
   enabledModules: Set<BusinessModule>;
-  isRestaurantNative: boolean;
 };
 
 const FeatureModuleContext = createContext<FeatureModuleContextType | null>(null);
@@ -17,13 +16,19 @@ export function FeatureModuleProvider({ children }: { children: ReactNode }) {
     if (!session?.user) {
       return {
         hasModule: () => false,
-        enabledModules: new Set<BusinessModule>(),
-        isRestaurantNative: false
+        enabledModules: new Set<BusinessModule>()
       };
     }
 
     const user = session.user as any;
     const modules: BusinessModule[] = [];
+
+    if (user.enableRestaurant) modules.push('restaurant');
+    if (user.enableKds) modules.push('kds');
+    if (user.enableInventory) modules.push('inventory');
+    if (user.enableFiscal) modules.push('fiscal');
+    if (user.enableLoyalty) modules.push('loyalty');
+    if (user.enableAdvancedReports) modules.push('advanced_reports');
 
     if (user.enableTables) modules.push('tables');
     if (user.enableDelivery) modules.push('delivery');
@@ -39,6 +44,7 @@ export function FeatureModuleProvider({ children }: { children: ReactNode }) {
     if (user.enableReservations) modules.push('reservations');
     if (user.enableWaiterShifts) modules.push('waiter_shifts');
     if (user.enableQrMenu) modules.push('qr_menu');
+    if (user.enableGuestsCount) modules.push('guests_count');
 
     // Legacy fallback mapping para los que usan features relacionadas
     if (user.enableTables) {
@@ -50,8 +56,7 @@ export function FeatureModuleProvider({ children }: { children: ReactNode }) {
 
     return {
       hasModule: (m: BusinessModule) => enabledModules.has(m),
-      enabledModules,
-      isRestaurantNative: user.businessType ? ['RESTAURANT', 'CAFETERIA', 'BAR', 'NIGHTCLUB'].includes(user.businessType) : false
+      enabledModules
     };
   }, [session?.user]);
 

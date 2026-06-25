@@ -13,6 +13,13 @@ export type TenantModulesState = {
   enable_reservations: boolean;
   enable_waiter_shifts: boolean;
   enable_qr_menu: boolean;
+  enable_guests_count: boolean;
+  enable_restaurant: boolean;
+  enable_kds: boolean;
+  enable_inventory: boolean;
+  enable_fiscal: boolean;
+  enable_loyalty: boolean;
+  enable_advanced_reports: boolean;
 };
 
 export type AuditLogEntry = {
@@ -44,67 +51,35 @@ export class TenantModuleDependencyResolver {
     while (hasChanges) {
       hasChanges = false;
 
-      // Upward Cascading (Auto-Activación de Padres)
-      if (newState.enable_waiter_shifts && !newState.enable_waiters) {
-        newState.enable_waiters = true;
-        hasChanges = true;
-      }
-      if (newState.enable_waiters && !newState.enable_tables) {
-        newState.enable_tables = true;
-        hasChanges = true;
-      }
-      if (newState.enable_kitchen_printing && !newState.enable_kitchen_tickets) {
-        newState.enable_kitchen_tickets = true;
-        hasChanges = true;
-      }
-      if (newState.enable_kitchen_tickets && !newState.enable_kitchen) {
-        newState.enable_kitchen = true;
-        hasChanges = true;
-      }
-      if (newState.enable_kitchen_display && !newState.enable_kitchen) {
-        newState.enable_kitchen = true;
-        hasChanges = true;
-      }
-
-      // Downward Cascading (Auto-Desactivación de Hijos)
-      if (!newState.enable_tables) {
-        const childrenToDisable: Array<keyof TenantModulesState> = [
-          'enable_waiters',
-          'enable_reservations',
-          'enable_split_bill',
-          'enable_order_rounds',
-          'enable_waiter_shifts'
-        ];
-        for (const child of childrenToDisable) {
-          if (newState[child]) {
+      const checkDependency = (child: keyof TenantModulesState, parent: keyof TenantModulesState) => {
+        if (newState[child] === true && newState[parent] === false) {
+          if (explicitChanges.has(parent) && !explicitChanges.has(child)) {
+            // User explicitly turned off the parent. Cascade disable the child.
             newState[child] = false;
+            hasChanges = true;
+          } else {
+            // User explicitly turned on the child, or both/neither. Cascade enable the parent.
+            newState[parent] = true;
             hasChanges = true;
           }
         }
-      }
+      };
 
-      if (!newState.enable_kitchen) {
-        const childrenToDisable: Array<keyof TenantModulesState> = [
-          'enable_kitchen_display',
-          'enable_kitchen_tickets',
-          'enable_order_rounds',
-          'enable_kitchen_printing'
-        ];
-        for (const child of childrenToDisable) {
-          if (newState[child]) {
-            newState[child] = false;
-            hasChanges = true;
-          }
+      checkDependency('enable_waiter_shifts', 'enable_waiters');
+      checkDependency('enable_waiters', 'enable_tables');
+      checkDependency('enable_reservations', 'enable_tables');
+      checkDependency('enable_split_bill', 'enable_tables');
+      checkDependency('enable_kitchen_printing', 'enable_kitchen_tickets');
+      checkDependency('enable_kitchen_tickets', 'enable_kitchen');
+      checkDependency('enable_kitchen_display', 'enable_kitchen');
+
+      // order_rounds requires either tables or kitchen
+      if (newState.enable_order_rounds && !newState.enable_tables && !newState.enable_kitchen) {
+        if (explicitChanges.has('enable_tables') || explicitChanges.has('enable_kitchen')) {
+          newState.enable_order_rounds = false;
+        } else {
+          newState.enable_tables = true; // Fallback
         }
-      }
-
-      if (!newState.enable_waiters && newState.enable_waiter_shifts) {
-        newState.enable_waiter_shifts = false;
-        hasChanges = true;
-      }
-
-      if (!newState.enable_kitchen_tickets && newState.enable_kitchen_printing) {
-        newState.enable_kitchen_printing = false;
         hasChanges = true;
       }
     }

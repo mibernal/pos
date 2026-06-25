@@ -25,6 +25,7 @@ export const useGetActiveTickets = (branchId: string) => {
     queryKey: ['kds-tickets', branchId],
     queryFn: () => getActiveTickets(token!, branchId),
     enabled: !!token && !!branchId,
+    refetchInterval: 10000, // Fallback de polling cada 10 segundos por si falla el WebSocket
   });
 };
 

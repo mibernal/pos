@@ -86,6 +86,16 @@ const sendTableOrderToKitchen = async (token: string, branchId: string, tableId:
   return response.json();
 };
 
+const fireKitchenCourse = async (token: string, branchId: string, tableId: string, course?: number): Promise<{ success: boolean }> => {
+  const response = await fetch(`${import.meta.env.VITE_API_URL}/branches/${branchId}/tables/${tableId}/orders/kitchen-fire`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify(course ? { course } : {})
+  });
+  if (!response.ok) throw new Error('Failed to fire kitchen course');
+  return response.json();
+};
+
 export const useGetRooms = (branchId?: string) => {
   const { token } = useSession();
   return useQuery({
@@ -139,7 +149,8 @@ export const useGetTableOrder = (branchId?: string, tableId?: string) => {
   return useQuery({
     queryKey: ['table-order', branchId, tableId],
     queryFn: () => getTableOrder(token!, branchId!, tableId!),
-    enabled: !!branchId && !!tableId
+    enabled: !!branchId && !!tableId,
+    staleTime: 30_000
   });
 };
 
@@ -209,6 +220,18 @@ export const useSendTableOrderToKitchen = () => {
       sendTableOrderToKitchen(token!, branchId, tableId),
     onSuccess: (_, { branchId, tableId }) => {
       queryClient.invalidateQueries({ queryKey: ['table-order', branchId, tableId] });
+    }
+  });
+};
+
+export const useFireKitchenCourse = () => {
+  const { token } = useSession();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ branchId, tableId, course }: { branchId: string; tableId: string; course?: number }) =>
+      fireKitchenCourse(token!, branchId, tableId, course),
+    onSuccess: (_, { branchId }) => {
+      queryClient.invalidateQueries({ queryKey: ['kitchen-tickets', branchId] });
     }
   });
 };

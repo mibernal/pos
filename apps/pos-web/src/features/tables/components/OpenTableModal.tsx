@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Button } from '../../../components/ui/Button';
 import { WaiterSelector } from '../../sales/components/WaiterSelector';
 import { GuestsInput } from '../../sales/components/GuestsInput';
+import { usePosStore } from '../../../hooks/usePosStore';
 
 interface OpenTableModalProps {
   isOpen: boolean;
@@ -12,6 +13,7 @@ interface OpenTableModalProps {
 }
 
 export function OpenTableModal({ isOpen, tableName, branchId, onClose, onConfirm }: OpenTableModalProps) {
+  const posContext = usePosStore((state) => state.posContext);
   const [waiterId, setWaiterId] = useState<string | null>(null);
   const [guestsCount, setGuestsCount] = useState<number>(1);
 
@@ -28,10 +30,12 @@ export function OpenTableModal({ isOpen, tableName, branchId, onClose, onConfirm
             <WaiterSelector branchId={branchId} value={waiterId} onChange={setWaiterId} variant="light" />
           </div>
           
-          <div className="flex flex-col gap-2">
-            <label className="text-sm font-semibold">Número de personas</label>
-            <GuestsInput value={guestsCount} onChange={setGuestsCount} variant="light" />
-          </div>
+          {posContext?.modules?.enable_guests_count && (
+            <div className="flex flex-col gap-2">
+              <label className="text-sm font-semibold">Número de personas</label>
+              <GuestsInput value={guestsCount} onChange={setGuestsCount} variant="light" />
+            </div>
+          )}
         </div>
 
         <div className="flex justify-end gap-3 pt-4 border-t border-gray-200">

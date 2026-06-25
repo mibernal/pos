@@ -107,6 +107,8 @@ export const productsRoutes: FastifyPluginAsync = async (app) => {
         );
       }
 
+      queryBuilder = queryBuilder.where('products.active', '=', true);
+
       const rows = await queryBuilder.orderBy('products.name', 'asc').orderBy('products.id', 'asc').limit(limit + 1).execute();
 
       const hasMore = rows.length > limit;
@@ -114,6 +116,7 @@ export const productsRoutes: FastifyPluginAsync = async (app) => {
 
       const variantsByProductId: Record<string, Array<{ id: string; name: string; price_cents: number; barcode: string | null }>> = {};
       const promotionsByProductId: Record<string, { type: string; value_cents: number; buy_qty: number | null; get_qty: number | null }> = {};
+      const modifiersByProductId: Record<string, Array<{ id: string; name: string; minSelections: number; maxSelections: number; options: Array<{ id: string; name: string; priceCents: number }> }>> = {};
       
       if (productRows.length > 0) {
         const productIds = productRows.map(r => r.id);
@@ -157,6 +160,42 @@ export const productsRoutes: FastifyPluginAsync = async (app) => {
             };
           }
         });
+
+        const modifierGroups = await trx
+          .selectFrom('product_modifier_groups')
+          .selectAll()
+          .where('product_id', 'in', productIds)
+          .where('is_active', '=', true)
+          .execute();
+
+        const groupIds = modifierGroups.map(g => g.id);
+        const modifierOptions = groupIds.length > 0 ? await trx
+          .selectFrom('product_modifier_options')
+          .selectAll()
+          .where('group_id', 'in', groupIds)
+          .where('is_active', '=', true)
+          .execute() : [];
+        
+        modifierGroups.forEach(group => {
+          if (!modifiersByProductId[group.product_id]) {
+            modifiersByProductId[group.product_id] = [];
+          }
+          const options = modifierOptions
+            .filter(o => o.group_id === group.id)
+            .map(o => ({
+              id: o.id,
+              name: o.name,
+              priceCents: o.extra_price_cents
+            }));
+            
+          modifiersByProductId[group.product_id]!.push({
+            id: group.id,
+            name: group.name,
+            minSelections: group.min_selections,
+            maxSelections: group.max_selections,
+            options
+          });
+        });
       }
 
       const items = productRows.map((row) => ({
@@ -173,6 +212,7 @@ export const productsRoutes: FastifyPluginAsync = async (app) => {
         description: row.description,
         variants: variantsByProductId[row.id] || [],
         promotion: promotionsByProductId[row.id] || null,
+        modifierGroups: modifiersByProductId[row.id] || [],
         createdAt: row.created_at.toISOString(),
         updatedAt: row.updated_at.toISOString()
       }));

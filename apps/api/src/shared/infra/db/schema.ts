@@ -16,8 +16,8 @@ export type ReceiptType = 'PO_LINKED' | 'BLIND';
 export type TenantTaxMode = 'IVA' | 'INC_RESTAURANT' | 'REGIMEN_SIMPLIFICADO';
 export type ProductTaxCategory = 'IVA_0' | 'IVA_5' | 'IVA_19' | 'EXEMPT' | 'EXCLUDED' | 'INC_8';
 export type SalesLedgerOperation = 'SALE_CREATION' | 'SALE_VOID' | 'SALE_RETURN';
-export type InventoryLedgerOperation = 'SALE_DISCHARGE' | 'RESTOCK' | 'VOID_RESTOCK' | 'ADJUSTMENT';
 export type CashLedgerOperation = 'OPENING' | 'CASH_SALE' | 'CASH_REFUND' | 'MANUAL_IN' | 'MANUAL_OUT' | 'CLOSING_DISCREPANCY';
+export type ReservationStatus = 'PENDING' | 'CONFIRMED' | 'SEATED' | 'CANCELLED' | 'NO_SHOW';
 type JsonObject = Record<string, unknown>;
 type JsonArray = unknown[];
 type JsonColumn = ColumnType<JsonObject, JsonObject | undefined, JsonObject>;
@@ -44,6 +44,12 @@ export interface TenantsTable {
   business_type: Generated<string>;
   /** Nombre libre cuando business_type = 'OTHER'. Migration 059. */
   custom_business_type: string | null;
+  enable_restaurant: Generated<boolean>;
+  enable_kds: Generated<boolean>;
+  enable_inventory: Generated<boolean>;
+  enable_fiscal: Generated<boolean>;
+  enable_loyalty: Generated<boolean>;
+  enable_advanced_reports: Generated<boolean>;
   /** Si TRUE, habilita módulos de gestión de mesas aunque el tipo sea 'OTHER'. Migration 059. */
   enable_tables: Generated<boolean>;
   enable_delivery: Generated<boolean>;
@@ -59,6 +65,7 @@ export interface TenantsTable {
   enable_reservations: Generated<boolean>;
   enable_waiter_shifts: Generated<boolean>;
   enable_qr_menu: Generated<boolean>;
+  enable_guests_count: Generated<boolean>;
   status: Generated<string>;
   suspended_at: Date | null;
   suspended_reason: string | null;
@@ -102,6 +109,7 @@ export interface KitchenTicketsTable {
   branch_id: string;
   round_id: string;
   table_order_id: string;
+  course: Generated<number>;
   status: Generated<string>;
   printed_at: Date | null;
   created_at: Generated<Date>;
@@ -328,6 +336,7 @@ export interface SaleItemsTable {
   price_cents: number;
   line_total_cents: number;
   notes: string | null;
+  modifiers_json?: JsonArrayColumn | null;
   created_at: Generated<Date>;
 }
 
@@ -389,6 +398,22 @@ export interface CustomersTable {
   email: string | null;
   phone: string | null;
   address: string | null;
+  created_at: Generated<Date>;
+  updated_at: Generated<Date>;
+}
+
+export interface ReservationsTable {
+  id: string;
+  tenant_id: string;
+  branch_id: string;
+  customer_id: string | null;
+  customer_name: string;
+  customer_phone: string | null;
+  table_id: string | null;
+  reservation_date: Date;
+  guests_count: Generated<number>;
+  status: Generated<ReservationStatus>;
+  notes: string | null;
   created_at: Generated<Date>;
   updated_at: Generated<Date>;
 }
@@ -799,6 +824,7 @@ export interface TableOrderItemsTable {
   table_order_id: string;
   round_id: string | null;
   seat_number: number | null;
+  course: Generated<number>;
   item_status: Generated<string>;
   modifiers: unknown | null; // JSONB
   product_id: string;
@@ -864,6 +890,30 @@ export interface TenantModuleAuditLogsTable {
   created_at: Generated<Date>;
 }
 
+export interface ProductModifierGroupsTable {
+  id: string;
+  tenant_id: string;
+  product_id: string;
+  name: string;
+  is_required: Generated<boolean>;
+  min_selections: Generated<number>;
+  max_selections: Generated<number>;
+  is_active: Generated<boolean>;
+  created_at: Generated<Date>;
+  updated_at: Generated<Date>;
+}
+
+export interface ProductModifierOptionsTable {
+  id: string;
+  tenant_id: string;
+  group_id: string;
+  name: string;
+  extra_price_cents: Generated<number>;
+  is_active: Generated<boolean>;
+  created_at: Generated<Date>;
+  updated_at: Generated<Date>;
+}
+
 export interface Database {
   tenants: TenantsTable;
   branches: BranchesTable;
@@ -917,6 +967,7 @@ export interface Database {
   product_images: ProductImagesTable;
   rooms: RoomsTable;
   tables: TablesTable;
+  reservations: ReservationsTable;
   table_orders: TableOrdersTable;
   table_order_items: TableOrderItemsTable;
   order_rounds: OrderRoundsTable;
@@ -927,4 +978,7 @@ export interface Database {
   delivery_items: DeliveryItemsTable;
   waiters: WaitersTable;
   tenant_module_audit_logs: TenantModuleAuditLogsTable;
+  product_modifier_groups: ProductModifierGroupsTable;
+  product_modifier_options: ProductModifierOptionsTable;
 }
+

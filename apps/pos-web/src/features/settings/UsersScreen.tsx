@@ -10,7 +10,7 @@ interface UsersScreenProps {
   api: PosApiClient;
 }
 
-type UserItem = { id: string; tenantId: string; email: string; name: string; role: UserRole; active: boolean; createdAt: string };
+type UserItem = { id: string; tenantId: string; email: string; name: string; role: UserRole; active: boolean; createdAt: string; branchIds?: string[] };
 
 export function UsersScreen({ api }: UsersScreenProps) {
   const { session, tenantId } = useSession();
@@ -77,9 +77,7 @@ export function UsersScreen({ api }: UsersScreenProps) {
 
   const openAssignModal = (u: UserItem) => {
     setSelectedUser(u);
-    // Since the API doesn't return user branches yet, we start empty for security/simplicity.
-    // Ideally the user GET endpoint should return branchIds so we can pre-select them.
-    setSelectedBranchIds([]);
+    setSelectedBranchIds(u.branchIds || []);
     setIsAssignModalOpen(true);
   };
 

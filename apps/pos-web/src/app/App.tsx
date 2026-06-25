@@ -8,11 +8,13 @@ import { PosScreen } from '../features/sales';
 const TablesScreen = lazy(() => import('../features/tables/TablesScreen').then(m => ({ default: m.TablesScreen })));
 const WaitersScreen = lazy(() => import('../features/tables/WaitersScreen').then(m => ({ default: m.WaitersScreen })));
 const KitchenScreen = lazy(() => import('../features/kds/KitchenScreen').then(m => ({ default: m.KitchenScreen })));
+const ReservationsScreen = lazy(() => import('../features/reservations/ReservationsScreen').then(m => ({ default: m.ReservationsScreen })));
 const DeliveryScreen = lazy(() => import('../features/sales').then(m => ({ default: m.DeliveryScreen })));
-import { DianConfigModal, TicketTemplateModal, SetPinModal } from '../features/settings';
+import { DianConfigModal, TicketTemplateModal, SetPinModal, QRMenuScreen } from '../features/settings';
 import { BillingScreen } from '../features/billing/BillingScreen';
 import { UpgradePlanModal } from '../features/billing/components/UpgradePlanModal';
 import { FeatureModuleProvider, ModuleGuard } from '../features/modules';
+import { PublicMenuScreen } from '../features/public-menu/PublicMenuScreen';
 
 // Lazy Loaded Screens
 const CustomersScreen = lazy(() => import('../features/customers').then(m => ({ default: m.CustomersScreen })));
@@ -22,7 +24,6 @@ const BulkImportScreen = lazy(() => import('../features/inventory/BulkImportScre
 const ProductsScreen = lazy(() => import('../features/products').then(m => ({ default: m.ProductsScreen })));
 const PromotionsScreen = lazy(() => import('../features/promotions/PromotionsScreen').then(m => ({ default: m.PromotionsScreen })));
 const ReportsScreen = lazy(() => import('../features/reports').then(m => ({ default: m.ReportsScreen })));
-const DashboardScreen = lazy(() => import('../features/reports').then(m => ({ default: m.DashboardScreen })));
 const BranchesScreen = lazy(() => import('../features/settings').then(m => ({ default: m.BranchesScreen })));
 const UsersScreen = lazy(() => import('../features/settings').then(m => ({ default: m.UsersScreen })));
 const PlatformScreen = lazy(() => import('../features/platform').then(m => ({ default: m.PlatformScreen })));
@@ -35,7 +36,7 @@ import {
 } from '../hooks';
 
 function AppShell() {
-  const { api, logout, session } = useSession();
+  const { api, logout, session, refreshSession } = useSession();
   const { commitPosContext, posContext } = usePosStore();
   const { activeRoute, navigate, resetNavigation, routeDefinitions } = usePosNavigation(session?.user ?? null);
   const {
@@ -161,6 +162,14 @@ function AppShell() {
                 </ModuleGuard>
               </PermissionGuard>
             );
+          } else if (activeRoute === 'reservations' && posContext) {
+            currentScreen = (
+              <PermissionGuard allowedPermissions={['sales:create']} requireAll={false}>
+                <ModuleGuard module="reservations">
+                  <ReservationsScreen api={api} branchId={posContext.branchId} />
+                </ModuleGuard>
+              </PermissionGuard>
+            );
           } else if (activeRoute === 'delivery' && posContext) {
             currentScreen = (
               <PermissionGuard allowedPermissions={['sales:create']} requireAll={false}>
@@ -210,12 +219,6 @@ function AppShell() {
                 />
               </PermissionGuard>
             );
-          } else if (activeRoute === 'dashboard' && posContext) {
-            currentScreen = (
-              <PermissionGuard allowedPermissions={['dashboard:view']} requireAll={false}>
-                <DashboardScreen api={api} branchId={posContext.branchId} />
-              </PermissionGuard>
-            );
           } else if (activeRoute === 'branches') {
             currentScreen = (
               <PermissionGuard allowedPermissions={['branches:manage']}>
@@ -238,6 +241,14 @@ function AppShell() {
             );
           } else if (activeRoute === 'billing') {
             currentScreen = <BillingScreen api={api} session={session!} />;
+          } else if (activeRoute === 'qr-menu') {
+            currentScreen = (
+              <PermissionGuard allowedPermissions={['tenant:settings:manage']}>
+                <ModuleGuard module="qr_menu">
+                  <QRMenuScreen />
+                </ModuleGuard>
+              </PermissionGuard>
+            );
           }
 
           return (
@@ -291,6 +302,7 @@ function AppShell() {
                 onSave={saveTicketTemplate}
                 template={ticketTemplate}
                 session={session!}
+                refreshSession={refreshSession}
               />
 
               <DianConfigModal
@@ -343,8 +355,15 @@ function AppShell() {
     </RequireSession>
   );
 }
-
 export default function App() {
+  const path = window.location.pathname;
+  if (path.startsWith('/menu/')) {
+    const branchId = path.split('/')[2];
+    if (branchId) {
+      return <PublicMenuScreen branchId={branchId} />;
+    }
+  }
+
   return (
     <SessionProvider>
       <FeatureModuleProvider>

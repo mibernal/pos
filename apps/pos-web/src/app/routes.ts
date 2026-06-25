@@ -33,7 +33,7 @@ export const APP_ROUTE_DEFINITIONS: readonly EnhancedRouteDefinition[] = [
     id: 'kds',
     label: 'Cocina (KDS)',
     requiredPermissions: ['sales:create'],
-    requiredModule: 'tables'
+    requiredModule: 'kitchen_display'
   },
   {
     id: 'delivery',
@@ -72,11 +72,7 @@ export const APP_ROUTE_DEFINITIONS: readonly EnhancedRouteDefinition[] = [
     label: 'Reportes',
     requiredPermissions: ['reports:view']
   },
-  {
-    id: 'dashboard',
-    label: 'Dashboard Live',
-    requiredPermissions: ['dashboard:view']
-  },
+
   {
     id: 'users',
     label: 'Usuarios',
@@ -101,6 +97,18 @@ export const APP_ROUTE_DEFINITIONS: readonly EnhancedRouteDefinition[] = [
     id: 'waiters',
     label: 'Meseros',
     requiredPermissions: ['branches:manage'],
-    requiredModule: 'tables'
+    requiredModule: 'waiters'
+  },
+  {
+    id: 'reservations',
+    label: 'Reservaciones',
+    requiredPermissions: ['sales:create'],
+    requiredModule: 'reservations'
+  },
+  {
+    id: 'qr-menu',
+    label: 'Menú Digital (QR)',
+    requiredPermissions: ['tenant:settings:manage'],
+    requiredModule: 'qr_menu'
   }
 ] as const;

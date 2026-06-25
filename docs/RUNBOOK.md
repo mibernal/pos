@@ -292,6 +292,68 @@ open http://localhost:3000/docs
 ## Pendientes para Producción
 
 - [ ] Provider DIAN real certificado y flujo de finalización para documentos `SENT`.
-- [ ] Despliegue con HTTPS, gestión de secretos (Vault / AWS Secrets Manager), backups automáticos y monitoreo centralizado en la nube.
+- [ ] Despliegue con HTTPS, gestión de secretos (Vault / GCP Secret Manager) y monitoreo centralizado en la nube.
 - [ ] Políticas operativas: soporte, rotación de usuarios y recuperación de incidentes.
 - [ ] Impresión ESC/POS integrada en el flujo de caja (actualmente requiere confirmación manual del puerto serial).
+- [x] ~~Backups automáticos~~ — Implementado (GitHub Actions + GCS).
+
+---
+
+## Operación de Backup y Recuperación
+
+### Verificar que el backup diario está funcionando
+
+1. Ir a **GitHub → Actions → Database Backup**.
+2. Confirmar que el último run tiene estado `✅ success`.
+3. El backup se ejecuta todos los días a las **02:00 UTC** (9 PM Colombia).
+
+### Ejecutar backup manual
+
+```bash
+# Desde entorno con acceso a la DB de producción y gcloud autenticado
+export DATABASE_URL="postgres://..."
+export GCS_BUCKET="gs://pos-dian-backups"
+bash infra/scripts/pg-backup-gcs.sh
+```
+
+### Listar backups disponibles
+
+```bash
+gsutil ls gs://pos-dian-backups/postgres/ | sort
+```
+
+### Restore de emergencia
+
+```bash
+# 1. Descargar el backup a usar
+gsutil ls gs://pos-dian-backups/postgres/ | sort | tail -5
+
+# 2. Ejecutar restore (pedirá confirmación interactiva)
+export DATABASE_URL="postgres://pos:PASS@host:5432/pos_dian"
+bash infra/scripts/pg-restore.sh gs://pos-dian-backups/postgres/pos_dian_YYYYMMDD_HHMMSS.dump
+
+# 3. Tras el restore, ejecutar migraciones pendientes
+pnpm --filter @pos-dian/api migrate
+```
+
+> ⚠️ **El restore elimina TODOS los datos actuales en la DB destino. Siempre hacer un backup previo antes de restaurar en producción.**
+
+### Validación de integridad manual
+
+```bash
+# Descarga el backup más reciente y lo restaura en una DB temporal para verificar
+export DATABASE_URL="postgres://pos:PASS@localhost:5432/pos_dian"
+export GCS_BUCKET="gs://pos-dian-backups"
+export PGDATABASE="pos_dian"
+bash infra/scripts/pg-validate-restore.sh
+```
+
+### Fallo del backup: checklist
+
+| Síntoma | Causa probable | Solución |
+|---|---|---|
+| GitHub Action falla en auth | `GCP_SA_KEY` expirado o revocado | Rotar Service Account en GCP Console |
+| `pg_dump` falla | `DATABASE_URL_PRODUCTION` incorrecto o DB caída | Verificar conectividad y credenciales |
+| `gsutil cp` falla | Sin permisos en bucket | Verificar que SA tiene rol `Storage Object Admin` |
+| Validación falla | Backup corrupto o migraciones faltantes | Investigar el dump anterior; contactar DBA |
+

@@ -9,10 +9,12 @@ import {
   type ZodTypeProvider
 } from 'fastify-type-provider-zod';
 import { Redis } from 'ioredis';
+import { PubSubService } from '../shared/infra/pubsub/pubsub.service.js';
 import { authPlugin } from '../shared/plugins/auth.js';
 import { errorHandlerPlugin } from '../shared/plugins/error-handler.js';
 import { registerSwagger } from '../shared/plugins/swagger.js';
 import { idempotencyPlugin } from '../shared/infra/http/idempotency.plugin.js';
+import { billingUsagePlugin } from '../shared/infra/http/billing-usage.plugin.js';
 import { authRoutes } from '../contexts/identity/http/auth.routes.js';
 import { platformAdminRoutes } from '../contexts/platform-admin/http/index.js';
 import { branchesRoutes } from '../contexts/identity/http/branches.routes.js';
@@ -21,6 +23,7 @@ import { salesRoutes } from '../contexts/sales/http/sales.routes.js';
 import { adminTenantsRoutes } from '../contexts/identity/http/admin-tenants.routes.js';
 import { adminUsersRoutes } from '../contexts/identity/http/admin-users.routes.js';
 import { productsRoutes } from '../contexts/inventory/http/products.routes.js';
+import { publicCatalogRoutes } from '../contexts/inventory/http/public-catalog.routes.js';
 import { bulkRoutes } from '../contexts/inventory/http/bulk.routes.js';
 import { enterpriseBulkRoutes } from '../contexts/inventory/http/enterprise-bulk.routes.js';
 
@@ -39,8 +42,10 @@ import { terminalsRoutes } from '../contexts/sales/http/terminals.routes.js';
 import { billingRoutes } from '../contexts/billing/http/billing.routes.js';
 import { webhooksRoutes } from '../contexts/billing/http/webhooks.routes.js';
 import { tablesRoutes } from '../contexts/tables/presentation/tables.routes.js';
+import { reservationsRoutes } from '../contexts/tables/presentation/reservations.routes.js';
 import { waitersRoutes } from '../contexts/tables/presentation/waiters.routes.js';
 import { kdsRoutes } from '../contexts/tables/presentation/kds.routes.js';
+import { kdsSyncRoutes } from '../contexts/kds/http/kds-sync.routes.js';
 import { deliveriesRoutes } from '../contexts/deliveries/http/deliveries.routes.js';
 import { auditContextStorage } from '../shared/infra/audit/audit-context.js';
 import { createDb } from '../shared/infra/db/connection.js';
@@ -197,6 +202,7 @@ export async function buildApp() {
 
   // Verify auth before running route handlers
   app.decorate('db', createDb());
+  app.decorate('pubsub', new PubSubService());
 
   // el outbox en DB es el mecanismo de comunicación con el worker.
   app.decorate('redis', redisClient);
@@ -245,6 +251,7 @@ export async function buildApp() {
 
   await app.register(errorHandlerPlugin);
   await app.register(idempotencyPlugin);
+  await app.register(billingUsagePlugin);
   await app.register(registerSwagger);
   await app.register(authPlugin);
 
@@ -263,6 +270,7 @@ export async function buildApp() {
   await app.register(adminTenantsRoutes, { prefix: '/api/v1' });
   await app.register(adminUsersRoutes, { prefix: '/api/v1' });
   await app.register(productsRoutes, { prefix: '/api/v1' });
+  await app.register(publicCatalogRoutes, { prefix: '/api/v1' });
   await app.register(bulkRoutes, { prefix: '/api/v1/inventory' });
   await app.register(enterpriseBulkRoutes, { prefix: '/api/v1/inventory/enterprise-bulk' });
   await app.register(promotionsRoutes, { prefix: '/api/v1' });
@@ -281,8 +289,10 @@ export async function buildApp() {
   await app.register(billingRoutes, { prefix: '/api/v1' });
   await app.register(webhooksRoutes, { prefix: '/api/v1' });
   await app.register(tablesRoutes, { prefix: '/api/v1' });
+  await app.register(reservationsRoutes, { prefix: '/api/v1' });
   await app.register(waitersRoutes, { prefix: '/api/v1' });
   await app.register(kdsRoutes, { prefix: '/api/v1' });
+  await app.register(kdsSyncRoutes, { prefix: '/api/v1' });
   await app.register(deliveriesRoutes, { prefix: '/api/v1' });
 
   // Add prometheus metrics

@@ -9,6 +9,7 @@ import { CashPaymentPanel } from './checkout/CashPaymentPanel';
 import { TerminalPaymentPanel } from './checkout/TerminalPaymentPanel';
 import { MixedPaymentPanel } from './checkout/MixedPaymentPanel';
 import { TipSelector } from './checkout/TipSelector';
+import { ModuleGuard } from '../../modules';
 
 const SIMPLE_PAYMENT_OPTIONS: ReadonlyArray<{ label: string; method: PaymentMethod; shortcut: string }> = [
   { method: 'CASH', label: 'Efectivo', shortcut: 'F1' },
@@ -80,7 +81,10 @@ export function CheckoutModal({
   } = useCheckoutPayment(totalCents + tipCents, isOpen, initialSplitParts);
 
   const subtotalCents = useMemo(
-    () => cartItems.reduce((sum, item) => sum + item.qty * item.priceCents, 0),
+    () => cartItems.reduce((sum, item) => {
+      const modifierSum = item.modifiers?.reduce((mSum, m) => mSum + m.priceCents, 0) || 0;
+      return sum + item.qty * (item.priceCents + modifierSum);
+    }, 0),
     [cartItems]
   );
   const totalUnits = useMemo(() => cartItems.reduce((sum, item) => sum + item.qty, 0), [cartItems]);
@@ -207,11 +211,13 @@ export function CheckoutModal({
               )}
             </div>
 
-            <TipSelector 
-              subtotalCents={subtotalCents}
-              tipCents={tipCents}
-              onTipChange={setTipCents}
-            />
+            <ModuleGuard module="tips">
+              <TipSelector 
+                subtotalCents={subtotalCents}
+                tipCents={tipCents}
+                onTipChange={setTipCents}
+              />
+            </ModuleGuard>
 
             <label className="field" style={{ marginBottom: '1.5rem', background: 'var(--color-bg)', padding: '1rem', borderRadius: '8px', border: '1px solid var(--color-slate-200)' }}>
               <span style={{ fontWeight: 600, color: 'var(--color-slate-900)' }}>Asociar Cliente (Opcional)</span>

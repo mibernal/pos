@@ -56,7 +56,11 @@ export function useCart() {
   }, [isTableMode, tableId, resetTableCart, resetGlobalCart]);
 
   const subtotalCents = useMemo(
-    () => cartItems.reduce((sum, item) => sum + item.qty * item.priceCents, 0),
+    () => cartItems.reduce((sum, item) => {
+      const modifierSum = item.modifiers?.reduce((mSum, m) => mSum + m.priceCents, 0) || 0;
+      const safeQty = typeof item.qty === 'number' && !isNaN(item.qty) ? item.qty : 0;
+      return sum + safeQty * (item.priceCents + modifierSum);
+    }, 0),
     [cartItems]
   );
   
@@ -64,16 +68,18 @@ export function useCart() {
     return cartItems.reduce((sum, item) => {
       let lineDiscount = 0;
       if (item.promotion) {
-        const lineTotalCents = item.qty * item.priceCents;
+        const modifierSum = item.modifiers?.reduce((mSum, m) => mSum + m.priceCents, 0) || 0;
+        const safeQty = typeof item.qty === 'number' && !isNaN(item.qty) ? item.qty : 0;
+        const lineTotalCents = safeQty * (item.priceCents + modifierSum);
         if (item.promotion.type === 'PERCENTAGE') {
           lineDiscount = Math.round((lineTotalCents * item.promotion.value_cents) / 10000);
         } else if (item.promotion.type === 'FIXED_AMOUNT') {
-          lineDiscount = item.promotion.value_cents * item.qty;
+          lineDiscount = item.promotion.value_cents * safeQty;
         } else if (item.promotion.type === 'BUY_X_GET_Y' && item.promotion.buy_qty && item.promotion.get_qty) {
-          const timesApplied = Math.floor(item.qty / item.promotion.buy_qty);
+          const timesApplied = Math.floor(safeQty / item.promotion.buy_qty);
           const freeItems = timesApplied * item.promotion.get_qty;
-          const validFreeItems = Math.min(freeItems, item.qty);
-          lineDiscount = validFreeItems * item.priceCents;
+          const validFreeItems = Math.min(freeItems, safeQty);
+          lineDiscount = validFreeItems * (item.priceCents + modifierSum);
         }
       }
       return sum + lineDiscount;
@@ -81,16 +87,16 @@ export function useCart() {
   }, [cartItems]);
   
   const cartQuantity = useMemo(
-    () => cartItems.reduce((sum, item) => sum + item.qty, 0),
+    () => cartItems.reduce((sum, item) => sum + (typeof item.qty === 'number' && !isNaN(item.qty) ? item.qty : 0), 0),
     [cartItems]
   );
 
   const totalCents = Math.max(0, subtotalCents - discountCents);
 
-  const addProduct = useCallback((product: ProductItem, variant?: { id: string, name: string, price_cents: number }, qty: number = 1) => {
+  const addProduct = useCallback((product: ProductItem, variant?: { id: string, name: string, price_cents: number }, qty: number = 1, modifiers?: CartItem['modifiers'], course: number = 1) => {
     setCartItems((currentCartItems) => {
       const existingIndex = currentCartItems.findIndex(
-        (item) => item.productId === product.id && item.variantId === (variant?.id || null)
+        (item) => item.productId === product.id && item.variantId === (variant?.id || null) && JSON.stringify(item.modifiers || []) === JSON.stringify(modifiers || []) && (item.course || 1) === course
       );
 
       if (existingIndex === -1) {
@@ -107,7 +113,9 @@ export function useCart() {
             priceCents: variant?.price_cents ?? product.price_cents,
             promotion: product.promotion as CartItem['promotion'],
             imageUrl: product.imageUrl,
-            qty
+            modifiers,
+            qty,
+            course
           }
         ];
       }
@@ -182,6 +190,16 @@ export function useCart() {
     });
   }, [setCartItems, setSelectedCartIndex, setParkedCarts]);
 
+  const updateItemCourse = useCallback((index: number, course: number) => {
+    setCartItems(curr => {
+      const newItems = [...curr];
+      if (newItems[index]) {
+        newItems[index].course = course;
+      }
+      return newItems;
+    });
+  }, [setCartItems]);
+
   return {
     cartItems,
     selectedCartIndex,
@@ -198,6 +216,7 @@ export function useCart() {
     resetCartState,
     parkCart,
     restoreCart,
-    setCartItems
+    setCartItems,
+    updateItemCourse
   };
 }

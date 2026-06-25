@@ -5,9 +5,9 @@ import { KitchenTicketWithItemsSchema, UpdateKitchenTicketStatusSchema } from '@
 import { z } from 'zod';
 
 const emitKdsUpdate = (request: any, branchId: string) => {
-  if (request.user?.enableKitchenDisplay) {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (request.server as any).io?.to(`branch:${branchId}`).emit('KITCHEN_TICKETS_UPDATED');
+  const tenantId = request.auth?.tenantId;
+  if (tenantId) {
+    request.server.pubsub.publishKdsEvent(tenantId, branchId, 'KITCHEN_TICKETS_UPDATED');
   }
 };
 
@@ -19,6 +19,7 @@ export const kdsRoutes: FastifyPluginAsyncZod = async (app) => {
   app.get(
     '/branches/:branchId/kds/tickets',
     {
+      preHandler: [app.requireModule(['kitchen_display'])],
       schema: {
         params: z.object({ branchId: z.string().uuid() }),
         response: { 200: z.array(KitchenTicketWithItemsSchema) }
@@ -36,6 +37,7 @@ export const kdsRoutes: FastifyPluginAsyncZod = async (app) => {
   app.put(
     '/branches/:branchId/kds/tickets/:id/status',
     {
+      preHandler: [app.requireModule(['kitchen_display'])],
       schema: {
         params: z.object({ branchId: z.string().uuid(), id: z.string().uuid() }),
         body: UpdateKitchenTicketStatusSchema,

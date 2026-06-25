@@ -1,0 +1,116 @@
+name: Database Backup
+
+on:
+  schedule:
+    # Backup diario: 02:00 UTC (9:00 PM Colombia, UTC-5)
+    - cron: '0 2 * * *'
+    # Validación de restore: solo los domingos
+    - cron: '0 3 * * 0'
+
+  # Ejecución manual desde GitHub Actions UI
+  workflow_dispatch:
+    inputs:
+      run_validation:
+        description: 'Ejecutar validación de restore después del backup'
+        required: false
+        default: false
+        type: boolean
+
+jobs:
+  # ─────────────────────────────────────────────────────────────────────────────
+  # Backup diario
+  # ─────────────────────────────────────────────────────────────────────────────
+  backup:
+    name: PostgreSQL Daily Backup
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL_PRODUCTION }}
+      GCS_BUCKET: ${{ secrets.GCS_BACKUP_BUCKET }}
+      PGDATABASE: pos_dian
+      RETENTION_DAYS: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - name: Setup gcloud CLI
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Install PostgreSQL client
+        run: sudo apt-get install -y postgresql-client
+
+      - name: Make scripts executable
+        run: chmod +x infra/scripts/pg-backup-gcs.sh
+
+      - name: Run backup
+        run: bash infra/scripts/pg-backup-gcs.sh
+
+      - name: Alert on failure
+        if: failure()
+        run: echo "::error title=Backup Fallido::El backup de PostgreSQL ha fallado. Revisar logs inmediatamente."
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # Validación semanal de restore (domingos o ejecución manual)
+  # ─────────────────────────────────────────────────────────────────────────────
+  validate:
+    name: Weekly Restore Validation
+    runs-on: ubuntu-latest
+    needs: backup
+    timeout-minutes: 45
+
+    # Ejecutar solo en el cron del domingo o cuando el usuario lo pida manualmente
+    if: >-
+      github.event.schedule == '0 3 * * 0' ||
+      (github.event_name == 'workflow_dispatch' && github.event.inputs.run_validation == 'true')
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: pos_dian
+          POSTGRES_USER: pos
+          POSTGRES_PASSWORD: pos
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+        ports:
+          - 5432:5432
+
+    env:
+      DATABASE_URL: postgres://pos:pos@localhost:5432/pos_dian
+      GCS_BUCKET: ${{ secrets.GCS_BACKUP_BUCKET }}
+      PGDATABASE: pos_dian
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - name: Setup gcloud CLI
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Install PostgreSQL client
+        run: sudo apt-get install -y postgresql-client
+
+      - name: Make scripts executable
+        run: chmod +x infra/scripts/pg-validate-restore.sh
+
+      - name: Run restore validation
+        run: bash infra/scripts/pg-validate-restore.sh
+
+      - name: Alert on failure
+        if: failure()
+        run: echo "::error title=Restore Validation Fallida::La validación del backup falló las comprobaciones de integridad. Revisar el backup inmediatamente."

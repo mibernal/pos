@@ -150,3 +150,44 @@
 - Los pedidos asignados a una mesa se persisten explícitamente en base de datos (`table_orders` y `table_order_items`) y no solo localmente (IndexedDB/State).
 - Cada mesa (`tables`) mantiene una referencia opcional `current_order_id`.
 - **Motivo:** Asegura que distintos cajeros/meseros puedan ver las cuentas en vivo de las mesas. Previene la mezcla local de pedidos y centraliza la totalización real de la cuenta de restaurante.
+
+## D-029 — Sistema Jerárquico de Feature Flags (Macro + Micro)
+- Los Feature Flags del SaaS se organizan en dos capas: **Macro** (habilitan un módulo completo: `enable_restaurant`, `enable_kds`, `enable_delivery`, `enable_inventory`, `enable_reservations`, `enable_fiscal`, `enable_loyalty`, `enable_advanced_reports`) y **Micro** (granulares dentro de cada módulo: `enable_tables`, `enable_split_bill`, `enable_guests_count`, `enable_tips`, `enable_modifiers`, `enable_courses`, `enable_kds`, `enable_kitchen_printing`).
+- Al desactivar un Macro flag, sus Micro flags dependientes se desactivan en cascada. Al activar un Macro, los Micro recuperan su último estado.
+- La lógica de validación vive en el backend (Zod) y en el `platform-admin.repository.ts`.
+- Migración: `086_hierarchical_feature_flags.ts`.
+- **Motivo:** Evitar que un tenant pague por funcionalidades que no usa, sin obligar a mantener una tabla de configuración por módulo por tenant (complejidad exponencial). Un solo JSON en `tenants.modules_json` es suficiente para un SaaS pequeño.
+
+## D-030 — Eliminación del Módulo "Dashboard Live" (Consolidación)
+- El módulo `DashboardScreen` (métricas en tiempo real via SSE) fue eliminado como pantalla independiente.
+- Su lógica de SSE y gráficas fue extraída a `LiveMetricsTab.tsx` e integrada como una nueva pestaña **⚡ En Vivo** dentro de `ReportsScreen`.
+- Archivos eliminados: `DashboardScreen.tsx`, `GlobalDashboardScreen.tsx`. Ruta `dashboard` eliminada de `routes.ts` y `App.tsx`.
+- **Motivo:** El módulo era redundante con Reportes. Consolidarlo reduce la superficie cognitiva del menú y elimina código duplicado sin perder funcionalidad.
+
+## D-031 — Medición SaaS por Snapshots en subscription_events
+- El sistema de medición de uso (billing metrics) no usa tablas adicionales.
+- Un scheduler nocturno (`rollup-billing-usage.scheduler.ts`) calcula por tenant: `sales_count`, `active_users_count`, `branches_count`, `storage_bytes`, `jobs_count` y `api_calls_count`.
+- Los resultados se insertan en `subscription_events` con `type = 'USAGE_SNAPSHOT'` y metadata JSON.
+- El consumo de API se acumula en memoria (batches de 50 requests) antes de volcarse al outbox como `api_metric_tick`.
+- **Motivo:** Evitar la creación de un sistema de billing paralelo. La tabla `subscription_events` ya existía y su columna `metadata: JsonColumn` es perfecta para almacenar snapshots evolutivos sin migraciones futuras.
+
+## D-032 — Backup Automático con pg_dump + GCS + GitHub Actions
+- El backup de PostgreSQL se ejecuta diariamente a las 02:00 UTC mediante un workflow de GitHub Actions.
+- El dump se genera en formato custom de `pg_dump` (comprimido, optimizado para `pg_restore`) y se sube a Google Cloud Storage.
+- La retención es de 30 días con purga automática de archivos más antiguos.
+- Una validación semanal (domingos) restaura el backup más reciente en una instancia efímera de Postgres y verifica la integridad de tablas críticas.
+- Scripts: `infra/scripts/pg-backup-gcs.sh`, `pg-restore.sh`, `pg-validate-restore.sh`.
+- **Motivo:** Costo total ~$0.35 USD/mes. No requiere herramientas externas (Barman, pgBackRest). GitHub Actions Free Tier es suficiente para una operación SaaS pequeña.
+
+## D-033 — Redis con Persistencia Dual (AOF + RDB)
+- La configuración de Redis en producción habilita tanto AOF (`appendonly yes`, `appendfsync everysec`) como snapshots RDB (`save 900 1`, `save 300 10`, `save 60 1000`).
+- AOF garantiza durabilidad de escrituras (máxima pérdida: 1 segundo). RDB provee snapshots comprimidos para backup rápido.
+- `stop-writes-on-bgsave-error yes` evita pérdida silenciosa de datos si el snapshot falla.
+- **Motivo:** Con solo `appendonly yes` (configuración anterior), un fallo del volumen Docker eliminaba los jobs BullMQ en vuelo. La persistencia dual elimina ese riesgo sin costo adicional.
+
+## D-034 — Billing Usage Plugin con Batching en Memoria
+- El plugin `billing-usage.plugin.ts` (Fastify `onResponse` hook) cuenta peticiones autenticadas por tenant en un `Map<tenant_id, count>` en RAM.
+- Al llegar a 50 requests por tenant, inserta de forma asíncrona (fire-and-forget) un evento `api_metric_tick` en `outbox_events`.
+- El Worker procesa estos ticks marcándolos como `SENT` (no requieren acción real, solo contabilización).
+- **Motivo:** Registrar cada petición API directamente en Postgres generaría ~200 ms de overhead adicional por request y colapsaría la DB en tenants de alto volumen. El batching en memoria reduce el I/O de base de datos en 98%.
+

@@ -92,6 +92,13 @@ export interface PlatformTenantSearchResult {
   enable_reservations?: boolean;
   enable_waiter_shifts?: boolean;
   enable_qr_menu?: boolean;
+  enable_guests_count?: boolean;
+  enable_restaurant?: boolean;
+  enable_kds?: boolean;
+  enable_inventory?: boolean;
+  enable_fiscal?: boolean;
+  enable_loyalty?: boolean;
+  enable_advanced_reports?: boolean;
 }
 
 export interface CreatePlatformTenantInput {
@@ -117,6 +124,13 @@ export interface CreatePlatformTenantInput {
   enable_reservations?: boolean;
   enable_waiter_shifts?: boolean;
   enable_qr_menu?: boolean;
+  enable_guests_count?: boolean;
+  enable_restaurant?: boolean;
+  enable_kds?: boolean;
+  enable_inventory?: boolean;
+  enable_fiscal?: boolean;
+  enable_loyalty?: boolean;
+  enable_advanced_reports?: boolean;
 }
 
 export interface UpdatePlatformTenantInput {
@@ -141,6 +155,13 @@ export interface UpdatePlatformTenantInput {
   enable_reservations?: boolean;
   enable_waiter_shifts?: boolean;
   enable_qr_menu?: boolean;
+  enable_guests_count?: boolean;
+  enable_restaurant?: boolean;
+  enable_kds?: boolean;
+  enable_inventory?: boolean;
+  enable_fiscal?: boolean;
+  enable_loyalty?: boolean;
+  enable_advanced_reports?: boolean;
 }
 
 export interface PlatformTenantUser {

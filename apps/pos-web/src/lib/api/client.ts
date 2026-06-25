@@ -333,7 +333,7 @@ export function createApiClient({ baseUrl, getSession, setSession, onReauthRequi
         body: JSON.stringify(payload)
       }),
     listUsers: () => 
-      requestJson<{ id: string; tenantId: string; email: string; name: string; role: UserRole; active: boolean; createdAt: string }[]>('/admin/users'),
+      requestJson<{ id: string; tenantId: string; email: string; name: string; role: UserRole; active: boolean; createdAt: string; branchIds?: string[] }[]>('/admin/users'),
     createUser: (payload: { email: string; name: string; role: string; password: string; active: boolean; branch_ids?: string[] }) => 
       requestJson<{ id: string; tenantId: string; email: string; name: string; role: UserRole; active: boolean; createdAt: string }>('/admin/users', {
         method: 'POST',
@@ -620,6 +620,25 @@ export function createApiClient({ baseUrl, getSession, setSession, onReauthRequi
       requestJson<{ success: boolean }>(`/promotions/${id}`, {
         method: 'DELETE'
       }),
+
+    // RESERVATIONS ENDPOINTS
+    listReservations: (branchId: string, params: { dateFrom?: string; dateTo?: string }) =>
+      requestJson<import('@pos-dian/shared').Reservation[]>(`/branches/${branchId}/reservations?${toQueryString(params as Record<string, string | number | undefined>)}`),
+    createReservation: (branchId: string, payload: import('@pos-dian/shared').CreateReservationPayload) =>
+      requestJson<import('@pos-dian/shared').Reservation>(`/branches/${branchId}/reservations`, {
+        method: 'POST',
+        body: JSON.stringify(payload)
+      }),
+    updateReservation: (branchId: string, id: string, payload: import('@pos-dian/shared').UpdateReservationPayload) =>
+      requestJson<import('@pos-dian/shared').Reservation>(`/branches/${branchId}/reservations/${id}`, {
+        method: 'PUT',
+        body: JSON.stringify(payload)
+      }),
+    updateReservationStatus: (branchId: string, id: string, status: string) =>
+      requestJson<import('@pos-dian/shared').Reservation>(`/branches/${branchId}/reservations/${id}/status`, {
+        method: 'PATCH',
+        body: JSON.stringify({ status })
+      }),
       
     // PLATFORM ENDPOINTS
     listTenants: (params?: { limit?: number; offset?: number; query?: string; status?: string; plan?: string; activity?: string }) =>
@@ -781,3 +800,4 @@ export function createApiClient({ baseUrl, getSession, setSession, onReauthRequi
       })
   };
 }
+export type ApiClient = ReturnType<typeof createApiClient>;

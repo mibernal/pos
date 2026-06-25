@@ -13,7 +13,8 @@ const SUPPORTED_EVENT_TYPES = [
   'SALE_VOIDED',
   'sale_created',
   'sale_voided',
-  'sale_returned'
+  'sale_returned',
+  'api_metric_tick'
 ];
 
 interface OutboxEventToScheduleRow {
@@ -56,6 +57,8 @@ export async function enqueueDueOutboxEvents(
         jobName = 'process-sale-returned-outbox-event';
       } else if (row.type === 'low_stock.alert') {
         jobName = 'process-low-stock-alert-outbox-event';
+      } else if (row.type === 'api_metric_tick') {
+        jobName = 'process-api-metric-tick-outbox-event';
       }
 
       await queue.add(

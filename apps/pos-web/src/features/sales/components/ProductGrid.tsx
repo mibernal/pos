@@ -1,4 +1,4 @@
-import { useRef, useState, useEffect } from 'react';
+import { useRef, useState, useEffect, memo } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { PlaceholderImage } from '../../../components/ui';
 import { formatMoneyFromCents } from '../../../lib/format';
@@ -10,10 +10,10 @@ export interface ProductGridProps {
   hasSearchQuery: boolean;
   highlightedProductId: string | null;
   setHighlightedProductId: (id: string) => void;
-  addProduct: (product: ProductItem, options?: { clearSearch?: boolean }) => void;
+  addProduct: (product: ProductItem) => void;
 }
 
-export function ProductGrid({
+export const ProductGrid = memo(function ProductGrid({
   products,
   productsLoading,
   hasSearchQuery,
@@ -114,7 +114,7 @@ export function ProductGrid({
                       className={`product-card ${highlightedProductId === product.id ? 'is-highlighted' : ''}`}
                       onMouseEnter={() => setHighlightedProductId(product.id)}
                       onTouchStart={() => setHighlightedProductId(product.id)}
-                      onClick={() => addProduct(product, { clearSearch: true })}
+                      onClick={() => addProduct(product)}
                       type="button"
                       style={{ 
                         minHeight: '100%', 
@@ -167,4 +167,4 @@ export function ProductGrid({
       </div>
     </>
   );
-}
+});

@@ -35,6 +35,21 @@ export const productItemSchema = z.object({
     buy_qty: z.number().int().nullable(),
     get_qty: z.number().int().nullable()
   }).nullable().optional(),
+  modifierGroups: z.array(
+    z.object({
+      id: z.string().uuid(),
+      name: z.string(),
+      minSelections: z.number().int().default(0),
+      maxSelections: z.number().int().default(1),
+      options: z.array(
+        z.object({
+          id: z.string().uuid(),
+          name: z.string(),
+          priceCents: z.number().int().nonnegative().default(0)
+        })
+      )
+    })
+  ).optional().default([]),
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime()
 });

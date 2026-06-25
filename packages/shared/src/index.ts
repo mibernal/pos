@@ -20,3 +20,4 @@ export * from './schemas/alerts.js';
 export * from './schemas/promotions.js';
 export * from './schemas/deliveries.js';
 export * from './schemas/tenant-modules.js';
+export * from './schemas/reservations.js';

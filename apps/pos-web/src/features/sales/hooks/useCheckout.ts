@@ -57,9 +57,11 @@ export function useCheckout({
       tip_cents: tipCents,
       items: cartItems.map((item) => ({
         product_id: item.productId,
+        variant_id: item.variantId ?? undefined,
         qty: item.qty,
         price_cents: item.priceCents,
-        notes: item.notes
+        notes: item.notes,
+        modifiers: item.modifiers?.map(m => m.id)
       })),
       payments,
       snapshot: {

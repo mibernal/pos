@@ -19,6 +19,7 @@ export function TicketTemplateModal({
   onSave: (template: TicketTemplateConfig) => void;
   template: TicketTemplateConfig;
   session: AuthSession;
+  refreshSession?: () => Promise<void>;
 }) {
   const [draft, setDraft] = useState<TicketTemplateConfig & { businessType?: string, customBusinessType?: string }>(template);
   const [modules, setModules] = useState({
@@ -88,6 +89,10 @@ export function TicketTemplateModal({
         modules,
         reason: 'Actualización de configuración por el administrador'
       });
+
+      if (refreshSession) {
+        await refreshSession();
+      }
 
       const updated = await api.updateTenantBusinessProfile(parsed.data);
       onSave({

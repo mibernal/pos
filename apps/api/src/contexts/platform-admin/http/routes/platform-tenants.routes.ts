@@ -39,7 +39,14 @@ const createTenantBodySchema = z.object({
   enable_product_modifiers: z.boolean().optional(),
   enable_reservations: z.boolean().optional(),
   enable_waiter_shifts: z.boolean().optional(),
-  enable_qr_menu: z.boolean().optional()
+  enable_qr_menu: z.boolean().optional(),
+  enable_guests_count: z.boolean().optional(),
+  enable_restaurant: z.boolean().optional(),
+  enable_kds: z.boolean().optional(),
+  enable_inventory: z.boolean().optional(),
+  enable_fiscal: z.boolean().optional(),
+  enable_loyalty: z.boolean().optional(),
+  enable_advanced_reports: z.boolean().optional()
 });
 
 const updateTenantBodySchema = z.object({
@@ -64,7 +71,14 @@ const updateTenantBodySchema = z.object({
   enable_product_modifiers: z.boolean().optional(),
   enable_reservations: z.boolean().optional(),
   enable_waiter_shifts: z.boolean().optional(),
-  enable_qr_menu: z.boolean().optional()
+  enable_qr_menu: z.boolean().optional(),
+  enable_guests_count: z.boolean().optional(),
+  enable_restaurant: z.boolean().optional(),
+  enable_kds: z.boolean().optional(),
+  enable_inventory: z.boolean().optional(),
+  enable_fiscal: z.boolean().optional(),
+  enable_loyalty: z.boolean().optional(),
+  enable_advanced_reports: z.boolean().optional()
 });
 
 const changePlanBodySchema = z.object({

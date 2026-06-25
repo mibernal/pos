@@ -1,5 +1,7 @@
 import { formatMoneyFromCents } from '../../../lib/format';
+import React, { useRef, useEffect } from 'react';
 import type { CartItem } from '../../../types';
+import { usePosStore } from '../../../hooks/usePosStore';
 import { readScaleWeight } from '../../../lib/hardware';
 import { useState } from 'react';
 import { PlaceholderImage } from '../../../components/ui';
@@ -12,10 +14,11 @@ export interface CartPanelProps {
   setSelectedCartIndex: (index: number) => void;
   updateCartQty: (index: number, qty: number) => void;
   updateCartNotes: (index: number, notes: string) => void;
+  updateCartCourse?: (index: number, course: number) => void;
   removeCartItem: (index: number) => void;
 }
 
-export function CartPanel({
+export const CartPanel = React.memo(function CartPanel({
   cartItems,
   cartQuantity,
   selectedCartIndex,
@@ -23,9 +26,12 @@ export function CartPanel({
   setSelectedCartIndex,
   updateCartQty,
   updateCartNotes,
+  updateCartCourse,
   removeCartItem
 }: CartPanelProps) {
   const [scaleReadingIndex, setScaleReadingIndex] = useState<number | null>(null);
+  const posContext = usePosStore((state) => state.posContext);
+  const enableOrderRounds = posContext?.modules?.enable_order_rounds ?? false;
 
   async function handleReadScale(index: number) {
     try {
@@ -90,9 +96,21 @@ export function CartPanel({
                         Nota: {item.notes}
                       </div>
                     )}
+                    {item.modifiers && item.modifiers.length > 0 && (
+                      <div style={{ fontSize: '0.75rem', color: 'var(--color-slate-500)', marginTop: '0.25rem', display: 'flex', flexDirection: 'column', gap: '0.125rem' }}>
+                        {item.modifiers.map((mod, i) => (
+                          <span key={`${mod.id}-${i}`}>+ {mod.name} {mod.priceCents > 0 ? `(${formatMoneyFromCents(mod.priceCents)})` : ''}</span>
+                        ))}
+                      </div>
+                    )}
+                    {enableOrderRounds && item.course && item.course > 1 && (
+                      <span style={{ fontSize: '0.65rem', background: 'var(--color-indigo-100)', color: 'var(--color-indigo-700)', padding: '0.125rem 0.375rem', borderRadius: '4px', fontWeight: 600 }}>
+                        Tiempo {item.course}
+                      </span>
+                    )}
                   </div>
                 </div>
-                <strong style={{ color: 'var(--color-slate-900)' }}>{formatMoneyFromCents(item.priceCents * item.qty)}</strong>
+                <strong style={{ color: 'var(--color-slate-900)' }}>{formatMoneyFromCents((item.priceCents + (item.modifiers?.reduce((s, m) => s + m.priceCents, 0) || 0)) * item.qty)}</strong>
               </div>
 
               <div className="cart-row-controls">
@@ -161,6 +179,23 @@ export function CartPanel({
                 >
                   📝
                 </button>
+                {enableOrderRounds && updateCartCourse && (
+                  <select 
+                    style={{ marginLeft: '0.25rem', padding: '0.25rem', border: '1px solid var(--color-slate-300)', borderRadius: '4px', fontSize: '0.75rem', background: 'transparent' }}
+                    value={item.course || 1}
+                    onClick={(e) => e.stopPropagation()}
+                    onChange={(e) => {
+                      e.stopPropagation();
+                      updateCartCourse(index, Number(e.target.value));
+                    }}
+                    title="Asignar Tiempo"
+                  >
+                    <option value={1}>T1</option>
+                    <option value={2}>T2</option>
+                    <option value={3}>T3</option>
+                    <option value={4}>T4</option>
+                  </select>
+                )}
                 <button
                   type="button"
                   className="ghost-button"
@@ -179,4 +214,4 @@ export function CartPanel({
       </div>
     </aside>
   );
-}
+});

@@ -35,6 +35,7 @@ interface SessionContextValue {
   user: AuthSession['user'] | null;
   resolveReauth: (session: AuthSession) => void;
   rejectReauth: () => void;
+  refreshSession: () => Promise<void>;
 }
 
 const SessionContext = createContext<SessionContextValue | null>(null);
@@ -140,6 +141,19 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     }
   }, [clearSession]);
 
+  const refreshSession = useCallback(async () => {
+    if (!sessionRef.current?.accessToken) return;
+    try {
+      const apiInstance = createApiClient({ baseUrl: API_BASE_URL, getSession: () => sessionRef.current, setSession: () => {} });
+      const response = await apiInstance.me();
+      if (sessionRef.current) {
+        commitSession({ ...sessionRef.current, user: response.user });
+      }
+    } catch (error) {
+      // Ignore background refresh errors
+    }
+  }, [commitSession]);
+
   useEffect(() => {
     sessionRef.current = session;
   }, [session]);
@@ -241,13 +255,18 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       }
     }
 
-    void hydrateSession();
+    hydrateSession();
+
+    const handleFocus = () => {
+      void refreshSession();
+    };
+    window.addEventListener('focus', handleFocus);
 
     return () => {
       cancelled = true;
+      window.removeEventListener('focus', handleFocus);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [api, clearSession, commitSession]); // Note: running this once initially. We only re-run if api or clearSession change.
+  }, [api, clearSession, commitSession, refreshSession]);
 
   const value = useMemo<SessionContextValue>(
     () => ({
@@ -256,7 +275,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       clearAuthMessage,
       authState,
       isHydrating,
-      isAuthenticated: authState === 'authenticated' || authState === 'reauth_required', // Treat as authenticated to keep DOM
+      isAuthenticated: authState === 'authenticated',
       login,
       logout,
       role: user?.role ?? null,
@@ -265,9 +284,10 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       token: session?.accessToken ?? null,
       user: user,
       resolveReauth,
-      rejectReauth
+      rejectReauth,
+      refreshSession
     }),
-    [api, authMessage, clearAuthMessage, authState, isHydrating, login, logout, session, user, resolveReauth, rejectReauth]
+    [api, authMessage, clearAuthMessage, authState, isHydrating, login, logout, session, user, resolveReauth, rejectReauth, refreshSession]
   );
 
   return <SessionContext.Provider value={value}>{children}</SessionContext.Provider>;

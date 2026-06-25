@@ -1,11 +1,11 @@
-import React from 'react';
+import React, { memo } from 'react';
 
 export interface CategoryGridProps {
   categories: string[];
   onSelectCategory: (category: string) => void;
 }
 
-export function CategoryGrid({ categories, onSelectCategory }: CategoryGridProps) {
+export const CategoryGrid = memo(function CategoryGrid({ categories, onSelectCategory }: CategoryGridProps) {
   // If there are no categories, show a message
   if (categories.length === 0) {
     return (
@@ -86,4 +86,4 @@ export function CategoryGrid({ categories, onSelectCategory }: CategoryGridProps
       </div>
     </>
   );
-}
+});

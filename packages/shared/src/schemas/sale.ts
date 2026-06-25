@@ -30,7 +30,8 @@ export const saleItemInputSchema = z.object({
   qty: saleQtySchema,
   price_cents: centsSchema.optional(),
   tax_category: productTaxCategorySchema.optional(),
-  notes: z.string().nullable().optional()
+  notes: z.string().nullable().optional(),
+  modifiers: z.array(z.string().uuid()).optional().nullable()
 }).strict();
 
 export const createSaleSchema = z.object({

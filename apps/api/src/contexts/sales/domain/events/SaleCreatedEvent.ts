@@ -7,6 +7,15 @@ export interface SaleCreatedPayload {
   cash_session_id: string | null;
   sale_number: number;
   total_cents: number;
+  table_order_id?: string | null;
+  audit_payload?: {
+    client_uuid: string;
+    items_count: number;
+    subtotal_cents: number;
+    discount_cents: number;
+    tax_total_cents: number;
+    payment_mode: string;
+  };
 }
 
 export class SaleCreatedEvent extends BaseDomainEvent<SaleCreatedPayload> {

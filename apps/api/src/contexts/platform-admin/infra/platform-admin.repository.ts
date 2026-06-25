@@ -130,7 +130,9 @@ export class PlatformAdminRepository {
         't.enable_kitchen_display', 't.enable_kitchen_tickets',
         't.enable_kitchen_printing', 't.enable_order_rounds',
         't.enable_product_modifiers', 't.enable_reservations',
-        't.enable_waiter_shifts', 't.enable_qr_menu'
+        't.enable_waiter_shifts', 't.enable_qr_menu', 't.enable_guests_count',
+        't.enable_restaurant', 't.enable_kds', 't.enable_inventory',
+        't.enable_fiscal', 't.enable_loyalty', 't.enable_advanced_reports'
       ]);
 
     if (opts.query) {

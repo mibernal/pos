@@ -6,6 +6,7 @@ import type { SalesReportResponse, WaitersReportResponse } from '../../lib/api';
 
 import type { TicketTemplateConfig } from '../../lib/ticket-template';
 import { printZReportTicket } from '../../lib/ticket-printer';
+import { LiveMetricsTab } from './LiveMetricsTab';
 
 type DateFilter = 'TODAY' | 'WEEK' | 'MONTH' | 'CUSTOM';
 
@@ -38,7 +39,7 @@ export function ReportsScreen({
 
   const [shiftsData, setShiftsData] = useState<Awaited<ReturnType<PosApiClient['getShiftsReport']>> | null>(null);
   const [waitersData, setWaitersData] = useState<WaitersReportResponse | null>(null);
-  const [activeTab, setActiveTab] = useState<'METRICS' | 'SHIFTS' | 'WAITERS'>('METRICS');
+  const [activeTab, setActiveTab] = useState<'LIVE' | 'METRICS' | 'SHIFTS' | 'WAITERS'>('LIVE');
 
   const fetchReport = useCallback(async () => {
     setLoading(true);
@@ -101,6 +102,16 @@ export function ReportsScreen({
         <div className="flex gap-2 mb-8 bg-muted/50 p-1.5 rounded-xl w-max border border-border/50">
           <button
             className={`px-4 py-2 rounded-lg text-sm font-semibold transition-all duration-200 ${
+              activeTab === 'LIVE'
+                ? 'bg-background text-foreground shadow-sm'
+                : 'text-muted-foreground hover:text-foreground hover:bg-background/50'
+            }`}
+            onClick={() => setActiveTab('LIVE')}
+          >
+            <span className="mr-2">⚡</span> En Vivo
+          </button>
+          <button
+            className={`px-4 py-2 rounded-lg text-sm font-semibold transition-all duration-200 ${
               activeTab === 'METRICS'
                 ? 'bg-background text-foreground shadow-sm'
                 : 'text-muted-foreground hover:text-foreground hover:bg-background/50'
@@ -131,58 +142,62 @@ export function ReportsScreen({
           </button>
         </div>
 
-        {/* Filter Controls */}
-        <div className="bg-card border border-border rounded-xl p-6 shadow-sm mb-8">
-          <div className="flex flex-wrap items-end gap-4">
-            <div className="flex flex-col gap-1.5">
-              <label className="text-sm font-medium text-foreground">Periodo</label>
-              <select
-                value={filter}
-                onChange={(e) => setFilter(e.target.value as DateFilter)}
-                className="h-10 px-3 rounded-md border border-input bg-background text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-              >
-                <option value="TODAY">Día de hoy</option>
-                <option value="WEEK">Últimos 7 días</option>
-                <option value="MONTH">Mes actual</option>
-                <option value="CUSTOM">Personalizado</option>
-              </select>
-            </div>
-
-            {filter === 'CUSTOM' && (
-              <>
-                <div className="flex flex-col gap-1.5">
-                  <label className="text-sm font-medium text-foreground">Desde</label>
-                  <input
-                    type="date"
-                    value={customFrom}
-                    onChange={e => setCustomFrom(e.target.value)}
-                    className="h-10 px-3 rounded-md border border-input bg-background text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                  />
-                </div>
-                <div className="flex flex-col gap-1.5">
-                  <label className="text-sm font-medium text-foreground">Hasta</label>
-                  <input
-                    type="date"
-                    value={customTo}
-                    onChange={e => setCustomTo(e.target.value)}
-                    className="h-10 px-3 rounded-md border border-input bg-background text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                  />
-                </div>
-                <button
-                  type="button"
-                  onClick={() => void fetchReport()}
-                  disabled={loading}
-                  className="h-10 px-4 inline-flex items-center justify-center rounded-md text-sm font-medium bg-primary text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-50 disabled:pointer-events-none"
+        {activeTab !== 'LIVE' && (
+          <div className="bg-card border border-border rounded-xl p-6 shadow-sm mb-8">
+            <div className="flex flex-wrap items-end gap-4">
+              <div className="flex flex-col gap-1.5">
+                <label className="text-sm font-medium text-foreground">Periodo</label>
+                <select
+                  value={filter}
+                  onChange={(e) => setFilter(e.target.value as DateFilter)}
+                  className="h-10 px-3 rounded-md border border-input bg-background text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 >
-                  {loading ? 'Consultando...' : 'Aplicar'}
-                </button>
-              </>
-            )}
+                  <option value="TODAY">Día de hoy</option>
+                  <option value="WEEK">Últimos 7 días</option>
+                  <option value="MONTH">Mes actual</option>
+                  <option value="CUSTOM">Personalizado</option>
+                </select>
+              </div>
+
+              {filter === 'CUSTOM' && (
+                <>
+                  <div className="flex flex-col gap-1.5">
+                    <label className="text-sm font-medium text-foreground">Desde</label>
+                    <input
+                      type="date"
+                      value={customFrom}
+                      onChange={e => setCustomFrom(e.target.value)}
+                      className="h-10 px-3 rounded-md border border-input bg-background text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    />
+                  </div>
+                  <div className="flex flex-col gap-1.5">
+                    <label className="text-sm font-medium text-foreground">Hasta</label>
+                    <input
+                      type="date"
+                      value={customTo}
+                      onChange={e => setCustomTo(e.target.value)}
+                      className="h-10 px-3 rounded-md border border-input bg-background text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    />
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => void fetchReport()}
+                    disabled={loading}
+                    className="h-10 px-4 inline-flex items-center justify-center rounded-md text-sm font-medium bg-primary text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-50 disabled:pointer-events-none"
+                  >
+                    {loading ? 'Consultando...' : 'Aplicar'}
+                  </button>
+                </>
+              )}
+            </div>
           </div>
-        </div>
+        )}
 
         {error && <Banner tone="error" className="mb-6">{error}</Banner>}
-        {loading && <Banner tone="info" className="mb-6">Generando reporte...</Banner>}
+        {loading && activeTab !== 'LIVE' && <Banner tone="info" className="mb-6">Generando reporte...</Banner>}
+
+        {/* Live View */}
+        {activeTab === 'LIVE' && <LiveMetricsTab api={api} branchId={branchId} />}
 
         {/* Metrics View */}
         {activeTab === 'METRICS' && reportData && !loading && (

@@ -2,6 +2,7 @@ import { Kysely } from 'kysely';
 import { Database } from '../../../shared/infra/db/schema.js';
 import { randomUUID } from 'crypto';
 import { TransferTablePayload } from '@pos-dian/shared';
+import { executeAsTenant } from '../../../shared/infra/db/rls.js';
 
 export interface TableOrderItemPayload {
   productId: string;
@@ -9,6 +10,7 @@ export interface TableOrderItemPayload {
   qty: number;
   priceCents: number;
   lineTotalCents: number;
+  course?: number;
   notes?: string | null;
 }
 
@@ -24,30 +26,8 @@ export class TableOrdersRepository {
   constructor(private readonly db: Kysely<Database>) { }
 
   async getTableOrder(tenantId: string, branchId: string, tableId: string) {
-    const order = await this.db.selectFrom('table_orders')
-      .where('tenant_id', '=', tenantId)
-      .where('branch_id', '=', branchId)
-      .where('table_id', '=', tableId)
-      .where('status', '=', 'OPEN')
-      .selectAll()
-      .executeTakeFirst();
-
-    if (!order) return null;
-
-    const items = await this.db.selectFrom('table_order_items')
-      .where('tenant_id', '=', tenantId)
-      .where('branch_id', '=', branchId)
-      .where('table_order_id', '=', order.id)
-      .selectAll()
-      .execute();
-
-    return { order, items };
-  }
-
-  async saveTableOrder(tenantId: string, branchId: string, tableId: string, payload: SaveTableOrderPayload) {
-    return await this.db.transaction().execute(async (trx) => {
-      // Find existing order
-      let order = await trx.selectFrom('table_orders')
+    return await executeAsTenant(this.db, tenantId, async (trx) => {
+      const order = await trx.selectFrom('table_orders')
         .where('tenant_id', '=', tenantId)
         .where('branch_id', '=', branchId)
         .where('table_id', '=', tableId)
@@ -55,9 +35,34 @@ export class TableOrdersRepository {
         .selectAll()
         .executeTakeFirst();
 
+      if (!order) return null;
+
+      const items = await trx.selectFrom('table_order_items')
+        .where('tenant_id', '=', tenantId)
+        .where('branch_id', '=', branchId)
+        .where('table_order_id', '=', order.id)
+        .selectAll()
+        .execute();
+
+      return { order, items };
+    });
+  }
+
+  async saveTableOrder(tenantId: string, branchId: string, tableId: string, payload: SaveTableOrderPayload) {
+    return await executeAsTenant(this.db, tenantId, async (trx) => {
+      // 1. Find existing order WITH ROW LOCK for concurrency
+      let order = await trx.selectFrom('table_orders')
+        .where('tenant_id', '=', tenantId)
+        .where('branch_id', '=', branchId)
+        .where('table_id', '=', tableId)
+        .where('status', '=', 'OPEN')
+        .forUpdate()
+        .selectAll()
+        .executeTakeFirst();
+
       const subtotalCents = payload.items.reduce((sum, item) => sum + item.lineTotalCents, 0);
-      const totalCents = subtotalCents; // No tax/discount logic for now
       const tipCents = payload.tipCents ?? 0;
+      const totalCents = subtotalCents; // No tax/discount logic for now
 
       if (!order) {
         const id = randomUUID();
@@ -108,44 +113,102 @@ export class TableOrdersRepository {
           .execute();
       }
 
-      // Delete existing items
-      await trx.deleteFrom('table_order_items')
+      // 2. Fetch existing items for Reconciliation
+      const existingItems = await trx.selectFrom('table_order_items')
         .where('tenant_id', '=', tenantId)
         .where('branch_id', '=', branchId)
         .where('table_order_id', '=', order.id)
+        .where('item_status', '!=', 'CANCELLED')
+        .selectAll()
         .execute();
 
-      // Insert new items
-      if (payload.items.length > 0) {
-        const itemsToInsert = payload.items.map(item => ({
-          id: randomUUID(),
-          tenant_id: tenantId,
-          branch_id: branchId,
-          table_order_id: order.id,
-          product_id: item.productId,
-          variant_id: item.variantId || null,
-          qty: item.qty,
-          price_cents: item.priceCents,
-          line_total_cents: item.lineTotalCents,
-          notes: item.notes || null
-        }));
+      // 3. Diffing Engine
+      const itemsToInsert = [];
+      const itemsToUpdate = [];
+      const matchedExistingIds = new Set<string>();
 
+      for (const payloadItem of payload.items) {
+        const matchIndex = existingItems.findIndex(ei => 
+          !matchedExistingIds.has(ei.id) &&
+          ei.product_id === payloadItem.productId &&
+          (ei.variant_id || null) === (payloadItem.variantId || null) &&
+          ei.course === (payloadItem.course ?? 1)
+        );
+
+        if (matchIndex !== -1) {
+          // UPDATE: Preserve ID, Modifiers and KDS timestamps
+          const matchedItem = existingItems[matchIndex]!;
+          matchedExistingIds.add(matchedItem.id);
+          itemsToUpdate.push({
+            id: matchedItem.id,
+            qty: payloadItem.qty,
+            price_cents: payloadItem.priceCents,
+            line_total_cents: payloadItem.lineTotalCents,
+            notes: payloadItem.notes || null,
+          });
+        } else {
+          // INSERT: Totally new item
+          itemsToInsert.push({
+            id: randomUUID(),
+            tenant_id: tenantId,
+            branch_id: branchId,
+            table_order_id: order.id,
+            product_id: payloadItem.productId,
+            variant_id: payloadItem.variantId || null,
+            qty: payloadItem.qty,
+            price_cents: payloadItem.priceCents,
+            line_total_cents: payloadItem.lineTotalCents,
+            course: payloadItem.course ?? 1,
+            notes: payloadItem.notes || null,
+            item_status: 'PENDING'
+          });
+        }
+      }
+
+      const itemsToCancel = existingItems.filter(ei => !matchedExistingIds.has(ei.id));
+
+      // 4. Execute Reconciliation
+      if (itemsToInsert.length > 0) {
         await trx.insertInto('table_order_items')
           .values(itemsToInsert)
           .execute();
       }
 
-      const items = await trx.selectFrom('table_order_items')
+      for (const updateItem of itemsToUpdate) {
+        await trx.updateTable('table_order_items')
+          .set({
+            qty: updateItem.qty,
+            price_cents: updateItem.price_cents,
+            line_total_cents: updateItem.line_total_cents,
+            notes: updateItem.notes
+          })
+          .where('id', '=', updateItem.id)
+          .execute();
+      }
+
+      for (const cancelItem of itemsToCancel) {
+        await trx.updateTable('table_order_items')
+          .set({
+            item_status: 'CANCELLED',
+            qty: 0,
+            line_total_cents: 0
+          })
+          .where('id', '=', cancelItem.id)
+          .execute();
+      }
+
+      const finalItems = await trx.selectFrom('table_order_items')
         .where('table_order_id', '=', order.id)
+        .where('item_status', '!=', 'CANCELLED')
         .selectAll()
         .execute();
 
-      return { order, items };
+      return { order, items: finalItems };
     });
   }
 
   async clearTableOrder(tenantId: string, branchId: string, tableId: string) {
-    return await this.db.transaction().execute(async (trx) => {
+    return await executeAsTenant(this.db, tenantId, async (trx) => {
       const order = await trx.selectFrom('table_orders')
         .where('tenant_id', '=', tenantId)
         .where('branch_id', '=', branchId)
@@ -186,7 +249,7 @@ export class TableOrdersRepository {
     payload: TransferTablePayload,
     userId: string
   ) {
-    return await this.db.transaction().execute(async (trx) => {
+    return await executeAsTenant(this.db, tenantId, async (trx) => {
       // 1. Get Source Table and Order
       const sourceOrder = await trx.selectFrom('table_orders')
         .where('tenant_id', '=', tenantId)
@@ -291,7 +354,8 @@ export class TableOrdersRepository {
             round_id: null,
             seat_number: null,
             item_status: 'PENDING',
-            modifiers: null
+            modifiers: null,
+            course: sourceItem.course
           });
         }
       }
@@ -374,7 +438,7 @@ export class TableOrdersRepository {
   }
 
   async sendTableOrderToKitchen(tenantId: string, branchId: string, tableId: string) {
-    return await this.db.transaction().execute(async (trx) => {
+    return await executeAsTenant(this.db, tenantId, async (trx) => {
       const order = await trx.selectFrom('table_orders')
         .where('tenant_id', '=', tenantId)
         .where('branch_id', '=', branchId)
@@ -396,20 +460,20 @@ export class TableOrdersRepository {
         .innerJoin('kitchen_ticket_items as kti', 'kti.kitchen_ticket_id', 'kt.id')
         .where('kt.table_order_id', '=', order.id)
         .where('kt.status', '!=', 'VOID') // assuming VOID tickets don't count towards sent items
-        .select(['kti.product_id', 'kti.variant_id', 'kti.qty'])
+        .select(['kti.product_id', 'kti.variant_id', 'kti.qty', 'kt.course'])
         .execute();
 
-      // Calculate sent quantities per product/variant
+      // Calculate sent quantities per product/variant/course
       const sentQtyMap = new Map<string, number>();
       for (const item of previousSentItems) {
-        const key = `${item.product_id}-${item.variant_id || 'base'}`;
+        const key = `${item.product_id}-${item.variant_id || 'base'}-${item.course}`;
         sentQtyMap.set(key, (sentQtyMap.get(key) || 0) + item.qty);
       }
 
       // Calculate delta
       const itemsToSend = [];
       for (const item of currentItems) {
-        const key = `${item.product_id}-${item.variant_id || 'base'}`;
+        const key = `${item.product_id}-${item.variant_id || 'base'}-${item.course}`;
         const sentQty = sentQtyMap.get(key) || 0;
         const delta = item.qty - sentQty;
 
@@ -444,35 +508,44 @@ export class TableOrdersRepository {
         })
         .execute();
 
-      // 4. Create Kitchen Ticket
-      const ticketId = randomUUID();
-      await trx.insertInto('kitchen_tickets')
-        .values({
-          id: ticketId,
+      // 4. Create Kitchen Tickets grouped by course
+      const itemsByCourse = new Map<number, typeof itemsToSend>();
+      for (const item of itemsToSend) {
+        const course = item.course;
+        if (!itemsByCourse.has(course)) itemsByCourse.set(course, []);
+        itemsByCourse.get(course)!.push(item);
+      }
+
+      for (const [course, courseItems] of itemsByCourse.entries()) {
+        const ticketId = randomUUID();
+        await trx.insertInto('kitchen_tickets')
+          .values({
+            id: ticketId,
+            tenant_id: tenantId,
+            branch_id: branchId,
+            round_id: roundId,
+            table_order_id: order.id,
+            course,
+            status: course === 1 ? 'PENDING' : 'HOLD' // First course is PENDING, others HOLD by default
+          })
+          .execute();
+
+        const ktiData = courseItems.map(item => ({
+          id: randomUUID(),
           tenant_id: tenantId,
           branch_id: branchId,
-          round_id: roundId,
+          kitchen_ticket_id: ticketId,
           table_order_id: order.id,
-          status: 'PENDING'
-        })
-        .execute();
+          product_id: item.product_id,
+          variant_id: item.variant_id,
+          qty: item.qtyToSend,
+          notes: item.notes
+        }));
 
-      // 5. Insert Kitchen Ticket Items
-      const ktiData = itemsToSend.map(item => ({
-        id: randomUUID(),
-        tenant_id: tenantId,
-        branch_id: branchId,
-        kitchen_ticket_id: ticketId,
-        table_order_id: order.id,
-        product_id: item.product_id,
-        variant_id: item.variant_id,
-        qty: item.qtyToSend,
-        notes: item.notes
-      }));
-
-      await trx.insertInto('kitchen_ticket_items')
-        .values(ktiData)
-        .execute();
+        await trx.insertInto('kitchen_ticket_items')
+          .values(ktiData)
+          .execute();
+      }
 
       // Update table_order_items to link to round (optional, but good for tracking)
       const now = new Date();
@@ -484,6 +557,35 @@ export class TableOrdersRepository {
       }
 
       return { order, itemsSent: itemsToSend.map(i => ({ ...i, qty: i.qtyToSend })) };
+    });
+  }
+
+  async fireTableOrderCourse(tenantId: string, branchId: string, tableId: string, course?: number) {
+    return await executeAsTenant(this.db, tenantId, async (trx) => {
+      const order = await trx.selectFrom('table_orders')
+        .where('tenant_id', '=', tenantId)
+        .where('branch_id', '=', branchId)
+        .where('table_id', '=', tableId)
+        .where('status', '=', 'OPEN')
+        .selectAll()
+        .executeTakeFirst();
+
+      if (!order) throw new Error('Table order not found or not open');
+
+      let query = trx.updateTable('kitchen_tickets')
+        .set({ status: 'PENDING' })
+        .where('tenant_id', '=', tenantId)
+        .where('branch_id', '=', branchId)
+        .where('table_order_id', '=', order.id)
+        .where('status', '=', 'HOLD');
+        
+      if (course !== undefined) {
+        query = query.where('course', '=', course);
+      }
+
+      await query.execute();
+
+      return true;
     });
   }
 }

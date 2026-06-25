@@ -24,7 +24,16 @@ export const saleCreatedPayloadSchema = z.object({
   cash_session_id: z.string().uuid().nullable().optional(),
   sale_number: z.coerce.number().optional(),
   total_cents: z.coerce.number().optional(),
-  idempotency_key: z.string().optional()
+  idempotency_key: z.string().optional(),
+  table_order_id: z.string().uuid().nullable().optional(),
+  audit_payload: z.object({
+    client_uuid: z.string(),
+    items_count: z.number(),
+    subtotal_cents: z.number(),
+    discount_cents: z.number(),
+    tax_total_cents: z.number(),
+    payment_mode: z.string()
+  }).optional()
 }).passthrough();
 
 export const saleVoidedPayloadSchema = z.object({

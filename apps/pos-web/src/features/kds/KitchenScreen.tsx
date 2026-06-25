@@ -1,9 +1,10 @@
 import { useState } from 'react';
 import { useGetActiveTickets, useUpdateTicketStatus } from './api/kds.api';
-import { useKitchenWebSocket } from './hooks/useKitchenWebSocket';
+import { useKdsSync } from './hooks/useKdsSync';
 import { KitchenTicketWithItems } from '@pos-dian/shared';
 
 const STATUS_COLUMNS = [
+  { id: 'HOLD', title: 'En Espera (Tiempos)' },
   { id: 'PENDING', title: 'Pendientes' },
   { id: 'PREPARING', title: 'En Preparación' },
   { id: 'READY', title: 'Listos' }
@@ -12,10 +13,10 @@ const STATUS_COLUMNS = [
 export function KitchenScreen({ branchId }: { branchId: string }) {
   // Use the branchId from props
   
-  // Connect to websocket to automatically invalidate queries
-  useKitchenWebSocket(branchId);
+  // Connect to SSE to automatically invalidate queries
+  const { isConnected } = useKdsSync(branchId);
 
-  const { data: tickets = [], isLoading, isError } = useGetActiveTickets(branchId);
+  const { data: tickets = [], isLoading, isError, refetch } = useGetActiveTickets(branchId);
   const { mutate: updateStatus } = useUpdateTicketStatus();
 
   if (isLoading) {
@@ -33,7 +34,21 @@ export function KitchenScreen({ branchId }: { branchId: string }) {
   return (
     <div className="flex flex-col h-screen bg-gray-950 text-white overflow-hidden">
       <header className="p-4 bg-gray-900 border-b border-gray-800 flex justify-between items-center shrink-0">
-        <h1 className="text-xl font-bold">Kitchen Display System</h1>
+        <div className="flex items-center gap-4">
+          <h1 className="text-xl font-bold">Kitchen Display System</h1>
+          <div className="flex items-center gap-2 text-sm px-2">
+            <span className={`w-3 h-3 rounded-full ${isConnected ? 'bg-green-500' : 'bg-red-500'}`}></span>
+            <span className={isConnected ? 'text-green-400' : 'text-red-400'}>
+              {isConnected ? 'Conectado' : 'Desconectado'}
+            </span>
+          </div>
+          <button 
+            onClick={() => refetch()} 
+            className="px-3 py-1 bg-gray-800 hover:bg-gray-700 text-sm rounded border border-gray-700 transition-colors"
+          >
+            Sincronizar
+          </button>
+        </div>
         <div className="flex gap-4 text-sm text-gray-400">
           <span>Tickets activos: {tickets.length}</span>
         </div>
@@ -82,6 +97,11 @@ function TicketCard({ ticket, onStatusChange }: { ticket: KitchenTicketWithItems
       <div className="flex justify-between items-start border-b border-gray-700 pb-2">
         <div>
           <span className="text-sm font-mono text-gray-400">TKT-{ticket.id.slice(0, 6).toUpperCase()}</span>
+          {ticket.course && ticket.course > 1 && (
+            <span className="ml-2 px-2 py-0.5 bg-yellow-900/50 text-yellow-500 rounded text-xs border border-yellow-700/50">
+              Tiempo {ticket.course}
+            </span>
+          )}
           <div className="font-bold text-lg">Mesa/Pedido</div>
         </div>
         <div className={`text-sm font-bold ${isUrgent ? 'text-red-400' : 'text-gray-400'}`}>

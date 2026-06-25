@@ -201,6 +201,7 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
           'tenants.enable_reservations as enable_reservations',
           'tenants.enable_waiter_shifts as enable_waiter_shifts',
           'tenants.enable_qr_menu as enable_qr_menu',
+          'tenants.enable_guests_count as enable_guests_count',
           'tenants.status as tenant_status',
           'ts.plan_id as tenant_plan',
           'users.email as email',

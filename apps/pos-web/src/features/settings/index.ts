@@ -4,3 +4,4 @@ export { TicketTemplateModal } from './TicketTemplateModal';
 export { SetPinModal } from './SetPinModal';
 export { UsersScreen } from './UsersScreen';
 export * from './UsersScreen';
+export { QRMenuScreen } from './QRMenuScreen';

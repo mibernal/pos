@@ -8,6 +8,7 @@ import { buildOutboxSaleCreatedProcessor } from './jobs/outbox-sale-created.proc
 import { buildOutboxSaleVoidedProcessor } from './jobs/outbox-sale-voided.processor.js';
 import { buildOutboxSaleReturnedProcessor } from './jobs/outbox-sale-returned.processor.js';
 import { buildOutboxLowStockAlertProcessor } from './jobs/outbox-low-stock-alert.processor.js';
+import { buildApiMetricTickProcessor } from './jobs/api-metric-tick.processor.js';
 import { buildBulkImportProcessor, BulkImportJobData } from './jobs/bulk-import.processor.js';
 import type { AnyOutboxJobData, OutboxSaleCreatedJobData, OutboxSaleVoidedJobData, OutboxLowStockAlertJobData } from './jobs/types.js';
 import { enqueueDueOutboxEvents } from './scheduler/outbox-events.scheduler.js';
@@ -17,6 +18,7 @@ import { checkAbnormalRefunds } from './scheduler/alerts-abnormal-refunds.schedu
 import { checkStalledOutboxEvents } from './scheduler/alerts-stalled-outbox.scheduler.js';
 import { rollupDailySales } from './scheduler/rollup-daily-sales.scheduler.js';
 import { rollupInventoryValuation } from './scheduler/rollup-inventory-valuation.scheduler.js';
+import { rollupBillingUsage } from './scheduler/rollup-billing-usage.scheduler.js';
 import { runHousekeepingJobs } from './scheduler/cleanup-housekeeping.scheduler.js';
 import { runSubscriptionRenewals } from './scheduler/renewal-engine.scheduler.js';
 import { logWorkerError, logWorkerInfo } from './infra/logging/worker-log.js';
@@ -34,6 +36,7 @@ const outboxSaleCreatedProcessor = buildOutboxSaleCreatedProcessor({ pool: dbPoo
 const outboxSaleVoidedProcessor = buildOutboxSaleVoidedProcessor({ pool: dbPool, provider });
 const outboxSaleReturnedProcessor = buildOutboxSaleReturnedProcessor({ pool: dbPool, provider });
 const outboxLowStockAlertProcessor = buildOutboxLowStockAlertProcessor({ pool: dbPool });
+const apiMetricTickProcessor = buildApiMetricTickProcessor({ pool: dbPool });
 
 const worker = new Worker<AnyOutboxJobData>(
   OUTBOX_QUEUE_NAME,
@@ -46,6 +49,8 @@ const worker = new Worker<AnyOutboxJobData>(
       return outboxSaleReturnedProcessor(job as Job<AnyOutboxJobData>);
     } else if (job.name === 'process-low-stock-alert-outbox-event') {
       return outboxLowStockAlertProcessor(job as Job<OutboxLowStockAlertJobData>);
+    } else if (job.name === 'process-api-metric-tick-outbox-event') {
+      return apiMetricTickProcessor(job as Job<{ outboxEventId: string }>);
     }
     throw new Error(`Unknown job name: ${job.name}`);
   },
@@ -225,6 +230,17 @@ const inventoryRollupTimer = setInterval(() => {
   });
 }, inventoryRollupIntervalMs);
 
+const billingRollupIntervalMs = 24 * 60 * 60 * 1000; // 24 horas
+const billingRollupTimer = setInterval(() => {
+  void rollupBillingUsage(dbPool).catch(err => {
+    logWorkerError({
+      event: 'rollup_billing_usage_failed',
+      message: 'Failed to run billing usage rollup scheduler',
+      error: err
+    });
+  });
+}, billingRollupIntervalMs);
+
 // C8: Schedulers de Limpieza (Housekeeping)
 const housekeepingIntervalMs = 24 * 60 * 60 * 1000; // 24 horas
 const housekeepingTimer = setInterval(() => {
@@ -297,7 +313,7 @@ const healthServer = http.createServer((req, res) => {
   res.end();
 });
 
-const port = process.env.PORT || 8080;
+const port = process.env.WORKER_PORT || process.env.PORT || 8080;
 const host = process.env.HOST || '127.0.0.1';
 healthServer.listen(Number(port), host, () => {
   logWorkerInfo({
@@ -314,6 +330,7 @@ const shutdown = async () => {
   clearInterval(alertsTimer); // C6: cancelar el alerts timer
   clearInterval(salesRollupTimer); // C7: cancelar rollups
   clearInterval(inventoryRollupTimer);
+  clearInterval(billingRollupTimer);
   clearInterval(housekeepingTimer); // C8: cancelar housekeeping
   clearInterval(renewalTimer); // C9: cancelar renovación
   await Promise.all([worker.close(), bulkImportWorker.close(), queue.close(), queueEvents.close(), dbPool.end()]);

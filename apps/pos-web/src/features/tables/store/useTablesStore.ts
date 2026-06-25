@@ -46,7 +46,6 @@ export const useTablesStore = create<TablesState>()(
     {
       name: 'pos-tables-store',
       partialize: (state) => ({ 
-        activeTable: state.activeTable,
         selectedRoomId: state.selectedRoomId
       }),
     }

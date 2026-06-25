@@ -15,6 +15,8 @@ import { useSaveTableOrder } from './api/tables.api';
 import { useSession } from '../auth/context/SessionProvider';
 
 import type { AppRoute } from '../../types';
+import { useReservations } from '../reservations/api/reservations.api';
+import { format, startOfDay, endOfDay } from 'date-fns';
 
 export const TablesScreen: React.FC<{ onNavigate?: (route: AppRoute) => void }> = ({ onNavigate }) => {
   const queryClient = useQueryClient();
@@ -25,8 +27,14 @@ export const TablesScreen: React.FC<{ onNavigate?: (route: AppRoute) => void }> 
   const { data: users = [] } = useQuery({
     queryKey: ['users'],
     queryFn: () => api.listUsers(),
-    enabled: !!currentBranchId
+    enabled: !!currentBranchId,
+    staleTime: 60_000
   });
+
+  const now = new Date();
+  const dateFrom = startOfDay(now).toISOString();
+  const dateTo = endOfDay(now).toISOString();
+  const { data: reservations } = useReservations(api, currentBranchId || '', dateFrom, dateTo);
   
   const [waiterModalTableId, setWaiterModalTableId] = useState<string | null>(null);
   const [openTableModalId, setOpenTableModalId] = useState<string | null>(null);
@@ -52,14 +60,12 @@ export const TablesScreen: React.FC<{ onNavigate?: (route: AppRoute) => void }> 
   // Conectar a WebSockets para actualizaciones en tiempo real
   useTablesWebSocket(currentBranchId);
   
-  const { 
-    selectedRoomId, 
-    setSelectedRoomId, 
-    openCreateRoomModal,
-    openCreateTableModal,
-    openTableDetails,
-    setActiveTable
-  } = useTablesStore();
+  const selectedRoomId = useTablesStore(state => state.selectedRoomId);
+  const setSelectedRoomId = useTablesStore(state => state.setSelectedRoomId);
+  const openCreateRoomModal = useTablesStore(state => state.openCreateRoomModal);
+  const openCreateTableModal = useTablesStore(state => state.openCreateTableModal);
+  const openTableDetails = useTablesStore(state => state.openTableDetails);
+  const setActiveTable = useTablesStore(state => state.setActiveTable);
 
   // Handle default room selection
   React.useEffect(() => {
@@ -144,25 +150,36 @@ export const TablesScreen: React.FC<{ onNavigate?: (route: AppRoute) => void }> 
               </div>
             ) : (
               <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-6 gap-4">
-                {activeRoom.tables.map(table => (
-                  <TableCard 
-                    key={table.id} 
-                    table={table} 
-                    waiterName={table.waiterName}
-                    onAssignWaiter={(id) => setWaiterModalTableId(id)}
-                    onClick={(id) => {
-                      const t = activeRoom.tables.find(x => x.id === id);
-                      if (t) {
-                        if (t.status === 'AVAILABLE') {
-                          setOpenTableModalId(t.id);
-                        } else {
-                          setActiveTable(t);
-                          onNavigate?.('pos');
+                {activeRoom.tables.map(table => {
+                  const nowTime = now.getTime();
+                  const upcomingRes = reservations?.find(r => 
+                    r.tableId === table.id && 
+                    (r.status === 'PENDING' || r.status === 'CONFIRMED') &&
+                    new Date(r.reservationDate).getTime() > nowTime
+                  );
+                  const reservationTime = upcomingRes ? format(new Date(upcomingRes.reservationDate), 'HH:mm') : null;
+
+                  return (
+                    <TableCard 
+                      key={table.id} 
+                      table={table} 
+                      waiterName={table.waiterName}
+                      reservationTime={reservationTime}
+                      onAssignWaiter={(id) => setWaiterModalTableId(id)}
+                      onClick={(id) => {
+                        const t = activeRoom.tables.find(x => x.id === id);
+                        if (t) {
+                          if (t.status === 'AVAILABLE') {
+                            setOpenTableModalId(t.id);
+                          } else {
+                            setActiveTable(t);
+                            onNavigate?.('pos');
+                          }
                         }
-                      }
-                    }} 
-                  />
-                ))}
+                      }} 
+                    />
+                  );
+                })}
               </div>
             )}
           </div>

@@ -8,6 +8,7 @@ import {
   type DeliveryWithDetails,
   type DeliveryPerson
 } from '@pos-dian/shared';
+import { executeAsTenant } from '../../../shared/infra/db/rls.js';
 
 export class DeliveriesRepository {
   constructor(private readonly db: Kysely<Database>) {}
@@ -19,7 +20,7 @@ export class DeliveriesRepository {
     payload: CreateDeliveryPayload,
     totalCents: number
   ): Promise<void> {
-    await this.db.transaction().execute(async (trx) => {
+    await executeAsTenant(this.db, tenantId, async (trx) => {
       await trx
         .insertInto('deliveries')
         .values({
@@ -55,23 +56,24 @@ export class DeliveriesRepository {
   }
 
   async getDeliveryById(tenantId: string, branchId: string, id: string): Promise<DeliveryWithItems | null> {
-    const delivery = await this.db
-      .selectFrom('deliveries')
-      .selectAll()
-      .where('tenant_id', '=', tenantId)
-      .where('branch_id', '=', branchId)
-      .where('id', '=', id)
-      .executeTakeFirst();
+    return await executeAsTenant(this.db, tenantId, async (trx) => {
+      const delivery = await trx
+        .selectFrom('deliveries')
+        .selectAll()
+        .where('tenant_id', '=', tenantId)
+        .where('branch_id', '=', branchId)
+        .where('id', '=', id)
+        .executeTakeFirst();
 
-    if (!delivery) return null;
+      if (!delivery) return null;
 
-    const items = await this.db
-      .selectFrom('delivery_items')
-      .selectAll()
-      .where('delivery_id', '=', id)
-      .execute();
+      const items = await trx
+        .selectFrom('delivery_items')
+        .selectAll()
+        .where('delivery_id', '=', id)
+        .execute();
 
-    return {
+      return {
       id: delivery.id,
       tenantId: delivery.tenant_id,
       branchId: delivery.branch_id,
@@ -97,11 +99,13 @@ export class DeliveriesRepository {
         lineTotalCents: i.line_total_cents
       }))
     };
+    });
   }
 
   async getActiveDeliveries(tenantId: string, branchId: string): Promise<DeliveryWithDetails[]> {
-    const deliveries = await this.db
-      .selectFrom('deliveries')
+    return await executeAsTenant(this.db, tenantId, async (trx) => {
+      const deliveries = await trx
+        .selectFrom('deliveries')
       .leftJoin('delivery_persons', 'delivery_persons.id', 'deliveries.delivery_person_id')
       .select([
         'deliveries.id',
@@ -132,7 +136,7 @@ export class DeliveriesRepository {
     if (deliveries.length === 0) return [];
 
     const deliveryIds = deliveries.map(d => d.id);
-    const items = await this.db
+    const items = await trx
       .selectFrom('delivery_items')
       .selectAll()
       .where('delivery_id', 'in', deliveryIds)
@@ -181,34 +185,39 @@ export class DeliveriesRepository {
         }))
       };
     });
+    });
   }
 
   async updateDeliveryStatus(tenantId: string, branchId: string, id: string, status: DeliveryStatus, saleId?: string): Promise<void> {
-    let updateQuery = this.db
-      .updateTable('deliveries')
+    await executeAsTenant(this.db, tenantId, async (trx) => {
+      let updateQuery = trx
+        .updateTable('deliveries')
       .set({ 
         status, 
         status_updated_at: sql`now()`
       });
       
-    if (saleId !== undefined) {
-      updateQuery = updateQuery.set({ sale_id: saleId });
-    }
+      if (saleId !== undefined) {
+        updateQuery = updateQuery.set({ sale_id: saleId });
+      }
 
-    await updateQuery
-      .where('tenant_id', '=', tenantId)
-      .where('branch_id', '=', branchId)
-      .where('id', '=', id)
-      .execute();
+      await updateQuery
+        .where('tenant_id', '=', tenantId)
+        .where('branch_id', '=', branchId)
+        .where('id', '=', id)
+        .execute();
+    });
   }
 
   async assignDeliveryPerson(tenantId: string, branchId: string, id: string, personId: string): Promise<void> {
-    await this.db
-      .updateTable('deliveries')
+    await executeAsTenant(this.db, tenantId, async (trx) => {
+      await trx
+        .updateTable('deliveries')
       .set({ delivery_person_id: personId })
       .where('tenant_id', '=', tenantId)
       .where('branch_id', '=', branchId)
       .where('id', '=', id)
       .execute();
+    });
   }
 }

@@ -38,3 +38,16 @@ Este documento centraliza las decisiones de arquitectura, lecciones aprendidas y
 - **Fastify & Socket.io Lifecycle:** Al usar `fastify-socket.io`, el binding de eventos de WS dentro de `app.ready()` debe situarse **al final** del registro principal para evitar el crash crítico `FastifyError: Root plugin has already booted`.
 - **Stock Guards:** Las validaciones de inventario negativo deben correr como último paso en el transaction de ventas para minimizar conflictos de bloqueo pesimista (Pessimistic Locking).
 - **TypeScript y ESM:** Configuración en ES Modules implica el uso constante de extensiones `.js` en importaciones relativas dentro del código TypeScript para evitar errores de transpilación.
+
+## Actualizaciones Recientes (Junio 2026)
+
+### Sincronización Offline y Sesiones de Caja
+- **Reasignación Automática de Sesiones:** Cuando el frontend empuja ventas offline guardadas en `PouchDB/LocalStorage`, si la sesión de caja original (`cash_session_id`) ya fue cerrada, el backend intercepta el error `409` buscando la sesión activa actual del usuario en la sucursal y la auto-reasigna. Esto previene pérdidas masivas de ventas que se quedaban atrapadas en el limbo offline.
+
+### Deuda Técnica Resuelta
+- **Deprecación de `tenant_modules`:** Toda la lógica de "Módulos de Tenant" fue extirpada. Ahora los flags (`enable_tips`, `enable_guests_count`, `enable_delivery`) viven directamente en la tabla `tenants`. Esto solucionó un error 500 silencioso en `create-sale.service.ts` y eliminó "Órdenes Fantasma" causadas por el validador obsoleto.
+
+### Auditorías Críticas (A Resolver)
+1. **Zustand Offline Sync Risk:** El middleware `persist` en `useCartStore` actualmente almacena los borradores de mesas (`tableCarts`) en el LocalStorage de la tablet. Esto rompe la sincronización multi-mesero en restaurantes. **Acción requerida:** Retirar `tableCarts` de `persist`.
+2. **TableOrdersRepository Destructivo:** Actualizar una mesa hace un `DELETE FROM table_order_items` y reinserta todo. Esto destruye la identidad de los ítems en cocina (`sent_to_kitchen_at`) y pierde los `modifiers_json`. **Acción requerida:** Migrar a actualización por deltas.
+3. **Optimización FinOps MVP:** Para lanzar a producción con costos de ~$30/mes, se recomienda apagar temporalmente el stack pesado de observabilidad (Tempo, Loki, Grafana) y usar Google Cloud Logging / Sentry hasta la fase de escalamiento.

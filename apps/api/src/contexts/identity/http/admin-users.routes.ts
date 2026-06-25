@@ -7,6 +7,7 @@ import { hashPassword } from '../auth/password.js';
 import { assertCanManageRole, assertIsNotSelfRoleChange } from '../../../shared/infra/security/role-guard.js';
 import { QuotaGuard } from '../../../shared/infra/security/quota-guard.js';
 import { writeAuditLog } from '../../../shared/domain/audit/write-audit-log.js';
+import { jsonArrayFrom } from 'kysely/helpers/postgres';
 
 const createUserBodySchema = z.object({
   email: z.string().email(),
@@ -37,7 +38,20 @@ export const adminUsersRoutes: FastifyPluginAsync = async (app) => {
       return await request.executeAsTenant(async (trx) => {
       let query = trx
         .selectFrom('users')
-        .select(['users.id', 'users.tenant_id', 'users.email', 'users.name', 'users.role', 'users.active', 'users.created_at']);
+        .select((eb) => [
+          'users.id', 
+          'users.tenant_id', 
+          'users.email', 
+          'users.name', 
+          'users.role', 
+          'users.active', 
+          'users.created_at',
+          jsonArrayFrom(
+            eb.selectFrom('user_branches')
+              .select('user_branches.branch_id')
+              .whereRef('user_branches.user_id', '=', 'users.id')
+          ).as('branch_ids')
+        ]);
 
       if (!request.auth!.isPlatformRole) {
         query = query.where('users.tenant_id', '=', request.auth!.tenantId!);
@@ -71,7 +85,8 @@ export const adminUsersRoutes: FastifyPluginAsync = async (app) => {
         name: user.name,
         role: user.role,
         active: user.active,
-        createdAt: user.created_at.toISOString()
+        createdAt: user.created_at.toISOString(),
+        branchIds: user.branch_ids.map(b => b.branch_id)
       }));
       });
     }

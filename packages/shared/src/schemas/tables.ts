@@ -81,6 +81,7 @@ export const TableOrderItemSchema = z.object({
   priceCents: z.number().int().nonnegative(),
   lineTotalCents: z.number().int().nonnegative(),
   notes: z.string().nullable().optional(),
+  course: z.number().int().optional(),
   sentToKitchenAt: z.string().nullable().optional()
 });
 export type TableOrderItem = z.infer<typeof TableOrderItemSchema>;
@@ -115,7 +116,8 @@ export const SaveTableOrderPayloadSchema = z.object({
     qty: z.number().int().positive(),
     priceCents: z.number().int().nonnegative(),
     lineTotalCents: z.number().int().nonnegative(),
-    notes: z.string().nullable().optional()
+    notes: z.string().nullable().optional(),
+    course: z.number().int().optional()
   })),
   tipCents: z.number().int().nonnegative().optional(),
   guestsCount: z.number().int().nullable().optional(),

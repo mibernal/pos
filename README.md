@@ -2,7 +2,7 @@
 
 Un Sistema de Punto de Venta (POS) y Gestión Hospitalaria (Hospitality & Retail) multi-tenant de alto rendimiento con emisión de facturación electrónica (DIAN) en Colombia. Diseñado con una arquitectura modular habilitable (Feature Flags), asíncrona, capacidades Offline-First PWA, observabilidad distribuida y preparado para la nube.
 
-> **Estado actual (Junio 2026):** Sistema Enterprise activo. Transición de polling HTTP a WebSockets en tiempo real completada. Arquitectura de Módulos (TMM) implementada. Catálogo offline-resiliente con Dexie activo.
+> **Estado actual (Junio 2026):** Sistema Enterprise activo. Feature Flags Jerárquicos (Macro + Micro) implementados y configurables desde el SuperAdmin. Sistema de medición SaaS (billing metrics) en producción via snapshots en `subscription_events`. Backup automático diario de PostgreSQL en GCS con validación semanal de integridad. Dashboard Live consolidado en Reportes (pestaña ⚡ En Vivo). Arquitectura de Módulos migrada a tenant flags directos. Sincronización Offline resiliente en cajas operativas.
 
 ---
 
@@ -84,8 +84,6 @@ El SaaS escala dinámicamente mediante 14 Feature Flags granulares, ajustando la
 ### 2. Variables de Entorno
 ```bash
 cp .env.example .env
-cp apps/api/.env.example apps/api/.env
-cp apps/worker/.env.example apps/worker/.env
 cp apps/pos-web/.env.example apps/pos-web/.env
 ```
 

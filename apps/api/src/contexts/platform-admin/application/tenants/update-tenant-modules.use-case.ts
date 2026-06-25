@@ -36,7 +36,14 @@ export class UpdateTenantModulesUseCase {
       enable_product_modifiers: tenant.enable_product_modifiers,
       enable_reservations: tenant.enable_reservations,
       enable_waiter_shifts: tenant.enable_waiter_shifts,
-      enable_qr_menu: tenant.enable_qr_menu
+      enable_qr_menu: tenant.enable_qr_menu,
+      enable_guests_count: tenant.enable_guests_count,
+      enable_restaurant: tenant.enable_restaurant ?? false,
+      enable_kds: tenant.enable_kds ?? false,
+      enable_inventory: tenant.enable_inventory ?? false,
+      enable_fiscal: tenant.enable_fiscal ?? false,
+      enable_loyalty: tenant.enable_loyalty ?? false,
+      enable_advanced_reports: tenant.enable_advanced_reports ?? false
     };
 
     const { newState, auditLogs } = TenantModuleDependencyResolver.resolve(currentState, payload.modules);

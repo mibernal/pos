@@ -65,6 +65,12 @@ const TABLE_NATIVE_TYPES: ReadonlySet<BusinessType> = new Set([
 // ─── Módulos del sistema ──────────────────────────────────────────────────────
 
 export type BusinessModule =
+  | 'restaurant'
+  | 'kds'
+  | 'inventory'
+  | 'fiscal'
+  | 'loyalty'
+  | 'advanced_reports'
   | 'tables'
   | 'delivery'
   | 'waiters'
@@ -79,6 +85,7 @@ export type BusinessModule =
   | 'reservations'
   | 'waiter_shifts'
   | 'qr_menu'
+  | 'guests_count'
   | 'table_transfer'
   | 'pre_check';
 
@@ -131,6 +138,12 @@ export function isTableNativeType(businessType: BusinessType): boolean {
 export const businessTypeFieldSchema = z.object({
   business_type: businessTypeSchema,
   custom_business_type: z.string().trim().min(2).max(80).optional().nullable(),
+  enable_restaurant: z.boolean().optional().default(false),
+  enable_kds: z.boolean().optional().default(false),
+  enable_inventory: z.boolean().optional().default(true),
+  enable_fiscal: z.boolean().optional().default(false),
+  enable_loyalty: z.boolean().optional().default(false),
+  enable_advanced_reports: z.boolean().optional().default(false),
   enable_tables: z.boolean().optional().default(false),
   enable_delivery: z.boolean().optional().default(false),
   enable_waiters: z.boolean().optional().default(false),
@@ -145,6 +158,7 @@ export const businessTypeFieldSchema = z.object({
   enable_reservations: z.boolean().optional().default(false),
   enable_waiter_shifts: z.boolean().optional().default(false),
   enable_qr_menu: z.boolean().optional().default(false),
+  enable_guests_count: z.boolean().optional().default(true),
 });
 
 export type BusinessTypeField = z.infer<typeof businessTypeFieldSchema>;
