@@ -191,3 +191,9 @@
 - El Worker procesa estos ticks marcándolos como `SENT` (no requieren acción real, solo contabilización).
 - **Motivo:** Registrar cada petición API directamente en Postgres generaría ~200 ms de overhead adicional por request y colapsaría la DB en tenants de alto volumen. El batching en memoria reduce el I/O de base de datos en 98%.
 
+## D-035 — Arquitectura Multi-PAC para Integración Fiscal (DIAN)
+- El envío a la DIAN no está acoplado a un único proveedor global.
+- Cada tenant configura su proveedor (`SIIGO`, `ALEGRA`, `FACTURA1`, etc.) y sus credenciales JSON en la tabla `tenant_dian_settings`.
+- El Worker utiliza un Patrón Factory (`buildDianProvider()`) para inyectar dinámicamente el adaptador adecuado en tiempo de procesamiento del outbox.
+- **Motivo:** En un modelo SaaS, es inviable forzar a todos los clientes a facturar a través de un único Proveedor Tecnológico. Esta arquitectura permite abstraer los payloads específicos de cada PAC manteniendo una interfaz centralizada `DianProvider`.
+

@@ -8,6 +8,7 @@ import {
   getDianEmissionBlockReason,
   planDianStatusTransition
 } from '../domain/dian-document-status.js';
+import { buildDianProvider } from '../providers/index.js';
 import { type OutboxSaleCreatedJobData, saleCreatedPayloadSchema } from './types.js';
 import { logWorkerError, logWorkerInfo } from '../infra/logging/worker-log.js';
 import {
@@ -25,12 +26,10 @@ import { executeAsTenantClient } from '../infra/db/rls.js';
 
 interface BuildOutboxSaleCreatedProcessorInput {
   pool: Pool;
-  provider: DianProvider;
 }
 
 export function buildOutboxSaleCreatedProcessor({
-  pool,
-  provider
+  pool
 }: BuildOutboxSaleCreatedProcessorInput) {
   return async (job: Job<OutboxSaleCreatedJobData>): Promise<void> => {
     const claimWindowMs = Math.max(env.OUTBOX_POLL_INTERVAL_MS * 4, 30000);
@@ -310,6 +309,27 @@ export function buildOutboxSaleCreatedProcessor({
     }
 
     try {
+      // Obtener configuracion del proveedor PAC para este tenant
+      let providerConfig;
+      try {
+        const settingsRes = await pool.query(
+          `SELECT provider_name, credentials, test_mode FROM tenant_dian_settings WHERE tenant_id = $1`,
+          [tenantId]
+        );
+        if (settingsRes.rows.length === 0) {
+          throw new Error('Tenant has no DIAN settings configured in tenant_dian_settings');
+        }
+        providerConfig = settingsRes.rows[0];
+      } catch (err) {
+        throw new Error(`Failed to load DIAN settings: ${err instanceof Error ? err.message : 'Unknown'}`);
+      }
+
+      const provider = buildDianProvider({
+        provider_name: providerConfig.provider_name,
+        credentials: providerConfig.credentials as Record<string, unknown>,
+        test_mode: providerConfig.test_mode
+      });
+
       const providerResult = await provider.emitSale(providerPayload);
       const transitionPlan = planDianStatusTransition(dianDocument.status, providerResult.status);
 
@@ -371,7 +391,7 @@ export function buildOutboxSaleCreatedProcessor({
         next_retry_at: nextRetryAt.toISOString(),
         details: {
           current_dian_status: dianDocument.status,
-          provider: env.DIAN_PROVIDER
+          provider: 'DYNAMIC_PAC'
         },
         error
       });

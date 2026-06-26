@@ -44,11 +44,27 @@ export default defineConfig({
     proxy: {
       '/api': {
         target: 'http://127.0.0.1:3000',
-        changeOrigin: true
+        changeOrigin: true,
+        configure: (proxy) => {
+          // Ignorar errores EPIPE: ocurren cuando el navegador cierra una conexión SSE/WS
+          // mientras el servidor aún intenta escribir en ella. Son benignos y esperados.
+          proxy.on('error', (err, _req, _res) => {
+            if ((err as NodeJS.ErrnoException).code !== 'EPIPE') {
+              console.error('[vite:proxy] /api error:', err.message);
+            }
+          });
+        }
       },
       '/socket.io': {
         target: 'http://127.0.0.1:3000',
-        ws: true
+        ws: true,
+        configure: (proxy) => {
+          proxy.on('error', (err, _req, _res) => {
+            if ((err as NodeJS.ErrnoException).code !== 'EPIPE') {
+              console.error('[vite:proxy] /socket.io error:', err.message);
+            }
+          });
+        }
       }
     }
   }

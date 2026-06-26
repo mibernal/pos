@@ -14,7 +14,9 @@ export type AdjustmentStatus = 'DRAFT' | 'COMPLETED' | 'CANCELED';
 export type CountStatus = 'DRAFT' | 'COUNTING' | 'RECONCILING' | 'COMPLETED' | 'CANCELED';
 export type ReceiptType = 'PO_LINKED' | 'BLIND';
 export type TenantTaxMode = 'IVA' | 'INC_RESTAURANT' | 'REGIMEN_SIMPLIFICADO';
+export type TenantDianProviderType = 'SIIGO' | 'ALEGRA' | 'FACTURA1' | 'FACTURADOR_PRO' | 'FACTURATECH' | 'HEKA' | 'DIAN_DIRECT' | 'HTTP_GENERIC' | 'MOCK';
 export type ProductTaxCategory = 'IVA_0' | 'IVA_5' | 'IVA_19' | 'EXEMPT' | 'EXCLUDED' | 'INC_8';
+export type InventoryLedgerOperation = 'SALE_DISCHARGE' | 'SALE_VOID_RECHARGE' | 'SALE_RETURN_RECHARGE' | 'PO_RECEIPT' | 'ADJUSTMENT_IN' | 'ADJUSTMENT_OUT' | 'TRANSFER_IN' | 'TRANSFER_OUT' | 'MANUAL_IN' | 'MANUAL_OUT' | 'CYCLE_COUNT' | 'INITIAL_SYNC';
 export type SalesLedgerOperation = 'SALE_CREATION' | 'SALE_VOID' | 'SALE_RETURN';
 export type CashLedgerOperation = 'OPENING' | 'CASH_SALE' | 'CASH_REFUND' | 'MANUAL_IN' | 'MANUAL_OUT' | 'CLOSING_DISCREPANCY';
 export type ReservationStatus = 'PENDING' | 'CONFIRMED' | 'SEATED' | 'CANCELLED' | 'NO_SHOW';
@@ -71,6 +73,17 @@ export interface TenantsTable {
   suspended_reason: string | null;
   owner_user_id: string | null;
   created_at: Generated<Date>;
+}
+
+export interface TenantDianSettingsTable {
+  tenant_id: string; // PK, FK -> tenants.id
+  provider_name: TenantDianProviderType;
+  credentials: JsonObject; // JSONB
+  test_mode: boolean;
+  resolution_number: string | null;
+  prefix: string | null;
+  created_at: Generated<Date>;
+  updated_at: Generated<Date>;
 }
 
 export interface BranchesTable {
@@ -976,9 +989,9 @@ export interface Database {
   delivery_persons: DeliveryPersonsTable;
   deliveries: DeliveriesTable;
   delivery_items: DeliveryItemsTable;
+  tenant_dian_settings: TenantDianSettingsTable;
   waiters: WaitersTable;
   tenant_module_audit_logs: TenantModuleAuditLogsTable;
   product_modifier_groups: ProductModifierGroupsTable;
   product_modifier_options: ProductModifierOptionsTable;
 }
-

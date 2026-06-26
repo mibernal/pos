@@ -357,3 +357,28 @@ bash infra/scripts/pg-validate-restore.sh
 | `gsutil cp` falla | Sin permisos en bucket | Verificar que SA tiene rol `Storage Object Admin` |
 | Validación falla | Backup corrupto o migraciones faltantes | Investigar el dump anterior; contactar DBA |
 
+---
+
+## Observabilidad y Rendimiento (Métricas y Traces)
+
+El sistema de observabilidad (Prometheus, Loki, Tempo, OpenTelemetry) puede ser un generador importante de costos si se deja encendido permanentemente en producción. 
+
+### Directrices para Producción (10 a 50 clientes SaaS)
+
+1. **Desactivar Tracing Completo:** Mantén la variable `ENABLE_TRACING=false` en Producción. OpenTelemetry inyecta carga en cada request HTTP y DB query.
+2. **Logs a Stdout:** Mantén la variable `ENABLE_LOKI=false` en Producción. `pino-loki` está pensado para desarrollo y staging. En Producción, los logs estructurados JSON salen por `stdout` de Node.js y deben ser capturados por el agente del entorno (CloudWatch, GCP Logging, Datadog Agent, o Promtail).
+3. **Métricas de Negocio (Opcional):** Si usas Prometheus para métricas agregadas de negocio, mantén `docker-compose.obs.yml` pero **sin** Loki y Tempo.
+
+### Encender Depuración Profunda (Troubleshooting)
+
+Si necesitas investigar un cuello de botella o fuga de memoria:
+
+1. Modificar el `.env` de producción temporalmente:
+   ```env
+   ENABLE_TRACING=true
+   ```
+2. Desplegar los componentes de observabilidad bajo demanda:
+   ```bash
+   docker-compose -f infra/docker-compose.obs.yml up -d otel-collector tempo prometheus grafana
+   ```
+3. Recordar apagar la infraestructura y revertir `.env` una vez localizado el error para ahorrar costos (un servidor Tempo y Loki en alto volumen puede costar igual que el propio servidor de la DB).

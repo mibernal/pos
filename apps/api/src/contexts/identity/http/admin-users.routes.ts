@@ -243,7 +243,7 @@ export const adminUsersRoutes: FastifyPluginAsync = async (app) => {
         });
       }
 
-      return reply.send({ success: true });
+      return { success: true };
       });
     }
   );
@@ -314,7 +314,7 @@ export const adminUsersRoutes: FastifyPluginAsync = async (app) => {
         });
       }
 
-      return reply.send({ success: true });
+      return { success: true };
       });
     }
   );
@@ -386,7 +386,7 @@ export const adminUsersRoutes: FastifyPluginAsync = async (app) => {
         }
       })();
 
-      return reply.send({ success: true });
+      return { success: true };
       });
     }
   );

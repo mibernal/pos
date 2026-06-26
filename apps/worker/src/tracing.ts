@@ -27,7 +27,11 @@ const sdk = new NodeSDK({
   ],
 });
 
-sdk.start();
+if (process.env.ENABLE_TRACING === 'true') {
+  sdk.start();
+} else {
+  console.log('Worker Tracing disabled. Set ENABLE_TRACING=true to activate OpenTelemetry.');
+}
 
 process.on('SIGTERM', () => {
   sdk.shutdown()

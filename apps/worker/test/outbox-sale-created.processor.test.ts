@@ -101,7 +101,7 @@ describe('outbox sale created processor', () => {
       >()
     };
 
-    const processor = buildOutboxSaleCreatedProcessor({ pool, provider });
+    const processor = buildOutboxSaleCreatedProcessor({ pool });
     const job = createJob('44444444-4444-4444-a444-444444444444');
 
     await processor(job);
@@ -227,7 +227,7 @@ describe('outbox sale created processor', () => {
       throw new Error(`Query no esperada: ${queryText}`);
     });
 
-    const processor = buildOutboxSaleCreatedProcessor({ pool, provider });
+    const processor = buildOutboxSaleCreatedProcessor({ pool });
     await processor(createJob('44444444-4444-4444-a444-444444444444'));
 
     expect(provider.emitSale).toHaveBeenCalledOnce();
@@ -367,7 +367,7 @@ describe('outbox sale created processor', () => {
       throw new Error(`Query no esperada: ${queryText}`);
     });
 
-    const processor = buildOutboxSaleCreatedProcessor({ pool, provider });
+    const processor = buildOutboxSaleCreatedProcessor({ pool });
     const job = createJob('44444444-4444-4444-a444-444444444444');
 
     await processor(job);
@@ -472,7 +472,7 @@ describe('outbox sale created processor', () => {
       >()
     };
 
-    const processor = buildOutboxSaleCreatedProcessor({ pool, provider });
+    const processor = buildOutboxSaleCreatedProcessor({ pool });
     const job = createJob('44444444-4444-4444-a444-444444444444');
 
     await processor(job);
@@ -581,7 +581,7 @@ describe('outbox sale created processor', () => {
       throw new Error(`Query no esperada: ${queryText}`);
     });
 
-    const processor = buildOutboxSaleCreatedProcessor({ pool, provider });
+    const processor = buildOutboxSaleCreatedProcessor({ pool });
     const job = createJob('44444444-4444-4444-a444-444444444444');
 
     await processor(job);
@@ -691,7 +691,7 @@ describe('outbox sale created processor', () => {
       throw new Error(`Query no esperada: ${queryText}`);
     });
 
-    const processor = buildOutboxSaleCreatedProcessor({ pool, provider });
+    const processor = buildOutboxSaleCreatedProcessor({ pool });
     const job = createJob('44444444-4444-4444-a444-444444444444');
 
     await expect(processor(job)).rejects.toThrow('network timeout');

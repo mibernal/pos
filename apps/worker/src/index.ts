@@ -23,7 +23,6 @@ import { runHousekeepingJobs } from './scheduler/cleanup-housekeeping.scheduler.
 import { runSubscriptionRenewals } from './scheduler/renewal-engine.scheduler.js';
 import { logWorkerError, logWorkerInfo } from './infra/logging/worker-log.js';
 
-const provider = buildDianProvider();
 const dbPool = createDbPool();
 
 const queue = new Queue<AnyOutboxJobData>(OUTBOX_QUEUE_NAME, {
@@ -32,9 +31,9 @@ const queue = new Queue<AnyOutboxJobData>(OUTBOX_QUEUE_NAME, {
   }
 });
 
-const outboxSaleCreatedProcessor = buildOutboxSaleCreatedProcessor({ pool: dbPool, provider });
-const outboxSaleVoidedProcessor = buildOutboxSaleVoidedProcessor({ pool: dbPool, provider });
-const outboxSaleReturnedProcessor = buildOutboxSaleReturnedProcessor({ pool: dbPool, provider });
+const outboxSaleCreatedProcessor = buildOutboxSaleCreatedProcessor({ pool: dbPool });
+const outboxSaleVoidedProcessor = buildOutboxSaleVoidedProcessor({ pool: dbPool, provider: buildDianProvider() });
+const outboxSaleReturnedProcessor = buildOutboxSaleReturnedProcessor({ pool: dbPool, provider: buildDianProvider() });
 const outboxLowStockAlertProcessor = buildOutboxLowStockAlertProcessor({ pool: dbPool });
 const apiMetricTickProcessor = buildApiMetricTickProcessor({ pool: dbPool });
 
@@ -322,7 +321,13 @@ healthServer.listen(Number(port), host, () => {
   });
 });
 
+let isShuttingDown = false;
+
 const shutdown = async () => {
+  // Guard: si ya se está cerrando, ignorar señales duplicadas (SIGINT + SIGTERM simultáneos)
+  if (isShuttingDown) return;
+  isShuttingDown = true;
+
   healthServer.close();
   clearInterval(schedulerTimer);
   clearInterval(dianRecheckTimer);  // C4: cancelar el recheck timer
@@ -339,3 +344,4 @@ const shutdown = async () => {
 
 process.on('SIGINT', shutdown);
 process.on('SIGTERM', shutdown);
+
