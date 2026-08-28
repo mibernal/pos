@@ -95,7 +95,39 @@ export async function up(db: Kysely<any>): Promise<void> {
     WHERE document_number IS NOT NULL
   `.execute(db);
 
-  await sql`GRANT SELECT, INSERT, UPDATE, DELETE ON dian_resolutions TO api_user`.execute(db);
+  // Permisos para el rol de conexión de la API.
+  //
+  // El rol se crea si falta, igual que en las migraciones 057 y 089: `api_user` es un rol
+  // *del clúster*, no de la base, así que restaurar un volcado en un servidor nuevo —o
+  // recrear el contenedor de Postgres— deja el esquema intacto y los roles fuera.
+  // `pg_dump` no exporta roles.
+  //
+  // Un `GRANT … TO api_user` sin esta guarda revienta la migración entera cuando el rol no
+  // está, que es exactamente lo que pasó al desplegar esta migración por primera vez.
+  //
+  // Si tampoco se puede crear (el rol que migra no tiene CREATEROLE), se avisa con un
+  // WARNING visible en la salida en vez de fallar: la tabla y su RLS quedan correctas, y
+  // los permisos se reparan con `./infra/scripts/create-api-role.sh`. Se avisa fuerte
+  // porque sin ese rol la API acaba conectándose con el dueño del esquema y el aislamiento
+  // entre comercios deja de aplicarse (D-036).
+  await sql`
+    DO $$
+    BEGIN
+      IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'api_user') THEN
+        BEGIN
+          CREATE ROLE api_user NOLOGIN;
+          RAISE NOTICE 'Rol api_user creado por la migración 090.';
+        EXCEPTION WHEN insufficient_privilege THEN
+          RAISE WARNING 'No se pudo crear el rol api_user (falta CREATEROLE). La API no podrá conectarse sin BYPASSRLS hasta que se cree: ./infra/scripts/create-api-role.sh';
+        END;
+      END IF;
+
+      IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'api_user') THEN
+        GRANT SELECT, INSERT, UPDATE, DELETE ON dian_resolutions TO api_user;
+      END IF;
+    END
+    $$
+  `.execute(db);
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any

@@ -21,7 +21,7 @@ function readAdminConnectionString(): string {
   if (!connectionString) {
     console.error(
       '[migrate] Falta ADMIN_DATABASE_URL (o DATABASE_URL). Las migraciones necesitan el rol\n' +
-        '          dueño del esquema: el rol de la API no tiene permisos de DDL.'
+      '          dueño del esquema: el rol de la API no tiene permisos de DDL.'
     );
     process.exit(1);
   }
