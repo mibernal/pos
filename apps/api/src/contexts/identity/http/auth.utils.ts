@@ -1,4 +1,5 @@
 import { randomBytes, createHash } from 'node:crypto';
+import { LIVE_SUBSCRIPTION_STATUSES } from '../../billing/application/subscription.service.js';
 
 export function parseExpiryToMs(expiresIn: string): number {
   const match = expiresIn.match(/^(\d+)([dhms])$/);
@@ -139,12 +140,26 @@ export async function getUserForAuth(db: any, userId: string, tenantId?: string)
   let query = db
     .selectFrom('users')
     .leftJoin('tenants', 'tenants.id', 'users.tenant_id')
-    .leftJoin('tenant_subscriptions as ts', 'ts.tenant_id', 'tenants.id')
+    // Solo la suscripción viva: una cancelada es histórico y no es el plan del comercio.
+    .leftJoin('tenant_subscriptions as ts', (join: any) => // eslint-disable-line @typescript-eslint/no-explicit-any
+      join.onRef('ts.tenant_id', '=', 'tenants.id').on('ts.status', 'in', [...LIVE_SUBSCRIPTION_STATUSES])
+    )
     .select([
       'users.id as id',
       'users.tenant_id as tenant_id',
       'tenants.tax_mode as tax_mode',
       'tenants.business_type as business_type',
+      // Los seis macro-módulos de la migración 086. `buildAuthClaims` los leía con
+      // `?? false` y esta consulta no los seleccionaba: valían siempre falso, en el token y
+      // en el frontend. No lo notaba nadie porque ninguna ruta los exigía todavía — el día
+      // que una lo hiciera, habría respondido 403 a todos los comercios, incluidos los que
+      // lo tienen encendido en la base.
+      'tenants.enable_restaurant as enable_restaurant',
+      'tenants.enable_kds as enable_kds',
+      'tenants.enable_inventory as enable_inventory',
+      'tenants.enable_fiscal as enable_fiscal',
+      'tenants.enable_loyalty as enable_loyalty',
+      'tenants.enable_advanced_reports as enable_advanced_reports',
       'tenants.enable_tables as enable_tables',
       'tenants.enable_delivery as enable_delivery',
       'tenants.enable_waiters as enable_waiters',

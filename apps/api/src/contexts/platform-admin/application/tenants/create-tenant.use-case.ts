@@ -4,6 +4,7 @@ import { AppError } from '../../../../shared/infra/errors/app-error.js';
 import { randomUUID } from 'crypto';
 import { hashPassword } from '../../../identity/auth/password.js';
 import { CreateTenantCommand } from '../../domain/platform-admin.types.js';
+import { resolveBillingPlan, periodDaysForCycle } from '../billing-plans/resolve-plan.js';
 
 export class CreateTenantUseCase {
   constructor(private readonly db: Kysely<Database>) {}
@@ -14,6 +15,10 @@ export class CreateTenantUseCase {
 
     const existingTenant = await this.db.selectFrom('tenants').where('nit', '=', payload.tenant_document_number).select('id').executeTakeFirst();
     if (existingTenant) throw new AppError(400, 'BAD_REQUEST', 'El documento del negocio ya está registrado');
+
+    // El plan se resuelve **antes** de abrir la transacción: si la referencia no existe,
+    // el alta se rechaza con 400 en vez de crear un comercio sin suscripción.
+    const plan = await resolveBillingPlan(this.db, payload.plan);
 
     const passwordHash = await hashPassword(payload.password ?? 'Password123*');
     const tenantId = randomUUID();
@@ -71,19 +76,20 @@ export class CreateTenantUseCase {
         branch_id: branchId
       }).execute();
       
-      const planRow = await trx.selectFrom('billing_plans').where('name', '=', payload.plan).selectAll().executeTakeFirst();
-      if (planRow) {
-        await trx.insertInto('tenant_subscriptions').values({
-          id: randomUUID(),
-          tenant_id: tenantId,
-          plan_id: planRow.id,
-          status: 'ACTIVE',
-          current_period_start: new Date(),
-          current_period_end: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // 30 days
-          starts_at: new Date(),
-          expires_at: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)
-        }).execute();
-      }
+      const periodStart = new Date();
+      const periodEnd = new Date(periodStart);
+      periodEnd.setDate(periodEnd.getDate() + periodDaysForCycle(plan.billing_cycle));
+
+      await trx.insertInto('tenant_subscriptions').values({
+        id: randomUUID(),
+        tenant_id: tenantId,
+        plan_id: plan.id,
+        status: 'ACTIVE',
+        current_period_start: periodStart,
+        current_period_end: periodEnd,
+        starts_at: periodStart,
+        expires_at: periodEnd
+      }).execute();
     });
 
     await this.db.insertInto('platform_events').values({
@@ -92,7 +98,7 @@ export class CreateTenantUseCase {
       severity: 'INFO',
       actor_id: actorId,
       actor_email: actorEmail,
-      metadata: { plan: payload.plan, tax_mode: payload.tax_mode } as any // eslint-disable-line @typescript-eslint/no-explicit-any
+      metadata: { plan: plan.id, tax_mode: payload.tax_mode } as any // eslint-disable-line @typescript-eslint/no-explicit-any
     }).execute();
 
     return tenantId;

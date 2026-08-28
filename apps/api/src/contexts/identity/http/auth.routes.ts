@@ -17,7 +17,7 @@ import {
 import { getPermissionsForRole } from '../../../shared/infra/security/permissions.js';
 import { executeAsTenant } from '../../../shared/infra/db/rls.js';
 import { writeAuditLog } from '../../../shared/domain/audit/write-audit-log.js';
-import { SubscriptionService } from '../../billing/application/subscription.service.js';
+import { SubscriptionService, LIVE_SUBSCRIPTION_STATUSES } from '../../billing/application/subscription.service.js';
 import {
   getUserBranchIds,
   generateRefreshToken,
@@ -180,7 +180,11 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
       let candidatesQuery = app.db
         .selectFrom('users')
         .leftJoin('tenants', 'tenants.id', 'users.tenant_id')
-        .leftJoin('tenant_subscriptions as ts', 'ts.tenant_id', 'tenants.id')
+        // Solo la suscripción viva. Sin este filtro, un comercio con histórico de bajas
+        // podía firmar en su token el `plan_id` de una suscripción ya cancelada.
+        .leftJoin('tenant_subscriptions as ts', (join) =>
+          join.onRef('ts.tenant_id', '=', 'tenants.id').on('ts.status', 'in', [...LIVE_SUBSCRIPTION_STATUSES])
+        )
         .select([
           'users.id as id',
           'users.tenant_id as tenant_id',
@@ -188,6 +192,14 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
           'tenants.business_name as tenant_business_name',
           'tenants.tax_mode as tax_mode',
           'tenants.business_type as business_type',
+          // Ver la nota en `getUserForAuth`: sin estas seis, los macro-módulos de la
+          // migración 086 viajaban siempre en falso dentro del token.
+          'tenants.enable_restaurant as enable_restaurant',
+          'tenants.enable_kds as enable_kds',
+          'tenants.enable_inventory as enable_inventory',
+          'tenants.enable_fiscal as enable_fiscal',
+          'tenants.enable_loyalty as enable_loyalty',
+          'tenants.enable_advanced_reports as enable_advanced_reports',
           'tenants.enable_tables as enable_tables',
           'tenants.enable_delivery as enable_delivery',
           'tenants.enable_waiters as enable_waiters',

@@ -28,7 +28,15 @@ describe('CreateTenantUseCase', () => {
       selectFrom: vi.fn().mockReturnThis(),
       where: vi.fn().mockReturnThis(),
       select: vi.fn().mockReturnThis(),
-      executeTakeFirst: vi.fn().mockResolvedValue(null), // Default: no user/tenant exists
+      // El caso de uso consulta, en este orden: usuario existente, comercio existente y el
+      // plan. Los dos primeros deben salir vacíos; el tercero tiene que devolver un plan o
+      // el alta se rechaza con 400 — que es exactamente lo que se corrigió: antes, no
+      // encontrarlo se saltaba la suscripción en silencio.
+      executeTakeFirst: vi
+        .fn()
+        .mockResolvedValueOnce(null)
+        .mockResolvedValueOnce(null)
+        .mockResolvedValue({ id: 'STARTER', name: 'Plan Starter', price_cents: 4990000, billing_cycle: 'MONTHLY' }),
       insertInto: vi.fn().mockReturnThis(),
       values: vi.fn().mockReturnThis(),
       execute: vi.fn().mockResolvedValue(undefined),
