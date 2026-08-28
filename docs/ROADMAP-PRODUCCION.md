@@ -1,6 +1,6 @@
 # Ruta a Producción
 
-Estado al **28 de agosto de 2026** (fases 0–3 cerradas). Este documento es el registro vivo del endurecimiento previo a producción: qué se cerró, con qué evidencia, y qué falta.
+Estado al **28 de agosto de 2026** (fases 0–4 cerradas en su parte de código). Este documento es el registro vivo del endurecimiento previo a producción: qué se cerró, con qué evidencia, y qué falta.
 
 Punto de partida: auditoría sobre `main` del 25 de agosto de 2026. El sistema era funcionalmente rico y estaba operativamente roto — no compilaba, la base no se podía crear desde cero, y el CI llevaba meses sin ejecutar nada real. Nada de lo que sigue es opinión de diseño: son fallos que se reprodujeron y se corrigieron con una prueba que los cubre.
 
@@ -16,7 +16,7 @@ Punto de partida: auditoría sobre `main` del 25 de agosto de 2026. El sistema e
 | 1 | Blindar el dinero y el impuesto | ✅ Completada — 28 ago 2026 |
 | 2 | Recuperar RLS de verdad | ✅ Completada — 28 ago 2026 |
 | 3 | Hacerlo operable | ✅ Completada — 28 ago 2026 |
-| 4 | Cerrar el ciclo fiscal con el PAC real | ⏳ Pendiente · 2–3 semanas, depende de terceros |
+| 4 | Cerrar el ciclo fiscal con el PAC real | ✅ Código completo — 28 ago 2026 · ⏳ falta la certificación con el PAC |
 | 5 | Escala horizontal | ⏳ Diferible hasta ~20 clientes |
 
 ---
@@ -133,16 +133,46 @@ De paso aparecieron dos cosas más: `assertCanManageRole` fallaba **abierto** an
 
 ---
 
-## Fase 4 — Cerrar el ciclo fiscal con el PAC real ⏳
+## Fase 4 — Cerrar el ciclo fiscal con el PAC real ✅ (código) / ⏳ (certificación)
 
-Estimado: 2–3 semanas, con dependencia de terceros. **Conviene arrancar la gestión comercial con el PAC en paralelo, ya**, porque los tiempos de certificación no dependen de nosotros. Bloquea facturar legalmente.
+Todo el trabajo de código está hecho y verificado. Lo que queda **no es deuda técnica sino dependencia de un tercero**: la certificación con el PAC, cuyos tiempos no controlamos. La guía completa —qué preguntarle al proveedor, la secuencia de conmutación, el set de pruebas de habilitación y las consultas de vigilancia— está en `docs/CERTIFICACION-PAC.md`.
 
-- **Certificación end-to-end** contra el ambiente de pruebas del PAC, y luego producción con un tenant piloto y volumen controlado.
-- **Cerrar el ciclo de los documentos en `SENT`**: el recheck ya existe (`DIAN_SENT_RECHECK_DELAY_MS`), falta el webhook o la consulta de confirmación definitiva y una alerta si algo lleva más de N horas sin resolverse. Hoy un documento puede quedarse en `SENT` para siempre sin que nadie se entere.
-- **Resolución, prefijo y rangos por tenant**: los campos ya están en la tabla; falta el control de consecutivo y el aviso de agotamiento *antes* de que se acabe el rango. Quedarse sin numeración un viernes por la tarde es un comercio que no puede facturar.
-- **Vincular domicilios al flujo de venta** para que generen documento fiscal.
+### 1. La numeración fiscal no existía
 
-**Criterio de salida.** Un ciclo completo verificado con la DIAN: factura aceptada, nota crédito por anulación, y consecutivo controlado.
+Lo que se le enviaba al PAC como número de documento era `sales.sale_number`: **el contador interno del comercio**. En Colombia la DIAN autoriza una resolución con prefijo y rango numérico y una vigencia; cada factura electrónica lleva un número de ese rango, consecutivo y sin repetir, y el CUFE/CUDE se calcula sobre él. Enviar otro número significa que el PAC rechaza los documentos o —peor— los acepta, y el hueco aparece meses después en una revisión de la DIAN.
+
+Migración `090_dian_resolutions` y `apps/worker/src/jobs/shared/fiscal-numbering.ts`:
+
+- **El consecutivo se asigna al emitir, no al crear la venta.** Una venta anulada antes de que el worker la procese no quema un número; un hueco hay que justificarlo.
+- **Se persiste en el documento y se reutiliza en los reintentos.** Un PAC lento no genera una ristra de números quemados.
+- **La reserva es un `UPDATE … RETURNING` sobre la fila de la resolución**, que toma un lock hasta el commit: dos workers concurrentes se serializan solos. Deliberadamente *no* es una secuencia de Postgres — las secuencias no retroceden en un rollback, que es exactamente lo que aquí no se puede permitir. Verificado con 12 asignaciones concurrentes: 12 números únicos y consecutivos.
+- **Índice único** por comercio, prefijo y número como última red.
+- **Aviso antes de que sea un problema**: `alert_threshold` por resolución y aviso a 30 días de vencer. Quedarse sin rango un viernes por la tarde es un comercio que no puede facturar hasta que la DIAN autorice otro, y eso toma días.
+- API: `GET/POST/PATCH /api/v1/dian/resolutions`, con un campo `health` (`OK`, `LOW_RANGE`, `EXPIRING`, `EXHAUSTED`, `EXPIRED`) y soporte para arrancar en un número intermedio al migrar un comercio desde otra herramienta.
+
+### 2. El recheck de documentos en `SENT` no hacía nada
+
+El scheduler encontraba los documentos atascados, encolaba un evento para **reemitir**… y la guarda de idempotencia del procesador lo descartaba de inmediato con «document already emitted». El documento seguía en `SENT` para siempre y cada ciclo dejaba una fila más en `outbox_events`. Un bucle que no cerraba nada y acumulaba basura.
+
+Ahora **pregunta** en vez de reemitir —reemitir podría hacer que el PAC acepte dos veces el mismo documento—, y el cierre tiene dos vías que se cubren mutuamente:
+
+- **Consulta al PAC** (`queryStatus`): siempre funciona, con latencia. `UNKNOWN` deja el documento como está: es «no sé decírtelo ahora», no un rechazo.
+- **Webhook firmado** (`POST /api/v1/webhooks/dian/:tenantId/status`): inmediato, pero puede perderse. HMAC-SHA256 sobre el cuerpo crudo; el comercio va en la ruta porque una petición del PAC no trae sesión y la API corre sin `BYPASSRLS` — sin contexto de comercio la consulta devolvería cero filas.
+- **Alerta** `dian_document.unresolved` pasadas `DIAN_SENT_ALERT_HOURS` (6 por defecto), deduplicada por día.
+
+### 3. Un domicilio entregado no generaba documento fiscal
+
+El módulo llegaba hasta ENTREGADO y ahí se acababa: nada creaba la venta, así que **el pedido se cobraba y no se facturaba**. `POST /branches/:branchId/deliveries/:id/invoice` crea la venta reutilizando `createSaleService` y vincula `deliveries.sale_id`.
+
+No se factura automáticamente al marcar ENTREGADO porque una venta necesita turno de caja y medio de pago, y ninguno se puede adivinar. La idempotencia usa un `client_uuid` determinista derivado del id del domicilio: un doble clic devuelve la misma venta, porque un domicilio con dos facturas solo se arregla con nota crédito.
+
+### 4. Lo que falta, y no depende de nosotros
+
+- Certificación end-to-end contra el ambiente de pruebas del PAC.
+- Producción con un comercio piloto y volumen controlado, al menos una semana.
+- Un adaptador propio, si el PAC contratado no encaja con `HTTP_GENERIC` (uno o dos días de trabajo, no una reescritura).
+
+**Criterio de salida.** Un ciclo completo verificado con la DIAN: factura aceptada con CUDE, nota crédito por anulación, y consecutivo sin huecos.
 
 ---
 
@@ -215,7 +245,10 @@ Si alguno está sin marcar, la respuesta a "¿ya podemos salir?" es **no**, sin 
 - [ ] `JWT_SECRET`, contraseñas de Postgres y acceso a Grafana son valores generados, no los del repositorio.
 - [x] Un `SIGTERM` no corta ninguna venta en vuelo.
 - [x] Existe un comando documentado que migra la base en un servidor de producción.
-- [ ] Un ciclo fiscal completo verificado con el PAC real: factura aceptada y nota crédito por anulación.
+- [ ] Un ciclo fiscal completo verificado con el PAC real: factura aceptada y nota crédito por anulación. *(El código está listo; falta la certificación — ver `docs/CERTIFICACION-PAC.md`.)*
+- [x] La numeración fiscal viene de una resolución autorizada, es consecutiva y no se puede duplicar.
+- [x] Un documento que queda en `SENT` se resuelve o se alerta; no se queda colgado en silencio.
+- [x] Un domicilio entregado genera su documento fiscal.
 - [ ] Un restore de backup probado end-to-end en el último mes.
 - [ ] Está escrito y aceptado que el sistema corre en instancia única hasta completar la fase 5.
 
@@ -232,6 +265,6 @@ pnpm --filter @pos-dian/api db:migrate      # con ADMIN_DATABASE_URL
 pnpm lint && pnpm typecheck && pnpm build && pnpm test
 ```
 
-Resultado al cierre de la fase 3: **0 errores de lint** (144 advertencias, ver D-043), **0 errores de tipos**, build correcto, **90 migraciones desde cero** y **243 pruebas verdes** — 153 API contra PostgreSQL real, 41 worker, 31 pos-web, 18 shared.
+Resultado al cierre de la fase 4: **0 errores de lint** (144 advertencias, ver D-043), **0 errores de tipos**, build correcto, **91 migraciones desde cero** y **282 pruebas verdes** — 173 API contra PostgreSQL real, 60 worker, 31 pos-web, 18 shared.
 
-Detalle de las decisiones en `docs/DECISIONS.md` (D-036 … D-055). Procedimientos operativos en `docs/RUNBOOK.md`.
+Detalle de las decisiones en `docs/DECISIONS.md` (D-036 … D-062). Procedimientos operativos en `docs/RUNBOOK.md`. Guía de certificación en `docs/CERTIFICACION-PAC.md`.

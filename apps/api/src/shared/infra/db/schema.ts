@@ -373,6 +373,36 @@ export interface DianDocumentsTable {
   cude: string | null;
   provider_payload_json: JsonColumn;
   provider_response_json: NullableJsonColumn;
+  // Numeración fiscal asignada al emitir (migración 090). Nula mientras el documento no se
+  // haya emitido: una venta que nunca llega al PAC no debe quemar un consecutivo.
+  resolution_id: string | null;
+  prefix: string | null;
+  document_number: string | number | null;
+  created_at: Generated<Date>;
+  updated_at: Generated<Date>;
+}
+
+/**
+ * Resoluciones de facturación autorizadas por la DIAN: prefijo, rango numérico y vigencia.
+ * `current_number` lo mueve exclusivamente el worker al emitir; tocarlo a mano es la forma
+ * más rápida de duplicar un número fiscal.
+ */
+export interface DianResolutionsTable {
+  id: string;
+  tenant_id: string;
+  branch_id: string | null;
+  document_type: Generated<string>;
+  resolution_number: string;
+  resolution_date: Date | string;
+  prefix: string;
+  range_from: string | number;
+  range_to: string | number;
+  current_number: string | number;
+  valid_from: Date | string;
+  valid_until: Date | string;
+  alert_threshold: Generated<number>;
+  is_active: Generated<boolean>;
+  technical_key: string | null;
   created_at: Generated<Date>;
   updated_at: Generated<Date>;
 }
@@ -999,6 +1029,7 @@ export interface Database {
   deliveries: DeliveriesTable;
   delivery_items: DeliveryItemsTable;
   tenant_dian_settings: TenantDianSettingsTable;
+  dian_resolutions: DianResolutionsTable;
   waiters: WaitersTable;
   tenant_module_audit_logs: TenantModuleAuditLogsTable;
   product_modifier_groups: ProductModifierGroupsTable;

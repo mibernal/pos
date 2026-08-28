@@ -72,6 +72,28 @@ export interface DianProviderSalePayload {
   items: DianProviderSaleItemPayload[];
 }
 
+/**
+ * Numeración autorizada por la DIAN.
+ *
+ * `sale.sale_number` es el contador interno del comercio y no sirve como número de factura
+ * electrónica: la DIAN autoriza una resolución con prefijo y rango, y el documento tiene
+ * que llevar un número de ese rango. El CUFE/CUDE se calcula sobre él.
+ */
+export interface DianProviderNumberingPayload {
+  resolution_number: string;
+  resolution_date: string;
+  prefix: string;
+  document_number: number;
+  /** Número completo tal como se imprime y se envía: `SETP990000001`. */
+  full_number: string;
+  range_from: number;
+  range_to: number;
+  valid_from: string;
+  valid_until: string;
+  /** Clave técnica de la resolución; algunos PAC la exigen para firmar. */
+  technical_key: string | null;
+}
+
 export interface DianProviderEmitSaleInput {
   sale_id: string;
   tenant_id: string;
@@ -83,6 +105,29 @@ export interface DianProviderEmitSaleInput {
   tenant: DianProviderTenantPayload;
   branch: DianProviderBranchPayload;
   sale: DianProviderSalePayload;
+  numbering?: DianProviderNumberingPayload;
+}
+
+/**
+ * Consulta del estado de un documento ya enviado.
+ *
+ * La emisión es asíncrona: el PAC acusa recibo (`SENT`) y resuelve después. Sin una forma
+ * de preguntar, un documento puede quedarse en `SENT` para siempre sin que nadie se entere.
+ * Opcional en la interfaz porque no todos los proveedores la ofrecen; cuando falta, el
+ * cierre del ciclo depende del webhook del PAC.
+ */
+export interface DianProviderStatusQueryInput {
+  tenant_id: string;
+  document_id: string;
+  cude: string | null;
+  prefix: string | null;
+  document_number: number | null;
+}
+
+export interface DianProviderStatusQueryResult {
+  status: DianProviderResultStatus | 'UNKNOWN';
+  cude: string | null;
+  raw: Record<string, unknown>;
 }
 
 export interface DianProviderEmitSaleResult {
@@ -93,4 +138,6 @@ export interface DianProviderEmitSaleResult {
 
 export interface DianProvider {
   emitSale(input: DianProviderEmitSaleInput): Promise<DianProviderEmitSaleResult>;
+  /** Opcional: no todos los PAC exponen consulta de estado. */
+  queryStatus?(input: DianProviderStatusQueryInput): Promise<DianProviderStatusQueryResult>;
 }

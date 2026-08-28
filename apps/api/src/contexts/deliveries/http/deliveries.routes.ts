@@ -3,6 +3,8 @@ import { DeliveriesRepository } from '../infra/deliveries.repository.js';
 import { DeliveryPersonsRepository } from '../infra/delivery-persons.repository.js';
 import { z } from 'zod';
 import { randomUUID } from 'node:crypto';
+import { salePaymentSchema } from '@pos-dian/shared';
+import { invoiceDeliveryUseCase } from '../application/invoice-delivery.use-case.js';
 import { 
   CreateDeliverySchema, 
   UpdateDeliveryStatusSchema, 
@@ -168,6 +170,61 @@ export const deliveriesRoutes: FastifyPluginAsyncZod = async (app) => {
         return reply.status(404).send(null);
       }
       return reply.send(updated);
+    }
+  );
+
+  /**
+   * Facturar un domicilio entregado.
+   *
+   * Hasta la fase 4, un domicilio recorría su ciclo completo hasta ENTREGADO y ahí se
+   * acababa: nada creaba la venta, así que el pedido se cobraba y **no se facturaba**.
+   *
+   * No se factura automáticamente al marcar ENTREGADO porque una venta necesita turno de
+   * caja y medio de pago, y ninguno se puede adivinar: el repartidor pudo cobrar en
+   * efectivo, con datáfono, o el cliente pudo pagar por adelantado. Se piden aquí.
+   */
+  app.post(
+    '/branches/:branchId/deliveries/:id/invoice',
+    {
+      schema: {
+        summary: 'Facturar un domicilio entregado: crea la venta y dispara la emisión DIAN',
+        tags: ['Deliveries'],
+        security: [{ bearerAuth: [] }],
+        params: z.object({
+          branchId: z.string().uuid(),
+          id: z.string().uuid()
+        }),
+        body: z.object({
+          cash_session_id: z.string().uuid(),
+          payments: z.array(salePaymentSchema).min(1).max(15)
+        }),
+        response: {
+          201: z.object({ sale_id: z.string().uuid(), already_invoiced: z.boolean() })
+        }
+      },
+      preHandler: [app.requireModule(['delivery']), app.requirePermissions(['sales:create'])]
+    },
+    async (request, reply) => {
+      const tenantId = request.auth!.tenantId!;
+      const { branchId, id } = request.params;
+
+      const result = await invoiceDeliveryUseCase({
+        db: app.db,
+        logger: request.log,
+        tenantId,
+        branchId,
+        deliveryId: id,
+        userId: request.auth!.userId,
+        userRole: request.auth!.role,
+        cashSessionId: request.body.cash_session_id,
+        payments: request.body.payments,
+        requestLogContext: { request_id: request.id, delivery_id: id }
+      });
+
+      return reply.status(201).send({
+        sale_id: result.saleId,
+        already_invoiced: result.alreadyInvoiced
+      });
     }
   );
 

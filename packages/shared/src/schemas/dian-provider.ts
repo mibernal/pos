@@ -54,6 +54,24 @@ export const dianProviderSaleItemSchema = z.object({
   line_total_cents: z.number().int().nonnegative()
 });
 
+/**
+ * Numeración autorizada por la DIAN: prefijo y consecutivo dentro del rango de una
+ * resolución vigente. `sale_number` es el contador interno del comercio y no vale como
+ * número de factura electrónica.
+ */
+export const dianProviderNumberingSchema = z.object({
+  resolution_number: z.string().min(1),
+  resolution_date: z.string().min(1),
+  prefix: z.string().min(1).max(10),
+  document_number: z.number().int().positive(),
+  full_number: z.string().min(1),
+  range_from: z.number().int().positive(),
+  range_to: z.number().int().positive(),
+  valid_from: z.string().min(1),
+  valid_until: z.string().min(1),
+  technical_key: z.string().nullable()
+});
+
 export const dianProviderEmitSaleInputSchema = z.object({
   sale_id: z.string().uuid(),
   tenant_id: z.string().uuid(),
@@ -84,7 +102,11 @@ export const dianProviderEmitSaleInputSchema = z.object({
     tax_lines: z.array(dianProviderTaxLineSchema),
     payments: dianProviderPaymentBreakdownSchema,
     items: z.array(dianProviderSaleItemSchema)
-  })
+  }),
+  // Opcional en el esquema por compatibilidad con los payloads ya persistidos en
+  // `dian_documents.provider_payload_json`; obligatorio en la práctica desde la fase 4, y
+  // el proveedor HTTP rechaza el envío si falta (ver `dian-provider-http-generic`).
+  numbering: dianProviderNumberingSchema.optional()
 });
 
 export type DianProviderEmitSaleInputSchemaInput = z.infer<typeof dianProviderEmitSaleInputSchema>;

@@ -135,17 +135,18 @@ const schedulerTimer: NodeJS.Timeout = setInterval(() => {
     });
 }, env.OUTBOX_POLL_INTERVAL_MS);
 
-// C4: Scheduler de recheck para documentos DIAN en estado SENT
-// Se ejecuta cada 5 minutos (3 veces el intervalo del outbox)
+// Cierre del ciclo de los documentos DIAN que quedan en `SENT`: se le pregunta al PAC por
+// su estado. Antes se reencolaba la emisión, y la guarda de idempotencia del procesador la
+// descartaba de inmediato: el bucle no resolvía nada y acumulaba filas en la bandeja.
 const dianRecheckIntervalMs = env.OUTBOX_POLL_INTERVAL_MS * 3;
 const dianRecheckTimer: NodeJS.Timeout = setInterval(() => {
-  void recheckStuckDianDocuments(dbPool, queue, env.OUTBOX_BATCH_SIZE)
-    .then((recheckCount) => {
-      if (recheckCount > 0) {
+  void recheckStuckDianDocuments(dbPool, env.OUTBOX_BATCH_SIZE)
+    .then((outcome) => {
+      if (outcome.checked > 0) {
         logWorkerInfo({
           event: 'dian_sent_recheck_scheduled',
-          message: 'DIAN SENT recheck enqueued stuck documents',
-          details: { recheckCount }
+          message: 'Reconsulta de documentos DIAN sin resolver',
+          details: { ...outcome }
         });
       }
     })

@@ -295,3 +295,38 @@ Se documentan porque la ausencia de política es una decisión, no un olvido:
 ## D-055 — La barrera de errores dice el estado de la cola offline
 - `ErrorBoundary` envuelve la aplicación entera y, por separado, cada pantalla (con `key={activeRoute}`). Al fallar, consulta `getPendingSalesCount()` y muestra cuántas ventas quedan guardadas en el dispositivo, pidiendo explícitamente no cerrar sesión.
 - **Motivo:** la reacción natural de un cajero ante una pantalla en blanco es recargar, cerrar sesión o reinstalar la app; cerrar sesión sí puede costarle la cola de IndexedDB. El mensaje que evita esa pérdida vale más que el mensaje de error en sí. La barrera por pantalla evita además que un fallo en Reportes tumbe el POS.
+
+## D-056 — El número fiscal lo autoriza una resolución, no el contador interno
+- `dian_resolutions` guarda prefijo, rango, vigencia y consecutivo por comercio. El payload al PAC lleva `numbering` con el prefijo y el número; el proveedor HTTP **rechaza el envío si falta**.
+- **Motivo:** lo que se enviaba como número de documento era `sales.sale_number`, el contador interno del comercio. En Colombia la DIAN autoriza una resolución con prefijo y rango, y el CUFE/CUDE se calcula sobre un número de ese rango. Enviar otro significa que el PAC rechaza los documentos o —peor— los acepta, y el hueco aparece meses después en una revisión, cuando ya no hay forma de reconstruir la numeración.
+
+## D-057 — El consecutivo se asigna al emitir, no al crear la venta
+- `assignDocumentNumber` reserva el número dentro de la transacción de emisión, lo persiste en `dian_documents` y lo reutiliza en los reintentos.
+- **Motivo:** una venta que nunca llega a emitirse —anulada antes de que el worker la procese— no debe quemar un número, porque un hueco en la numeración hay que justificarlo ante la DIAN. Y si cada reintento pidiera un número nuevo, un PAC lento generaría una ristra de números quemados.
+- La reserva es un `UPDATE … RETURNING` sobre la fila de la resolución: toma un lock de fila hasta el commit, así que dos workers concurrentes se serializan solos. **No se usa una secuencia de Postgres a propósito**: las secuencias no retroceden en un rollback, que es exactamente lo que aquí no se puede permitir. Verificado con 12 asignaciones concurrentes.
+- `uq_dian_documents_fiscal_number` (único por comercio, prefijo y número) es la última red: un duplicado choca contra el índice en vez de llegar a la DIAN.
+
+## D-058 — Una sola resolución activa por alcance
+- Índice único parcial sobre `(tenant_id, document_type, branch_id)` con `WHERE is_active`. Cargar una resolución nueva desactiva la anterior del mismo alcance.
+- **Motivo:** dos resoluciones activas producirían dos series de numeración en paralelo sobre el mismo comercio. Es el desastre que todo lo anterior existe para evitar.
+
+## D-059 — El aviso de rango llega antes, no el día que se acaba
+- Cada resolución tiene `alert_threshold`; al bajar de ahí, o a menos de 30 días de vencer, se publica `dian_resolution.alert` en la bandeja de salida, deduplicado por día. El endpoint expone además un campo `health` (`OK`, `LOW_RANGE`, `EXPIRING`, `EXHAUSTED`, `EXPIRED`).
+- **Motivo:** agotar el rango o vencer la resolución deja al comercio sin poder facturar, de golpe, y conseguir una nueva ante la DIAN toma días. Enterarse el viernes por la tarde no sirve de nada.
+
+## D-060 — Los documentos en `SENT` se resuelven preguntando, no reemitiendo
+- `dian-sent-recheck.scheduler.ts` llama a `queryStatus` del proveedor y aplica el desenlace. `UNKNOWN` deja el documento como está.
+- **Motivo:** el scheduler anterior reencolaba el evento para *reemitir*, y la guarda de idempotencia del procesador (`getDianEmissionBlockReason`) descartaba el trabajo de inmediato con «document already emitted». El documento seguía en `SENT` indefinidamente y cada ciclo dejaba una fila más en `outbox_events`: un bucle que no cerraba nada y acumulaba basura. Reemitir, además, es justo lo que no se debe hacer — el PAC podría aceptar dos veces el mismo documento.
+- `UNKNOWN` significa «el proveedor no supo decirlo ahora», no un rechazo: inventar un desenlace ahí sería marcar como rechazada una factura que la DIAN podría haber aceptado.
+
+## D-061 — El webhook del PAC va firmado y con el comercio en la ruta
+- `POST /api/v1/webhooks/dian/:tenantId/status`, con HMAC-SHA256 sobre el cuerpo crudo en `x-dian-signature`, comparado en tiempo constante. Sin `DIAN_WEBHOOK_SECRET` el endpoint responde 401.
+- **Motivo del comercio en la ruta:** una petición del PAC no trae sesión, y la API se conecta con un rol sin `BYPASSRLS`. Sin contexto de comercio la consulta a `dian_documents` devolvería cero filas y el webhook no encontraría nada nunca. Con el comercio en la ruta, el RLS además impide que una notificación dirigida a un comercio toque los documentos de otro.
+- Responde 200 salvo firma inválida: un 500 provocaría reintentos en bucle del PAC por un documento que quizá ya no existe. Un documento ya resuelto no se reabre.
+- Las dos vías conviven a propósito: el webhook es inmediato pero puede perderse; la consulta es más lenta pero siempre funciona.
+
+## D-062 — Un domicilio se factura explícitamente, no al marcarlo entregado
+- `POST /branches/:branchId/deliveries/:id/invoice` recibe turno de caja y medios de pago, crea la venta reutilizando `createSaleService` y vincula `deliveries.sale_id`.
+- **Motivo:** el módulo de domicilios llegaba hasta ENTREGADO y ahí se acababa — nada creaba la venta, así que **el pedido se cobraba y no se facturaba**. No se factura automáticamente porque una venta necesita turno de caja y medio de pago, y ninguno se puede adivinar: el repartidor pudo cobrar en efectivo, con datáfono, o el cliente pudo pagar por adelantado.
+- La idempotencia usa un `client_uuid` determinista derivado del id del domicilio, de modo que un doble clic o un reintento de red devuelven la misma venta. Un domicilio con dos facturas solo se arregla con nota crédito.
+- Los precios y los impuestos los recalcula el servidor desde el catálogo: `deliveries.total_cents` es informativo y no se usa como base gravable (D-039).

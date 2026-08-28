@@ -320,7 +320,8 @@ Plan completo, con el porqué de cada ítem y los criterios de salida, en **`doc
 - [x] ~~Apagado ordenado en la API (`SIGTERM` → drenaje) y comando documentado de migración en un servidor productivo~~ — Fase 3.
 - [x] ~~`helmet`, `/metrics` autenticado, token de sesión fuera del query string, validación de entropía de `JWT_SECRET`~~ — Fase 3.
 - [ ] Gestión de secretos (Vault / GCP Secret Manager); rotar en los entornos reales toda credencial de ejemplo del repositorio. Es trabajo de infraestructura, no de código.
-- [ ] Provider DIAN real certificado y cierre del ciclo para documentos en `SENT`; control de resolución y consecutivo — Fase 4. **Bloquea facturar legalmente.**
+- [x] ~~Cierre del ciclo para documentos en `SENT`; control de resolución y consecutivo~~ — Fase 4.
+- [ ] Provider DIAN real **certificado** — Fase 4. **Bloquea facturar legalmente.** El código está listo; la certificación depende del PAC. Guía: `docs/CERTIFICACION-PAC.md`.
 - [ ] Instancia única hasta completar la Fase 5 (advisory locks, adaptador Redis de Socket.io, `SKIP LOCKED`). Debe estar aceptado por escrito.
 - [ ] Despliegue con HTTPS y monitoreo centralizado en la nube.
 - [ ] Políticas operativas: soporte, rotación de usuarios y recuperación de incidentes.
@@ -586,3 +587,92 @@ SELECT enable_tables, enable_waiters FROM tenants WHERE id = '<tenant>';
 ```
 
 El flag se activa desde el SuperAdmin de plataforma. Activar `enable_waiters` activa `enable_tables` en cascada (la dependencia está declarada en `TenantModuleDependencyResolver`).
+
+
+---
+
+## Operación fiscal (fase 4)
+
+### Cargar la resolución de facturación
+
+Sin una resolución activa el comercio **no puede emitir**: el worker registra `dian_numbering_unavailable` y el evento queda reintentando hasta que se cargue.
+
+```bash
+curl -X POST "$API/dian/resolutions" \
+  -H "Authorization: Bearer $TOKEN" -H 'content-type: application/json' \
+  -d '{
+    "resolution_number": "18764000001234",
+    "resolution_date": "2026-08-01",
+    "prefix": "SETP",
+    "range_from": 990000000,
+    "range_to": 995000000,
+    "valid_from": "2026-08-01",
+    "valid_until": "2028-08-01",
+    "alert_threshold": 500
+  }'
+```
+
+Al migrar un comercio que ya venía facturando con otra herramienta, añade `"start_at": <primer número libre>` para no repetir números.
+
+Cargar una resolución nueva **desactiva la anterior** del mismo alcance: nunca hay dos series de numeración en paralelo.
+
+### Revisar la salud de la numeración
+
+```bash
+curl -s "$API/dian/resolutions" -H "Authorization: Bearer $TOKEN" | jq '.[] | {prefix, next_number, remaining, days_until_expiry, health}'
+```
+
+| `health` | Significado | Qué hacer |
+|---|---|---|
+| `OK` | Todo en orden | Nada |
+| `LOW_RANGE` | Quedan menos números que `alert_threshold` | Solicitar rango nuevo a la DIAN — toma días |
+| `EXPIRING` | Vence en 30 días o menos | Solicitar resolución nueva |
+| `EXHAUSTED` | Rango agotado | **El comercio no puede facturar.** Urgente |
+| `EXPIRED` | Vigencia terminada | **El comercio no puede facturar.** Urgente |
+
+Las alertas llegan solas a la bandeja de salida como `dian_resolution.alert`, deduplicadas por día.
+
+### «Una venta no generó factura»
+
+1. ¿El documento existe y en qué estado está?
+
+   ```sql
+   SELECT d.id, d.prefix, d.document_number, d.status, d.cude, d.updated_at
+   FROM dian_documents d WHERE d.sale_id = '<venta>';
+   ```
+
+2. Sin fila: el evento de la bandeja no se procesó. Mira `outbox_events` para esa venta y el log del worker.
+3. `status = 'PENDING'` y sin `document_number`: no se pudo asignar numeración. Busca `dian_numbering_unavailable` en el log — casi siempre es resolución ausente, agotada o vencida.
+4. `status = 'SENT'` desde hace horas: el PAC no ha resuelto. El scheduler pregunta cada ~5 minutos; pasadas `DIAN_SENT_ALERT_HOURS` publica `dian_document.unresolved`.
+5. `status = 'REJECTED'`: mira `provider_response_json` para el motivo.
+
+### Documentos que no cierran
+
+```sql
+SELECT id, prefix, document_number, status,
+       round(EXTRACT(EPOCH FROM (NOW() - updated_at)) / 3600) AS horas_sin_resolver
+FROM dian_documents
+WHERE status IN ('PENDING', 'SENT') AND updated_at < NOW() - INTERVAL '2 hours'
+ORDER BY updated_at;
+```
+
+Si el PAC no ofrece consulta de estado (`queryStatus`), el cierre depende del webhook: comprueba que `DIAN_WEBHOOK_SECRET` esté configurado y que la URL `POST /api/v1/webhooks/dian/<tenantId>/status` esté registrada en el panel del proveedor.
+
+### Facturar un domicilio entregado
+
+```bash
+curl -X POST "$API/branches/$BRANCH/deliveries/$DELIVERY/invoice" \
+  -H "Authorization: Bearer $TOKEN" -H 'content-type: application/json' \
+  -d '{"cash_session_id":"<sesión abierta>","payments":[{"method":"CASH","amount_cents":25000}]}'
+```
+
+Solo se factura un domicilio en estado `DELIVERED`. Llamarlo dos veces devuelve la misma venta (`already_invoiced: true`): la idempotencia deriva del id del domicilio.
+
+Domicilios entregados pendientes de facturar:
+
+```sql
+SELECT id, customer_name, total_cents, status_updated_at
+FROM deliveries
+WHERE tenant_id = '<comercio>' AND status = 'DELIVERED' AND sale_id IS NULL
+ORDER BY status_updated_at;
+```

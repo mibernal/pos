@@ -47,6 +47,8 @@ import { waitersRoutes } from '../contexts/tables/presentation/waiters.routes.js
 import { kdsRoutes } from '../contexts/tables/presentation/kds.routes.js';
 import { kdsSyncRoutes } from '../contexts/kds/http/kds-sync.routes.js';
 import { deliveriesRoutes } from '../contexts/deliveries/http/deliveries.routes.js';
+import { dianResolutionsRoutes } from '../contexts/fiscal/http/dian-resolutions.routes.js';
+import { dianWebhookRoutes } from '../contexts/fiscal/http/dian-webhook.routes.js';
 import { auditContextStorage } from '../shared/infra/audit/audit-context.js';
 import { createDb } from '../shared/infra/db/connection.js';
 import { executeAsTenant } from '../shared/infra/db/rls.js';
@@ -344,6 +346,8 @@ export async function buildApp() {
   await app.register(kdsRoutes, { prefix: '/api/v1' });
   await app.register(kdsSyncRoutes, { prefix: '/api/v1' });
   await app.register(deliveriesRoutes, { prefix: '/api/v1' });
+  await app.register(dianResolutionsRoutes, { prefix: '/api/v1' });
+  await app.register(dianWebhookRoutes, { prefix: '/api/v1' });
 
   // Add prometheus metrics
   // eslint-disable-next-line @typescript-eslint/ban-ts-comment

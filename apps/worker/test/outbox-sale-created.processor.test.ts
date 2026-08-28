@@ -66,6 +66,41 @@ function createPoolMock(
     if (queryText.includes('tenant_dian_settings')) {
       return { rows: [{ provider_name: 'MOCK', credentials: {}, test_mode: true }] } as QueryResultLike;
     }
+    // Numeración fiscal (fase 4). El comportamiento propio de la asignación —consecutivo,
+    // concurrencia, agotamiento, reintento— se prueba contra Postgres real en
+    // `fiscal-numbering.test.ts`; aquí solo hace falta que el procesador obtenga un número
+    // para poder seguir hasta la emisión, que es lo que estas pruebas cubren.
+    if (queryText.includes('SELECT resolution_id, prefix, document_number')) {
+      const fromTest = await implementation(queryText, params).catch(() => null);
+      return (fromTest ?? { rows: [{ resolution_id: null, prefix: null, document_number: null }] }) as QueryResultLike;
+    }
+    if (queryText.includes('UPDATE dian_resolutions')) {
+      const fromTest = await implementation(queryText, params).catch(() => null);
+      return (fromTest ??
+        {
+          rows: [
+            {
+              id: '99999999-9999-4999-a999-999999999999',
+              resolution_number: '18764000001234',
+              resolution_date: '2026-01-01',
+              prefix: 'SETP',
+              range_from: '990000000',
+              range_to: '990010000',
+              current_number: '990000001',
+              alert_threshold: 500,
+              valid_from: '2026-01-01',
+              valid_until: '2027-01-01',
+              technical_key: null
+            }
+          ]
+        }) as QueryResultLike;
+    }
+    if (queryText.includes('SET resolution_id')) {
+      return { rows: [] } as QueryResultLike;
+    }
+    if (queryText.includes("'dian_resolution.alert'")) {
+      return { rows: [] } as QueryResultLike;
+    }
     // Guarda «la venta no se anuló antes de emitirse». Por defecto la venta está viva;
     // la prueba que cubre la anulación temprana la sobrescribe con su implementación.
     if (queryText.includes('SELECT status FROM sales')) {

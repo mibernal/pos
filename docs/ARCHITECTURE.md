@@ -31,6 +31,7 @@
 - **`bulk_import_jobs`**: Control de cargas masivas de catálogo procesadas en background.
 - **`idempotency_records`**: Tracking de peticiones seguras (ej. creación de ventas) con TTL de 24h.
 - **`dian_documents` / `outbox_events`**: Orquestación asíncrona de facturación electrónica.
+- **`dian_resolutions`**: Resoluciones de facturación autorizadas por la DIAN (prefijo, rango, vigencia, consecutivo). Es de donde sale el número de cada factura electrónica.
 
 ---
 
@@ -58,6 +59,38 @@ pos-web → POST /auth/login
 - `products.tax_category` por producto: `IVA_19`, `IVA_5`, `IVA_0`, `EXEMPT`, `EXCLUDED`, `INC_8`.
 - La API resuelve y persiste: `subtotal_cents`, `discount_cents`, `tax_total_cents`, `tax_lines_json`, `total_cents`.
 - El ticket muestra texto contextual: `Incluye IVA` o `Incluye INC`.
+
+### 2.b Numeración fiscal (resoluciones DIAN)
+
+La DIAN autoriza una **resolución** con prefijo, rango numérico y vigencia. Cada documento electrónico lleva un número de ese rango y el CUFE/CUDE se calcula sobre él. `sales.sale_number` es el contador interno del comercio y **no** sirve como número de factura.
+
+```
+Admin carga la resolución  →  dian_resolutions (prefijo, rango, vigencia, current_number)
+Worker va a emitir         →  assignDocumentNumber() reserva el siguiente consecutivo
+                              (UPDATE ... RETURNING = lock de fila hasta el commit)
+                           →  se persiste en dian_documents (resolution_id, prefix, document_number)
+                           →  se envía al PAC dentro de `numbering`
+Reintento                  →  reutiliza el número persistido, no consume otro
+Rollback de la emisión     →  el número vuelve al rango (no es una secuencia)
+```
+
+Puntos que conviene no perder de vista:
+
+- El número se asigna **al emitir**, no al crear la venta: una venta anulada antes de que el worker la procese no quema un consecutivo, y un hueco hay que justificarlo ante la DIAN.
+- La reserva **no** usa una secuencia de Postgres a propósito: las secuencias no retroceden en un rollback.
+- `uq_dian_documents_fiscal_number` impide dos documentos con el mismo número dentro de un comercio.
+- Un índice único parcial garantiza **una sola resolución activa** por comercio, tipo de documento y sucursal: dos activas producirían dos series de numeración en paralelo.
+- Alertas antes del problema: `dian_resolution.alert` cuando el rango baja de `alert_threshold` o faltan 30 días para vencer.
+
+### 2.c Cierre del ciclo: documentos en `SENT`
+
+La emisión es asíncrona; el PAC acusa recibo y resuelve después. Dos vías que se cubren mutuamente:
+
+- **Consulta** (`queryStatus`, cada ~5 min): siempre funciona. `UNKNOWN` deja el documento como está — es «no sé decírtelo ahora», no un rechazo.
+- **Webhook** (`POST /api/v1/webhooks/dian/:tenantId/status`): inmediato pero puede perderse. HMAC-SHA256 sobre el cuerpo crudo. El comercio va en la ruta porque una petición del PAC no trae sesión y la API corre sin `BYPASSRLS`.
+- **Alerta** `dian_document.unresolved` pasadas `DIAN_SENT_ALERT_HOURS`.
+
+El scheduler **no reemite**: reemitir un documento ya enviado podría hacer que el PAC lo acepte dos veces (D-060).
 
 ### 3. Flujo DIAN con Worker (Transactional Outbox)
 
@@ -126,9 +159,14 @@ POST /sales/:id/void (solo ADMIN, requiere motivo)
 2. Estado inicial: PENDING.
 3. Cocina toma el pedido → PREPARATION.
 4. Se asigna repartidor (DeliveryPerson) → ON_WAY.
-5. Repartidor entrega → DELIVERED → Se dispara la facturación electrónica/creación de Sale.
-6. Si el cliente paga por adelantado, la facturación se asocia de inmediato y el cobro se asegura antes del envío.
+5. Repartidor entrega → DELIVERED.
+6. POST /branches/:branchId/deliveries/:id/invoice (turno de caja + medios de pago)
+   → crea la venta → outbox SALE_CREATED → documento fiscal.
 ```
+
+**La facturación es un paso explícito, no automática al marcar ENTREGADO** (D-062): una venta necesita turno de caja y medio de pago, y ninguno se puede adivinar — el repartidor pudo cobrar en efectivo, con datáfono, o el cliente pudo pagar por adelantado. La idempotencia usa un `client_uuid` determinista derivado del id del domicilio, de modo que un doble clic devuelve la misma venta.
+
+Hasta la fase 4 este flujo terminaba en el paso 5: nada creaba la venta, así que el pedido se cobraba y **no se facturaba**.
 
 ---
 
@@ -351,9 +389,10 @@ Plan completo y razonado en `docs/ROADMAP-PRODUCCION.md`.
 | RLS aplicado por el motor con rol sin `BYPASSRLS` | ✅ Fase 2 |
 | Apagado ordenado, `helmet`, `/metrics` autenticado, token fuera del query string | ✅ Fase 3 |
 | Gestión de secretos en un gestor real y rotación de las credenciales de ejemplo | ⏳ Infraestructura |
-| Provider DIAN real (PAC) certificado | ⏳ Fase 4 |
-| Cierre de ciclo para documentos en estado `SENT` | ⏳ Fase 4 |
-| Control de resolución y prefijo de numeración | ⏳ Fase 4 |
+| Numeración por resolución autorizada (prefijo, rango, consecutivo sin huecos) | ✅ Fase 4 |
+| Cierre de ciclo para documentos en estado `SENT` (consulta + webhook + alerta) | ✅ Fase 4 |
+| Domicilio entregado → venta → documento fiscal | ✅ Fase 4 |
+| Provider DIAN real (PAC) **certificado** | ⏳ Depende del PAC — `docs/CERTIFICACION-PAC.md` |
 | Escalado horizontal (advisory locks, adaptador Redis de Socket.io, `SKIP LOCKED`) | ⏳ Fase 5 |
 | Despliegue HTTPS, multi-instancia | ⏳ Pendiente |
 | Políticas operativas: soporte, rotación de usuarios, ensayo real de restauración | ⏳ Pendiente |

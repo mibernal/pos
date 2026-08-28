@@ -1,0 +1,4191 @@
+diff --git a/.env.example b/.env.example
+index 1bfca91..466c558 100644
+--- a/.env.example
++++ b/.env.example
+@@ -47,9 +47,19 @@ DIAN_HTTP_URL=https://api.provider.com/v1/dian
+ DIAN_HTTP_API_KEY=your_generic_provider_api_key_here
+ DIAN_HTTP_TIMEOUT_MS=15000
+ 
+-# C4: Tiempo (ms) sin actualización antes de recheck de documentos DIAN en SENT (default 10 min)
++# Tiempo (ms) sin resolverse antes de volver a preguntarle al PAC (default 10 min).
+ DIAN_SENT_RECHECK_DELAY_MS=600000
+ 
++# Horas en SENT a partir de las cuales el documento deja de ser normal y se publica la
++# alerta `dian_document.unresolved`. Un documento sin resolver es una contingencia fiscal.
++DIAN_SENT_ALERT_HOURS=6
++
++# Secreto del webhook con el que el PAC avisa del desenlace de un documento.
++# Sin él, POST /api/v1/webhooks/dian/:tenantId/status responde 401: aceptar notificaciones
++# sin firmar permitiría a cualquiera marcar como aceptada una factura rechazada.
++#   openssl rand -hex 32
++DIAN_WEBHOOK_SECRET=
++
+ # ── Configuraciones de Negocio ────────────────────────────────────────────────
+ # C9: Ventana máxima en horas para anular una venta (default 24h)
+ SALE_VOID_MAX_AGE_HOURS=24
+diff --git a/MEMORY.md b/MEMORY.md
+index dd51115..131b26a 100644
+--- a/MEMORY.md
++++ b/MEMORY.md
+@@ -49,6 +49,8 @@ Este documento centraliza las decisiones de arquitectura, lecciones aprendidas y
+ - **Un doble de base de datos escrito a mano no prueba nada.** Varias pruebas usaban un falso Kysely que devolvía la misma respuesta a toda consulta: el cálculo que decían verificar quedaba fuera. Al reescribirlas contra PostgreSQL real aparecieron los bugs. Para lógica que toca el esquema, base real o la prueba es decorativa.
+ - **Un enum escrito a mano en cinco sitios se desincroniza.** Los roles vivían duplicados en el enum de Postgres, el esquema compartido, dos tipos de TypeScript y un `z.enum` de ruta. `WAITER` llegó a tres de los cinco, y el resultado fue una funcionalidad entera inalcanzable durante meses sin que nada fallara ruidosamente. Hoy todo se deriva de `USER_ROLES` y hay una prueba que lo verifica.
+ - **Un guard que compara números debe leer los valores antes de compararlos.** `ROLE_LEVEL[actor] <= ROLE_LEVEL[target]` con un rol desconocido da `undefined`, y toda comparación numérica con `undefined` es falsa: el guard *dejaba pasar* en vez de bloquear. Ante lo desconocido, una autorización se falla cerrada.
++- **Un bucle de reintentos que no comprueba su efecto puede no hacer nada durante meses.** El recheck de documentos DIAN encolaba trabajo que otra guarda descartaba de inmediato: los logs decían «reencolado», las métricas subían, y ningún documento se resolvía. Cuando un mecanismo de recuperación existe, hay que probar que *recupera*, no que se ejecuta.
++- **Una secuencia de Postgres no sirve para un consecutivo fiscal.** No retrocede en un rollback, así que cada transacción fallida deja un hueco — y un hueco en la numeración hay que justificarlo ante la DIAN. La reserva correcta es un `UPDATE … RETURNING` sobre una fila, que sí vuelve atrás.
+ - **La alerta nunca debe poder tumbar la operación.** Todo efecto secundario no esencial (notificaciones, alertas, métricas) se publica **después** del commit y en su propia transacción. Meterlo dentro convierte un fallo cosmético en una venta perdida.
+ 
+ ## Endurecimiento previo a Producción (Agosto 2026)
+@@ -71,8 +73,12 @@ Cuatro defectos encadenados que ninguna revisión de una sola capa habría encon
+ 
+ Detalle en D-045…D-048 y en `docs/ROADMAP-PRODUCCION.md`.
+ 
++- **Fase 4 — ciclo fiscal (código).** Lo que se enviaba al PAC como número de documento era `sales.sale_number`, el contador interno del comercio: no es una factura electrónica válida. Ahora hay resoluciones con prefijo y rango, consecutivo atómico sin huecos ni duplicados (verificado con 12 workers concurrentes), y aviso antes de que el rango se agote o la resolución venza. El recheck de documentos en `SENT` **no hacía nada**: reencolaba una reemisión que la guarda de idempotencia descartaba, dejando el documento colgado y una fila más en la bandeja cada ciclo; ahora consulta al PAC, y hay webhook firmado y alerta. Y un domicilio entregado, que antes se cobraba sin facturar, ya genera su documento.
++
+ ### Lo que sigue abierto
+-Fases 4 (**certificación con el PAC real — es lo único que bloquea facturar legalmente**; cierre de documentos en `SENT`; control de resolución y consecutivo) y 5 (escala horizontal; hasta entonces el sistema es de **instancia única** y debe estar aceptado por escrito). Fuera del plan: gestión de secretos en un gestor real y rotación de las credenciales de ejemplo.
++- **Certificación con un PAC real** — es lo único que bloquea facturar legalmente, y no depende del código. Guía en `docs/CERTIFICACION-PAC.md`.
++- **Fase 5, escala horizontal** — hasta entonces el sistema es de **instancia única** y debe estar aceptado por escrito.
++- Fuera del plan: gestión de secretos en un gestor real, rotación de las credenciales de ejemplo, y un ensayo real de restauración desde backup.
+ 
+ ## Actualizaciones Recientes (Junio 2026)
+ 
+diff --git a/README.md b/README.md
+index 7d49ecd..d335ed8 100644
+--- a/README.md
++++ b/README.md
+@@ -4,13 +4,15 @@ Un Sistema de Punto de Venta (POS) y Gestión Hospitalaria (Hospitality & Retail
+ 
+ > **Estado actual (Agosto 2026):** funcionalmente completo y en endurecimiento previo a producción.
+ >
+-> Cerradas las fases 0 a 3 del plan de `docs/ROADMAP-PRODUCCION.md`: el monorepo compila y pasa lint sin errores, el esquema se construye desde cero (90 migraciones), la suite corre verde (243 pruebas: 153 API contra PostgreSQL real, 41 worker, 31 pos-web, 18 shared) y CI ejecuta todo eso en cada PR.
++> Cerradas las fases 0 a 4 del plan de `docs/ROADMAP-PRODUCCION.md`: el monorepo compila y pasa lint sin errores, el esquema se construye desde cero (91 migraciones), la suite corre verde (282 pruebas: 173 API contra PostgreSQL real, 60 worker, 31 pos-web, 18 shared) y CI ejecuta todo eso en cada PR.
+ >
+-> El cambio más importante: **la API dejó de conectarse con el dueño del esquema**. Ahora usa el rol `pos_api`, sin `BYPASSRLS`, de modo que el aislamiento por tenant lo aplica PostgreSQL y no la disciplina de quien escribe la consulta. Ver "Arquitectura Multi-Tenant" más abajo y D-036…D-055 en `docs/DECISIONS.md`.
++> El cambio más importante: **la API dejó de conectarse con el dueño del esquema**. Ahora usa el rol `pos_api`, sin `BYPASSRLS`, de modo que el aislamiento por tenant lo aplica PostgreSQL y no la disciplina de quien escribe la consulta. Ver "Arquitectura Multi-Tenant" más abajo y D-036…D-062 en `docs/DECISIONS.md`.
+ >
+ > La fase 3 dejó el sistema operable: cierre ordenado ante `SIGTERM`, migración de producción con un solo comando, cabeceras de seguridad, `/metrics` autenticado, token de sesión fuera de la URL y barrera de errores en la PWA.
+ >
+-> **Todavía no apto para facturar en producción:** falta la fase 4 (certificación con un PAC real), que es lo único que bloquea facturar legalmente. La fase 5 —escalado horizontal— es diferible; hasta entonces el sistema es de **instancia única**.
++> La fase 4 cerró el ciclo fiscal por el lado del código: numeración autorizada por resolución (antes se enviaba al PAC el contador interno del comercio), consecutivo atómico sin huecos ni duplicados, cierre de los documentos que quedan en `SENT` por consulta y por webhook, y facturación de domicilios entregados.
++>
++> **Lo único que falta para facturar legalmente es la certificación con un PAC real**, que no depende del código: guía completa en `docs/CERTIFICACION-PAC.md`. La fase 5 —escalado horizontal— es diferible; hasta entonces el sistema es de **instancia única**.
+ 
+ ---
+ 
+@@ -18,10 +20,11 @@ Un Sistema de Punto de Venta (POS) y Gestión Hospitalaria (Hospitality & Retail
+ 
+ | Archivo | Para qué sirve |
+ |---|---|
+-| `docs/ROADMAP-PRODUCCION.md` | **Empieza aquí si vuelves después de un tiempo.** Qué se cerró en las fases 0–3, con qué evidencia, qué falta en las 4 y 5, el plan on-premise y los criterios de salida a producción. |
++| `docs/ROADMAP-PRODUCCION.md` | **Empieza aquí si vuelves después de un tiempo.** Qué se cerró en las fases 0–4, con qué evidencia, qué falta, el plan on-premise y los criterios de salida a producción. |
+ | `docs/ARCHITECTURE.md` | Componentes, flujos de sistema, modelo de datos, y la explicación completa del aislamiento por tenant. |
+ | `docs/DECISIONS.md` | Registro de decisiones (ADR). Cuando algo del código parezca raro, la razón suele estar aquí. |
+ | `docs/RUNBOOK.md` | Procedimientos operativos: despliegue, migraciones, diagnóstico de RLS, cómo correr las pruebas. |
++| `docs/CERTIFICACION-PAC.md` | Qué preguntarle al PAC, cómo conmutar de simulador a producción, el set de pruebas de habilitación y qué vigilar la primera semana. |
+ | `docs/API.md` | Contrato HTTP. |
+ | `MEMORY.md` | Decisiones core, lecciones aprendidas y auditorías pendientes, a alto nivel. |
+ 
+@@ -301,12 +304,13 @@ El plan completo, con el porqué de cada ítem, está en **`docs/ROADMAP-PRODUCC
+ | **2 — RLS de verdad** | La API se conecta con `pos_api`, sin `BYPASSRLS` · migración 088 corrige 20 tablas (política ausente, variable equivocada, RESTRICTIVE sin permisiva) · `FORCE ROW LEVEL SECURITY` · pruebas de aislamiento reales con guarda de precondición |
+ | **3 — Operabilidad** | Cierre ordenado ante `SIGTERM` con drenaje y plazo · migración de producción sin secretos de aplicación · `helmet` · `/metrics` autenticado (404 sin token) · token de sesión fuera de la URL salvo en SSE · `JWT_SECRET` validado por variedad · `ErrorBoundary` que informa del estado de la cola offline · Postgres y Redis en `127.0.0.1` |
+ | **Corrección funcional** | El flujo de meseros: rol `WAITER` inalcanzable, dos nociones incompatibles de «mesero», errores de validación como 500, y mesas imposibles de abrir sin el módulo de meseros |
++| **4 — Ciclo fiscal (código)** | Numeración por resolución autorizada, consecutivo atómico sin huecos ni duplicados · cierre de los documentos en `SENT` por consulta al PAC y por webhook firmado · alerta de rango por agotarse y de resolución por vencer · domicilio entregado → venta → documento fiscal |
+ 
+ ### Pendiente
+ 
+ | Fase | Qué falta | Bloquea |
+ |---|---|---|
+-| **4 — Fiscal** | Certificación end-to-end con un PAC real · cierre del ciclo para documentos que quedan en `SENT` · control de resolución y prefijo de numeración · flujo domicilio → venta → DIAN | **Facturar legalmente** |
++| **4 — Fiscal** | Solo la **certificación con un PAC real**: el código está completo. Guía en `docs/CERTIFICACION-PAC.md` | **Facturar legalmente** |
+ | **5 — Escalado** | Locks de asesoría en el worker, adaptador Redis para Socket.io, `SKIP LOCKED` en la bandeja de salida | Segunda instancia |
+ 
+ Fuera del plan por fases, sigue abierto lo operativo: HTTPS, gestión de secretos en un gestor real (Vault / GCP Secret Manager) y rotación de las credenciales de ejemplo, rotación de usuarios, políticas de soporte y ensayo real de recuperación desde backup (el backup existe y se valida; la restauración nunca se ha ejecutado de punta a punta).
+diff --git a/apps/api/src/app/build-app.ts b/apps/api/src/app/build-app.ts
+index de0bfce..f846047 100644
+--- a/apps/api/src/app/build-app.ts
++++ b/apps/api/src/app/build-app.ts
+@@ -47,6 +47,8 @@ import { waitersRoutes } from '../contexts/tables/presentation/waiters.routes.js
+ import { kdsRoutes } from '../contexts/tables/presentation/kds.routes.js';
+ import { kdsSyncRoutes } from '../contexts/kds/http/kds-sync.routes.js';
+ import { deliveriesRoutes } from '../contexts/deliveries/http/deliveries.routes.js';
++import { dianResolutionsRoutes } from '../contexts/fiscal/http/dian-resolutions.routes.js';
++import { dianWebhookRoutes } from '../contexts/fiscal/http/dian-webhook.routes.js';
+ import { auditContextStorage } from '../shared/infra/audit/audit-context.js';
+ import { createDb } from '../shared/infra/db/connection.js';
+ import { executeAsTenant } from '../shared/infra/db/rls.js';
+@@ -344,6 +346,8 @@ export async function buildApp() {
+   await app.register(kdsRoutes, { prefix: '/api/v1' });
+   await app.register(kdsSyncRoutes, { prefix: '/api/v1' });
+   await app.register(deliveriesRoutes, { prefix: '/api/v1' });
++  await app.register(dianResolutionsRoutes, { prefix: '/api/v1' });
++  await app.register(dianWebhookRoutes, { prefix: '/api/v1' });
+ 
+   // Add prometheus metrics
+   // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+diff --git a/apps/api/src/contexts/deliveries/application/invoice-delivery.use-case.ts b/apps/api/src/contexts/deliveries/application/invoice-delivery.use-case.ts
+new file mode 100644
+index 0000000..9ab1142
+--- /dev/null
++++ b/apps/api/src/contexts/deliveries/application/invoice-delivery.use-case.ts
+@@ -0,0 +1,168 @@
++import { createHash } from 'node:crypto';
++import { sql, type Kysely } from 'kysely';
++import type { FastifyBaseLogger } from 'fastify';
++import type { Database } from '../../../shared/infra/db/schema.js';
++import { executeAsTenant } from '../../../shared/infra/db/rls.js';
++import { AppError } from '../../../shared/infra/errors/app-error.js';
++import { createSaleService } from '../../sales/services/create-sale.service.js';
++import type { SalePaymentInput } from '../../sales/services/schemas.js';
++
++/**
++ * Facturar un domicilio entregado.
++ *
++ * El módulo de domicilios llevaba su propio ciclo de vida (PENDIENTE → PREPARACIÓN → EN
++ * CAMINO → ENTREGADO) y ahí se acababa: nada creaba la venta, así que **un domicilio
++ * entregado no generaba ningún documento fiscal**. El pedido se cobraba y no se facturaba.
++ *
++ * Dos decisiones de diseño:
++ *
++ * 1. **No se factura automáticamente al marcar ENTREGADO.** Una venta necesita un turno de
++ *    caja abierto y un medio de pago, y ninguno de los dos se puede adivinar: el repartidor
++ *    pudo cobrar en efectivo, con datáfono, o el cliente pudo pagar por adelantado. Se
++ *    factura con una llamada explícita que aporta esos datos. Marcar ENTREGADO sin
++ *    facturar sigue siendo posible —hay negocios que facturan al cierre del día— pero el
++ *    domicilio queda visiblemente pendiente de documento.
++ *
++ * 2. **La idempotencia se deriva del domicilio.** El `client_uuid` de la venta es un UUID
++ *    determinista calculado a partir del id del domicilio, de modo que dos llamadas —un
++ *    doble clic, un reintento de red, dos repartidores tocando la misma pantalla— producen
++ *    la misma venta. Es el mismo mecanismo que protege al POS de las ventas duplicadas por
++ *    red intermitente, reutilizado aquí en vez de inventar otro.
++ */
++
++interface InvoiceDeliveryInput {
++  db: Kysely<Database>;
++  logger: FastifyBaseLogger;
++  tenantId: string;
++  branchId: string;
++  deliveryId: string;
++  userId: string;
++  userRole: string;
++  cashSessionId: string;
++  payments: SalePaymentInput[];
++  requestLogContext: Record<string, unknown>;
++}
++
++interface DeliveryRow {
++  id: string;
++  status: string;
++  sale_id: string | null;
++  total_cents: number;
++}
++
++interface DeliveryItemRow {
++  product_id: string;
++  variant_id: string | null;
++  qty: string;
++}
++
++/**
++ * UUID v5-like determinista a partir del id del domicilio.
++ *
++ * Se usa un hash en vez de un `randomUUID()` para que el `client_uuid` sea siempre el mismo
++ * para un domicilio dado: así la guarda de idempotencia que ya tiene `createSaleService`
++ * devuelve la venta existente en lugar de crear una segunda.
++ */
++function deterministicClientUuid(deliveryId: string): string {
++  const hash = createHash('sha256').update(`delivery:${deliveryId}`).digest('hex');
++  return [
++    hash.slice(0, 8),
++    hash.slice(8, 12),
++    // Versión 4 y variante RFC 4122, para que pase la validación `z.string().uuid()`.
++    `4${hash.slice(13, 16)}`,
++    `${((parseInt(hash.slice(16, 17), 16) & 0x3) | 0x8).toString(16)}${hash.slice(17, 20)}`,
++    hash.slice(20, 32)
++  ].join('-');
++}
++
++export async function invoiceDeliveryUseCase(input: InvoiceDeliveryInput) {
++  const { db, tenantId, branchId, deliveryId } = input;
++
++  const { delivery, items } = await executeAsTenant(db, tenantId, async (trx) => {
++    const found = await sql<DeliveryRow>`
++      SELECT id, status, sale_id, total_cents
++      FROM deliveries
++      WHERE tenant_id = ${tenantId} AND branch_id = ${branchId} AND id = ${deliveryId}
++    `.execute(trx);
++
++    const row = found.rows[0];
++    if (!row) return { delivery: null, items: [] as DeliveryItemRow[] };
++
++    const itemRows = await sql<DeliveryItemRow>`
++      SELECT product_id, variant_id, qty::text AS qty
++      FROM delivery_items
++      WHERE tenant_id = ${tenantId} AND delivery_id = ${deliveryId}
++    `.execute(trx);
++
++    return { delivery: row, items: itemRows.rows };
++  });
++
++  if (!delivery) {
++    throw new AppError(404, 'NOT_FOUND', 'Domicilio no encontrado');
++  }
++
++  // Ya facturado: se devuelve el mismo documento en vez de crear otro. Un domicilio con dos
++  // facturas es un problema fiscal que hay que resolver con nota crédito.
++  if (delivery.sale_id) {
++    return { saleId: delivery.sale_id, alreadyInvoiced: true };
++  }
++
++  if (delivery.status === 'CANCELLED') {
++    throw new AppError(409, 'DELIVERY_CANCELLED', 'Un domicilio cancelado no se puede facturar');
++  }
++
++  if (delivery.status !== 'DELIVERED') {
++    // La factura se emite contra la entrega efectiva. Facturar un pedido que todavía va en
++    // camino significa emitir un documento por algo que puede no llegar nunca.
++    throw new AppError(
++      409,
++      'DELIVERY_NOT_DELIVERED',
++      `El domicilio está en estado ${delivery.status}. Solo se factura un domicilio entregado.`
++    );
++  }
++
++  if (items.length === 0) {
++    throw new AppError(422, 'DELIVERY_WITHOUT_ITEMS', 'El domicilio no tiene ítems que facturar');
++  }
++
++  const result = await createSaleService({
++    db,
++    logger: input.logger,
++    tenantId,
++    userId: input.userId,
++    userRole: input.userRole,
++    requestLogContext: input.requestLogContext,
++    payload: {
++      client_uuid: deterministicClientUuid(deliveryId),
++      branch_id: branchId,
++      cash_session_id: input.cashSessionId,
++      customer_id: null,
++      table_order_id: null,
++      waiterId: null,
++      discount_cents: 0,
++      tip_cents: 0,
++      // Los precios y los impuestos los resuelve el servidor desde el catálogo, igual que en
++      // una venta de mostrador: `deliveries.total_cents` es informativo y no se usa como
++      // base gravable (D-039).
++      items: items.map((item) => ({
++        product_id: item.product_id,
++        variant_id: item.variant_id,
++        qty: Number(item.qty)
++      })),
++      payments: input.payments
++    }
++  });
++
++  const saleId = result.sale.sale.id;
++
++  await executeAsTenant(db, tenantId, async (trx) => {
++    await sql`
++      UPDATE deliveries
++      SET sale_id = ${saleId}, updated_at = NOW()
++      WHERE tenant_id = ${tenantId} AND branch_id = ${branchId} AND id = ${deliveryId}
++        AND sale_id IS NULL
++    `.execute(trx);
++  });
++
++  return { saleId, alreadyInvoiced: false };
++}
+diff --git a/apps/api/src/contexts/deliveries/http/deliveries.routes.ts b/apps/api/src/contexts/deliveries/http/deliveries.routes.ts
+index 29535f3..9df49d6 100644
+--- a/apps/api/src/contexts/deliveries/http/deliveries.routes.ts
++++ b/apps/api/src/contexts/deliveries/http/deliveries.routes.ts
+@@ -3,6 +3,8 @@ import { DeliveriesRepository } from '../infra/deliveries.repository.js';
+ import { DeliveryPersonsRepository } from '../infra/delivery-persons.repository.js';
+ import { z } from 'zod';
+ import { randomUUID } from 'node:crypto';
++import { salePaymentSchema } from '@pos-dian/shared';
++import { invoiceDeliveryUseCase } from '../application/invoice-delivery.use-case.js';
+ import { 
+   CreateDeliverySchema, 
+   UpdateDeliveryStatusSchema, 
+@@ -171,6 +173,61 @@ export const deliveriesRoutes: FastifyPluginAsyncZod = async (app) => {
+     }
+   );
+ 
++  /**
++   * Facturar un domicilio entregado.
++   *
++   * Hasta la fase 4, un domicilio recorría su ciclo completo hasta ENTREGADO y ahí se
++   * acababa: nada creaba la venta, así que el pedido se cobraba y **no se facturaba**.
++   *
++   * No se factura automáticamente al marcar ENTREGADO porque una venta necesita turno de
++   * caja y medio de pago, y ninguno se puede adivinar: el repartidor pudo cobrar en
++   * efectivo, con datáfono, o el cliente pudo pagar por adelantado. Se piden aquí.
++   */
++  app.post(
++    '/branches/:branchId/deliveries/:id/invoice',
++    {
++      schema: {
++        summary: 'Facturar un domicilio entregado: crea la venta y dispara la emisión DIAN',
++        tags: ['Deliveries'],
++        security: [{ bearerAuth: [] }],
++        params: z.object({
++          branchId: z.string().uuid(),
++          id: z.string().uuid()
++        }),
++        body: z.object({
++          cash_session_id: z.string().uuid(),
++          payments: z.array(salePaymentSchema).min(1).max(15)
++        }),
++        response: {
++          201: z.object({ sale_id: z.string().uuid(), already_invoiced: z.boolean() })
++        }
++      },
++      preHandler: [app.requireModule(['delivery']), app.requirePermissions(['sales:create'])]
++    },
++    async (request, reply) => {
++      const tenantId = request.auth!.tenantId!;
++      const { branchId, id } = request.params;
++
++      const result = await invoiceDeliveryUseCase({
++        db: app.db,
++        logger: request.log,
++        tenantId,
++        branchId,
++        deliveryId: id,
++        userId: request.auth!.userId,
++        userRole: request.auth!.role,
++        cashSessionId: request.body.cash_session_id,
++        payments: request.body.payments,
++        requestLogContext: { request_id: request.id, delivery_id: id }
++      });
++
++      return reply.status(201).send({
++        sale_id: result.saleId,
++        already_invoiced: result.alreadyInvoiced
++      });
++    }
++  );
++
+   app.patch(
+     '/branches/:branchId/deliveries/:id/driver',
+     {
+diff --git a/apps/api/src/contexts/fiscal/http/dian-resolutions.routes.ts b/apps/api/src/contexts/fiscal/http/dian-resolutions.routes.ts
+new file mode 100644
+index 0000000..2a22ad0
+--- /dev/null
++++ b/apps/api/src/contexts/fiscal/http/dian-resolutions.routes.ts
+@@ -0,0 +1,323 @@
++import { randomUUID } from 'node:crypto';
++import { z } from 'zod';
++import { sql } from 'kysely';
++import type { FastifyPluginAsync } from 'fastify';
++import { ZodTypeProvider } from 'fastify-type-provider-zod';
++import { AppError } from '../../../shared/infra/errors/app-error.js';
++import { writeAuditLog } from '../../../shared/domain/audit/write-audit-log.js';
++
++/**
++ * Resoluciones de facturación DIAN.
++ *
++ * La DIAN autoriza una resolución con prefijo y rango numérico y una vigencia. Cada factura
++ * electrónica lleva un número de ese rango. Sin una resolución activa el comercio no puede
++ * emitir, y cuando el rango se agota deja de poder facturar de golpe — por eso estos
++ * endpoints exponen `remaining` y `days_until_expiry`: para que el aviso llegue antes de
++ * que sea un problema, y no el día que se acaba.
++ *
++ * El consecutivo lo entrega el worker al emitir (`fiscal-numbering.ts`). Aquí no se toca
++ * `current_number`: moverlo a mano es la forma más rápida de duplicar un número fiscal.
++ */
++
++const isoDate = z
++  .string()
++  .regex(/^\d{4}-\d{2}-\d{2}$/, 'Formato esperado: YYYY-MM-DD');
++
++const createResolutionSchema = z
++  .object({
++    branch_id: z.string().uuid().nullable().optional(),
++    document_type: z.enum(['INVOICE', 'CREDIT_NOTE', 'DEBIT_NOTE']).default('INVOICE'),
++    resolution_number: z.string().trim().min(1).max(100),
++    resolution_date: isoDate,
++    prefix: z.string().trim().min(1).max(10),
++    range_from: z.number().int().positive(),
++    range_to: z.number().int().positive(),
++    valid_from: isoDate,
++    valid_until: isoDate,
++    alert_threshold: z.number().int().nonnegative().max(1_000_000).default(500),
++    technical_key: z.string().trim().min(1).nullable().optional(),
++    // Número ya usado de este rango antes de cargar la resolución en el sistema. Sirve para
++    // migrar un comercio que venía facturando con otra herramienta sin repetir números.
++    start_at: z.number().int().positive().optional()
++  })
++  .superRefine((value, ctx) => {
++    if (value.range_to < value.range_from) {
++      ctx.addIssue({
++        code: z.ZodIssueCode.custom,
++        path: ['range_to'],
++        message: 'El final del rango no puede ser menor que el inicio'
++      });
++    }
++    if (value.valid_until < value.valid_from) {
++      ctx.addIssue({
++        code: z.ZodIssueCode.custom,
++        path: ['valid_until'],
++        message: 'La vigencia no puede terminar antes de empezar'
++      });
++    }
++    if (value.start_at !== undefined) {
++      if (value.start_at < value.range_from || value.start_at > value.range_to) {
++        ctx.addIssue({
++          code: z.ZodIssueCode.custom,
++          path: ['start_at'],
++          message: 'El número inicial debe estar dentro del rango autorizado'
++        });
++      }
++    }
++  });
++
++const resolutionResponseSchema = z.object({
++  id: z.string().uuid(),
++  branch_id: z.string().uuid().nullable(),
++  document_type: z.string(),
++  resolution_number: z.string(),
++  resolution_date: z.string(),
++  prefix: z.string(),
++  range_from: z.number(),
++  range_to: z.number(),
++  current_number: z.number(),
++  next_number: z.number(),
++  remaining: z.number(),
++  valid_from: z.string(),
++  valid_until: z.string(),
++  days_until_expiry: z.number(),
++  alert_threshold: z.number(),
++  is_active: z.boolean(),
++  /** `OK`, `LOW_RANGE`, `EXPIRING`, `EXHAUSTED` o `EXPIRED`: el estado que hay que mirar. */
++  health: z.string()
++});
++
++interface ResolutionRow {
++  id: string;
++  branch_id: string | null;
++  document_type: string;
++  resolution_number: string;
++  resolution_date: string;
++  prefix: string;
++  range_from: string;
++  range_to: string;
++  current_number: string;
++  valid_from: string;
++  valid_until: string;
++  alert_threshold: number;
++  is_active: boolean;
++}
++
++const SELECT_COLUMNS = `id, branch_id, document_type, resolution_number,
++  resolution_date::text AS resolution_date, prefix, range_from, range_to, current_number,
++  valid_from::text AS valid_from, valid_until::text AS valid_until, alert_threshold, is_active`;
++
++function daysUntil(dateText: string): number {
++  const today = new Date();
++  today.setHours(0, 0, 0, 0);
++  return Math.floor((new Date(`${dateText}T00:00:00Z`).getTime() - today.getTime()) / 86_400_000);
++}
++
++function present(row: ResolutionRow) {
++  const rangeTo = Number(row.range_to);
++  const current = Number(row.current_number);
++  const remaining = rangeTo - current;
++  const daysUntilExpiry = daysUntil(row.valid_until);
++
++  // El orden importa: agotada o vencida son estados que ya bloquean la emisión; los otros
++  // dos son avisos con tiempo para reaccionar.
++  const health =
++    remaining <= 0
++      ? 'EXHAUSTED'
++      : daysUntilExpiry < 0
++        ? 'EXPIRED'
++        : remaining <= row.alert_threshold
++          ? 'LOW_RANGE'
++          : daysUntilExpiry <= 30
++            ? 'EXPIRING'
++            : 'OK';
++
++  return {
++    id: row.id,
++    branch_id: row.branch_id,
++    document_type: row.document_type,
++    resolution_number: row.resolution_number,
++    resolution_date: row.resolution_date,
++    prefix: row.prefix,
++    range_from: Number(row.range_from),
++    range_to: rangeTo,
++    current_number: current,
++    next_number: current + 1,
++    remaining,
++    valid_from: row.valid_from,
++    valid_until: row.valid_until,
++    days_until_expiry: daysUntilExpiry,
++    alert_threshold: row.alert_threshold,
++    is_active: row.is_active,
++    health
++  };
++}
++
++export const dianResolutionsRoutes: FastifyPluginAsync = async (app) => {
++  const typedApp = app.withTypeProvider<ZodTypeProvider>();
++
++  typedApp.get(
++    '/dian/resolutions',
++    {
++      preHandler: [app.requirePermissions(['settings:manage'])],
++      schema: {
++        summary: 'Listar resoluciones de facturación del comercio',
++        tags: ['fiscal'],
++        security: [{ bearerAuth: [] }],
++        response: { 200: z.array(resolutionResponseSchema) }
++      }
++    },
++    async (request, reply) => {
++      // Las fechas se piden como texto a propósito: el driver devuelve `date` como `Date`
++      // en la zona horaria del proceso, y eso desplaza un día la vigencia según dónde corra
++      // el servidor. Una resolución que vence «mañana» según el servidor y «hoy» según el
++      // comercio es un problema que aparece a las 7 p. m. de un viernes.
++      const rows = await request.executeAsTenant(async (trx) => {
++        const result = await sql<ResolutionRow>`
++          SELECT ${sql.raw(SELECT_COLUMNS)} FROM dian_resolutions
++          WHERE tenant_id = ${request.auth!.tenantId!}
++          ORDER BY is_active DESC, created_at DESC
++        `.execute(trx);
++        return result.rows;
++      });
++
++      return reply.send(rows.map(present));
++    }
++  );
++
++  typedApp.post(
++    '/dian/resolutions',
++    {
++      preHandler: [app.requirePermissions(['settings:manage'])],
++      schema: {
++        summary: 'Cargar una resolución de facturación autorizada por la DIAN',
++        tags: ['fiscal'],
++        security: [{ bearerAuth: [] }],
++        body: createResolutionSchema,
++        response: { 201: resolutionResponseSchema }
++      }
++    },
++    async (request, reply) => {
++      const payload = request.body;
++      const tenantId = request.auth!.tenantId!;
++      const id = randomUUID();
++
++      const created = await request.executeAsTenant(async (trx) => {
++        // Cargar una resolución nueva desactiva la anterior del mismo alcance. Dos activas
++        // producirían dos series de numeración en paralelo, que es exactamente el desastre
++        // que el índice único de la migración 090 impide — aquí se hace explícito para dar
++        // un error entendible en vez de una violación de índice.
++        await sql`
++          UPDATE dian_resolutions
++          SET is_active = false, updated_at = NOW()
++          WHERE tenant_id = ${tenantId}
++            AND document_type = ${payload.document_type}
++            AND is_active
++            AND COALESCE(branch_id, '00000000-0000-0000-0000-000000000000'::uuid)
++              = COALESCE(${payload.branch_id ?? null}::uuid, '00000000-0000-0000-0000-000000000000'::uuid)
++        `.execute(trx);
++
++        // `current_number` arranca en `range_from - 1` para que el primer documento se lleve
++        // `range_from`; con `start_at` se arranca donde diga el comercio.
++        const startingCurrent = (payload.start_at ?? payload.range_from) - 1;
++
++        const result = await sql<ResolutionRow>`
++          INSERT INTO dian_resolutions (
++            id, tenant_id, branch_id, document_type, resolution_number, resolution_date,
++            prefix, range_from, range_to, current_number, valid_from, valid_until,
++            alert_threshold, technical_key, is_active
++          ) VALUES (
++            ${id}, ${tenantId}, ${payload.branch_id ?? null}, ${payload.document_type},
++            ${payload.resolution_number}, ${payload.resolution_date}::date,
++            ${payload.prefix}, ${payload.range_from}, ${payload.range_to}, ${startingCurrent},
++            ${payload.valid_from}::date, ${payload.valid_until}::date,
++            ${payload.alert_threshold}, ${payload.technical_key ?? null}, true
++          )
++          RETURNING ${sql.raw(SELECT_COLUMNS)}
++        `.execute(trx);
++
++        await writeAuditLog(trx, {
++          tenantId,
++          userId: request.auth!.userId,
++          entityType: 'DIAN_RESOLUTION',
++          entityId: id,
++          action: 'DIAN_RESOLUTION_CREATED',
++          payloadJson: {
++            current: {
++              prefix: payload.prefix,
++              resolution_number: payload.resolution_number,
++              range_from: payload.range_from,
++              range_to: payload.range_to,
++              valid_until: payload.valid_until
++            }
++          }
++        });
++
++        return result.rows[0]!;
++      });
++
++      return reply.status(201).send(present(created));
++    }
++  );
++
++  typedApp.patch(
++    '/dian/resolutions/:id',
++    {
++      preHandler: [app.requirePermissions(['settings:manage'])],
++      schema: {
++        summary: 'Activar o desactivar una resolución',
++        tags: ['fiscal'],
++        security: [{ bearerAuth: [] }],
++        params: z.object({ id: z.string().uuid() }),
++        body: z.object({
++          is_active: z.boolean().optional(),
++          alert_threshold: z.number().int().nonnegative().max(1_000_000).optional()
++        }),
++        response: { 200: resolutionResponseSchema }
++      }
++    },
++    async (request, reply) => {
++      const tenantId = request.auth!.tenantId!;
++      const { id } = request.params;
++      const { is_active, alert_threshold } = request.body;
++
++      if (is_active === undefined && alert_threshold === undefined) {
++        throw new AppError(400, 'BAD_REQUEST', 'No hay nada que actualizar');
++      }
++
++      const updated = await request.executeAsTenant(async (trx) => {
++        if (is_active === true) {
++          await sql`
++            UPDATE dian_resolutions r
++            SET is_active = false, updated_at = NOW()
++            FROM dian_resolutions target
++            WHERE target.id = ${id}
++              AND r.tenant_id = ${tenantId}
++              AND r.id <> target.id
++              AND r.document_type = target.document_type
++              AND r.is_active
++              AND COALESCE(r.branch_id, '00000000-0000-0000-0000-000000000000'::uuid)
++                = COALESCE(target.branch_id, '00000000-0000-0000-0000-000000000000'::uuid)
++          `.execute(trx);
++        }
++
++        const result = await sql<ResolutionRow>`
++          UPDATE dian_resolutions
++          SET is_active = COALESCE(${is_active ?? null}::boolean, is_active),
++              alert_threshold = COALESCE(${alert_threshold ?? null}::integer, alert_threshold),
++              updated_at = NOW()
++          WHERE id = ${id} AND tenant_id = ${tenantId}
++          RETURNING ${sql.raw(SELECT_COLUMNS)}
++        `.execute(trx);
++
++        return result.rows[0];
++      });
++
++      if (!updated) {
++        throw new AppError(404, 'NOT_FOUND', 'Resolución no encontrada');
++      }
++
++      return reply.send(present(updated));
++    }
++  );
++};
+diff --git a/apps/api/src/contexts/fiscal/http/dian-webhook.routes.ts b/apps/api/src/contexts/fiscal/http/dian-webhook.routes.ts
+new file mode 100644
+index 0000000..902ee90
+--- /dev/null
++++ b/apps/api/src/contexts/fiscal/http/dian-webhook.routes.ts
+@@ -0,0 +1,176 @@
++import { createHmac, timingSafeEqual } from 'node:crypto';
++import { z } from 'zod';
++import { sql } from 'kysely';
++import type { FastifyPluginAsync } from 'fastify';
++import { ZodTypeProvider } from 'fastify-type-provider-zod';
++import { executeAsTenant } from '../../../shared/infra/db/rls.js';
++
++/**
++ * Webhook del PAC: la otra mitad del cierre del ciclo fiscal.
++ *
++ * La emisión es asíncrona. El PAC acusa recibo (`SENT`) y resuelve después. Hay dos formas
++ * de enterarse del desenlace y conviene tener las dos:
++ *
++ *  - **Preguntar** (`dian-sent-recheck.scheduler.ts`): funciona siempre, pero con latencia
++ *    y consumiendo llamadas al proveedor.
++ *  - **Que nos avisen** (este endpoint): inmediato, pero depende de que el PAC lo llame y
++ *    de que la red lo permita. Un webhook perdido no deja el documento colgado porque el
++ *    scheduler lo acaba resolviendo.
++ *
++ * Tres decisiones de seguridad, porque este endpoint es público por necesidad:
++ *
++ * 1. **Firma HMAC obligatoria.** Sin ella, cualquiera podría marcar como aceptada una
++ *    factura que la DIAN rechazó. Se compara en tiempo constante.
++ * 2. **No se confía en el `tenant_id` del cuerpo.** El comercio se deduce del documento que
++ *    se está resolviendo; si viniera del cuerpo, un webhook firmado con la clave de un
++ *    comercio podría tocar documentos de otro.
++ * 3. **Responde 200 salvo firma inválida.** Un 500 hace que el PAC reintente en bucle; los
++ *    problemas de datos se registran y se aceptan, para no montar una tormenta de
++ *    reintentos por un documento que ya no existe.
++ *
++ * **Por qué la URL lleva el comercio.** Una petición del PAC no trae sesión, y la API se
++ * conecta con un rol sin `BYPASSRLS`: sin contexto de comercio, la consulta a
++ * `dian_documents` devolvería cero filas y el webhook nunca encontraría nada. El comercio
++ * viene en la ruta, se fija como contexto y el RLS hace el resto — de modo que una
++ * notificación dirigida a un comercio no puede tocar los documentos de otro ni por error.
++ * La firma sigue siendo lo que autentica; la ruta solo delimita el alcance.
++ */
++
++const webhookBodySchema = z.object({
++  /** CUDE/CUFE, o prefijo + número: al menos una forma de identificar el documento. */
++  cude: z.string().min(1).optional(),
++  prefix: z.string().min(1).optional(),
++  document_number: z.coerce.number().int().positive().optional(),
++  document_id: z.string().uuid().optional(),
++  status: z.enum(['ACCEPTED', 'REJECTED', 'SENT']),
++  rejection_reason: z.string().optional(),
++  raw: z.record(z.string(), z.unknown()).optional()
++});
++
++function signaturesMatch(expected: string, provided: string): boolean {
++  const a = Buffer.from(expected);
++  const b = Buffer.from(provided);
++  if (a.length !== b.length) return false;
++  return timingSafeEqual(a, b);
++}
++
++export const dianWebhookRoutes: FastifyPluginAsync = async (app) => {
++  const typedApp = app.withTypeProvider<ZodTypeProvider>();
++
++  // El cuerpo crudo se conserva para verificar la firma: `JSON.stringify` del objeto ya
++  // parseado no reproduce byte a byte lo que firmó el PAC (orden de claves, espacios), y
++  // una firma que a veces coincide es peor que ninguna.
++  typedApp.addContentTypeParser('application/json', { parseAs: 'string' }, (req, body, done) => {
++    (req as unknown as { rawBody?: string }).rawBody = body as string;
++    try {
++      done(null, JSON.parse(body as string));
++    } catch (err) {
++      done(err as Error, undefined);
++    }
++  });
++
++  typedApp.post(
++    '/webhooks/dian/:tenantId/status',
++    {
++      schema: {
++        summary: 'Notificación del PAC sobre el desenlace de un documento',
++        tags: ['webhooks', 'fiscal'],
++        params: z.object({ tenantId: z.string().uuid() }),
++        body: webhookBodySchema,
++        response: {
++          200: z.object({ received: z.boolean(), applied: z.boolean(), reason: z.string().nullable() }),
++          401: z.object({ error: z.object({ code: z.string(), message: z.string() }) })
++        }
++      }
++    },
++    async (request, reply) => {
++      const secret = process.env.DIAN_WEBHOOK_SECRET;
++
++      if (!secret) {
++        // Sin secreto configurado el endpoint no existe: aceptar notificaciones sin firmar
++        // sería peor que no tener webhook.
++        request.log.warn('Webhook DIAN recibido pero DIAN_WEBHOOK_SECRET no está configurado');
++        return reply.status(401).send({
++          error: { code: 'AUTH_UNAUTHORIZED', message: 'Webhook no habilitado' }
++        });
++      }
++
++      const provided = request.headers['x-dian-signature'];
++      const rawBody = (request as { rawBody?: string | Buffer }).rawBody;
++      const payloadForSignature =
++        typeof rawBody === 'string' ? rawBody : rawBody ? rawBody.toString('utf8') : JSON.stringify(request.body);
++
++      const expected = createHmac('sha256', secret).update(payloadForSignature).digest('hex');
++
++      if (typeof provided !== 'string' || !signaturesMatch(expected, provided)) {
++        request.log.warn({ error_code: 'DIAN_WEBHOOK_BAD_SIGNATURE' }, 'Firma del webhook DIAN inválida');
++        return reply.status(401).send({
++          error: { code: 'AUTH_UNAUTHORIZED', message: 'Firma inválida' }
++        });
++      }
++
++      const body = request.body;
++      const { tenantId } = request.params;
++
++      // El comercio sale de la ruta, no del cuerpo: el cuerpo lo escribe quien llama.
++      const document = await executeAsTenant(app.db, tenantId, async (trx) => {
++        const found = await sql<{ id: string; tenant_id: string; status: string }>`
++          SELECT id, tenant_id, status FROM dian_documents
++          WHERE ${
++            body.document_id
++              ? sql`id = ${body.document_id}`
++              : body.cude
++                ? sql`cude = ${body.cude}`
++                : sql`prefix = ${body.prefix ?? null} AND document_number = ${body.document_number ?? null}`
++          }
++          LIMIT 1
++        `.execute(trx);
++        return found.rows[0];
++      });
++
++      if (!document) {
++        // 200 a propósito: reintentar no va a hacer que aparezca, y un 404 provocaría una
++        // tormenta de reintentos del PAC.
++        request.log.warn({ body }, 'Webhook DIAN: documento no encontrado');
++        return reply.send({ received: true, applied: false, reason: 'DOCUMENT_NOT_FOUND' });
++      }
++
++      if (document.status === 'ACCEPTED' || document.status === 'REJECTED') {
++        // Ya resuelto: un webhook repetido no debe reabrir un documento cerrado.
++        return reply.send({ received: true, applied: false, reason: 'ALREADY_RESOLVED' });
++      }
++
++      if (body.status === 'SENT') {
++        return reply.send({ received: true, applied: false, reason: 'NO_CHANGE' });
++      }
++
++      await executeAsTenant(app.db, tenantId, async (trx) => {
++        await sql`
++          UPDATE dian_documents
++          SET status = ${body.status},
++              cude = COALESCE(${body.cude ?? null}, cude),
++              provider_response_json = ${JSON.stringify({
++                source: 'webhook',
++                status: body.status,
++                rejection_reason: body.rejection_reason ?? null,
++                raw: body.raw ?? null
++              })}::jsonb,
++              updated_at = NOW()
++          WHERE id = ${document.id}
++        `.execute(trx);
++      });
++
++      request.log.info(
++        {
++          dian_document_id: document.id,
++          tenant_id: document.tenant_id,
++          previous_status: document.status,
++          new_status: body.status
++        },
++        'Documento DIAN resuelto por webhook del PAC'
++      );
++
++      return reply.send({ received: true, applied: true, reason: null });
++    }
++  );
++};
+diff --git a/apps/api/src/shared/infra/db/migrations/090_dian_resolutions.ts b/apps/api/src/shared/infra/db/migrations/090_dian_resolutions.ts
+new file mode 100644
+index 0000000..df2ef13
+--- /dev/null
++++ b/apps/api/src/shared/infra/db/migrations/090_dian_resolutions.ts
+@@ -0,0 +1,111 @@
++import { Kysely, sql } from 'kysely';
++
++/**
++ * Migración 090 — Resoluciones de facturación y numeración fiscal.
++ *
++ * Hasta aquí, lo que se enviaba al PAC como número de documento era `sales.sale_number`:
++ * un contador interno por comercio. Eso no es una factura electrónica válida en Colombia.
++ * La DIAN autoriza una **resolución** con un prefijo y un rango numérico, con vigencia, y
++ * cada documento tiene que llevar un número de ese rango, estrictamente consecutivo y
++ * nunca repetido. El CUFE/CUDE se calcula sobre ese número.
++ *
++ * Consecuencias de no tenerlo, en orden de gravedad:
++ *  - El PAC rechaza los documentos, o —peor— los acepta y el hueco aparece meses después
++ *    en una revisión de la DIAN, cuando ya no hay forma de reconstruir la numeración.
++ *  - Al agotarse el rango, el comercio deja de poder facturar sin previo aviso. Un viernes
++ *    por la tarde, si nadie miraba.
++ *
++ * Esta migración añade:
++ *  - `dian_resolutions`: una fila por resolución autorizada (prefijo, rango, vigencia).
++ *  - `dian_documents.prefix` / `document_number` / `resolution_id`: el número asignado,
++ *    persistido en el documento y único por comercio, para que un reintento reutilice el
++ *    mismo número en vez de quemar otro.
++ */
++
++// eslint-disable-next-line @typescript-eslint/no-explicit-any
++export async function up(db: Kysely<any>): Promise<void> {
++  await db.schema
++    .createTable('dian_resolutions')
++    .addColumn('id', 'uuid', (col) => col.primaryKey())
++    .addColumn('tenant_id', 'uuid', (col) => col.notNull().references('tenants.id').onDelete('cascade'))
++    // Una resolución puede ser del comercio entero o de una sucursal concreta. NULL = todo
++    // el comercio; es el caso habitual en un negocio de una sola sede.
++    .addColumn('branch_id', 'uuid', (col) => col.references('branches.id').onDelete('cascade'))
++    .addColumn('document_type', 'varchar(20)', (col) => col.notNull().defaultTo('INVOICE'))
++    .addColumn('resolution_number', 'varchar(100)', (col) => col.notNull())
++    .addColumn('resolution_date', 'date', (col) => col.notNull())
++    .addColumn('prefix', 'varchar(10)', (col) => col.notNull())
++    .addColumn('range_from', 'bigint', (col) => col.notNull())
++    .addColumn('range_to', 'bigint', (col) => col.notNull())
++    // Último número entregado. Arranca en `range_from - 1`: el primer documento se lleva
++    // `range_from`.
++    .addColumn('current_number', 'bigint', (col) => col.notNull())
++    .addColumn('valid_from', 'date', (col) => col.notNull())
++    .addColumn('valid_until', 'date', (col) => col.notNull())
++    // Umbral de aviso: cuántos números libres deben quedar para empezar a alertar.
++    .addColumn('alert_threshold', 'integer', (col) => col.notNull().defaultTo(500))
++    .addColumn('is_active', 'boolean', (col) => col.notNull().defaultTo(true))
++    .addColumn('technical_key', 'text')
++    .addColumn('created_at', 'timestamptz', (col) => col.notNull().defaultTo(sql`now()`))
++    .addColumn('updated_at', 'timestamptz', (col) => col.notNull().defaultTo(sql`now()`))
++    .addCheckConstraint('dian_resolutions_range_valid', sql`range_to >= range_from`)
++    .addCheckConstraint(
++      'dian_resolutions_current_within_range',
++      sql`current_number >= range_from - 1 AND current_number <= range_to`
++    )
++    .addCheckConstraint('dian_resolutions_validity', sql`valid_until >= valid_from`)
++    .execute();
++
++  // Solo puede haber una resolución activa por comercio, sucursal y tipo de documento. Sin
++  // esto, dos resoluciones activas producirían dos series de numeración en paralelo — que
++  // es exactamente el desastre que esta migración existe para evitar.
++  await sql`
++    CREATE UNIQUE INDEX uq_dian_resolutions_active_scope
++    ON dian_resolutions (tenant_id, document_type, COALESCE(branch_id, '00000000-0000-0000-0000-000000000000'::uuid))
++    WHERE is_active
++  `.execute(db);
++
++  await db.schema
++    .createIndex('idx_dian_resolutions_tenant')
++    .on('dian_resolutions')
++    .columns(['tenant_id', 'document_type'])
++    .execute();
++
++  await sql`ALTER TABLE dian_resolutions ENABLE ROW LEVEL SECURITY`.execute(db);
++  await sql`
++    CREATE POLICY tenant_isolation_policy ON dian_resolutions
++    FOR ALL
++    USING (tenant_id::text = current_setting('app.current_tenant', true))
++  `.execute(db);
++  await sql`ALTER TABLE dian_resolutions FORCE ROW LEVEL SECURITY`.execute(db);
++
++  await db.schema
++    .alterTable('dian_documents')
++    .addColumn('resolution_id', 'uuid', (col) => col.references('dian_resolutions.id').onDelete('restrict'))
++    .addColumn('prefix', 'varchar(10)')
++    .addColumn('document_number', 'bigint')
++    .execute();
++
++  // El número fiscal no se repite dentro de un comercio. Es la garantía que impide que un
++  // reintento, una carrera entre dos workers o un despliegue a medias emitan dos documentos
++  // con el mismo número: el segundo choca contra el índice en vez de llegar a la DIAN.
++  await sql`
++    CREATE UNIQUE INDEX uq_dian_documents_fiscal_number
++    ON dian_documents (tenant_id, prefix, document_number)
++    WHERE document_number IS NOT NULL
++  `.execute(db);
++
++  await sql`GRANT SELECT, INSERT, UPDATE, DELETE ON dian_resolutions TO api_user`.execute(db);
++}
++
++// eslint-disable-next-line @typescript-eslint/no-explicit-any
++export async function down(db: Kysely<any>): Promise<void> {
++  await sql`DROP INDEX IF EXISTS uq_dian_documents_fiscal_number`.execute(db);
++  await db.schema
++    .alterTable('dian_documents')
++    .dropColumn('document_number')
++    .dropColumn('prefix')
++    .dropColumn('resolution_id')
++    .execute();
++  await db.schema.dropTable('dian_resolutions').execute();
++}
+diff --git a/apps/api/src/shared/infra/db/schema.ts b/apps/api/src/shared/infra/db/schema.ts
+index aceba1d..5e26062 100644
+--- a/apps/api/src/shared/infra/db/schema.ts
++++ b/apps/api/src/shared/infra/db/schema.ts
+@@ -373,6 +373,36 @@ export interface DianDocumentsTable {
+   cude: string | null;
+   provider_payload_json: JsonColumn;
+   provider_response_json: NullableJsonColumn;
++  // Numeración fiscal asignada al emitir (migración 090). Nula mientras el documento no se
++  // haya emitido: una venta que nunca llega al PAC no debe quemar un consecutivo.
++  resolution_id: string | null;
++  prefix: string | null;
++  document_number: string | number | null;
++  created_at: Generated<Date>;
++  updated_at: Generated<Date>;
++}
++
++/**
++ * Resoluciones de facturación autorizadas por la DIAN: prefijo, rango numérico y vigencia.
++ * `current_number` lo mueve exclusivamente el worker al emitir; tocarlo a mano es la forma
++ * más rápida de duplicar un número fiscal.
++ */
++export interface DianResolutionsTable {
++  id: string;
++  tenant_id: string;
++  branch_id: string | null;
++  document_type: Generated<string>;
++  resolution_number: string;
++  resolution_date: Date | string;
++  prefix: string;
++  range_from: string | number;
++  range_to: string | number;
++  current_number: string | number;
++  valid_from: Date | string;
++  valid_until: Date | string;
++  alert_threshold: Generated<number>;
++  is_active: Generated<boolean>;
++  technical_key: string | null;
+   created_at: Generated<Date>;
+   updated_at: Generated<Date>;
+ }
+@@ -999,6 +1029,7 @@ export interface Database {
+   deliveries: DeliveriesTable;
+   delivery_items: DeliveryItemsTable;
+   tenant_dian_settings: TenantDianSettingsTable;
++  dian_resolutions: DianResolutionsTable;
+   waiters: WaitersTable;
+   tenant_module_audit_logs: TenantModuleAuditLogsTable;
+   product_modifier_groups: ProductModifierGroupsTable;
+diff --git a/apps/api/test/delivery-invoice.e2e.test.ts b/apps/api/test/delivery-invoice.e2e.test.ts
+new file mode 100644
+index 0000000..41576c0
+--- /dev/null
++++ b/apps/api/test/delivery-invoice.e2e.test.ts
+@@ -0,0 +1,242 @@
++import { randomUUID } from 'node:crypto';
++import { sql } from 'kysely';
++import { afterAll, beforeAll, describe, expect, it } from 'vitest';
++import type { FastifyInstance } from 'fastify';
++import { buildApp } from '../src/app/build-app.js';
++import {
++  adminDb,
++  bearerHeaders,
++  cleanupE2eFixture,
++  ensureE2eSchema,
++  loginE2eUser,
++  seedE2eFixture,
++  type E2eFixture
++} from './helpers/e2e-fixture.js';
++
++/**
++ * Facturación de domicilios.
++ *
++ * Un domicilio recorría su ciclo completo hasta ENTREGADO y ahí se acababa: nada creaba la
++ * venta, así que el pedido se cobraba y no se facturaba. Estas pruebas cubren el camino
++ * nuevo y —sobre todo— lo que no debe pasar: facturar dos veces el mismo pedido, o
++ * facturar uno que todavía va en camino.
++ */
++
++let app: FastifyInstance;
++const fixtures: E2eFixture[] = [];
++
++async function enableDelivery(tenantId: string) {
++  await adminDb()
++    .updateTable('tenants')
++    .set({ enable_delivery: true, enable_restaurant: true })
++    .where('id', '=', tenantId)
++    .execute();
++}
++
++async function openCashSession(fixture: E2eFixture): Promise<string> {
++  const id = randomUUID();
++  await sql`
++    INSERT INTO cash_sessions (id, tenant_id, branch_id, terminal_id, opened_by_user_id,
++                               opening_amount_cents, status)
++    VALUES (${id}, ${fixture.tenantId}, ${fixture.branchId}, ${fixture.terminalId},
++            ${fixture.adminUserId}, 0, 'OPEN')
++  `.execute(adminDb());
++  return id;
++}
++
++async function seedDelivery(
++  fixture: E2eFixture,
++  options: { status: string; qty?: number } = { status: 'DELIVERED' }
++): Promise<string> {
++  const deliveryId = randomUUID();
++
++  await sql`
++    INSERT INTO deliveries (id, tenant_id, branch_id, status, customer_name, customer_phone,
++                            delivery_address, total_cents)
++    VALUES (${deliveryId}, ${fixture.tenantId}, ${fixture.branchId}, ${options.status},
++            'Cliente Domicilio', '3001234567', 'Calle 45 # 12-30', ${fixture.productPriceCents})
++  `.execute(adminDb());
++
++  await sql`
++    INSERT INTO delivery_items (id, tenant_id, branch_id, delivery_id, product_id, qty,
++                                price_cents, line_total_cents)
++    VALUES (${randomUUID()}, ${fixture.tenantId}, ${fixture.branchId}, ${deliveryId},
++            ${fixture.productId}, ${options.qty ?? 1}, ${fixture.productPriceCents},
++            ${fixture.productPriceCents})
++  `.execute(adminDb());
++
++  return deliveryId;
++}
++
++async function readDeliverySaleId(deliveryId: string): Promise<string | null> {
++  const { rows } = await sql<{ sale_id: string | null }>`
++    SELECT sale_id FROM deliveries WHERE id = ${deliveryId}
++  `.execute(adminDb());
++  return rows[0]?.sale_id ?? null;
++}
++
++describe('Facturación de domicilios', () => {
++  beforeAll(async () => {
++    await ensureE2eSchema();
++    app = await buildApp();
++    await app.ready();
++  });
++
++  afterAll(async () => {
++    for (const fixture of fixtures) {
++      await sql`DELETE FROM delivery_items WHERE tenant_id = ${fixture.tenantId}`.execute(adminDb());
++      await sql`DELETE FROM deliveries WHERE tenant_id = ${fixture.tenantId}`.execute(adminDb());
++      await cleanupE2eFixture(app, fixture);
++    }
++    await app.close();
++  });
++
++  async function setup() {
++    const fixture = await seedE2eFixture(app);
++    fixtures.push(fixture);
++    await enableDelivery(fixture.tenantId);
++    const token = await loginE2eUser(app, {
++      email: fixture.adminEmail,
++      password: fixture.adminPassword
++    });
++    const cashSessionId = await openCashSession(fixture);
++    return { fixture, token, cashSessionId };
++  }
++
++  it('un domicilio entregado genera su venta y queda vinculado a ella', async () => {
++    const { fixture, token, cashSessionId } = await setup();
++    const deliveryId = await seedDelivery(fixture);
++
++    const response = await app.inject({
++      method: 'POST',
++      url: `/api/v1/branches/${fixture.branchId}/deliveries/${deliveryId}/invoice`,
++      headers: bearerHeaders(token),
++      payload: {
++        cash_session_id: cashSessionId,
++        payments: [{ method: 'CASH', amount_cents: fixture.productPriceCents }]
++      }
++    });
++
++    expect(response.statusCode, response.body).toBe(201);
++    const body = response.json() as { sale_id: string; already_invoiced: boolean };
++
++    expect(body.already_invoiced).toBe(false);
++    expect(await readDeliverySaleId(deliveryId)).toBe(body.sale_id);
++  });
++
++  it('facturar dos veces el mismo domicilio no crea una segunda venta', async () => {
++    // Un domicilio con dos facturas es un problema fiscal que solo se arregla con nota
++    // crédito. El doble clic del repartidor no puede costar eso.
++    const { fixture, token, cashSessionId } = await setup();
++    const deliveryId = await seedDelivery(fixture);
++
++    const payload = {
++      cash_session_id: cashSessionId,
++      payments: [{ method: 'CASH', amount_cents: fixture.productPriceCents }]
++    };
++
++    const first = await app.inject({
++      method: 'POST',
++      url: `/api/v1/branches/${fixture.branchId}/deliveries/${deliveryId}/invoice`,
++      headers: bearerHeaders(token),
++      payload
++    });
++    const second = await app.inject({
++      method: 'POST',
++      url: `/api/v1/branches/${fixture.branchId}/deliveries/${deliveryId}/invoice`,
++      headers: bearerHeaders(token),
++      payload
++    });
++
++    expect(first.statusCode, first.body).toBe(201);
++    expect(second.statusCode, second.body).toBe(201);
++    expect(second.json().sale_id).toBe(first.json().sale_id);
++    expect(second.json().already_invoiced).toBe(true);
++
++    const { rows } = await sql<{ count: string }>`
++      SELECT count(*)::text AS count FROM sales WHERE tenant_id = ${fixture.tenantId}
++    `.execute(adminDb());
++    expect(Number(rows[0]!.count)).toBe(1);
++  });
++
++  it('genera el evento de emisión DIAN en la bandeja de salida', async () => {
++    // Es el punto de todo esto: que el domicilio acabe produciendo un documento fiscal.
++    const { fixture, token, cashSessionId } = await setup();
++    const deliveryId = await seedDelivery(fixture);
++
++    const response = await app.inject({
++      method: 'POST',
++      url: `/api/v1/branches/${fixture.branchId}/deliveries/${deliveryId}/invoice`,
++      headers: bearerHeaders(token),
++      payload: {
++        cash_session_id: cashSessionId,
++        payments: [{ method: 'CASH', amount_cents: fixture.productPriceCents }]
++      }
++    });
++
++    const saleId = response.json().sale_id as string;
++
++    const { rows } = await sql<{ type: string }>`
++      SELECT type FROM outbox_events
++      WHERE tenant_id = ${fixture.tenantId} AND aggregate_id = ${saleId}
++    `.execute(adminDb());
++
++    expect(rows.map((r) => r.type)).toContain('sale.created');
++  });
++
++  it('no factura un domicilio que todavía va en camino', async () => {
++    const { fixture, token, cashSessionId } = await setup();
++    const deliveryId = await seedDelivery(fixture, { status: 'ON_THE_WAY' });
++
++    const response = await app.inject({
++      method: 'POST',
++      url: `/api/v1/branches/${fixture.branchId}/deliveries/${deliveryId}/invoice`,
++      headers: bearerHeaders(token),
++      payload: {
++        cash_session_id: cashSessionId,
++        payments: [{ method: 'CASH', amount_cents: fixture.productPriceCents }]
++      }
++    });
++
++    expect(response.statusCode).toBe(409);
++    expect(response.json().error.code).toBe('DELIVERY_NOT_DELIVERED');
++    expect(await readDeliverySaleId(deliveryId)).toBeNull();
++  });
++
++  it('no factura un domicilio cancelado', async () => {
++    const { fixture, token, cashSessionId } = await setup();
++    const deliveryId = await seedDelivery(fixture, { status: 'CANCELLED' });
++
++    const response = await app.inject({
++      method: 'POST',
++      url: `/api/v1/branches/${fixture.branchId}/deliveries/${deliveryId}/invoice`,
++      headers: bearerHeaders(token),
++      payload: {
++        cash_session_id: cashSessionId,
++        payments: [{ method: 'CASH', amount_cents: fixture.productPriceCents }]
++      }
++    });
++
++    expect(response.statusCode).toBe(409);
++    expect(response.json().error.code).toBe('DELIVERY_CANCELLED');
++  });
++
++  it('un comercio no puede facturar el domicilio de otro', async () => {
++    const victim = await setup();
++    const attacker = await setup();
++    const deliveryId = await seedDelivery(victim.fixture);
++
++    const response = await app.inject({
++      method: 'POST',
++      url: `/api/v1/branches/${attacker.fixture.branchId}/deliveries/${deliveryId}/invoice`,
++      headers: bearerHeaders(attacker.token),
++      payload: {
++        cash_session_id: attacker.cashSessionId,
++        payments: [{ method: 'CASH', amount_cents: victim.fixture.productPriceCents }]
++      }
++    });
++
++    expect(response.statusCode).toBe(404);
++    expect(await readDeliverySaleId(deliveryId)).toBeNull();
++  });
++});
+diff --git a/apps/api/test/dian-resolutions.e2e.test.ts b/apps/api/test/dian-resolutions.e2e.test.ts
+new file mode 100644
+index 0000000..dc5152c
+--- /dev/null
++++ b/apps/api/test/dian-resolutions.e2e.test.ts
+@@ -0,0 +1,352 @@
++import { randomUUID } from 'node:crypto';
++import { sql } from 'kysely';
++import { afterAll, beforeAll, describe, expect, it } from 'vitest';
++import type { FastifyInstance } from 'fastify';
++import { buildApp } from '../src/app/build-app.js';
++import {
++  adminDb,
++  bearerHeaders,
++  cleanupE2eFixture,
++  ensureE2eSchema,
++  loginE2eUser,
++  seedE2eFixture,
++  type E2eFixture
++} from './helpers/e2e-fixture.js';
++
++/**
++ * Resoluciones de facturación y numeración fiscal.
++ *
++ * El punto de estas pruebas no es el CRUD: es que la numeración no se pueda duplicar ni
++ * saltar. Un número repetido lo rechaza el PAC; un hueco hay que justificarlo ante la DIAN
++ * meses después, cuando ya nadie recuerda qué pasó.
++ */
++
++let app: FastifyInstance;
++const fixtures: E2eFixture[] = [];
++
++function isoDaysFromNow(days: number): string {
++  const d = new Date();
++  d.setDate(d.getDate() + days);
++  return d.toISOString().slice(0, 10);
++}
++
++async function cleanupResolutions(tenantId: string) {
++  await adminDb().deleteFrom('dian_documents').where('tenant_id', '=', tenantId).execute();
++  await sql`DELETE FROM dian_resolutions WHERE tenant_id = ${tenantId}`.execute(adminDb());
++}
++
++describe('Resoluciones de facturación DIAN', () => {
++  beforeAll(async () => {
++    await ensureE2eSchema();
++    app = await buildApp();
++    await app.ready();
++  });
++
++  afterAll(async () => {
++    for (const fixture of fixtures) {
++      await cleanupResolutions(fixture.tenantId);
++      await cleanupE2eFixture(app, fixture);
++    }
++    await app.close();
++  });
++
++  async function seedTenantWithToken() {
++    const fixture = await seedE2eFixture(app);
++    fixtures.push(fixture);
++    const token = await loginE2eUser(app, {
++      email: fixture.adminEmail,
++      password: fixture.adminPassword
++    });
++    return { fixture, token };
++  }
++
++  it('carga una resolución y calcula cuánto queda y cuánto falta para vencer', async () => {
++    const { fixture, token } = await seedTenantWithToken();
++
++    const response = await app.inject({
++      method: 'POST',
++      url: '/api/v1/dian/resolutions',
++      headers: bearerHeaders(token),
++      payload: {
++        resolution_number: '18764000001234',
++        resolution_date: isoDaysFromNow(-10),
++        prefix: 'SETP',
++        range_from: 990000000,
++        range_to: 990001000,
++        valid_from: isoDaysFromNow(-10),
++        valid_until: isoDaysFromNow(180),
++        alert_threshold: 100
++      }
++    });
++
++    expect(response.statusCode, response.body).toBe(201);
++    const body = response.json();
++
++    expect(body.prefix).toBe('SETP');
++    // Aún no se ha emitido nada: el siguiente documento se lleva el primer número del rango.
++    expect(body.next_number).toBe(990000000);
++    expect(body.remaining).toBe(1001);
++    expect(body.days_until_expiry).toBeGreaterThan(170);
++    expect(body.health).toBe('OK');
++    void fixture;
++  });
++
++  it('rechaza un rango invertido y una vigencia al revés', async () => {
++    const { token } = await seedTenantWithToken();
++
++    const badRange = await app.inject({
++      method: 'POST',
++      url: '/api/v1/dian/resolutions',
++      headers: bearerHeaders(token),
++      payload: {
++        resolution_number: 'R-1',
++        resolution_date: isoDaysFromNow(-1),
++        prefix: 'AAA',
++        range_from: 500,
++        range_to: 100,
++        valid_from: isoDaysFromNow(-1),
++        valid_until: isoDaysFromNow(30)
++      }
++    });
++    expect(badRange.statusCode).toBe(400);
++    expect(badRange.json().error.code).toBe('VALIDATION_ERROR');
++
++    const badValidity = await app.inject({
++      method: 'POST',
++      url: '/api/v1/dian/resolutions',
++      headers: bearerHeaders(token),
++      payload: {
++        resolution_number: 'R-2',
++        resolution_date: isoDaysFromNow(-1),
++        prefix: 'AAA',
++        range_from: 100,
++        range_to: 500,
++        valid_from: isoDaysFromNow(30),
++        valid_until: isoDaysFromNow(1)
++      }
++    });
++    expect(badValidity.statusCode).toBe(400);
++  });
++
++  it('cargar una resolución nueva desactiva la anterior: nunca dos series en paralelo', async () => {
++    const { fixture, token } = await seedTenantWithToken();
++
++    const base = {
++      resolution_date: isoDaysFromNow(-5),
++      valid_from: isoDaysFromNow(-5),
++      valid_until: isoDaysFromNow(200),
++      range_from: 1,
++      range_to: 1000
++    };
++
++    const first = await app.inject({
++      method: 'POST',
++      url: '/api/v1/dian/resolutions',
++      headers: bearerHeaders(token),
++      payload: { ...base, resolution_number: 'R-VIEJA', prefix: 'OLD' }
++    });
++    expect(first.statusCode, first.body).toBe(201);
++
++    const second = await app.inject({
++      method: 'POST',
++      url: '/api/v1/dian/resolutions',
++      headers: bearerHeaders(token),
++      payload: { ...base, resolution_number: 'R-NUEVA', prefix: 'NEW' }
++    });
++    expect(second.statusCode, second.body).toBe(201);
++
++    const listed = await app.inject({
++      method: 'GET',
++      url: '/api/v1/dian/resolutions',
++      headers: bearerHeaders(token)
++    });
++    const rows = listed.json() as Array<{ prefix: string; is_active: boolean }>;
++
++    expect(rows.filter((r) => r.is_active)).toHaveLength(1);
++    expect(rows.find((r) => r.is_active)?.prefix).toBe('NEW');
++    void fixture;
++  });
++
++  it('avisa cuando el rango está por agotarse y cuando la vigencia está por vencer', async () => {
++    const { token } = await seedTenantWithToken();
++
++    const lowRange = await app.inject({
++      method: 'POST',
++      url: '/api/v1/dian/resolutions',
++      headers: bearerHeaders(token),
++      payload: {
++        resolution_number: 'R-CORTA',
++        resolution_date: isoDaysFromNow(-5),
++        prefix: 'LOW',
++        range_from: 1,
++        range_to: 50,
++        valid_from: isoDaysFromNow(-5),
++        valid_until: isoDaysFromNow(300),
++        alert_threshold: 100
++      }
++    });
++    // Quedan 50 números y el umbral es 100: el aviso se enciende desde el primer día.
++    expect(lowRange.json().health).toBe('LOW_RANGE');
++
++    const expiring = await app.inject({
++      method: 'POST',
++      url: '/api/v1/dian/resolutions',
++      headers: bearerHeaders(token),
++      payload: {
++        resolution_number: 'R-VENCE',
++        resolution_date: isoDaysFromNow(-5),
++        prefix: 'EXP',
++        range_from: 1,
++        range_to: 100000,
++        valid_from: isoDaysFromNow(-5),
++        valid_until: isoDaysFromNow(10),
++        alert_threshold: 10
++      }
++    });
++    expect(expiring.json().health).toBe('EXPIRING');
++  });
++
++  it('permite arrancar en un número intermedio al migrar desde otra herramienta', async () => {
++    const { token } = await seedTenantWithToken();
++
++    const response = await app.inject({
++      method: 'POST',
++      url: '/api/v1/dian/resolutions',
++      headers: bearerHeaders(token),
++      payload: {
++        resolution_number: 'R-MIGRADA',
++        resolution_date: isoDaysFromNow(-30),
++        prefix: 'MIG',
++        range_from: 1000,
++        range_to: 2000,
++        start_at: 1450,
++        valid_from: isoDaysFromNow(-30),
++        valid_until: isoDaysFromNow(120)
++      }
++    });
++
++    expect(response.statusCode, response.body).toBe(201);
++    expect(response.json().next_number).toBe(1450);
++
++    const outOfRange = await app.inject({
++      method: 'POST',
++      url: '/api/v1/dian/resolutions',
++      headers: bearerHeaders(token),
++      payload: {
++        resolution_number: 'R-MALA',
++        resolution_date: isoDaysFromNow(-30),
++        prefix: 'BAD',
++        range_from: 1000,
++        range_to: 2000,
++        start_at: 5000,
++        valid_from: isoDaysFromNow(-30),
++        valid_until: isoDaysFromNow(120)
++      }
++    });
++    expect(outOfRange.statusCode).toBe(400);
++  });
++
++  it('un comercio no ve las resoluciones de otro', async () => {
++    const a = await seedTenantWithToken();
++    const b = await seedTenantWithToken();
++
++    await app.inject({
++      method: 'POST',
++      url: '/api/v1/dian/resolutions',
++      headers: bearerHeaders(a.token),
++      payload: {
++        resolution_number: 'R-DE-A',
++        resolution_date: isoDaysFromNow(-1),
++        prefix: 'AAA',
++        range_from: 1,
++        range_to: 100,
++        valid_from: isoDaysFromNow(-1),
++        valid_until: isoDaysFromNow(90)
++      }
++    });
++
++    const seenByB = await app.inject({
++      method: 'GET',
++      url: '/api/v1/dian/resolutions',
++      headers: bearerHeaders(b.token)
++    });
++
++    expect(seenByB.statusCode).toBe(200);
++    expect(seenByB.json()).toEqual([]);
++  });
++
++  it('un cajero no puede cargar ni listar resoluciones', async () => {
++    const fixture = await seedE2eFixture(app);
++    fixtures.push(fixture);
++    const cashierToken = await loginE2eUser(app, {
++      email: fixture.cashierEmail,
++      password: fixture.cashierPassword
++    });
++
++    const listed = await app.inject({
++      method: 'GET',
++      url: '/api/v1/dian/resolutions',
++      headers: bearerHeaders(cashierToken)
++    });
++    expect(listed.statusCode).toBe(403);
++
++    const created = await app.inject({
++      method: 'POST',
++      url: '/api/v1/dian/resolutions',
++      headers: bearerHeaders(cashierToken),
++      payload: {
++        resolution_number: 'R-X',
++        resolution_date: isoDaysFromNow(-1),
++        prefix: 'XXX',
++        range_from: 1,
++        range_to: 10,
++        valid_from: isoDaysFromNow(-1),
++        valid_until: isoDaysFromNow(10)
++      }
++    });
++    expect(created.statusCode).toBe(403);
++  });
++
++  it('el índice único impide dos documentos con el mismo número fiscal', async () => {
++    const { fixture } = await seedTenantWithToken();
++
++    const saleA = randomUUID();
++    const saleB = randomUUID();
++
++    // Dos ventas mínimas de las que colgar los documentos.
++    const cashSessionId = randomUUID();
++    await sql`
++      INSERT INTO cash_sessions (id, tenant_id, branch_id, terminal_id, opened_by_user_id,
++                                 opening_amount_cents, status)
++      VALUES (${cashSessionId}, ${fixture.tenantId}, ${fixture.branchId}, ${fixture.terminalId},
++              ${fixture.adminUserId}, 0, 'OPEN')
++    `.execute(adminDb());
++
++    let saleNumber = 90000;
++    for (const saleId of [saleA, saleB]) {
++      await sql`
++        INSERT INTO sales (id, tenant_id, branch_id, cash_session_id, sale_number, client_uuid,
++                           created_by_user_id, subtotal_cents, discount_cents, tax_total_cents,
++                           total_cents, payment_json, tax_lines_json, status)
++        VALUES (${saleId}, ${fixture.tenantId}, ${fixture.branchId}, ${cashSessionId},
++                ${saleNumber++}, ${randomUUID()}, ${fixture.adminUserId}, 1000, 0, 0, 1000,
++                '{}'::jsonb, '[]'::jsonb, 'COMPLETED')
++      `.execute(adminDb());
++    }
++
++    const insertDocument = (saleId: string) => sql`
++      INSERT INTO dian_documents (id, tenant_id, sale_id, document_type, provider, status,
++                                  provider_payload_json, prefix, document_number)
++      VALUES (${randomUUID()}, ${fixture.tenantId}, ${saleId}, 'INVOICE', 'mock', 'SENT',
++              '{}'::jsonb, 'DUP', 777)
++    `.execute(adminDb());
++
++    await insertDocument(saleA);
++    // El segundo choca contra el índice en vez de llegar a la DIAN con el número repetido.
++    await expect(insertDocument(saleB)).rejects.toThrow(/duplicate key|unique/i);
++
++    await sql`DELETE FROM dian_documents WHERE sale_id IN (${saleA}, ${saleB})`.execute(adminDb());
++    await sql`DELETE FROM sales WHERE id IN (${saleA}, ${saleB})`.execute(adminDb());
++    await sql`DELETE FROM cash_sessions WHERE id = ${cashSessionId}`.execute(adminDb());
++  });
++});
+diff --git a/apps/api/test/dian-webhook.e2e.test.ts b/apps/api/test/dian-webhook.e2e.test.ts
+new file mode 100644
+index 0000000..9c74395
+--- /dev/null
++++ b/apps/api/test/dian-webhook.e2e.test.ts
+@@ -0,0 +1,217 @@
++import { createHmac, randomUUID } from 'node:crypto';
++import { sql } from 'kysely';
++import { afterAll, beforeAll, describe, expect, it } from 'vitest';
++import type { FastifyInstance } from 'fastify';
++import { buildApp } from '../src/app/build-app.js';
++import { adminDb, cleanupE2eFixture, ensureE2eSchema, seedE2eFixture, type E2eFixture } from './helpers/e2e-fixture.js';
++
++/**
++ * Webhook del PAC.
++ *
++ * Es un endpoint público que puede marcar una factura como aceptada o rechazada, así que lo
++ * que importa comprobar es lo que *no* debe pasar: que se acepte sin firma, que una
++ * notificación dirigida a un comercio alcance los documentos de otro, o que un webhook
++ * repetido reabra un documento ya resuelto.
++ */
++
++const WEBHOOK_SECRET = 'secreto-de-prueba-para-el-webhook-dian';
++
++let app: FastifyInstance;
++const fixtures: E2eFixture[] = [];
++let previousSecret: string | undefined;
++
++function sign(body: unknown): { payload: string; signature: string } {
++  const payload = JSON.stringify(body);
++  return { payload, signature: createHmac('sha256', WEBHOOK_SECRET).update(payload).digest('hex') };
++}
++
++async function seedSentDocument(fixture: E2eFixture, overrides: { cude?: string } = {}) {
++  const cashSessionId = randomUUID();
++  const saleId = randomUUID();
++  const documentId = randomUUID();
++
++  await sql`
++    INSERT INTO cash_sessions (id, tenant_id, branch_id, terminal_id, opened_by_user_id, opening_amount_cents, status)
++    VALUES (${cashSessionId}, ${fixture.tenantId}, ${fixture.branchId}, ${fixture.terminalId},
++            ${fixture.adminUserId}, 0, 'OPEN')
++  `.execute(adminDb());
++
++  await sql`
++    INSERT INTO sales (id, tenant_id, branch_id, cash_session_id, sale_number, client_uuid,
++                       created_by_user_id, subtotal_cents, discount_cents, tax_total_cents,
++                       total_cents, payment_json, tax_lines_json, status)
++    VALUES (${saleId}, ${fixture.tenantId}, ${fixture.branchId}, ${cashSessionId}, 77001,
++            ${randomUUID()}, ${fixture.adminUserId}, 1000, 0, 0, 1000, '{}'::jsonb, '[]'::jsonb, 'COMPLETED')
++  `.execute(adminDb());
++
++  await sql`
++    INSERT INTO dian_documents (id, tenant_id, sale_id, document_type, provider, status,
++                                cude, provider_payload_json)
++    VALUES (${documentId}, ${fixture.tenantId}, ${saleId}, 'INVOICE', 'mock', 'SENT',
++            ${overrides.cude ?? null}, '{}'::jsonb)
++  `.execute(adminDb());
++
++  return { documentId, saleId, cashSessionId };
++}
++
++async function readStatus(documentId: string): Promise<string> {
++  const { rows } = await sql<{ status: string }>`
++    SELECT status FROM dian_documents WHERE id = ${documentId}
++  `.execute(adminDb());
++  return rows[0]!.status;
++}
++
++describe('Webhook de estado del PAC', () => {
++  beforeAll(async () => {
++    previousSecret = process.env.DIAN_WEBHOOK_SECRET;
++    process.env.DIAN_WEBHOOK_SECRET = WEBHOOK_SECRET;
++    await ensureE2eSchema();
++    app = await buildApp();
++    await app.ready();
++  });
++
++  afterAll(async () => {
++    for (const fixture of fixtures) {
++      await adminDb().deleteFrom('dian_documents').where('tenant_id', '=', fixture.tenantId).execute();
++      await sql`DELETE FROM sales WHERE tenant_id = ${fixture.tenantId}`.execute(adminDb());
++      await sql`DELETE FROM cash_sessions WHERE tenant_id = ${fixture.tenantId}`.execute(adminDb());
++      await cleanupE2eFixture(app, fixture);
++    }
++    await app.close();
++    if (previousSecret === undefined) delete process.env.DIAN_WEBHOOK_SECRET;
++    else process.env.DIAN_WEBHOOK_SECRET = previousSecret;
++  });
++
++  async function newFixture() {
++    const fixture = await seedE2eFixture(app);
++    fixtures.push(fixture);
++    return fixture;
++  }
++
++  it('resuelve un documento SENT a ACCEPTED cuando la firma es válida', async () => {
++    const fixture = await newFixture();
++    const { documentId } = await seedSentDocument(fixture);
++
++    const body = { document_id: documentId, status: 'ACCEPTED', cude: 'CUDE-REAL-123' };
++    const { payload, signature } = sign(body);
++
++    const response = await app.inject({
++      method: 'POST',
++      url: `/api/v1/webhooks/dian/${fixture.tenantId}/status`,
++      headers: { 'content-type': 'application/json', 'x-dian-signature': signature },
++      payload
++    });
++
++    expect(response.statusCode, response.body).toBe(200);
++    expect(response.json()).toMatchObject({ received: true, applied: true });
++    expect(await readStatus(documentId)).toBe('ACCEPTED');
++  });
++
++  it('rechaza una notificación sin firma o con firma equivocada', async () => {
++    const fixture = await newFixture();
++    const { documentId } = await seedSentDocument(fixture);
++
++    const body = { document_id: documentId, status: 'ACCEPTED', cude: 'CUDE-FALSO' };
++    const { payload } = sign(body);
++
++    const noSignature = await app.inject({
++      method: 'POST',
++      url: `/api/v1/webhooks/dian/${fixture.tenantId}/status`,
++      headers: { 'content-type': 'application/json' },
++      payload
++    });
++    expect(noSignature.statusCode).toBe(401);
++
++    const badSignature = await app.inject({
++      method: 'POST',
++      url: `/api/v1/webhooks/dian/${fixture.tenantId}/status`,
++      headers: { 'content-type': 'application/json', 'x-dian-signature': 'a'.repeat(64) },
++      payload
++    });
++    expect(badSignature.statusCode).toBe(401);
++
++    // Y lo que importa: el documento sigue como estaba.
++    expect(await readStatus(documentId)).toBe('SENT');
++  });
++
++  it('una notificación dirigida a un comercio no alcanza los documentos de otro', async () => {
++    const victim = await newFixture();
++    const attacker = await newFixture();
++    const { documentId } = await seedSentDocument(victim);
++
++    // Firma válida, pero la ruta apunta al otro comercio.
++    const body = { document_id: documentId, status: 'ACCEPTED', cude: 'CUDE-AJENO' };
++    const { payload, signature } = sign(body);
++
++    const response = await app.inject({
++      method: 'POST',
++      url: `/api/v1/webhooks/dian/${attacker.tenantId}/status`,
++      headers: { 'content-type': 'application/json', 'x-dian-signature': signature },
++      payload
++    });
++
++    expect(response.statusCode).toBe(200);
++    expect(response.json()).toMatchObject({ applied: false, reason: 'DOCUMENT_NOT_FOUND' });
++    expect(await readStatus(documentId)).toBe('SENT');
++  });
++
++  it('no reabre un documento ya resuelto', async () => {
++    const fixture = await newFixture();
++    const { documentId } = await seedSentDocument(fixture);
++
++    const accept = sign({ document_id: documentId, status: 'ACCEPTED', cude: 'CUDE-1' });
++    await app.inject({
++      method: 'POST',
++      url: `/api/v1/webhooks/dian/${fixture.tenantId}/status`,
++      headers: { 'content-type': 'application/json', 'x-dian-signature': accept.signature },
++      payload: accept.payload
++    });
++
++    const reject = sign({ document_id: documentId, status: 'REJECTED' });
++    const second = await app.inject({
++      method: 'POST',
++      url: `/api/v1/webhooks/dian/${fixture.tenantId}/status`,
++      headers: { 'content-type': 'application/json', 'x-dian-signature': reject.signature },
++      payload: reject.payload
++    });
++
++    expect(second.json()).toMatchObject({ applied: false, reason: 'ALREADY_RESOLVED' });
++    expect(await readStatus(documentId)).toBe('ACCEPTED');
++  });
++
++  it('identifica el documento por CUDE cuando el PAC no manda el id interno', async () => {
++    const fixture = await newFixture();
++    const cude = `CUDE-${randomUUID()}`;
++    const { documentId } = await seedSentDocument(fixture, { cude });
++
++    const body = { cude, status: 'REJECTED', rejection_reason: 'NIT del adquiriente inválido' };
++    const { payload, signature } = sign(body);
++
++    const response = await app.inject({
++      method: 'POST',
++      url: `/api/v1/webhooks/dian/${fixture.tenantId}/status`,
++      headers: { 'content-type': 'application/json', 'x-dian-signature': signature },
++      payload
++    });
++
++    expect(response.json()).toMatchObject({ applied: true });
++    expect(await readStatus(documentId)).toBe('REJECTED');
++  });
++
++  it('acepta con 200 un documento desconocido, para no provocar reintentos en bucle', async () => {
++    const fixture = await newFixture();
++
++    const body = { document_id: randomUUID(), status: 'ACCEPTED', cude: 'CUDE-X' };
++    const { payload, signature } = sign(body);
++
++    const response = await app.inject({
++      method: 'POST',
++      url: `/api/v1/webhooks/dian/${fixture.tenantId}/status`,
++      headers: { 'content-type': 'application/json', 'x-dian-signature': signature },
++      payload
++    });
++
++    expect(response.statusCode).toBe(200);
++    expect(response.json()).toMatchObject({ applied: false, reason: 'DOCUMENT_NOT_FOUND' });
++  });
++});
+diff --git a/apps/worker/src/index.ts b/apps/worker/src/index.ts
+index 8645d2b..8b48d9e 100644
+--- a/apps/worker/src/index.ts
++++ b/apps/worker/src/index.ts
+@@ -135,17 +135,18 @@ const schedulerTimer: NodeJS.Timeout = setInterval(() => {
+     });
+ }, env.OUTBOX_POLL_INTERVAL_MS);
+ 
+-// C4: Scheduler de recheck para documentos DIAN en estado SENT
+-// Se ejecuta cada 5 minutos (3 veces el intervalo del outbox)
++// Cierre del ciclo de los documentos DIAN que quedan en `SENT`: se le pregunta al PAC por
++// su estado. Antes se reencolaba la emisión, y la guarda de idempotencia del procesador la
++// descartaba de inmediato: el bucle no resolvía nada y acumulaba filas en la bandeja.
+ const dianRecheckIntervalMs = env.OUTBOX_POLL_INTERVAL_MS * 3;
+ const dianRecheckTimer: NodeJS.Timeout = setInterval(() => {
+-  void recheckStuckDianDocuments(dbPool, queue, env.OUTBOX_BATCH_SIZE)
+-    .then((recheckCount) => {
+-      if (recheckCount > 0) {
++  void recheckStuckDianDocuments(dbPool, env.OUTBOX_BATCH_SIZE)
++    .then((outcome) => {
++      if (outcome.checked > 0) {
+         logWorkerInfo({
+           event: 'dian_sent_recheck_scheduled',
+-          message: 'DIAN SENT recheck enqueued stuck documents',
+-          details: { recheckCount }
++          message: 'Reconsulta de documentos DIAN sin resolver',
++          details: { ...outcome }
+         });
+       }
+     })
+diff --git a/apps/worker/src/jobs/outbox-sale-created.processor.ts b/apps/worker/src/jobs/outbox-sale-created.processor.ts
+index 3c4a034..fd1c5b4 100644
+--- a/apps/worker/src/jobs/outbox-sale-created.processor.ts
++++ b/apps/worker/src/jobs/outbox-sale-created.processor.ts
+@@ -23,6 +23,12 @@ import {
+ } from './shared/outbox-store.js';
+ import { executeAsTenantClient } from '../infra/db/rls.js';
+ import { resolveDianCredentials } from '../infra/security/dian-credentials.js';
++import {
++  assignDocumentNumber,
++  publishResolutionAlert,
++  FiscalNumberingError,
++  type AssignedFiscalNumber
++} from './shared/fiscal-numbering.js';
+ 
+ interface BuildOutboxSaleCreatedProcessorInput {
+   pool: Pool;
+@@ -366,6 +372,59 @@ export function buildOutboxSaleCreatedProcessor({
+       throw loadError;
+     }
+ 
++    // Numeración fiscal. Se asigna aquí y no al crear la venta: una venta que nunca llega
++    // a emitirse no debe quemar un consecutivo, porque un hueco en la numeración hay que
++    // justificarlo ante la DIAN. Es idempotente por documento, así que un reintento
++    // reutiliza el número en vez de consumir otro.
++    let numbering: AssignedFiscalNumber;
++    try {
++      numbering = await executeAsTenantClient(pool, tenantId, async (client) =>
++        assignDocumentNumber(client, {
++          tenantId,
++          branchId: payload.branch_id ?? null,
++          documentId: dianDocument.id,
++          documentType: 'INVOICE'
++        })
++      );
++    } catch (numberingError) {
++      // Sin resolución vigente el comercio no puede facturar, y no es algo que se arregle
++      // reintentando: hay que cargar o renovar la resolución. Se deja el evento reintentando
++      // con backoff —para que se emita solo en cuanto la carguen— pero se registra como
++      // error de configuración, no como fallo del PAC.
++      logWorkerError({
++        event: 'dian_numbering_unavailable',
++        message:
++          numberingError instanceof FiscalNumberingError
++            ? numberingError.message
++            : 'No fue posible asignar numeración fiscal',
++        job_id: job.id?.toString(),
++        outbox_event_id: claimedEvent.id,
++        sale_id: saleId,
++        tenant_id: tenantId,
++        attempt: nextAttemptNumber,
++        dian_document_id: dianDocument.id,
++        error: numberingError,
++        details: {
++          reason: numberingError instanceof FiscalNumberingError ? numberingError.code : 'UNKNOWN'
++        }
++      });
++      throw numberingError;
++    }
++
++    if (!numbering.reused && (numbering.belowThreshold || numbering.daysUntilExpiry <= 30)) {
++      // El comercio se queda sin poder facturar cuando se agota el rango o vence la
++      // resolución, y conseguir una nueva ante la DIAN toma días. El aviso va antes, no
++      // el día que se acaba.
++      await publishResolutionAlert(pool, {
++        tenantId,
++        branchId: payload.branch_id ?? null,
++        resolutionId: numbering.resolutionId,
++        prefix: numbering.prefix,
++        remaining: numbering.remaining,
++        daysUntilExpiry: numbering.daysUntilExpiry
++      });
++    }
++
+     try {
+       // Obtener configuracion del proveedor PAC para este tenant
+       let providerConfig;
+@@ -392,7 +451,21 @@ export function buildOutboxSaleCreatedProcessor({
+         test_mode: providerConfig.test_mode
+       });
+ 
+-      const providerResult = await provider.emitSale(providerPayload);
++      const providerResult = await provider.emitSale({
++        ...providerPayload,
++        numbering: {
++          resolution_number: numbering.resolutionNumber,
++          resolution_date: numbering.resolutionDate,
++          prefix: numbering.prefix,
++          document_number: numbering.documentNumber,
++          full_number: `${numbering.prefix}${numbering.documentNumber}`,
++          range_from: numbering.rangeFrom,
++          range_to: numbering.rangeTo,
++          valid_from: numbering.validFrom,
++          valid_until: numbering.validUntil,
++          technical_key: numbering.technicalKey
++        }
++      });
+       const transitionPlan = planDianStatusTransition(dianDocument.status, providerResult.status);
+ 
+       await updateDianDocumentMetadata(
+diff --git a/apps/worker/src/jobs/shared/fiscal-numbering.ts b/apps/worker/src/jobs/shared/fiscal-numbering.ts
+new file mode 100644
+index 0000000..1623e83
+--- /dev/null
++++ b/apps/worker/src/jobs/shared/fiscal-numbering.ts
+@@ -0,0 +1,326 @@
++import type { Pool, PoolClient } from 'pg';
++
++/**
++ * Asignación del número fiscal de un documento DIAN.
++ *
++ * En Colombia la DIAN autoriza una resolución con prefijo y rango numérico, y cada
++ * documento electrónico debe llevar un número de ese rango: consecutivo, sin huecos y sin
++ * repetir. El CUFE/CUDE se calcula sobre él.
++ *
++ * Tres decisiones que conviene entender antes de tocar este archivo:
++ *
++ * 1. **El número se asigna en el momento de emitir, no al crear la venta.** Una venta que
++ *    nunca llega a emitirse —anulada antes de que el worker la procese, por ejemplo— no
++ *    debe quemar un número. Un hueco en la numeración hay que justificarlo ante la DIAN.
++ *
++ * 2. **Se persiste en el documento y se reutiliza en los reintentos.** El worker reintenta
++ *    con backoff; si cada intento pidiera un número nuevo, un PAC lento generaría una
++ *    ristra de números quemados. `assignDocumentNumber` es idempotente por documento.
++ *
++ * 3. **La reserva es un `UPDATE ... RETURNING` sobre la fila de la resolución.** Ese UPDATE
++ *    toma un lock de fila hasta el commit, así que dos workers concurrentes se serializan
++ *    solos: el segundo espera y obtiene el siguiente número. No hace falta un lock de
++ *    asesoría ni una secuencia aparte, y —a diferencia de una secuencia de Postgres— esto
++ *    no salta números al hacer rollback, que es justo lo que la DIAN no perdona.
++ */
++
++export class FiscalNumberingError extends Error {
++  constructor(
++    message: string,
++    readonly code:
++      | 'NO_ACTIVE_RESOLUTION'
++      | 'RESOLUTION_EXPIRED'
++      | 'RESOLUTION_EXHAUSTED'
++      | 'RESOLUTION_NOT_YET_VALID'
++  ) {
++    super(message);
++    this.name = 'FiscalNumberingError';
++  }
++}
++
++export interface AssignedFiscalNumber {
++  resolutionId: string;
++  resolutionNumber: string;
++  resolutionDate: string;
++  prefix: string;
++  documentNumber: number;
++  rangeFrom: number;
++  rangeTo: number;
++  validFrom: string;
++  validUntil: string;
++  technicalKey: string | null;
++  /** Números que quedan libres en el rango después de entregar este. */
++  remaining: number;
++  /** Cierto cuando `remaining` cayó por debajo del umbral configurado en la resolución. */
++  belowThreshold: boolean;
++  /** Días que faltan para que la resolución venza. Negativo sería vencida (se rechaza antes). */
++  daysUntilExpiry: number;
++  /** Cierto si el documento ya tenía número: se reutiliza, no se consume otro. */
++  reused: boolean;
++}
++
++interface ResolutionRow {
++  id: string;
++  resolution_number: string;
++  resolution_date: string;
++  prefix: string;
++  range_from: string;
++  range_to: string;
++  current_number: string;
++  alert_threshold: number;
++  valid_from: string;
++  valid_until: string;
++  technical_key: string | null;
++}
++
++const RESOLUTION_COLUMNS = `id, resolution_number, resolution_date::text AS resolution_date, prefix,
++  range_from, range_to, current_number, alert_threshold,
++  valid_from::text AS valid_from, valid_until::text AS valid_until, technical_key`;
++
++function describeResolution(row: ResolutionRow) {
++  return {
++    resolutionNumber: row.resolution_number,
++    resolutionDate: row.resolution_date,
++    rangeFrom: Number(row.range_from),
++    rangeTo: Number(row.range_to),
++    validFrom: row.valid_from,
++    validUntil: row.valid_until,
++    technicalKey: row.technical_key
++  };
++}
++
++interface ExistingNumberRow {
++  resolution_id: string | null;
++  prefix: string | null;
++  document_number: string | null;
++}
++
++function daysBetween(from: Date, to: Date): number {
++  return Math.floor((to.getTime() - from.getTime()) / 86_400_000);
++}
++
++/**
++ * Asigna (o recupera) el número fiscal de un documento.
++ *
++ * Debe llamarse dentro de una transacción: el lock de fila que serializa a los workers vive
++ * hasta el commit, y si la emisión falla después de reservar, el rollback devuelve el
++ * número al rango en vez de dejar un hueco.
++ */
++export async function assignDocumentNumber(
++  client: PoolClient | Pool,
++  params: {
++    tenantId: string;
++    branchId: string | null;
++    documentId: string;
++    documentType: 'INVOICE' | 'CREDIT_NOTE' | 'DEBIT_NOTE';
++    now?: Date;
++  }
++): Promise<AssignedFiscalNumber> {
++  const now = params.now ?? new Date();
++
++  // ¿Ya tiene número? Entonces este es un reintento y se reutiliza.
++  const existing = await client.query<ExistingNumberRow>(
++    `SELECT resolution_id, prefix, document_number
++     FROM dian_documents
++     WHERE id = $1 AND tenant_id = $2`,
++    [params.documentId, params.tenantId]
++  );
++
++  const current = existing.rows[0];
++  if (current?.document_number != null && current.prefix != null && current.resolution_id != null) {
++    const resolution = await client.query<ResolutionRow>(
++      `SELECT ${RESOLUTION_COLUMNS} FROM dian_resolutions WHERE id = $1`,
++      [current.resolution_id]
++    );
++    const row = resolution.rows[0];
++
++    if (!row) {
++      // El documento apunta a una resolución que ya no existe. Es un estado imposible salvo
++      // borrado manual, y no se puede resolver adivinando: emitir con otra numeración
++      // duplicaría el consecutivo.
++      throw new FiscalNumberingError(
++        `El documento ${params.documentId} referencia la resolución ${current.resolution_id}, que no existe.`,
++        'NO_ACTIVE_RESOLUTION'
++      );
++    }
++
++    const remaining = Number(row.range_to) - Number(row.current_number);
++
++    return {
++      resolutionId: current.resolution_id,
++      prefix: current.prefix,
++      documentNumber: Number(current.document_number),
++      remaining,
++      belowThreshold: remaining <= row.alert_threshold,
++      daysUntilExpiry: daysBetween(now, new Date(row.valid_until)),
++      reused: true,
++      ...describeResolution(row)
++    };
++  }
++
++  // Reserva atómica. Las condiciones del WHERE distinguen «no hay resolución» de «la hay
++  // pero está agotada o vencida», para poder dar un mensaje que diga qué hacer.
++  const reserved = await client.query<ResolutionRow>(
++    `
++      UPDATE dian_resolutions
++      SET current_number = current_number + 1,
++          updated_at = NOW()
++      WHERE id = (
++        SELECT id FROM dian_resolutions
++        WHERE tenant_id = $1
++          AND document_type = $2
++          AND is_active
++          AND (branch_id IS NULL OR branch_id = $3)
++        ORDER BY branch_id NULLS LAST
++        LIMIT 1
++        FOR UPDATE
++      )
++        AND current_number < range_to
++        AND $4::date BETWEEN valid_from AND valid_until
++      RETURNING ${RESOLUTION_COLUMNS}
++    `,
++    [params.tenantId, params.documentType, params.branchId, now.toISOString().slice(0, 10)]
++  );
++
++  const row = reserved.rows[0];
++
++  if (!row) {
++    await explainReservationFailure(client, params.tenantId, params.documentType, params.branchId, now);
++    // `explainReservationFailure` siempre lanza; esto es para el verificador de tipos.
++    throw new FiscalNumberingError('No fue posible asignar numeración fiscal', 'NO_ACTIVE_RESOLUTION');
++  }
++
++  const documentNumber = Number(row.current_number);
++  const remaining = Number(row.range_to) - documentNumber;
++
++  await client.query(
++    `UPDATE dian_documents
++     SET resolution_id = $2, prefix = $3, document_number = $4, updated_at = NOW()
++     WHERE id = $1`,
++    [params.documentId, row.id, row.prefix, documentNumber]
++  );
++
++  return {
++    resolutionId: row.id,
++    prefix: row.prefix,
++    documentNumber,
++    remaining,
++    belowThreshold: remaining <= row.alert_threshold,
++    daysUntilExpiry: daysBetween(now, new Date(row.valid_until)),
++    reused: false,
++    ...describeResolution(row)
++  };
++}
++
++/**
++ * Convierte «el UPDATE no afectó ninguna fila» en un error que dice qué pasa y qué hacer.
++ * Sin esto, un comercio con la resolución vencida vería el mismo mensaje que uno que nunca
++ * la configuró, y son dos problemas distintos con dos soluciones distintas.
++ */
++async function explainReservationFailure(
++  client: PoolClient | Pool,
++  tenantId: string,
++  documentType: string,
++  branchId: string | null,
++  now: Date
++): Promise<never> {
++  const found = await client.query<ResolutionRow>(
++    `SELECT ${RESOLUTION_COLUMNS}
++     FROM dian_resolutions
++     WHERE tenant_id = $1 AND document_type = $2 AND is_active
++       AND (branch_id IS NULL OR branch_id = $3)
++     ORDER BY branch_id NULLS LAST
++     LIMIT 1`,
++    [tenantId, documentType, branchId]
++  );
++
++  const row = found.rows[0];
++
++  if (!row) {
++    throw new FiscalNumberingError(
++      `El comercio ${tenantId} no tiene una resolución de facturación activa para ${documentType}. ` +
++        'Cárgala en Configuración DIAN antes de emitir.',
++      'NO_ACTIVE_RESOLUTION'
++    );
++  }
++
++  const today = now.toISOString().slice(0, 10);
++
++  if (today > row.valid_until) {
++    throw new FiscalNumberingError(
++      `La resolución ${row.prefix} venció el ${row.valid_until}. Solicita una nueva a la DIAN y ` +
++        'cárgala antes de seguir facturando.',
++      'RESOLUTION_EXPIRED'
++    );
++  }
++
++  if (today < row.valid_from) {
++    throw new FiscalNumberingError(
++      `La resolución ${row.prefix} empieza a regir el ${row.valid_from}.`,
++      'RESOLUTION_NOT_YET_VALID'
++    );
++  }
++
++  throw new FiscalNumberingError(
++    `La resolución ${row.prefix} agotó su rango (${row.range_from}–${row.range_to}). ` +
++      'Solicita un rango nuevo a la DIAN: el comercio no puede emitir más documentos.',
++    'RESOLUTION_EXHAUSTED'
++  );
++}
++
++/**
++ * Publica el aviso de resolución por agotarse o por vencer.
++ *
++ * Va por la bandeja de salida, como el resto de notificaciones, y **después** de la
++ * transacción que reservó el número: un fallo al avisar no puede impedir que se emita la
++ * factura. Es la misma lección de la alerta de bajo stock (D-041).
++ *
++ * Se deduplica por resolución y por día: el aviso es útil una vez, no en cada venta.
++ */
++export async function publishResolutionAlert(
++  pool: Pool,
++  params: {
++    tenantId: string;
++    branchId: string | null;
++    resolutionId: string;
++    prefix: string;
++    remaining: number;
++    daysUntilExpiry: number;
++  }
++): Promise<void> {
++  try {
++    const alreadySentToday = await pool.query(
++      `SELECT 1 FROM outbox_events
++       WHERE tenant_id = $1
++         AND type = 'dian_resolution.alert'
++         AND aggregate_id = $2::uuid
++         AND created_at >= date_trunc('day', NOW())
++       LIMIT 1`,
++      [params.tenantId, params.resolutionId]
++    );
++
++    if (alreadySentToday.rows.length > 0) return;
++
++    await pool.query(
++      `INSERT INTO outbox_events
++         (id, tenant_id, type, aggregate_type, aggregate_id, branch_id, payload_json, status)
++       VALUES (gen_random_uuid(), $1::uuid, 'dian_resolution.alert', 'DIAN_RESOLUTION', $2::uuid, $3::uuid, $4::jsonb, 'PENDING')`,
++      [
++        params.tenantId,
++        params.resolutionId,
++        params.branchId,
++        JSON.stringify({
++          tenant_id: params.tenantId,
++          branch_id: params.branchId,
++          resolution_id: params.resolutionId,
++          prefix: params.prefix,
++          remaining: params.remaining,
++          days_until_expiry: params.daysUntilExpiry,
++          reason: params.remaining <= 0 ? 'EXHAUSTED' : params.daysUntilExpiry <= 30 ? 'EXPIRING' : 'LOW_RANGE'
++        })
++      ]
++    );
++  } catch {
++    // Deliberadamente silencioso: el aviso es secundario y no puede tumbar la emisión.
++  }
++}
+diff --git a/apps/worker/src/providers/dian-provider-http-generic.ts b/apps/worker/src/providers/dian-provider-http-generic.ts
+index 12d2263..e791742 100644
+--- a/apps/worker/src/providers/dian-provider-http-generic.ts
++++ b/apps/worker/src/providers/dian-provider-http-generic.ts
+@@ -2,7 +2,9 @@ import type {
+   DianProvider,
+   DianProviderEmitSaleInput,
+   DianProviderEmitSaleResult,
+-  DianProviderResultStatus
++  DianProviderResultStatus,
++  DianProviderStatusQueryInput,
++  DianProviderStatusQueryResult
+ } from './dian-provider.js';
+ 
+ interface DianProviderHttpGenericConfig {
+@@ -44,6 +46,16 @@ export class DianProviderHttpGeneric implements DianProvider {
+   }
+ 
+   async emitSale(input: DianProviderEmitSaleInput): Promise<DianProviderEmitSaleResult> {
++    // La numeración es obligatoria desde la fase 4: `sale.sale_number` es el contador
++    // interno del comercio y no vale como número de factura electrónica. Sin ella el PAC
++    // rechazaría el documento, o —peor— lo aceptaría con una numeración que la DIAN no
++    // autorizó. Se falla aquí, antes de la llamada, para que el motivo sea legible.
++    if (!input.numbering) {
++      throw new Error(
++        'DianProviderHttpGeneric: falta la numeración autorizada (prefijo y consecutivo de la resolución)'
++      );
++    }
++
+     const controller = new AbortController();
+     const timeout = setTimeout(() => controller.abort(), this.timeoutMs);
+ 
+@@ -108,4 +120,70 @@ export class DianProviderHttpGeneric implements DianProvider {
+       clearTimeout(timeout);
+     }
+   }
++
++  /**
++   * Consulta el estado de un documento ya enviado.
++   *
++   * La emisión es asíncrona: el PAC acusa recibo y resuelve después. Sin esto, un documento
++   * puede quedarse en `SENT` para siempre. Un `UNKNOWN` significa «el proveedor no supo
++   * decirlo ahora», que no es lo mismo que un rechazo: quien llama debe reintentar más
++   * tarde, no dar el documento por perdido.
++   */
++  async queryStatus(input: DianProviderStatusQueryInput): Promise<DianProviderStatusQueryResult> {
++    const controller = new AbortController();
++    const timeout = setTimeout(() => controller.abort(), this.timeoutMs);
++
++    const query = new URLSearchParams();
++    if (input.cude) query.set('cude', input.cude);
++    if (input.prefix && input.document_number != null) {
++      query.set('number', `${input.prefix}${input.document_number}`);
++    }
++    query.set('tenant_id', input.tenant_id);
++
++    try {
++      const response = await fetch(`${this.url.replace(/\/$/, '')}/status?${query.toString()}`, {
++        method: 'GET',
++        headers: this.apiKey ? { 'x-api-key': this.apiKey } : {},
++        signal: controller.signal
++      });
++
++      let parsedBody: unknown = null;
++      try {
++        parsedBody = await response.json();
++      } catch {
++        parsedBody = null;
++      }
++
++      const bodyRecord =
++        typeof parsedBody === 'object' && parsedBody !== null
++          ? (parsedBody as Record<string, unknown>)
++          : {};
++
++      if (!response.ok) {
++        // Un error de consulta no dice nada sobre el documento: puede estar aceptado y ser
++        // el endpoint el que falla. Se devuelve UNKNOWN en vez de inventar un estado.
++        return {
++          status: 'UNKNOWN',
++          cude: null,
++          raw: { provider: 'http-generic', statusCode: response.status, body: bodyRecord }
++        };
++      }
++
++      const status = normalizeProviderStatus(bodyRecord.status);
++
++      return {
++        status: status ?? 'UNKNOWN',
++        cude: extractCude(bodyRecord.cude ?? bodyRecord.CUDE ?? bodyRecord.uuid),
++        raw: { provider: 'http-generic', statusCode: response.status, body: bodyRecord }
++      };
++    } catch (error) {
++      return {
++        status: 'UNKNOWN',
++        cude: null,
++        raw: { provider: 'http-generic', error: error instanceof Error ? error.message : String(error) }
++      };
++    } finally {
++      clearTimeout(timeout);
++    }
++  }
+ }
+diff --git a/apps/worker/src/providers/dian-provider.ts b/apps/worker/src/providers/dian-provider.ts
+index f2b97a1..62e99a0 100644
+--- a/apps/worker/src/providers/dian-provider.ts
++++ b/apps/worker/src/providers/dian-provider.ts
+@@ -4,5 +4,8 @@ export type {
+   DianProviderEmitSaleResult,
+   DianProviderResultStatus,
+   DianProviderPaymentBreakdown,
+-  DianProviderSaleItemPayload
++  DianProviderSaleItemPayload,
++  DianProviderNumberingPayload,
++  DianProviderStatusQueryInput,
++  DianProviderStatusQueryResult
+ } from '@pos-dian/shared/types/dian-provider.js';
+diff --git a/apps/worker/src/scheduler/dian-sent-recheck.scheduler.ts b/apps/worker/src/scheduler/dian-sent-recheck.scheduler.ts
+index 5d90d7a..cb1a6c9 100644
+--- a/apps/worker/src/scheduler/dian-sent-recheck.scheduler.ts
++++ b/apps/worker/src/scheduler/dian-sent-recheck.scheduler.ts
+@@ -1,188 +1,231 @@
+ /**
+- * C4: Scheduler de confirmación para documentos DIAN en estado SENT.
++ * Cierre del ciclo de los documentos DIAN que quedan en `SENT`.
+  *
+- * PROBLEMA CRÍTICO detectado en auditoría:
+- * Cuando el provider DIAN responde con status=SENT (en procesamiento),
+- * el outbox se marca como SENT y no hay mecanismo de resolución.
+- * El documento queda en SENT indefinidamente → contingencia fiscal.
++ * La emisión es asíncrona: el PAC acusa recibo (`SENT`) y resuelve minutos u horas después.
++ * Si nadie pregunta, el documento se queda en `SENT` para siempre y el comercio cree que
++ * facturó cuando puede que la DIAN lo haya rechazado.
+  *
+- * SOLUCIÓN:
+- * Este scheduler busca documentos DIAN con status=SENT que tienen
+- * más de DIAN_SENT_RECHECK_DELAY_MS sin actualización y los re-encola
+- * en el outbox para que el worker los procese de nuevo.
++ * **Qué hacía este scheduler antes, y por qué no servía.** Reencolaba el evento de la
++ * bandeja de salida para que el procesador volviera a *emitir*. Pero el procesador tiene una
++ * guarda de idempotencia —`getDianEmissionBlockReason`— que rechaza reemitir cualquier
++ * documento ya en `SENT`: el trabajo reencolado se saltaba de inmediato, el documento
++ * seguía en `SENT`, y cada ciclo dejaba una fila más en `outbox_events`. Un bucle que no
++ * cerraba nada y acumulaba basura. Reemitir, además, es justo lo que no se debe hacer: el
++ * PAC podría aceptar dos veces el mismo documento.
+  *
+- * La lógica del processor ya sabe cómo manejar documentos en SENT:
+- * - Si el provider responde ACCEPTED → transición SENT→ACCEPTED
+- * - Si el provider responde REJECTED → transición SENT→REJECTED
+- * - Si el provider falla → el outbox se reintenta con backoff
++ * **Lo que hace ahora.** Le *pregunta* al PAC por el estado (`queryStatus`) y aplica la
++ * transición que corresponda. Si el proveedor no ofrece consulta, o responde `UNKNOWN`, el
++ * documento se deja como está y —pasado `DIAN_SENT_ALERT_HOURS`— se publica una alerta,
++ * porque un documento sin resolver es una contingencia fiscal que alguien tiene que mirar.
+  */
+-import type { Queue } from 'bullmq';
+ import type { Pool } from 'pg';
+-import type { AnyOutboxJobData } from '../jobs/types.js';
++import { buildDianProvider } from '../providers/index.js';
++import { resolveDianCredentials } from '../infra/security/dian-credentials.js';
++import { env } from '../config/env.js';
+ import { logWorkerError, logWorkerInfo } from '../infra/logging/worker-log.js';
++import { planDianStatusTransition } from '../domain/dian-document-status.js';
+ 
+-// Tiempo mínimo sin actualización antes de recheck (default: 10 minutos)
+-const DIAN_SENT_RECHECK_DELAY_MS = parseInt(
+-  process.env.DIAN_SENT_RECHECK_DELAY_MS ?? '600000',
+-  10
+-);
++/** Tiempo sin resolverse antes de volver a preguntar. */
++const DIAN_SENT_RECHECK_DELAY_MS = parseInt(process.env.DIAN_SENT_RECHECK_DELAY_MS ?? '600000', 10);
++
++/** Horas en `SENT` a partir de las cuales el documento deja de ser normal y se alerta. */
++const DIAN_SENT_ALERT_HOURS = parseInt(process.env.DIAN_SENT_ALERT_HOURS ?? '6', 10);
+ 
+ interface StuckDianDocumentRow {
+   id: string;
+   sale_id: string;
+   tenant_id: string;
+   document_type: string;
++  cude: string | null;
++  prefix: string | null;
++  document_number: string | null;
+   updated_at: Date;
++  hours_stuck: string;
+ }
+ 
+-interface RecheckOutboxRow {
+-  id: string;
++export interface RecheckOutcome {
++  checked: number;
++  resolved: number;
++  stillPending: number;
++  alerted: number;
+ }
+ 
+-/**
+- * Re-encola en el outbox los documentos DIAN que llevan más de
+- * DIAN_SENT_RECHECK_DELAY_MS en estado SENT sin ser confirmados.
+- *
+- * Estrategia conservadora:
+- * - Solo actúa si NO hay ya un outbox PENDING para esa venta y tipo.
+- * - Inserta un nuevo outbox_event con payload de reconfirmación.
+- * - El processor existente lo procesará en el siguiente ciclo.
+- */
+-export async function recheckStuckDianDocuments(
+-  pool: Pool,
+-  queue: Queue<AnyOutboxJobData>,
+-  limit = 50
+-): Promise<number> {
++export async function recheckStuckDianDocuments(pool: Pool, limit = 50): Promise<RecheckOutcome> {
+   const recheckCutoff = new Date(Date.now() - DIAN_SENT_RECHECK_DELAY_MS);
+ 
+-  // Buscar documentos DIAN en SENT que no se han actualizado recientemente
+-  // y que NO tienen ya un outbox PENDING que los esté procesando
+   const { rows: stuckDocs } = await pool.query<StuckDianDocumentRow>(
+     `
+-      SELECT
+-        d.id,
+-        d.sale_id,
+-        d.tenant_id,
+-        d.document_type,
+-        d.updated_at
++      SELECT d.id, d.sale_id, d.tenant_id, d.document_type, d.cude, d.prefix,
++             d.document_number::text AS document_number, d.updated_at,
++             EXTRACT(EPOCH FROM (NOW() - d.updated_at)) / 3600 AS hours_stuck
+       FROM dian_documents d
+       WHERE d.status = 'SENT'
+         AND d.updated_at <= $1
+-        AND NOT EXISTS (
+-          SELECT 1 FROM outbox_events o
+-          WHERE o.tenant_id = d.tenant_id
+-            AND o.aggregate_id = d.sale_id
+-            AND o.type = CASE d.document_type
+-                           WHEN 'INVOICE' THEN 'sale.created'
+-                           WHEN 'CREDIT_NOTE' THEN 'sale.voided'
+-                         END
+-            AND o.status IN ('PENDING', 'FAILED')
+-            AND (o.next_retry_at IS NULL OR o.next_retry_at <= NOW())
+-        )
+       ORDER BY d.updated_at ASC
+       LIMIT $2
+     `,
+     [recheckCutoff, limit]
+   );
+ 
+-  if (stuckDocs.length === 0) {
+-    return 0;
+-  }
++  const outcome: RecheckOutcome = { checked: 0, resolved: 0, stillPending: 0, alerted: 0 };
++  if (stuckDocs.length === 0) return outcome;
+ 
+   logWorkerInfo({
+     event: 'dian_sent_recheck_found',
+-    message: `Encontrados ${stuckDocs.length} documentos DIAN en SENT sin confirmar`,
+-    details: {
+-      recheck_cutoff: recheckCutoff.toISOString(),
+-      count: stuckDocs.length
+-    }
++    message: `Encontrados ${stuckDocs.length} documentos DIAN sin resolver`,
++    details: { recheck_cutoff: recheckCutoff.toISOString(), count: stuckDocs.length }
+   });
+ 
+-  let recheckCount = 0;
+-
+   for (const doc of stuckDocs) {
++    outcome.checked += 1;
++    const hoursStuck = Number(doc.hours_stuck);
++
+     try {
+-      const outboxType = doc.document_type === 'INVOICE' ? 'sale.created' : 'sale.voided';
+-      const jobName =
+-        outboxType === 'sale.created'
+-          ? 'process-sale-created-outbox-event'
+-          : 'process-sale-voided-outbox-event';
+-
+-      // Insertar un nuevo evento de reconfirmación en el outbox
+-      const { rows: outboxRows } = await pool.query<RecheckOutboxRow>(
+-        `
+-          INSERT INTO outbox_events (
+-            id, tenant_id, type, aggregate_id, payload_json, status, attempts, next_retry_at
+-          )
+-          VALUES (
+-            gen_random_uuid(),
+-            $1,
+-            $2,
+-            $3,
+-            $4::jsonb,
+-            'PENDING',
+-            0,
+-            NULL
+-          )
+-          ON CONFLICT DO NOTHING
+-          RETURNING id
+-        `,
+-        [
+-          doc.tenant_id,
+-          outboxType,
+-          doc.sale_id,
+-          JSON.stringify({
+-            sale_id: doc.sale_id,
+-            tenant_id: doc.tenant_id,
+-            recheck: true,
+-            dian_document_id: doc.id,
+-            original_sent_at: doc.updated_at.toISOString()
+-          })
+-        ]
+-      );
++      const provider = await buildProviderForTenant(pool, doc.tenant_id);
+ 
+-      const outboxEventId = outboxRows[0]?.id;
+-      if (!outboxEventId) {
+-        // Ya existe un outbox para este evento, saltamos
++      if (!provider?.queryStatus) {
++        // Sin consulta de estado, el cierre depende del webhook del PAC. Lo único que se
++        // puede hacer es avisar para que alguien lo mire.
++        outcome.stillPending += 1;
++        if (await maybeAlert(pool, doc, hoursStuck, 'PROVIDER_HAS_NO_STATUS_QUERY')) outcome.alerted += 1;
+         continue;
+       }
+ 
+-      // Encolar en BullMQ para procesamiento inmediato
+-      await queue.add(
+-        jobName,
+-        { outboxEventId },
+-        {
+-          jobId: `dian-recheck-${doc.id}`,
+-          removeOnComplete: true,
+-          removeOnFail: false
+-        }
++      const result = await provider.queryStatus({
++        tenant_id: doc.tenant_id,
++        document_id: doc.id,
++        cude: doc.cude,
++        prefix: doc.prefix,
++        document_number: doc.document_number == null ? null : Number(doc.document_number)
++      });
++
++      if (result.status === 'UNKNOWN' || result.status === 'SENT') {
++        outcome.stillPending += 1;
++        if (await maybeAlert(pool, doc, hoursStuck, `STILL_${result.status}`)) outcome.alerted += 1;
++        continue;
++      }
++
++      const plan = planDianStatusTransition('SENT', result.status);
++
++      await pool.query(
++        `UPDATE dian_documents
++         SET status = $2,
++             cude = COALESCE($3, cude),
++             provider_response_json = $4::jsonb,
++             updated_at = NOW()
++         WHERE id = $1`,
++        [doc.id, plan.finalStatus, result.cude, JSON.stringify(result.raw)]
+       );
+ 
+-      recheckCount += 1;
++      outcome.resolved += 1;
+ 
+       logWorkerInfo({
+-        event: 'dian_sent_recheck_enqueued',
+-        message: 'Documento DIAN SENT re-encolado para confirmación',
+-        details: {
+-          dian_document_id: doc.id,
+-          sale_id: doc.sale_id,
+-          outbox_event_id: outboxEventId,
+-          document_type: doc.document_type,
+-          stuck_since: doc.updated_at.toISOString()
+-        }
++        event: 'dian_sent_recheck_resolved',
++        message: 'Documento DIAN resuelto por consulta al PAC',
++        tenant_id: doc.tenant_id,
++        sale_id: doc.sale_id,
++        dian_document_id: doc.id,
++        provider_result: result.status,
++        details: { final_dian_status: plan.finalStatus, hours_stuck: Math.round(hoursStuck), cude: result.cude }
+       });
+     } catch (error) {
++      outcome.stillPending += 1;
+       logWorkerError({
+         event: 'dian_sent_recheck_failed',
+-        message: 'Error al re-encolar documento DIAN SENT',
++        message: 'Error al consultar el estado del documento DIAN',
+         error,
+-        details: {
+-          dian_document_id: doc.id,
+-          sale_id: doc.sale_id
+-        }
++        tenant_id: doc.tenant_id,
++        sale_id: doc.sale_id,
++        details: { dian_document_id: doc.id }
+       });
++      if (await maybeAlert(pool, doc, hoursStuck, 'QUERY_FAILED')) outcome.alerted += 1;
+     }
+   }
+ 
+-  return recheckCount;
++  logWorkerInfo({
++    event: 'dian_sent_recheck_completed',
++    message: 'Ciclo de reconsulta DIAN terminado',
++    details: { ...outcome }
++  });
++
++  return outcome;
++}
++
++async function buildProviderForTenant(pool: Pool, tenantId: string) {
++  const { rows } = await pool.query<{ provider_name: string; credentials: unknown; test_mode: boolean }>(
++    `SELECT provider_name, credentials, test_mode FROM tenant_dian_settings WHERE tenant_id = $1`,
++    [tenantId]
++  );
++
++  const config = rows[0];
++  if (!config) return null;
++
++  return buildDianProvider({
++    provider_name: config.provider_name,
++    credentials: resolveDianCredentials(config.credentials, {
++      tenantId,
++      isProduction: env.NODE_ENV === 'production',
++      encryptionKey: env.CREDENTIALS_ENCRYPTION_KEY
++    }),
++    test_mode: config.test_mode
++  });
++}
++
++/**
++ * Publica la alerta de documento sin resolver, una vez por documento y día.
++ *
++ * Sin la deduplicación, un documento atascado generaría una alerta cada diez minutos hasta
++ * que alguien lo mirara — y una bandeja con doscientas alertas iguales es una bandeja que
++ * nadie mira. Devuelve `true` si publicó.
++ */
++async function maybeAlert(
++  pool: Pool,
++  doc: StuckDianDocumentRow,
++  hoursStuck: number,
++  reason: string
++): Promise<boolean> {
++  if (hoursStuck < DIAN_SENT_ALERT_HOURS) return false;
++
++  try {
++    const { rows } = await pool.query(
++      `SELECT 1 FROM outbox_events
++       WHERE tenant_id = $1 AND type = 'dian_document.unresolved'
++         AND aggregate_id = $2::uuid AND created_at >= date_trunc('day', NOW())
++       LIMIT 1`,
++      [doc.tenant_id, doc.id]
++    );
++    if (rows.length > 0) return false;
++
++    await pool.query(
++      `INSERT INTO outbox_events
++         (id, tenant_id, type, aggregate_type, aggregate_id, payload_json, status)
++       VALUES (gen_random_uuid(), $1::uuid, 'dian_document.unresolved', 'DIAN_DOCUMENT', $2::uuid, $3::jsonb, 'PENDING')`,
++      [
++        doc.tenant_id,
++        doc.id,
++        JSON.stringify({
++          tenant_id: doc.tenant_id,
++          dian_document_id: doc.id,
++          sale_id: doc.sale_id,
++          document_type: doc.document_type,
++          full_number: doc.prefix && doc.document_number ? `${doc.prefix}${doc.document_number}` : null,
++          hours_stuck: Math.round(hoursStuck),
++          reason
++        })
++      ]
++    );
++
++    logWorkerInfo({
++      event: 'dian_document_unresolved_alert',
++      message: `Documento DIAN lleva ${Math.round(hoursStuck)} h sin resolverse`,
++      tenant_id: doc.tenant_id,
++      sale_id: doc.sale_id,
++      details: { dian_document_id: doc.id, reason }
++    });
++
++    return true;
++  } catch {
++    // La alerta es secundaria: nunca puede tumbar el ciclo de reconsulta.
++    return false;
++  }
+ }
+diff --git a/apps/worker/test/dian-provider-http-generic.test.ts b/apps/worker/test/dian-provider-http-generic.test.ts
+index efb4eb9..950f850 100644
+--- a/apps/worker/test/dian-provider-http-generic.test.ts
++++ b/apps/worker/test/dian-provider-http-generic.test.ts
+@@ -61,6 +61,20 @@ const validPayload = {
+         line_total_cents: 10000
+       }
+     ]
++  },
++  // Numeración autorizada por la DIAN. Es obligatoria desde la fase 4: `sale.sale_number`
++  // es el contador interno del comercio y no vale como número de factura electrónica.
++  numbering: {
++    resolution_number: '18764000001234',
++    resolution_date: '2026-01-15',
++    prefix: 'SETP',
++    document_number: 990000042,
++    full_number: 'SETP990000042',
++    range_from: 990000000,
++    range_to: 995000000,
++    valid_from: '2026-01-15',
++    valid_until: '2028-01-15',
++    technical_key: null
+   }
+ };
+ 
+@@ -189,4 +203,60 @@ describe('DianProviderHttpGeneric', () => {
+       /accepted response missing CUDE/
+     );
+   });
++
++  it('se niega a emitir sin la numeración autorizada', async () => {
++    // Sin prefijo y consecutivo de una resolución vigente, el PAC rechazaría el documento
++    // —o, peor, lo aceptaría con una numeración que la DIAN no autorizó—. Se falla aquí,
++    // antes de la llamada, para que el motivo sea legible en el log del worker.
++    const fetchMock = vi.spyOn(globalThis, 'fetch');
++
++    const provider = new DianProviderHttpGeneric({
++      url: 'https://example.com/dian',
++      timeoutMs: 3000
++    });
++
++    const { numbering: _omitted, ...sinNumeracion } = validPayload;
++
++    await expect(provider.emitSale(sinNumeracion)).rejects.toThrowError(
++      /falta la numeración autorizada/i
++    );
++    expect(fetchMock).not.toHaveBeenCalled();
++  });
++
++  it('consulta el estado de un documento ya enviado', async () => {
++    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
++      new Response(JSON.stringify({ status: 'ACCEPTED', cude: 'CUDE-CONSULTADO' }), { status: 200 })
++    );
++
++    const provider = new DianProviderHttpGeneric({ url: 'https://example.com/dian', timeoutMs: 3000 });
++
++    const result = await provider.queryStatus({
++      tenant_id: '11111111-1111-4111-a111-111111111111',
++      document_id: 'doc-1',
++      cude: null,
++      prefix: 'SETP',
++      document_number: 990000042
++    });
++
++    expect(result.status).toBe('ACCEPTED');
++    expect(result.cude).toBe('CUDE-CONSULTADO');
++  });
++
++  it('devuelve UNKNOWN si la consulta falla, en vez de inventar un desenlace', async () => {
++    // Un error de consulta no dice nada sobre el documento: puede estar aceptado y ser el
++    // endpoint el que falla. Marcarlo como rechazado por eso sería mentir sobre una factura.
++    vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('red caída'));
++
++    const provider = new DianProviderHttpGeneric({ url: 'https://example.com/dian', timeoutMs: 3000 });
++
++    const result = await provider.queryStatus({
++      tenant_id: '11111111-1111-4111-a111-111111111111',
++      document_id: 'doc-1',
++      cude: 'CUDE-X',
++      prefix: null,
++      document_number: null
++    });
++
++    expect(result.status).toBe('UNKNOWN');
++  });
+ });
+diff --git a/apps/worker/test/dian-sent-recheck.test.ts b/apps/worker/test/dian-sent-recheck.test.ts
+new file mode 100644
+index 0000000..71bb74e
+--- /dev/null
++++ b/apps/worker/test/dian-sent-recheck.test.ts
+@@ -0,0 +1,232 @@
++import { randomUUID } from 'node:crypto';
++import { Pool } from 'pg';
++import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
++
++/**
++ * Cierre del ciclo de los documentos que quedan en `SENT`.
++ *
++ * La versión anterior de este scheduler reencolaba el evento para *reemitir*, y la guarda de
++ * idempotencia del procesador lo descartaba de inmediato: el documento seguía en `SENT` y
++ * cada ciclo dejaba una fila más en la bandeja de salida. Un bucle que no cerraba nada.
++ * Estas pruebas fijan el comportamiento correcto: preguntar, aplicar el desenlace, y avisar
++ * cuando no hay forma de resolverlo.
++ */
++
++const connectionString =
++  process.env.ADMIN_DATABASE_URL ?? process.env.DATABASE_URL ?? 'postgres://pos@127.0.0.1:5432/pos_dian';
++
++const queryStatus = vi.fn();
++
++vi.mock('../src/providers/index.js', () => ({
++  buildDianProvider: () => ({
++    emitSale: vi.fn(),
++    queryStatus
++  })
++}));
++
++const { recheckStuckDianDocuments } = await import('../src/scheduler/dian-sent-recheck.scheduler.js');
++
++const pool = new Pool({ connectionString, max: 4 });
++
++let tenantId: string;
++let branchId: string;
++let userId: string;
++let terminalId: string;
++let cashSessionId: string;
++let saleCounter = 500000;
++
++async function seedDocument(options: { hoursAgo: number; cude?: string | null }): Promise<string> {
++  const saleId = randomUUID();
++  const documentId = randomUUID();
++
++  await pool.query(
++    `INSERT INTO sales (id, tenant_id, branch_id, cash_session_id, sale_number, client_uuid,
++                        created_by_user_id, subtotal_cents, discount_cents, tax_total_cents,
++                        total_cents, payment_json, tax_lines_json, status)
++     VALUES ($1, $2, $3, $4, $5, $6, $7, 1000, 0, 0, 1000, '{}'::jsonb, '[]'::jsonb, 'COMPLETED')`,
++    [saleId, tenantId, branchId, cashSessionId, saleCounter++, randomUUID(), userId]
++  );
++
++  await pool.query(
++    `INSERT INTO dian_documents (id, tenant_id, sale_id, document_type, provider, status, cude,
++                                 provider_payload_json, prefix, document_number, updated_at)
++     VALUES ($1, $2, $3, 'INVOICE', 'http', 'SENT', $4, '{}'::jsonb, 'SETP', $5,
++             NOW() - ($6 || ' hours')::interval)`,
++    [documentId, tenantId, saleId, options.cude ?? null, saleCounter, String(options.hoursAgo)]
++  );
++
++  return documentId;
++}
++
++async function statusOf(documentId: string): Promise<string> {
++  const { rows } = await pool.query<{ status: string }>(`SELECT status FROM dian_documents WHERE id = $1`, [
++    documentId
++  ]);
++  return rows[0]!.status;
++}
++
++async function alertCount(): Promise<number> {
++  const { rows } = await pool.query<{ count: string }>(
++    `SELECT count(*)::text AS count FROM outbox_events
++     WHERE tenant_id = $1 AND type = 'dian_document.unresolved'`,
++    [tenantId]
++  );
++  return Number(rows[0]!.count);
++}
++
++describe('Reconsulta de documentos DIAN en SENT', () => {
++  beforeAll(async () => {
++    tenantId = randomUUID();
++    branchId = randomUUID();
++    userId = randomUUID();
++    terminalId = randomUUID();
++    cashSessionId = randomUUID();
++
++    await pool.query(
++      `INSERT INTO tenants (id, name, nit, business_name, address) VALUES ($1, 'Recheck', $2, 'Recheck SAS', 'Calle 2')`,
++      [tenantId, `NIT-${tenantId.slice(0, 8)}`]
++    );
++    await pool.query(`INSERT INTO branches (id, tenant_id, name, address) VALUES ($1, $2, 'Sede', 'Calle 2')`, [
++      branchId,
++      tenantId
++    ]);
++    await pool.query(
++      `INSERT INTO users (id, tenant_id, email, password_hash, name, role) VALUES ($1, $2, $3, 'x', 'Admin', 'ADMIN')`,
++      [userId, tenantId, `recheck.${tenantId.slice(0, 8)}@test.local`]
++    );
++    await pool.query(`INSERT INTO terminals (id, tenant_id, branch_id, name) VALUES ($1, $2, $3, 'Caja')`, [
++      terminalId,
++      tenantId,
++      branchId
++    ]);
++    await pool.query(
++      `INSERT INTO cash_sessions (id, tenant_id, branch_id, terminal_id, opened_by_user_id, opening_amount_cents, status)
++       VALUES ($1, $2, $3, $4, $5, 0, 'OPEN')`,
++      [cashSessionId, tenantId, branchId, terminalId, userId]
++    );
++    await pool.query(
++      `INSERT INTO tenant_dian_settings (tenant_id, provider_name, credentials, test_mode)
++       VALUES ($1, 'HTTP_GENERIC', '{"url":"https://pac.test/api","apiKey":"k"}'::jsonb, true)`,
++      [tenantId]
++    );
++  });
++
++  beforeEach(async () => {
++    queryStatus.mockReset();
++    await pool.query(`DELETE FROM outbox_events WHERE tenant_id = $1`, [tenantId]);
++    await pool.query(`DELETE FROM dian_documents WHERE tenant_id = $1`, [tenantId]);
++    await pool.query(`DELETE FROM sales WHERE tenant_id = $1`, [tenantId]);
++  });
++
++  afterAll(async () => {
++    await pool.query(`DELETE FROM outbox_events WHERE tenant_id = $1`, [tenantId]);
++    await pool.query(`DELETE FROM dian_documents WHERE tenant_id = $1`, [tenantId]);
++    await pool.query(`DELETE FROM sales WHERE tenant_id = $1`, [tenantId]);
++    await pool.query(`DELETE FROM tenant_dian_settings WHERE tenant_id = $1`, [tenantId]);
++    await pool.query(`DELETE FROM cash_sessions WHERE tenant_id = $1`, [tenantId]);
++    await pool.query(`DELETE FROM terminals WHERE tenant_id = $1`, [tenantId]);
++    await pool.query(`DELETE FROM users WHERE tenant_id = $1`, [tenantId]);
++    await pool.query(`DELETE FROM branches WHERE tenant_id = $1`, [tenantId]);
++    await pool.query(`DELETE FROM tenants WHERE id = $1`, [tenantId]);
++    await pool.end();
++  });
++
++  it('resuelve a ACCEPTED cuando el PAC lo confirma, y guarda el CUDE', async () => {
++    const documentId = await seedDocument({ hoursAgo: 1 });
++    queryStatus.mockResolvedValue({ status: 'ACCEPTED', cude: 'CUDE-CONFIRMADO', raw: { ok: true } });
++
++    const outcome = await recheckStuckDianDocuments(pool);
++
++    expect(outcome.resolved).toBe(1);
++    expect(await statusOf(documentId)).toBe('ACCEPTED');
++
++    const { rows } = await pool.query<{ cude: string }>(`SELECT cude FROM dian_documents WHERE id = $1`, [
++      documentId
++    ]);
++    expect(rows[0]!.cude).toBe('CUDE-CONFIRMADO');
++  });
++
++  it('resuelve a REJECTED cuando el PAC lo rechaza', async () => {
++    const documentId = await seedDocument({ hoursAgo: 1 });
++    queryStatus.mockResolvedValue({ status: 'REJECTED', cude: null, raw: { motivo: 'NIT inválido' } });
++
++    await recheckStuckDianDocuments(pool);
++
++    expect(await statusOf(documentId)).toBe('REJECTED');
++  });
++
++  it('no reemite: solo consulta', async () => {
++    // Reemitir un documento ya enviado podría hacer que el PAC lo acepte dos veces. El
++    // scheduler solo pregunta, y no debe dejar eventos de emisión en la bandeja.
++    await seedDocument({ hoursAgo: 1 });
++    queryStatus.mockResolvedValue({ status: 'ACCEPTED', cude: 'CUDE-1', raw: {} });
++
++    await recheckStuckDianDocuments(pool);
++
++    const { rows } = await pool.query<{ count: string }>(
++      `SELECT count(*)::text AS count FROM outbox_events
++       WHERE tenant_id = $1 AND type IN ('sale.created', 'sale.voided')`,
++      [tenantId]
++    );
++    expect(Number(rows[0]!.count)).toBe(0);
++  });
++
++  it('deja el documento como está cuando el PAC responde UNKNOWN', async () => {
++    // `UNKNOWN` es «no sé decírtelo ahora», no un rechazo. Inventar un desenlace aquí sería
++    // marcar como rechazada una factura que la DIAN podría haber aceptado.
++    const documentId = await seedDocument({ hoursAgo: 1 });
++    queryStatus.mockResolvedValue({ status: 'UNKNOWN', cude: null, raw: {} });
++
++    const outcome = await recheckStuckDianDocuments(pool);
++
++    expect(outcome.resolved).toBe(0);
++    expect(outcome.stillPending).toBe(1);
++    expect(await statusOf(documentId)).toBe('SENT');
++  });
++
++  it('alerta cuando un documento lleva demasiadas horas sin resolverse, y solo una vez al día', async () => {
++    await seedDocument({ hoursAgo: 30 });
++    queryStatus.mockResolvedValue({ status: 'UNKNOWN', cude: null, raw: {} });
++
++    const first = await recheckStuckDianDocuments(pool);
++    expect(first.alerted).toBe(1);
++    expect(await alertCount()).toBe(1);
++
++    // Un documento atascado no debe generar una alerta cada diez minutos: una bandeja con
++    // doscientas alertas iguales es una bandeja que nadie mira.
++    const second = await recheckStuckDianDocuments(pool);
++    expect(second.alerted).toBe(0);
++    expect(await alertCount()).toBe(1);
++  });
++
++  it('no alerta por un documento recién enviado', async () => {
++    await seedDocument({ hoursAgo: 1 });
++    queryStatus.mockResolvedValue({ status: 'UNKNOWN', cude: null, raw: {} });
++
++    const outcome = await recheckStuckDianDocuments(pool);
++
++    expect(outcome.alerted).toBe(0);
++    expect(await alertCount()).toBe(0);
++  });
++
++  it('ignora los documentos demasiado recientes para reconsultar', async () => {
++    // El corte por defecto son 10 minutos: preguntar a los dos segundos solo gasta llamadas.
++    await seedDocument({ hoursAgo: 0 });
++    queryStatus.mockResolvedValue({ status: 'ACCEPTED', cude: 'X', raw: {} });
++
++    const outcome = await recheckStuckDianDocuments(pool);
++
++    expect(outcome.checked).toBe(0);
++    expect(queryStatus).not.toHaveBeenCalled();
++  });
++
++  it('un fallo de la consulta no tumba el ciclo ni cambia el documento', async () => {
++    const documentId = await seedDocument({ hoursAgo: 2 });
++    queryStatus.mockRejectedValue(new Error('PAC caído'));
++
++    const outcome = await recheckStuckDianDocuments(pool);
++
++    expect(outcome.stillPending).toBe(1);
++    expect(await statusOf(documentId)).toBe('SENT');
++  });
++});
+diff --git a/apps/worker/test/fiscal-numbering.test.ts b/apps/worker/test/fiscal-numbering.test.ts
+new file mode 100644
+index 0000000..8932bcb
+--- /dev/null
++++ b/apps/worker/test/fiscal-numbering.test.ts
+@@ -0,0 +1,332 @@
++import { randomUUID } from 'node:crypto';
++import { Pool } from 'pg';
++import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
++import { assignDocumentNumber, FiscalNumberingError } from '../src/jobs/shared/fiscal-numbering.js';
++
++/**
++ * Numeración fiscal, contra PostgreSQL real.
++ *
++ * Es la parte del sistema donde un doble de base de datos no sirve para nada: lo que hay
++ * que comprobar es el comportamiento del motor —el lock de fila que serializa a dos
++ * workers, el rollback que devuelve el número al rango, el índice único que impide el
++ * duplicado—, no el código que lo envuelve.
++ */
++
++const connectionString =
++  process.env.ADMIN_DATABASE_URL ?? process.env.DATABASE_URL ?? 'postgres://pos@127.0.0.1:5432/pos_dian';
++
++const pool = new Pool({ connectionString, max: 6 });
++
++let tenantId: string;
++let branchId: string;
++let userId: string;
++let cashSessionId: string;
++let terminalId: string;
++
++function isoDaysFromNow(days: number): string {
++  const d = new Date();
++  d.setDate(d.getDate() + days);
++  return d.toISOString().slice(0, 10);
++}
++
++async function createResolution(overrides: Partial<{
++  prefix: string;
++  rangeFrom: number;
++  rangeTo: number;
++  startAt: number;
++  validFrom: string;
++  validUntil: string;
++  alertThreshold: number;
++  isActive: boolean;
++}> = {}): Promise<string> {
++  const id = randomUUID();
++  const rangeFrom = overrides.rangeFrom ?? 1000;
++  const rangeTo = overrides.rangeTo ?? 1999;
++
++  await pool.query(
++    `INSERT INTO dian_resolutions
++       (id, tenant_id, branch_id, document_type, resolution_number, resolution_date, prefix,
++        range_from, range_to, current_number, valid_from, valid_until, alert_threshold, is_active)
++     VALUES ($1, $2, NULL, 'INVOICE', $3, $4::date, $5, $6, $7, $8, $9::date, $10::date, $11, $12)`,
++    [
++      id,
++      tenantId,
++      `RES-${id.slice(0, 8)}`,
++      isoDaysFromNow(-30),
++      overrides.prefix ?? 'TST',
++      rangeFrom,
++      rangeTo,
++      (overrides.startAt ?? rangeFrom) - 1,
++      overrides.validFrom ?? isoDaysFromNow(-30),
++      overrides.validUntil ?? isoDaysFromNow(180),
++      overrides.alertThreshold ?? 100,
++      overrides.isActive ?? true
++    ]
++  );
++
++  return id;
++}
++
++async function createDocument(): Promise<string> {
++  const saleId = randomUUID();
++  const documentId = randomUUID();
++
++  await pool.query(
++    `INSERT INTO sales (id, tenant_id, branch_id, cash_session_id, sale_number, client_uuid,
++                        created_by_user_id, subtotal_cents, discount_cents, tax_total_cents,
++                        total_cents, payment_json, tax_lines_json, status)
++     VALUES ($1, $2, $3, $4, nextval('sales_seq_dummy_test'), $5, $6, 1000, 0, 0, 1000,
++             '{}'::jsonb, '[]'::jsonb, 'COMPLETED')`,
++    [saleId, tenantId, branchId, cashSessionId, randomUUID(), userId]
++  );
++
++  await pool.query(
++    `INSERT INTO dian_documents (id, tenant_id, sale_id, document_type, provider, status, provider_payload_json)
++     VALUES ($1, $2, $3, 'INVOICE', 'mock', 'PENDING', '{}'::jsonb)`,
++    [documentId, tenantId, saleId]
++  );
++
++  return documentId;
++}
++
++describe('Numeración fiscal DIAN', () => {
++  beforeAll(async () => {
++    await pool.query(`CREATE SEQUENCE IF NOT EXISTS sales_seq_dummy_test START 800000`);
++
++    tenantId = randomUUID();
++    branchId = randomUUID();
++    userId = randomUUID();
++    terminalId = randomUUID();
++    cashSessionId = randomUUID();
++
++    await pool.query(
++      `INSERT INTO tenants (id, name, nit, business_name, address) VALUES ($1, 'Numeración', $2, 'Numeración SAS', 'Calle 1')`,
++      [tenantId, `NIT-${tenantId.slice(0, 8)}`]
++    );
++    await pool.query(`INSERT INTO branches (id, tenant_id, name, address) VALUES ($1, $2, 'Sede', 'Calle 1')`, [
++      branchId,
++      tenantId
++    ]);
++    await pool.query(
++      `INSERT INTO users (id, tenant_id, email, password_hash, name, role)
++       VALUES ($1, $2, $3, 'x', 'Admin', 'ADMIN')`,
++      [userId, tenantId, `num.${tenantId.slice(0, 8)}@test.local`]
++    );
++    await pool.query(
++      `INSERT INTO terminals (id, tenant_id, branch_id, name) VALUES ($1, $2, $3, 'Caja')`,
++      [terminalId, tenantId, branchId]
++    );
++    await pool.query(
++      `INSERT INTO cash_sessions (id, tenant_id, branch_id, terminal_id, opened_by_user_id, opening_amount_cents, status)
++       VALUES ($1, $2, $3, $4, $5, 0, 'OPEN')`,
++      [cashSessionId, tenantId, branchId, terminalId, userId]
++    );
++  });
++
++  beforeEach(async () => {
++    await pool.query(`DELETE FROM dian_documents WHERE tenant_id = $1`, [tenantId]);
++    await pool.query(`DELETE FROM sales WHERE tenant_id = $1`, [tenantId]);
++    await pool.query(`DELETE FROM dian_resolutions WHERE tenant_id = $1`, [tenantId]);
++  });
++
++  afterAll(async () => {
++    await pool.query(`DELETE FROM dian_documents WHERE tenant_id = $1`, [tenantId]);
++    await pool.query(`DELETE FROM sales WHERE tenant_id = $1`, [tenantId]);
++    await pool.query(`DELETE FROM dian_resolutions WHERE tenant_id = $1`, [tenantId]);
++    await pool.query(`DELETE FROM cash_sessions WHERE tenant_id = $1`, [tenantId]);
++    await pool.query(`DELETE FROM terminals WHERE tenant_id = $1`, [tenantId]);
++    await pool.query(`DELETE FROM users WHERE tenant_id = $1`, [tenantId]);
++    await pool.query(`DELETE FROM branches WHERE tenant_id = $1`, [tenantId]);
++    await pool.query(`DELETE FROM tenants WHERE id = $1`, [tenantId]);
++    await pool.end();
++  });
++
++  it('entrega los números en orden, empezando por el primero del rango', async () => {
++    await createResolution({ prefix: 'SETP', rangeFrom: 5000, rangeTo: 5010 });
++
++    const first = await assignDocumentNumber(pool, {
++      tenantId,
++      branchId,
++      documentId: await createDocument(),
++      documentType: 'INVOICE'
++    });
++    const second = await assignDocumentNumber(pool, {
++      tenantId,
++      branchId,
++      documentId: await createDocument(),
++      documentType: 'INVOICE'
++    });
++
++    expect(first.prefix).toBe('SETP');
++    expect(first.documentNumber).toBe(5000);
++    expect(second.documentNumber).toBe(5001);
++    expect(second.remaining).toBe(9);
++  });
++
++  it('un reintento reutiliza el número en vez de quemar otro', async () => {
++    await createResolution({ rangeFrom: 100, rangeTo: 200 });
++    const documentId = await createDocument();
++
++    const firstTry = await assignDocumentNumber(pool, { tenantId, branchId, documentId, documentType: 'INVOICE' });
++    const retry = await assignDocumentNumber(pool, { tenantId, branchId, documentId, documentType: 'INVOICE' });
++
++    expect(retry.documentNumber).toBe(firstTry.documentNumber);
++    expect(retry.reused).toBe(true);
++
++    // Y el consecutivo de la resolución no avanzó dos veces.
++    const { rows } = await pool.query<{ current_number: string }>(
++      `SELECT current_number FROM dian_resolutions WHERE tenant_id = $1`,
++      [tenantId]
++    );
++    expect(Number(rows[0]!.current_number)).toBe(firstTry.documentNumber);
++  });
++
++  it('dos workers concurrentes no obtienen el mismo número', async () => {
++    // Es el escenario que importa de verdad: dos réplicas del worker procesando la bandeja
++    // de salida a la vez. El `UPDATE ... RETURNING` toma un lock de fila, así que se
++    // serializan solas; si alguien lo cambiara por un SELECT y luego un UPDATE, esta prueba
++    // fallaría con números repetidos.
++    await createResolution({ prefix: 'CON', rangeFrom: 700, rangeTo: 799 });
++
++    const documentIds = await Promise.all(Array.from({ length: 12 }, () => createDocument()));
++
++    const assigned = await Promise.all(
++      documentIds.map(async (documentId) => {
++        const client = await pool.connect();
++        try {
++          await client.query('BEGIN');
++          const result = await assignDocumentNumber(client, {
++            tenantId,
++            branchId,
++            documentId,
++            documentType: 'INVOICE'
++          });
++          await client.query('COMMIT');
++          return result.documentNumber;
++        } catch (error) {
++          await client.query('ROLLBACK');
++          throw error;
++        } finally {
++          client.release();
++        }
++      })
++    );
++
++    const unique = new Set(assigned);
++    expect(unique.size, `números repetidos: ${assigned.join(', ')}`).toBe(assigned.length);
++
++    // Y son consecutivos, sin huecos.
++    const sorted = [...assigned].sort((a, b) => a - b);
++    expect(sorted[0]).toBe(700);
++    expect(sorted[sorted.length - 1]).toBe(711);
++  });
++
++  it('si la emisión falla después de reservar, el número vuelve al rango', async () => {
++    // Un hueco en la numeración hay que justificarlo ante la DIAN. El rollback tiene que
++    // devolver el consecutivo, no dejarlo consumido como haría una secuencia de Postgres.
++    await createResolution({ rangeFrom: 300, rangeTo: 400 });
++    const documentId = await createDocument();
++
++    const client = await pool.connect();
++    try {
++      await client.query('BEGIN');
++      await assignDocumentNumber(client, { tenantId, branchId, documentId, documentType: 'INVOICE' });
++      await client.query('ROLLBACK');
++    } finally {
++      client.release();
++    }
++
++    const next = await assignDocumentNumber(pool, {
++      tenantId,
++      branchId,
++      documentId: await createDocument(),
++      documentType: 'INVOICE'
++    });
++
++    expect(next.documentNumber).toBe(300);
++  });
++
++  it('avisa cuando quedan pocos números', async () => {
++    await createResolution({ rangeFrom: 1, rangeTo: 10, alertThreshold: 5 });
++
++    const early = await assignDocumentNumber(pool, {
++      tenantId,
++      branchId,
++      documentId: await createDocument(),
++      documentType: 'INVOICE'
++    });
++    expect(early.belowThreshold).toBe(false);
++
++    for (let i = 0; i < 5; i += 1) {
++      await assignDocumentNumber(pool, {
++        tenantId,
++        branchId,
++        documentId: await createDocument(),
++        documentType: 'INVOICE'
++      });
++    }
++
++    const late = await assignDocumentNumber(pool, {
++      tenantId,
++      branchId,
++      documentId: await createDocument(),
++      documentType: 'INVOICE'
++    });
++    expect(late.belowThreshold).toBe(true);
++  });
++
++  it('se niega a emitir cuando el rango se agota, y dice qué hacer', async () => {
++    await createResolution({ prefix: 'FIN', rangeFrom: 1, rangeTo: 2 });
++
++    await assignDocumentNumber(pool, {
++      tenantId,
++      branchId,
++      documentId: await createDocument(),
++      documentType: 'INVOICE'
++    });
++    await assignDocumentNumber(pool, {
++      tenantId,
++      branchId,
++      documentId: await createDocument(),
++      documentType: 'INVOICE'
++    });
++
++    const third = assignDocumentNumber(pool, {
++      tenantId,
++      branchId,
++      documentId: await createDocument(),
++      documentType: 'INVOICE'
++    });
++
++    await expect(third).rejects.toThrow(FiscalNumberingError);
++    await expect(third).rejects.toThrow(/agotó su rango/i);
++  });
++
++  it('se niega a emitir con la resolución vencida', async () => {
++    await createResolution({
++      prefix: 'OLD',
++      validFrom: isoDaysFromNow(-400),
++      validUntil: isoDaysFromNow(-1)
++    });
++
++    const attempt = assignDocumentNumber(pool, {
++      tenantId,
++      branchId,
++      documentId: await createDocument(),
++      documentType: 'INVOICE'
++    });
++
++    await expect(attempt).rejects.toThrow(/venció/i);
++  });
++
++  it('se niega a emitir cuando no hay ninguna resolución cargada', async () => {
++    const attempt = assignDocumentNumber(pool, {
++      tenantId,
++      branchId,
++      documentId: await createDocument(),
++      documentType: 'INVOICE'
++    });
++
++    await expect(attempt).rejects.toThrow(/no tiene una resolución de facturación activa/i);
++  });
++});
+diff --git a/apps/worker/test/outbox-sale-created.processor.test.ts b/apps/worker/test/outbox-sale-created.processor.test.ts
+index 46406db..8f8aa9f 100644
+--- a/apps/worker/test/outbox-sale-created.processor.test.ts
++++ b/apps/worker/test/outbox-sale-created.processor.test.ts
+@@ -66,6 +66,41 @@ function createPoolMock(
+     if (queryText.includes('tenant_dian_settings')) {
+       return { rows: [{ provider_name: 'MOCK', credentials: {}, test_mode: true }] } as QueryResultLike;
+     }
++    // Numeración fiscal (fase 4). El comportamiento propio de la asignación —consecutivo,
++    // concurrencia, agotamiento, reintento— se prueba contra Postgres real en
++    // `fiscal-numbering.test.ts`; aquí solo hace falta que el procesador obtenga un número
++    // para poder seguir hasta la emisión, que es lo que estas pruebas cubren.
++    if (queryText.includes('SELECT resolution_id, prefix, document_number')) {
++      const fromTest = await implementation(queryText, params).catch(() => null);
++      return (fromTest ?? { rows: [{ resolution_id: null, prefix: null, document_number: null }] }) as QueryResultLike;
++    }
++    if (queryText.includes('UPDATE dian_resolutions')) {
++      const fromTest = await implementation(queryText, params).catch(() => null);
++      return (fromTest ??
++        {
++          rows: [
++            {
++              id: '99999999-9999-4999-a999-999999999999',
++              resolution_number: '18764000001234',
++              resolution_date: '2026-01-01',
++              prefix: 'SETP',
++              range_from: '990000000',
++              range_to: '990010000',
++              current_number: '990000001',
++              alert_threshold: 500,
++              valid_from: '2026-01-01',
++              valid_until: '2027-01-01',
++              technical_key: null
++            }
++          ]
++        }) as QueryResultLike;
++    }
++    if (queryText.includes('SET resolution_id')) {
++      return { rows: [] } as QueryResultLike;
++    }
++    if (queryText.includes("'dian_resolution.alert'")) {
++      return { rows: [] } as QueryResultLike;
++    }
+     // Guarda «la venta no se anuló antes de emitirse». Por defecto la venta está viva;
+     // la prueba que cubre la anulación temprana la sobrescribe con su implementación.
+     if (queryText.includes('SELECT status FROM sales')) {
+diff --git a/docs/ARCHITECTURE.md b/docs/ARCHITECTURE.md
+index 196a707..4ea16aa 100644
+--- a/docs/ARCHITECTURE.md
++++ b/docs/ARCHITECTURE.md
+@@ -31,6 +31,7 @@
+ - **`bulk_import_jobs`**: Control de cargas masivas de catálogo procesadas en background.
+ - **`idempotency_records`**: Tracking de peticiones seguras (ej. creación de ventas) con TTL de 24h.
+ - **`dian_documents` / `outbox_events`**: Orquestación asíncrona de facturación electrónica.
++- **`dian_resolutions`**: Resoluciones de facturación autorizadas por la DIAN (prefijo, rango, vigencia, consecutivo). Es de donde sale el número de cada factura electrónica.
+ 
+ ---
+ 
+@@ -59,6 +60,38 @@ pos-web → POST /auth/login
+ - La API resuelve y persiste: `subtotal_cents`, `discount_cents`, `tax_total_cents`, `tax_lines_json`, `total_cents`.
+ - El ticket muestra texto contextual: `Incluye IVA` o `Incluye INC`.
+ 
++### 2.b Numeración fiscal (resoluciones DIAN)
++
++La DIAN autoriza una **resolución** con prefijo, rango numérico y vigencia. Cada documento electrónico lleva un número de ese rango y el CUFE/CUDE se calcula sobre él. `sales.sale_number` es el contador interno del comercio y **no** sirve como número de factura.
++
++```
++Admin carga la resolución  →  dian_resolutions (prefijo, rango, vigencia, current_number)
++Worker va a emitir         →  assignDocumentNumber() reserva el siguiente consecutivo
++                              (UPDATE ... RETURNING = lock de fila hasta el commit)
++                           →  se persiste en dian_documents (resolution_id, prefix, document_number)
++                           →  se envía al PAC dentro de `numbering`
++Reintento                  →  reutiliza el número persistido, no consume otro
++Rollback de la emisión     →  el número vuelve al rango (no es una secuencia)
++```
++
++Puntos que conviene no perder de vista:
++
++- El número se asigna **al emitir**, no al crear la venta: una venta anulada antes de que el worker la procese no quema un consecutivo, y un hueco hay que justificarlo ante la DIAN.
++- La reserva **no** usa una secuencia de Postgres a propósito: las secuencias no retroceden en un rollback.
++- `uq_dian_documents_fiscal_number` impide dos documentos con el mismo número dentro de un comercio.
++- Un índice único parcial garantiza **una sola resolución activa** por comercio, tipo de documento y sucursal: dos activas producirían dos series de numeración en paralelo.
++- Alertas antes del problema: `dian_resolution.alert` cuando el rango baja de `alert_threshold` o faltan 30 días para vencer.
++
++### 2.c Cierre del ciclo: documentos en `SENT`
++
++La emisión es asíncrona; el PAC acusa recibo y resuelve después. Dos vías que se cubren mutuamente:
++
++- **Consulta** (`queryStatus`, cada ~5 min): siempre funciona. `UNKNOWN` deja el documento como está — es «no sé decírtelo ahora», no un rechazo.
++- **Webhook** (`POST /api/v1/webhooks/dian/:tenantId/status`): inmediato pero puede perderse. HMAC-SHA256 sobre el cuerpo crudo. El comercio va en la ruta porque una petición del PAC no trae sesión y la API corre sin `BYPASSRLS`.
++- **Alerta** `dian_document.unresolved` pasadas `DIAN_SENT_ALERT_HOURS`.
++
++El scheduler **no reemite**: reemitir un documento ya enviado podría hacer que el PAC lo acepte dos veces (D-060).
++
+ ### 3. Flujo DIAN con Worker (Transactional Outbox)
+ 
+ ```
+@@ -126,10 +159,15 @@ POST /sales/:id/void (solo ADMIN, requiere motivo)
+ 2. Estado inicial: PENDING.
+ 3. Cocina toma el pedido → PREPARATION.
+ 4. Se asigna repartidor (DeliveryPerson) → ON_WAY.
+-5. Repartidor entrega → DELIVERED → Se dispara la facturación electrónica/creación de Sale.
+-6. Si el cliente paga por adelantado, la facturación se asocia de inmediato y el cobro se asegura antes del envío.
++5. Repartidor entrega → DELIVERED.
++6. POST /branches/:branchId/deliveries/:id/invoice (turno de caja + medios de pago)
++   → crea la venta → outbox SALE_CREATED → documento fiscal.
+ ```
+ 
++**La facturación es un paso explícito, no automática al marcar ENTREGADO** (D-062): una venta necesita turno de caja y medio de pago, y ninguno se puede adivinar — el repartidor pudo cobrar en efectivo, con datáfono, o el cliente pudo pagar por adelantado. La idempotencia usa un `client_uuid` determinista derivado del id del domicilio, de modo que un doble clic devuelve la misma venta.
++
++Hasta la fase 4 este flujo terminaba en el paso 5: nada creaba la venta, así que el pedido se cobraba y **no se facturaba**.
++
+ ---
+ 
+ ## Arquitectura Offline-First (PWA)
+@@ -351,9 +389,10 @@ Plan completo y razonado en `docs/ROADMAP-PRODUCCION.md`.
+ | RLS aplicado por el motor con rol sin `BYPASSRLS` | ✅ Fase 2 |
+ | Apagado ordenado, `helmet`, `/metrics` autenticado, token fuera del query string | ✅ Fase 3 |
+ | Gestión de secretos en un gestor real y rotación de las credenciales de ejemplo | ⏳ Infraestructura |
+-| Provider DIAN real (PAC) certificado | ⏳ Fase 4 |
+-| Cierre de ciclo para documentos en estado `SENT` | ⏳ Fase 4 |
+-| Control de resolución y prefijo de numeración | ⏳ Fase 4 |
++| Numeración por resolución autorizada (prefijo, rango, consecutivo sin huecos) | ✅ Fase 4 |
++| Cierre de ciclo para documentos en estado `SENT` (consulta + webhook + alerta) | ✅ Fase 4 |
++| Domicilio entregado → venta → documento fiscal | ✅ Fase 4 |
++| Provider DIAN real (PAC) **certificado** | ⏳ Depende del PAC — `docs/CERTIFICACION-PAC.md` |
+ | Escalado horizontal (advisory locks, adaptador Redis de Socket.io, `SKIP LOCKED`) | ⏳ Fase 5 |
+ | Despliegue HTTPS, multi-instancia | ⏳ Pendiente |
+ | Políticas operativas: soporte, rotación de usuarios, ensayo real de restauración | ⏳ Pendiente |
+diff --git a/docs/CERTIFICACION-PAC.md b/docs/CERTIFICACION-PAC.md
+new file mode 100644
+index 0000000..5e66440
+--- /dev/null
++++ b/docs/CERTIFICACION-PAC.md
+@@ -0,0 +1,193 @@
++# Certificación con el PAC
++
++Guía para pasar de emitir contra un simulador a emitir facturas electrónicas reales ante la DIAN. Es el último bloqueante para facturar legalmente y **el único cuyos tiempos no dependen del código**: la parte técnica está lista, la certificación son semanas de ida y vuelta con un tercero.
++
++Empieza esta conversación con el PAC antes de terminar cualquier otra cosa.
++
++---
++
++## Qué está listo y qué falta
++
++| Pieza | Estado |
++|---|---|
++| Numeración autorizada (resolución, prefijo, consecutivo, vigencia) | ✅ Fase 4 |
++| Consecutivo atómico, sin duplicados ni huecos | ✅ Verificado con 12 workers concurrentes |
++| Aviso de rango por agotarse y resolución por vencer | ✅ Fase 4 |
++| Cierre del ciclo de documentos en `SENT` (consulta + webhook + alerta) | ✅ Fase 4 |
++| Domicilio entregado → venta → documento fiscal | ✅ Fase 4 |
++| Credenciales del PAC cifradas en reposo | ✅ Fase 1 |
++| Guarda contra el proveedor simulado en producción | ✅ Fase 1 |
++| Nota crédito por anulación | ✅ Ya existía |
++| **Adaptador del PAC concreto que contrates** | ⏳ Depende de cuál sea |
++| **Certificación en el ambiente de pruebas del PAC** | ⏳ Depende del PAC |
++| **Habilitación en producción con tenant piloto** | ⏳ Depende de la DIAN |
++
++---
++
++## Qué pedirle al PAC en la primera conversación
++
++Conviene tener estas respuestas por escrito antes de firmar, porque cada una cambia el trabajo de integración:
++
++1. **¿El adaptador HTTP genérico sirve, o hace falta uno propio?** El proyecto trae `HTTP_GENERIC`, que hace `POST` con el payload de `DianProviderEmitSaleInput` y espera `{ status, cude }`. Si el PAC usa SOAP, un esquema UBL propio o firma en el cliente, hace falta un adaptador — un archivo en `apps/worker/src/providers/`, uno o dos días de trabajo, no una reescritura.
++2. **¿Ofrece consulta de estado?** Es lo que cierra el ciclo de los documentos que quedan en `SENT`. Si no la ofrece, hay que depender del webhook, y entonces el punto 3 se vuelve obligatorio.
++3. **¿Envía webhook cuando la DIAN resuelve?** Si sí: ¿cómo firma la notificación, y admite una URL distinta por comercio? El endpoint está en `POST /api/v1/webhooks/dian/:tenantId/status` y valida HMAC-SHA256 sobre el cuerpo crudo con la cabecera `x-dian-signature`.
++4. **¿Quién genera el CUFE/CUDE, el PAC o nosotros?** Hoy se asume que lo genera el PAC y lo devuelve. Si hay que calcularlo aquí, hace falta el certificado digital del comercio y la clave técnica de la resolución (el campo `technical_key` ya existe en `dian_resolutions`).
++5. **¿Cómo se representa el INC de restaurantes?** Colombia distingue IVA e impuesto al consumo, y cada PAC lo codifica a su manera. El proyecto ya calcula ambos; hay que mapear el código.
++6. **¿Cuál es el límite de peticiones y el tiempo de respuesta esperado?** Determina si `DIAN_HTTP_TIMEOUT_MS` (15 s por defecto) y el backoff del outbox son razonables.
++7. **¿Qué pasa con un documento rechazado?** ¿Se puede reenviar con el mismo número, o hay que quemar el consecutivo y emitir otro? La respuesta cambia cómo se maneja `REJECTED`.
++8. **Costos por documento y por comercio**, y si el ambiente de pruebas cuesta.
++
++---
++
++## Secuencia de conmutación
++
++Los tres modos conviven; se avanza de uno al siguiente sin tocar código, solo configuración.
++
++### 1. Simulador (donde está hoy)
++
++```env
++DIAN_PROVIDER=mock
++```
++
++Devuelve CUDEs inventados. **Prohibido en producción**: el arranque del worker aborta si `NODE_ENV=production` y el proveedor es `mock`. Un worker productivo en modo simulador devolvería CUDEs falsos y nadie se enteraría hasta la primera visita de la DIAN.
++
++### 2. Ambiente de pruebas del PAC
++
++```env
++DIAN_PROVIDER=http
++DIAN_HTTP_URL=https://pruebas.tu-pac.co/api/v1
++DIAN_HTTP_API_KEY=<clave del ambiente de pruebas>
++```
++
++Y por comercio, en `tenant_dian_settings`:
++
++```sql
++UPDATE tenant_dian_settings SET test_mode = true WHERE tenant_id = '<piloto>';
++```
++
++Cifra las credenciales antes de cargarlas:
++
++```bash
++pnpm --filter @pos-dian/worker encrypt-credentials
++```
++
++La resolución de pruebas que da la DIAN para habilitación tiene su propio prefijo (habitualmente `SETP`) y un rango corto. Cárgala igual que una real:
++
++```bash
++curl -X POST https://api.tu-dominio.co/api/v1/dian/resolutions \
++  -H "Authorization: Bearer $TOKEN" -H 'content-type: application/json' \
++  -d '{
++    "resolution_number": "18760000001",
++    "resolution_date": "2026-08-01",
++    "prefix": "SETP",
++    "range_from": 990000000,
++    "range_to": 995000000,
++    "valid_from": "2026-08-01",
++    "valid_until": "2028-08-01",
++    "alert_threshold": 500
++  }'
++```
++
++### 3. Producción, con un comercio piloto
++
++```env
++DIAN_PROVIDER=http
++DIAN_HTTP_URL=https://api.tu-pac.co/v1
++DIAN_HTTP_API_KEY=<clave de producción>
++```
++
++```sql
++UPDATE tenant_dian_settings SET test_mode = false WHERE tenant_id = '<piloto>';
++```
++
++**Un solo comercio, con volumen controlado, durante al menos una semana.** Es el único momento en que un error se puede corregir sin afectar a todos los clientes a la vez.
++
++---
++
++## Set de pruebas de habilitación
++
++La DIAN exige un conjunto de documentos aceptados en el ambiente de pruebas antes de habilitar. El número exacto lo indica el PAC; estos son los casos que conviene cubrir con la operación real del POS, no con documentos sintéticos, porque es donde aparecen las diferencias:
++
++| # | Caso | Cómo generarlo |
++|---|---|---|
++| 1 | Factura con IVA 19 % | Venta de mostrador con un producto `IVA_19` |
++| 2 | Factura con IVA 5 % | Producto `IVA_5` |
++| 3 | Factura con producto excluido | Producto `EXCLUDED` |
++| 4 | Factura con producto exento | Producto `EXEMPT` |
++| 5 | Factura mixta (varias tarifas en el mismo documento) | Carrito con productos de tres categorías distintas |
++| 6 | Factura con INC de restaurante | Comercio en `tax_mode = INC_RESTAURANT`, producto `INC_8` |
++| 7 | Factura con descuento | Venta con `discount_cents > 0` |
++| 8 | Factura con pago mixto | Efectivo + tarjeta en la misma venta |
++| 9 | Nota crédito por anulación total | Anular una venta ya aceptada |
++| 10 | Factura de domicilio | `POST /branches/:id/deliveries/:id/invoice` |
++
++Después de cada uno, comprueba en la base que el ciclo cerró de verdad:
++
++```sql
++SELECT d.prefix, d.document_number, d.status, d.cude, s.total_cents
++FROM dian_documents d JOIN sales s ON s.id = d.sale_id
++WHERE d.tenant_id = '<piloto>'
++ORDER BY d.created_at DESC LIMIT 20;
++```
++
++Lo que hay que ver: `status = 'ACCEPTED'`, `cude` no nulo, y `document_number` **consecutivo sin huecos**. Un hueco aquí es un hueco que habrá que justificar ante la DIAN.
++
++---
++
++## Verificaciones antes de emitir la primera factura real
++
++- [ ] `DIAN_PROVIDER=http` y el worker arranca sin errores (con `mock` en producción aborta).
++- [ ] `CREDENTIALS_ENCRYPTION_KEY` configurada y las credenciales del PAC cifradas — en producción, texto plano es un error de arranque.
++- [ ] El comercio piloto tiene una resolución activa: `GET /api/v1/dian/resolutions` devuelve `health: "OK"`.
++- [ ] `DIAN_WEBHOOK_SECRET` configurada y la URL registrada en el panel del PAC, si ofrece webhook.
++- [ ] Los datos fiscales del comercio están completos y coinciden con el RUT: NIT, razón social, dirección.
++- [ ] Una venta de prueba en el ambiente de pruebas llegó hasta `ACCEPTED` con CUDE.
++- [ ] Una anulación de prueba generó su nota crédito y también llegó a `ACCEPTED`.
++
++---
++
++## Qué vigilar la primera semana
++
++```sql
++-- Documentos que no cierran. Debería ser una lista vacía o casi.
++SELECT id, prefix, document_number, status,
++       round(EXTRACT(EPOCH FROM (NOW() - updated_at)) / 3600) AS horas
++FROM dian_documents
++WHERE status IN ('PENDING', 'SENT') AND updated_at < NOW() - INTERVAL '2 hours'
++ORDER BY updated_at;
++
++-- Rechazos: cada uno es una factura que el comercio cree emitida y no lo está.
++SELECT id, prefix, document_number, provider_response_json->>'rejection_reason' AS motivo
++FROM dian_documents WHERE status = 'REJECTED' ORDER BY updated_at DESC;
++
++-- Salud de la numeración.
++SELECT prefix, current_number, range_to, range_to - current_number AS quedan, valid_until
++FROM dian_resolutions WHERE is_active;
++
++-- Huecos en el consecutivo: debería devolver cero filas.
++SELECT document_number + 1 AS hueco_desde
++FROM dian_documents d
++WHERE document_number IS NOT NULL
++  AND NOT EXISTS (
++    SELECT 1 FROM dian_documents n
++    WHERE n.tenant_id = d.tenant_id AND n.prefix = d.prefix
++      AND n.document_number = d.document_number + 1
++  )
++  AND document_number < (SELECT current_number FROM dian_resolutions r
++                         WHERE r.tenant_id = d.tenant_id AND r.is_active LIMIT 1);
++```
++
++Las alertas también llegan solas a la bandeja de salida: `dian_resolution.alert` cuando el rango se está agotando o la resolución está por vencer, y `dian_document.unresolved` cuando un documento lleva más de `DIAN_SENT_ALERT_HOURS` (6 por defecto) sin resolverse.
++
++---
++
++## Escribir un adaptador nuevo
++
++Si el PAC no encaja con `HTTP_GENERIC`:
++
++1. Crea `apps/worker/src/providers/dian-provider-<nombre>.ts` implementando `DianProvider`: `emitSale` obligatorio, `queryStatus` opcional pero muy recomendable.
++2. Regístralo en `apps/worker/src/providers/index.ts`, dentro del `switch` de `provider_name`.
++3. Añade el valor al tipo `TenantDianProviderType` en `apps/api/src/shared/infra/db/schema.ts`.
++4. Escribe su prueba junto a `dian-provider-http-generic.test.ts`. Cubre al menos: respuesta aceptada con CUDE, rechazo, timeout, y **aceptado sin CUDE** — que debe fallar, porque un documento aceptado sin CUDE no es verificable ante la DIAN.
++
++El adaptador recibe `input.numbering` con el prefijo, el consecutivo, el número completo, la resolución y su vigencia. **Nunca uses `sale.sale_number` como número de factura**: es el contador interno del comercio, no la numeración que la DIAN autorizó.
+diff --git a/docs/DECISIONS.md b/docs/DECISIONS.md
+index bc2f1cd..ff2d37f 100644
+--- a/docs/DECISIONS.md
++++ b/docs/DECISIONS.md
+@@ -295,3 +295,38 @@ Se documentan porque la ausencia de política es una decisión, no un olvido:
+ ## D-055 — La barrera de errores dice el estado de la cola offline
+ - `ErrorBoundary` envuelve la aplicación entera y, por separado, cada pantalla (con `key={activeRoute}`). Al fallar, consulta `getPendingSalesCount()` y muestra cuántas ventas quedan guardadas en el dispositivo, pidiendo explícitamente no cerrar sesión.
+ - **Motivo:** la reacción natural de un cajero ante una pantalla en blanco es recargar, cerrar sesión o reinstalar la app; cerrar sesión sí puede costarle la cola de IndexedDB. El mensaje que evita esa pérdida vale más que el mensaje de error en sí. La barrera por pantalla evita además que un fallo en Reportes tumbe el POS.
++
++## D-056 — El número fiscal lo autoriza una resolución, no el contador interno
++- `dian_resolutions` guarda prefijo, rango, vigencia y consecutivo por comercio. El payload al PAC lleva `numbering` con el prefijo y el número; el proveedor HTTP **rechaza el envío si falta**.
++- **Motivo:** lo que se enviaba como número de documento era `sales.sale_number`, el contador interno del comercio. En Colombia la DIAN autoriza una resolución con prefijo y rango, y el CUFE/CUDE se calcula sobre un número de ese rango. Enviar otro significa que el PAC rechaza los documentos o —peor— los acepta, y el hueco aparece meses después en una revisión, cuando ya no hay forma de reconstruir la numeración.
++
++## D-057 — El consecutivo se asigna al emitir, no al crear la venta
++- `assignDocumentNumber` reserva el número dentro de la transacción de emisión, lo persiste en `dian_documents` y lo reutiliza en los reintentos.
++- **Motivo:** una venta que nunca llega a emitirse —anulada antes de que el worker la procese— no debe quemar un número, porque un hueco en la numeración hay que justificarlo ante la DIAN. Y si cada reintento pidiera un número nuevo, un PAC lento generaría una ristra de números quemados.
++- La reserva es un `UPDATE … RETURNING` sobre la fila de la resolución: toma un lock de fila hasta el commit, así que dos workers concurrentes se serializan solos. **No se usa una secuencia de Postgres a propósito**: las secuencias no retroceden en un rollback, que es exactamente lo que aquí no se puede permitir. Verificado con 12 asignaciones concurrentes.
++- `uq_dian_documents_fiscal_number` (único por comercio, prefijo y número) es la última red: un duplicado choca contra el índice en vez de llegar a la DIAN.
++
++## D-058 — Una sola resolución activa por alcance
++- Índice único parcial sobre `(tenant_id, document_type, branch_id)` con `WHERE is_active`. Cargar una resolución nueva desactiva la anterior del mismo alcance.
++- **Motivo:** dos resoluciones activas producirían dos series de numeración en paralelo sobre el mismo comercio. Es el desastre que todo lo anterior existe para evitar.
++
++## D-059 — El aviso de rango llega antes, no el día que se acaba
++- Cada resolución tiene `alert_threshold`; al bajar de ahí, o a menos de 30 días de vencer, se publica `dian_resolution.alert` en la bandeja de salida, deduplicado por día. El endpoint expone además un campo `health` (`OK`, `LOW_RANGE`, `EXPIRING`, `EXHAUSTED`, `EXPIRED`).
++- **Motivo:** agotar el rango o vencer la resolución deja al comercio sin poder facturar, de golpe, y conseguir una nueva ante la DIAN toma días. Enterarse el viernes por la tarde no sirve de nada.
++
++## D-060 — Los documentos en `SENT` se resuelven preguntando, no reemitiendo
++- `dian-sent-recheck.scheduler.ts` llama a `queryStatus` del proveedor y aplica el desenlace. `UNKNOWN` deja el documento como está.
++- **Motivo:** el scheduler anterior reencolaba el evento para *reemitir*, y la guarda de idempotencia del procesador (`getDianEmissionBlockReason`) descartaba el trabajo de inmediato con «document already emitted». El documento seguía en `SENT` indefinidamente y cada ciclo dejaba una fila más en `outbox_events`: un bucle que no cerraba nada y acumulaba basura. Reemitir, además, es justo lo que no se debe hacer — el PAC podría aceptar dos veces el mismo documento.
++- `UNKNOWN` significa «el proveedor no supo decirlo ahora», no un rechazo: inventar un desenlace ahí sería marcar como rechazada una factura que la DIAN podría haber aceptado.
++
++## D-061 — El webhook del PAC va firmado y con el comercio en la ruta
++- `POST /api/v1/webhooks/dian/:tenantId/status`, con HMAC-SHA256 sobre el cuerpo crudo en `x-dian-signature`, comparado en tiempo constante. Sin `DIAN_WEBHOOK_SECRET` el endpoint responde 401.
++- **Motivo del comercio en la ruta:** una petición del PAC no trae sesión, y la API se conecta con un rol sin `BYPASSRLS`. Sin contexto de comercio la consulta a `dian_documents` devolvería cero filas y el webhook no encontraría nada nunca. Con el comercio en la ruta, el RLS además impide que una notificación dirigida a un comercio toque los documentos de otro.
++- Responde 200 salvo firma inválida: un 500 provocaría reintentos en bucle del PAC por un documento que quizá ya no existe. Un documento ya resuelto no se reabre.
++- Las dos vías conviven a propósito: el webhook es inmediato pero puede perderse; la consulta es más lenta pero siempre funciona.
++
++## D-062 — Un domicilio se factura explícitamente, no al marcarlo entregado
++- `POST /branches/:branchId/deliveries/:id/invoice` recibe turno de caja y medios de pago, crea la venta reutilizando `createSaleService` y vincula `deliveries.sale_id`.
++- **Motivo:** el módulo de domicilios llegaba hasta ENTREGADO y ahí se acababa — nada creaba la venta, así que **el pedido se cobraba y no se facturaba**. No se factura automáticamente porque una venta necesita turno de caja y medio de pago, y ninguno se puede adivinar: el repartidor pudo cobrar en efectivo, con datáfono, o el cliente pudo pagar por adelantado.
++- La idempotencia usa un `client_uuid` determinista derivado del id del domicilio, de modo que un doble clic o un reintento de red devuelven la misma venta. Un domicilio con dos facturas solo se arregla con nota crédito.
++- Los precios y los impuestos los recalcula el servidor desde el catálogo: `deliveries.total_cents` es informativo y no se usa como base gravable (D-039).
+diff --git a/docs/ROADMAP-PRODUCCION.md b/docs/ROADMAP-PRODUCCION.md
+index 9a29502..d3c0683 100644
+--- a/docs/ROADMAP-PRODUCCION.md
++++ b/docs/ROADMAP-PRODUCCION.md
+@@ -1,6 +1,6 @@
+ # Ruta a Producción
+ 
+-Estado al **28 de agosto de 2026** (fases 0–3 cerradas). Este documento es el registro vivo del endurecimiento previo a producción: qué se cerró, con qué evidencia, y qué falta.
++Estado al **28 de agosto de 2026** (fases 0–4 cerradas en su parte de código). Este documento es el registro vivo del endurecimiento previo a producción: qué se cerró, con qué evidencia, y qué falta.
+ 
+ Punto de partida: auditoría sobre `main` del 25 de agosto de 2026. El sistema era funcionalmente rico y estaba operativamente roto — no compilaba, la base no se podía crear desde cero, y el CI llevaba meses sin ejecutar nada real. Nada de lo que sigue es opinión de diseño: son fallos que se reprodujeron y se corrigieron con una prueba que los cubre.
+ 
+@@ -16,7 +16,7 @@ Punto de partida: auditoría sobre `main` del 25 de agosto de 2026. El sistema e
+ | 1 | Blindar el dinero y el impuesto | ✅ Completada — 28 ago 2026 |
+ | 2 | Recuperar RLS de verdad | ✅ Completada — 28 ago 2026 |
+ | 3 | Hacerlo operable | ✅ Completada — 28 ago 2026 |
+-| 4 | Cerrar el ciclo fiscal con el PAC real | ⏳ Pendiente · 2–3 semanas, depende de terceros |
++| 4 | Cerrar el ciclo fiscal con el PAC real | ✅ Código completo — 28 ago 2026 · ⏳ falta la certificación con el PAC |
+ | 5 | Escala horizontal | ⏳ Diferible hasta ~20 clientes |
+ 
+ ---
+@@ -133,16 +133,46 @@ De paso aparecieron dos cosas más: `assertCanManageRole` fallaba **abierto** an
+ 
+ ---
+ 
+-## Fase 4 — Cerrar el ciclo fiscal con el PAC real ⏳
++## Fase 4 — Cerrar el ciclo fiscal con el PAC real ✅ (código) / ⏳ (certificación)
+ 
+-Estimado: 2–3 semanas, con dependencia de terceros. **Conviene arrancar la gestión comercial con el PAC en paralelo, ya**, porque los tiempos de certificación no dependen de nosotros. Bloquea facturar legalmente.
++Todo el trabajo de código está hecho y verificado. Lo que queda **no es deuda técnica sino dependencia de un tercero**: la certificación con el PAC, cuyos tiempos no controlamos. La guía completa —qué preguntarle al proveedor, la secuencia de conmutación, el set de pruebas de habilitación y las consultas de vigilancia— está en `docs/CERTIFICACION-PAC.md`.
+ 
+-- **Certificación end-to-end** contra el ambiente de pruebas del PAC, y luego producción con un tenant piloto y volumen controlado.
+-- **Cerrar el ciclo de los documentos en `SENT`**: el recheck ya existe (`DIAN_SENT_RECHECK_DELAY_MS`), falta el webhook o la consulta de confirmación definitiva y una alerta si algo lleva más de N horas sin resolverse. Hoy un documento puede quedarse en `SENT` para siempre sin que nadie se entere.
+-- **Resolución, prefijo y rangos por tenant**: los campos ya están en la tabla; falta el control de consecutivo y el aviso de agotamiento *antes* de que se acabe el rango. Quedarse sin numeración un viernes por la tarde es un comercio que no puede facturar.
+-- **Vincular domicilios al flujo de venta** para que generen documento fiscal.
++### 1. La numeración fiscal no existía
+ 
+-**Criterio de salida.** Un ciclo completo verificado con la DIAN: factura aceptada, nota crédito por anulación, y consecutivo controlado.
++Lo que se le enviaba al PAC como número de documento era `sales.sale_number`: **el contador interno del comercio**. En Colombia la DIAN autoriza una resolución con prefijo y rango numérico y una vigencia; cada factura electrónica lleva un número de ese rango, consecutivo y sin repetir, y el CUFE/CUDE se calcula sobre él. Enviar otro número significa que el PAC rechaza los documentos o —peor— los acepta, y el hueco aparece meses después en una revisión de la DIAN.
++
++Migración `090_dian_resolutions` y `apps/worker/src/jobs/shared/fiscal-numbering.ts`:
++
++- **El consecutivo se asigna al emitir, no al crear la venta.** Una venta anulada antes de que el worker la procese no quema un número; un hueco hay que justificarlo.
++- **Se persiste en el documento y se reutiliza en los reintentos.** Un PAC lento no genera una ristra de números quemados.
++- **La reserva es un `UPDATE … RETURNING` sobre la fila de la resolución**, que toma un lock hasta el commit: dos workers concurrentes se serializan solos. Deliberadamente *no* es una secuencia de Postgres — las secuencias no retroceden en un rollback, que es exactamente lo que aquí no se puede permitir. Verificado con 12 asignaciones concurrentes: 12 números únicos y consecutivos.
++- **Índice único** por comercio, prefijo y número como última red.
++- **Aviso antes de que sea un problema**: `alert_threshold` por resolución y aviso a 30 días de vencer. Quedarse sin rango un viernes por la tarde es un comercio que no puede facturar hasta que la DIAN autorice otro, y eso toma días.
++- API: `GET/POST/PATCH /api/v1/dian/resolutions`, con un campo `health` (`OK`, `LOW_RANGE`, `EXPIRING`, `EXHAUSTED`, `EXPIRED`) y soporte para arrancar en un número intermedio al migrar un comercio desde otra herramienta.
++
++### 2. El recheck de documentos en `SENT` no hacía nada
++
++El scheduler encontraba los documentos atascados, encolaba un evento para **reemitir**… y la guarda de idempotencia del procesador lo descartaba de inmediato con «document already emitted». El documento seguía en `SENT` para siempre y cada ciclo dejaba una fila más en `outbox_events`. Un bucle que no cerraba nada y acumulaba basura.
++
++Ahora **pregunta** en vez de reemitir —reemitir podría hacer que el PAC acepte dos veces el mismo documento—, y el cierre tiene dos vías que se cubren mutuamente:
++
++- **Consulta al PAC** (`queryStatus`): siempre funciona, con latencia. `UNKNOWN` deja el documento como está: es «no sé decírtelo ahora», no un rechazo.
++- **Webhook firmado** (`POST /api/v1/webhooks/dian/:tenantId/status`): inmediato, pero puede perderse. HMAC-SHA256 sobre el cuerpo crudo; el comercio va en la ruta porque una petición del PAC no trae sesión y la API corre sin `BYPASSRLS` — sin contexto de comercio la consulta devolvería cero filas.
++- **Alerta** `dian_document.unresolved` pasadas `DIAN_SENT_ALERT_HOURS` (6 por defecto), deduplicada por día.
++
++### 3. Un domicilio entregado no generaba documento fiscal
++
++El módulo llegaba hasta ENTREGADO y ahí se acababa: nada creaba la venta, así que **el pedido se cobraba y no se facturaba**. `POST /branches/:branchId/deliveries/:id/invoice` crea la venta reutilizando `createSaleService` y vincula `deliveries.sale_id`.
++
++No se factura automáticamente al marcar ENTREGADO porque una venta necesita turno de caja y medio de pago, y ninguno se puede adivinar. La idempotencia usa un `client_uuid` determinista derivado del id del domicilio: un doble clic devuelve la misma venta, porque un domicilio con dos facturas solo se arregla con nota crédito.
++
++### 4. Lo que falta, y no depende de nosotros
++
++- Certificación end-to-end contra el ambiente de pruebas del PAC.
++- Producción con un comercio piloto y volumen controlado, al menos una semana.
++- Un adaptador propio, si el PAC contratado no encaja con `HTTP_GENERIC` (uno o dos días de trabajo, no una reescritura).
++
++**Criterio de salida.** Un ciclo completo verificado con la DIAN: factura aceptada con CUDE, nota crédito por anulación, y consecutivo sin huecos.
+ 
+ ---
+ 
+@@ -215,7 +245,10 @@ Si alguno está sin marcar, la respuesta a "¿ya podemos salir?" es **no**, sin
+ - [ ] `JWT_SECRET`, contraseñas de Postgres y acceso a Grafana son valores generados, no los del repositorio.
+ - [x] Un `SIGTERM` no corta ninguna venta en vuelo.
+ - [x] Existe un comando documentado que migra la base en un servidor de producción.
+-- [ ] Un ciclo fiscal completo verificado con el PAC real: factura aceptada y nota crédito por anulación.
++- [ ] Un ciclo fiscal completo verificado con el PAC real: factura aceptada y nota crédito por anulación. *(El código está listo; falta la certificación — ver `docs/CERTIFICACION-PAC.md`.)*
++- [x] La numeración fiscal viene de una resolución autorizada, es consecutiva y no se puede duplicar.
++- [x] Un documento que queda en `SENT` se resuelve o se alerta; no se queda colgado en silencio.
++- [x] Un domicilio entregado genera su documento fiscal.
+ - [ ] Un restore de backup probado end-to-end en el último mes.
+ - [ ] Está escrito y aceptado que el sistema corre en instancia única hasta completar la fase 5.
+ 
+@@ -232,6 +265,6 @@ pnpm --filter @pos-dian/api db:migrate      # con ADMIN_DATABASE_URL
+ pnpm lint && pnpm typecheck && pnpm build && pnpm test
+ ```
+ 
+-Resultado al cierre de la fase 3: **0 errores de lint** (144 advertencias, ver D-043), **0 errores de tipos**, build correcto, **90 migraciones desde cero** y **243 pruebas verdes** — 153 API contra PostgreSQL real, 41 worker, 31 pos-web, 18 shared.
++Resultado al cierre de la fase 4: **0 errores de lint** (144 advertencias, ver D-043), **0 errores de tipos**, build correcto, **91 migraciones desde cero** y **282 pruebas verdes** — 173 API contra PostgreSQL real, 60 worker, 31 pos-web, 18 shared.
+ 
+-Detalle de las decisiones en `docs/DECISIONS.md` (D-036 … D-055). Procedimientos operativos en `docs/RUNBOOK.md`.
++Detalle de las decisiones en `docs/DECISIONS.md` (D-036 … D-062). Procedimientos operativos en `docs/RUNBOOK.md`. Guía de certificación en `docs/CERTIFICACION-PAC.md`.
+diff --git a/docs/RUNBOOK.md b/docs/RUNBOOK.md
+index 4e1c790..298c8ee 100644
+--- a/docs/RUNBOOK.md
++++ b/docs/RUNBOOK.md
+@@ -320,7 +320,8 @@ Plan completo, con el porqué de cada ítem y los criterios de salida, en **`doc
+ - [x] ~~Apagado ordenado en la API (`SIGTERM` → drenaje) y comando documentado de migración en un servidor productivo~~ — Fase 3.
+ - [x] ~~`helmet`, `/metrics` autenticado, token de sesión fuera del query string, validación de entropía de `JWT_SECRET`~~ — Fase 3.
+ - [ ] Gestión de secretos (Vault / GCP Secret Manager); rotar en los entornos reales toda credencial de ejemplo del repositorio. Es trabajo de infraestructura, no de código.
+-- [ ] Provider DIAN real certificado y cierre del ciclo para documentos en `SENT`; control de resolución y consecutivo — Fase 4. **Bloquea facturar legalmente.**
++- [x] ~~Cierre del ciclo para documentos en `SENT`; control de resolución y consecutivo~~ — Fase 4.
++- [ ] Provider DIAN real **certificado** — Fase 4. **Bloquea facturar legalmente.** El código está listo; la certificación depende del PAC. Guía: `docs/CERTIFICACION-PAC.md`.
+ - [ ] Instancia única hasta completar la Fase 5 (advisory locks, adaptador Redis de Socket.io, `SKIP LOCKED`). Debe estar aceptado por escrito.
+ - [ ] Despliegue con HTTPS y monitoreo centralizado en la nube.
+ - [ ] Políticas operativas: soporte, rotación de usuarios y recuperación de incidentes.
+@@ -586,3 +587,92 @@ SELECT enable_tables, enable_waiters FROM tenants WHERE id = '<tenant>';
+ ```
+ 
+ El flag se activa desde el SuperAdmin de plataforma. Activar `enable_waiters` activa `enable_tables` en cascada (la dependencia está declarada en `TenantModuleDependencyResolver`).
++
++
++---
++
++## Operación fiscal (fase 4)
++
++### Cargar la resolución de facturación
++
++Sin una resolución activa el comercio **no puede emitir**: el worker registra `dian_numbering_unavailable` y el evento queda reintentando hasta que se cargue.
++
++```bash
++curl -X POST "$API/dian/resolutions" \
++  -H "Authorization: Bearer $TOKEN" -H 'content-type: application/json' \
++  -d '{
++    "resolution_number": "18764000001234",
++    "resolution_date": "2026-08-01",
++    "prefix": "SETP",
++    "range_from": 990000000,
++    "range_to": 995000000,
++    "valid_from": "2026-08-01",
++    "valid_until": "2028-08-01",
++    "alert_threshold": 500
++  }'
++```
++
++Al migrar un comercio que ya venía facturando con otra herramienta, añade `"start_at": <primer número libre>` para no repetir números.
++
++Cargar una resolución nueva **desactiva la anterior** del mismo alcance: nunca hay dos series de numeración en paralelo.
++
++### Revisar la salud de la numeración
++
++```bash
++curl -s "$API/dian/resolutions" -H "Authorization: Bearer $TOKEN" | jq '.[] | {prefix, next_number, remaining, days_until_expiry, health}'
++```
++
++| `health` | Significado | Qué hacer |
++|---|---|---|
++| `OK` | Todo en orden | Nada |
++| `LOW_RANGE` | Quedan menos números que `alert_threshold` | Solicitar rango nuevo a la DIAN — toma días |
++| `EXPIRING` | Vence en 30 días o menos | Solicitar resolución nueva |
++| `EXHAUSTED` | Rango agotado | **El comercio no puede facturar.** Urgente |
++| `EXPIRED` | Vigencia terminada | **El comercio no puede facturar.** Urgente |
++
++Las alertas llegan solas a la bandeja de salida como `dian_resolution.alert`, deduplicadas por día.
++
++### «Una venta no generó factura»
++
++1. ¿El documento existe y en qué estado está?
++
++   ```sql
++   SELECT d.id, d.prefix, d.document_number, d.status, d.cude, d.updated_at
++   FROM dian_documents d WHERE d.sale_id = '<venta>';
++   ```
++
++2. Sin fila: el evento de la bandeja no se procesó. Mira `outbox_events` para esa venta y el log del worker.
++3. `status = 'PENDING'` y sin `document_number`: no se pudo asignar numeración. Busca `dian_numbering_unavailable` en el log — casi siempre es resolución ausente, agotada o vencida.
++4. `status = 'SENT'` desde hace horas: el PAC no ha resuelto. El scheduler pregunta cada ~5 minutos; pasadas `DIAN_SENT_ALERT_HOURS` publica `dian_document.unresolved`.
++5. `status = 'REJECTED'`: mira `provider_response_json` para el motivo.
++
++### Documentos que no cierran
++
++```sql
++SELECT id, prefix, document_number, status,
++       round(EXTRACT(EPOCH FROM (NOW() - updated_at)) / 3600) AS horas_sin_resolver
++FROM dian_documents
++WHERE status IN ('PENDING', 'SENT') AND updated_at < NOW() - INTERVAL '2 hours'
++ORDER BY updated_at;
++```
++
++Si el PAC no ofrece consulta de estado (`queryStatus`), el cierre depende del webhook: comprueba que `DIAN_WEBHOOK_SECRET` esté configurado y que la URL `POST /api/v1/webhooks/dian/<tenantId>/status` esté registrada en el panel del proveedor.
++
++### Facturar un domicilio entregado
++
++```bash
++curl -X POST "$API/branches/$BRANCH/deliveries/$DELIVERY/invoice" \
++  -H "Authorization: Bearer $TOKEN" -H 'content-type: application/json' \
++  -d '{"cash_session_id":"<sesión abierta>","payments":[{"method":"CASH","amount_cents":25000}]}'
++```
++
++Solo se factura un domicilio en estado `DELIVERED`. Llamarlo dos veces devuelve la misma venta (`already_invoiced: true`): la idempotencia deriva del id del domicilio.
++
++Domicilios entregados pendientes de facturar:
++
++```sql
++SELECT id, customer_name, total_cents, status_updated_at
++FROM deliveries
++WHERE tenant_id = '<comercio>' AND status = 'DELIVERED' AND sale_id IS NULL
++ORDER BY status_updated_at;
++```
+diff --git a/packages/shared/src/schemas/dian-provider.ts b/packages/shared/src/schemas/dian-provider.ts
+index 5410cf4..d8e312b 100644
+--- a/packages/shared/src/schemas/dian-provider.ts
++++ b/packages/shared/src/schemas/dian-provider.ts
+@@ -54,6 +54,24 @@ export const dianProviderSaleItemSchema = z.object({
+   line_total_cents: z.number().int().nonnegative()
+ });
+ 
++/**
++ * Numeración autorizada por la DIAN: prefijo y consecutivo dentro del rango de una
++ * resolución vigente. `sale_number` es el contador interno del comercio y no vale como
++ * número de factura electrónica.
++ */
++export const dianProviderNumberingSchema = z.object({
++  resolution_number: z.string().min(1),
++  resolution_date: z.string().min(1),
++  prefix: z.string().min(1).max(10),
++  document_number: z.number().int().positive(),
++  full_number: z.string().min(1),
++  range_from: z.number().int().positive(),
++  range_to: z.number().int().positive(),
++  valid_from: z.string().min(1),
++  valid_until: z.string().min(1),
++  technical_key: z.string().nullable()
++});
++
+ export const dianProviderEmitSaleInputSchema = z.object({
+   sale_id: z.string().uuid(),
+   tenant_id: z.string().uuid(),
+@@ -84,7 +102,11 @@ export const dianProviderEmitSaleInputSchema = z.object({
+     tax_lines: z.array(dianProviderTaxLineSchema),
+     payments: dianProviderPaymentBreakdownSchema,
+     items: z.array(dianProviderSaleItemSchema)
+-  })
++  }),
++  // Opcional en el esquema por compatibilidad con los payloads ya persistidos en
++  // `dian_documents.provider_payload_json`; obligatorio en la práctica desde la fase 4, y
++  // el proveedor HTTP rechaza el envío si falta (ver `dian-provider-http-generic`).
++  numbering: dianProviderNumberingSchema.optional()
+ });
+ 
+ export type DianProviderEmitSaleInputSchemaInput = z.infer<typeof dianProviderEmitSaleInputSchema>;
+diff --git a/packages/shared/src/types/dian-provider.ts b/packages/shared/src/types/dian-provider.ts
+index 9781501..1530562 100644
+--- a/packages/shared/src/types/dian-provider.ts
++++ b/packages/shared/src/types/dian-provider.ts
+@@ -72,6 +72,28 @@ export interface DianProviderSalePayload {
+   items: DianProviderSaleItemPayload[];
+ }
+ 
++/**
++ * Numeración autorizada por la DIAN.
++ *
++ * `sale.sale_number` es el contador interno del comercio y no sirve como número de factura
++ * electrónica: la DIAN autoriza una resolución con prefijo y rango, y el documento tiene
++ * que llevar un número de ese rango. El CUFE/CUDE se calcula sobre él.
++ */
++export interface DianProviderNumberingPayload {
++  resolution_number: string;
++  resolution_date: string;
++  prefix: string;
++  document_number: number;
++  /** Número completo tal como se imprime y se envía: `SETP990000001`. */
++  full_number: string;
++  range_from: number;
++  range_to: number;
++  valid_from: string;
++  valid_until: string;
++  /** Clave técnica de la resolución; algunos PAC la exigen para firmar. */
++  technical_key: string | null;
++}
++
+ export interface DianProviderEmitSaleInput {
+   sale_id: string;
+   tenant_id: string;
+@@ -83,6 +105,29 @@ export interface DianProviderEmitSaleInput {
+   tenant: DianProviderTenantPayload;
+   branch: DianProviderBranchPayload;
+   sale: DianProviderSalePayload;
++  numbering?: DianProviderNumberingPayload;
++}
++
++/**
++ * Consulta del estado de un documento ya enviado.
++ *
++ * La emisión es asíncrona: el PAC acusa recibo (`SENT`) y resuelve después. Sin una forma
++ * de preguntar, un documento puede quedarse en `SENT` para siempre sin que nadie se entere.
++ * Opcional en la interfaz porque no todos los proveedores la ofrecen; cuando falta, el
++ * cierre del ciclo depende del webhook del PAC.
++ */
++export interface DianProviderStatusQueryInput {
++  tenant_id: string;
++  document_id: string;
++  cude: string | null;
++  prefix: string | null;
++  document_number: number | null;
++}
++
++export interface DianProviderStatusQueryResult {
++  status: DianProviderResultStatus | 'UNKNOWN';
++  cude: string | null;
++  raw: Record<string, unknown>;
+ }
+ 
+ export interface DianProviderEmitSaleResult {
+@@ -93,4 +138,6 @@ export interface DianProviderEmitSaleResult {
+ 
+ export interface DianProvider {
+   emitSale(input: DianProviderEmitSaleInput): Promise<DianProviderEmitSaleResult>;
++  /** Opcional: no todos los PAC exponen consulta de estado. */
++  queryStatus?(input: DianProviderStatusQueryInput): Promise<DianProviderStatusQueryResult>;
+ }
+diff --git a/turbo.json b/turbo.json
+index b9a86aa..14786b0 100644
+--- a/turbo.json
++++ b/turbo.json
+@@ -37,8 +37,12 @@
+     "CREDENTIALS_ENCRYPTION_KEY",
+     "DATABASE_URL",
+     "DIAN_HTTP_API_KEY",
++    "DIAN_HTTP_TIMEOUT_MS",
+     "DIAN_HTTP_URL",
+     "DIAN_PROVIDER",
++    "DIAN_SENT_ALERT_HOURS",
++    "DIAN_SENT_RECHECK_DELAY_MS",
++    "DIAN_WEBHOOK_SECRET",
+     "HOST",
+     "JWT_SECRET",
+     "METRICS_TOKEN",

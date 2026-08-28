@@ -49,6 +49,8 @@ Este documento centraliza las decisiones de arquitectura, lecciones aprendidas y
 - **Un doble de base de datos escrito a mano no prueba nada.** Varias pruebas usaban un falso Kysely que devolvía la misma respuesta a toda consulta: el cálculo que decían verificar quedaba fuera. Al reescribirlas contra PostgreSQL real aparecieron los bugs. Para lógica que toca el esquema, base real o la prueba es decorativa.
 - **Un enum escrito a mano en cinco sitios se desincroniza.** Los roles vivían duplicados en el enum de Postgres, el esquema compartido, dos tipos de TypeScript y un `z.enum` de ruta. `WAITER` llegó a tres de los cinco, y el resultado fue una funcionalidad entera inalcanzable durante meses sin que nada fallara ruidosamente. Hoy todo se deriva de `USER_ROLES` y hay una prueba que lo verifica.
 - **Un guard que compara números debe leer los valores antes de compararlos.** `ROLE_LEVEL[actor] <= ROLE_LEVEL[target]` con un rol desconocido da `undefined`, y toda comparación numérica con `undefined` es falsa: el guard *dejaba pasar* en vez de bloquear. Ante lo desconocido, una autorización se falla cerrada.
+- **Un bucle de reintentos que no comprueba su efecto puede no hacer nada durante meses.** El recheck de documentos DIAN encolaba trabajo que otra guarda descartaba de inmediato: los logs decían «reencolado», las métricas subían, y ningún documento se resolvía. Cuando un mecanismo de recuperación existe, hay que probar que *recupera*, no que se ejecuta.
+- **Una secuencia de Postgres no sirve para un consecutivo fiscal.** No retrocede en un rollback, así que cada transacción fallida deja un hueco — y un hueco en la numeración hay que justificarlo ante la DIAN. La reserva correcta es un `UPDATE … RETURNING` sobre una fila, que sí vuelve atrás.
 - **La alerta nunca debe poder tumbar la operación.** Todo efecto secundario no esencial (notificaciones, alertas, métricas) se publica **después** del commit y en su propia transacción. Meterlo dentro convierte un fallo cosmético en una venta perdida.
 
 ## Endurecimiento previo a Producción (Agosto 2026)
@@ -71,8 +73,12 @@ Cuatro defectos encadenados que ninguna revisión de una sola capa habría encon
 
 Detalle en D-045…D-048 y en `docs/ROADMAP-PRODUCCION.md`.
 
+- **Fase 4 — ciclo fiscal (código).** Lo que se enviaba al PAC como número de documento era `sales.sale_number`, el contador interno del comercio: no es una factura electrónica válida. Ahora hay resoluciones con prefijo y rango, consecutivo atómico sin huecos ni duplicados (verificado con 12 workers concurrentes), y aviso antes de que el rango se agote o la resolución venza. El recheck de documentos en `SENT` **no hacía nada**: reencolaba una reemisión que la guarda de idempotencia descartaba, dejando el documento colgado y una fila más en la bandeja cada ciclo; ahora consulta al PAC, y hay webhook firmado y alerta. Y un domicilio entregado, que antes se cobraba sin facturar, ya genera su documento.
+
 ### Lo que sigue abierto
-Fases 4 (**certificación con el PAC real — es lo único que bloquea facturar legalmente**; cierre de documentos en `SENT`; control de resolución y consecutivo) y 5 (escala horizontal; hasta entonces el sistema es de **instancia única** y debe estar aceptado por escrito). Fuera del plan: gestión de secretos en un gestor real y rotación de las credenciales de ejemplo.
+- **Certificación con un PAC real** — es lo único que bloquea facturar legalmente, y no depende del código. Guía en `docs/CERTIFICACION-PAC.md`.
+- **Fase 5, escala horizontal** — hasta entonces el sistema es de **instancia única** y debe estar aceptado por escrito.
+- Fuera del plan: gestión de secretos en un gestor real, rotación de las credenciales de ejemplo, y un ensayo real de restauración desde backup.
 
 ## Actualizaciones Recientes (Junio 2026)
 

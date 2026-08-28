@@ -23,6 +23,12 @@ import {
 } from './shared/outbox-store.js';
 import { executeAsTenantClient } from '../infra/db/rls.js';
 import { resolveDianCredentials } from '../infra/security/dian-credentials.js';
+import {
+  assignDocumentNumber,
+  publishResolutionAlert,
+  FiscalNumberingError,
+  type AssignedFiscalNumber
+} from './shared/fiscal-numbering.js';
 
 interface BuildOutboxSaleCreatedProcessorInput {
   pool: Pool;
@@ -366,6 +372,59 @@ export function buildOutboxSaleCreatedProcessor({
       throw loadError;
     }
 
+    // Numeración fiscal. Se asigna aquí y no al crear la venta: una venta que nunca llega
+    // a emitirse no debe quemar un consecutivo, porque un hueco en la numeración hay que
+    // justificarlo ante la DIAN. Es idempotente por documento, así que un reintento
+    // reutiliza el número en vez de consumir otro.
+    let numbering: AssignedFiscalNumber;
+    try {
+      numbering = await executeAsTenantClient(pool, tenantId, async (client) =>
+        assignDocumentNumber(client, {
+          tenantId,
+          branchId: payload.branch_id ?? null,
+          documentId: dianDocument.id,
+          documentType: 'INVOICE'
+        })
+      );
+    } catch (numberingError) {
+      // Sin resolución vigente el comercio no puede facturar, y no es algo que se arregle
+      // reintentando: hay que cargar o renovar la resolución. Se deja el evento reintentando
+      // con backoff —para que se emita solo en cuanto la carguen— pero se registra como
+      // error de configuración, no como fallo del PAC.
+      logWorkerError({
+        event: 'dian_numbering_unavailable',
+        message:
+          numberingError instanceof FiscalNumberingError
+            ? numberingError.message
+            : 'No fue posible asignar numeración fiscal',
+        job_id: job.id?.toString(),
+        outbox_event_id: claimedEvent.id,
+        sale_id: saleId,
+        tenant_id: tenantId,
+        attempt: nextAttemptNumber,
+        dian_document_id: dianDocument.id,
+        error: numberingError,
+        details: {
+          reason: numberingError instanceof FiscalNumberingError ? numberingError.code : 'UNKNOWN'
+        }
+      });
+      throw numberingError;
+    }
+
+    if (!numbering.reused && (numbering.belowThreshold || numbering.daysUntilExpiry <= 30)) {
+      // El comercio se queda sin poder facturar cuando se agota el rango o vence la
+      // resolución, y conseguir una nueva ante la DIAN toma días. El aviso va antes, no
+      // el día que se acaba.
+      await publishResolutionAlert(pool, {
+        tenantId,
+        branchId: payload.branch_id ?? null,
+        resolutionId: numbering.resolutionId,
+        prefix: numbering.prefix,
+        remaining: numbering.remaining,
+        daysUntilExpiry: numbering.daysUntilExpiry
+      });
+    }
+
     try {
       // Obtener configuracion del proveedor PAC para este tenant
       let providerConfig;
@@ -392,7 +451,21 @@ export function buildOutboxSaleCreatedProcessor({
         test_mode: providerConfig.test_mode
       });
 
-      const providerResult = await provider.emitSale(providerPayload);
+      const providerResult = await provider.emitSale({
+        ...providerPayload,
+        numbering: {
+          resolution_number: numbering.resolutionNumber,
+          resolution_date: numbering.resolutionDate,
+          prefix: numbering.prefix,
+          document_number: numbering.documentNumber,
+          full_number: `${numbering.prefix}${numbering.documentNumber}`,
+          range_from: numbering.rangeFrom,
+          range_to: numbering.rangeTo,
+          valid_from: numbering.validFrom,
+          valid_until: numbering.validUntil,
+          technical_key: numbering.technicalKey
+        }
+      });
       const transitionPlan = planDianStatusTransition(dianDocument.status, providerResult.status);
 
       await updateDianDocumentMetadata(

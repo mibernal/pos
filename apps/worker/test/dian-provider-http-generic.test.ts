@@ -61,6 +61,20 @@ const validPayload = {
         line_total_cents: 10000
       }
     ]
+  },
+  // Numeración autorizada por la DIAN. Es obligatoria desde la fase 4: `sale.sale_number`
+  // es el contador interno del comercio y no vale como número de factura electrónica.
+  numbering: {
+    resolution_number: '18764000001234',
+    resolution_date: '2026-01-15',
+    prefix: 'SETP',
+    document_number: 990000042,
+    full_number: 'SETP990000042',
+    range_from: 990000000,
+    range_to: 995000000,
+    valid_from: '2026-01-15',
+    valid_until: '2028-01-15',
+    technical_key: null
   }
 };
 
@@ -188,5 +202,61 @@ describe('DianProviderHttpGeneric', () => {
     await expect(provider.emitSale(validPayload)).rejects.toThrowError(
       /accepted response missing CUDE/
     );
+  });
+
+  it('se niega a emitir sin la numeración autorizada', async () => {
+    // Sin prefijo y consecutivo de una resolución vigente, el PAC rechazaría el documento
+    // —o, peor, lo aceptaría con una numeración que la DIAN no autorizó—. Se falla aquí,
+    // antes de la llamada, para que el motivo sea legible en el log del worker.
+    const fetchMock = vi.spyOn(globalThis, 'fetch');
+
+    const provider = new DianProviderHttpGeneric({
+      url: 'https://example.com/dian',
+      timeoutMs: 3000
+    });
+
+    const { numbering: _omitted, ...sinNumeracion } = validPayload;
+
+    await expect(provider.emitSale(sinNumeracion)).rejects.toThrowError(
+      /falta la numeración autorizada/i
+    );
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('consulta el estado de un documento ya enviado', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(JSON.stringify({ status: 'ACCEPTED', cude: 'CUDE-CONSULTADO' }), { status: 200 })
+    );
+
+    const provider = new DianProviderHttpGeneric({ url: 'https://example.com/dian', timeoutMs: 3000 });
+
+    const result = await provider.queryStatus({
+      tenant_id: '11111111-1111-4111-a111-111111111111',
+      document_id: 'doc-1',
+      cude: null,
+      prefix: 'SETP',
+      document_number: 990000042
+    });
+
+    expect(result.status).toBe('ACCEPTED');
+    expect(result.cude).toBe('CUDE-CONSULTADO');
+  });
+
+  it('devuelve UNKNOWN si la consulta falla, en vez de inventar un desenlace', async () => {
+    // Un error de consulta no dice nada sobre el documento: puede estar aceptado y ser el
+    // endpoint el que falla. Marcarlo como rechazado por eso sería mentir sobre una factura.
+    vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('red caída'));
+
+    const provider = new DianProviderHttpGeneric({ url: 'https://example.com/dian', timeoutMs: 3000 });
+
+    const result = await provider.queryStatus({
+      tenant_id: '11111111-1111-4111-a111-111111111111',
+      document_id: 'doc-1',
+      cude: 'CUDE-X',
+      prefix: null,
+      document_number: null
+    });
+
+    expect(result.status).toBe('UNKNOWN');
   });
 });

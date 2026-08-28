@@ -4,5 +4,8 @@ export type {
   DianProviderEmitSaleResult,
   DianProviderResultStatus,
   DianProviderPaymentBreakdown,
-  DianProviderSaleItemPayload
+  DianProviderSaleItemPayload,
+  DianProviderNumberingPayload,
+  DianProviderStatusQueryInput,
+  DianProviderStatusQueryResult
 } from '@pos-dian/shared/types/dian-provider.js';
