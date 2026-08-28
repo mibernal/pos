@@ -185,7 +185,7 @@ export function createApiClient({ baseUrl, getSession, setSession, onReauthRequi
           return null;
         }
         return (await response.json()) as AuthSession;
-      } catch (error) {
+      } catch {
         throw new ApiClientError('No fue posible conectar con el API', { isNetworkError: true });
       } finally {
         refreshPromise = null;

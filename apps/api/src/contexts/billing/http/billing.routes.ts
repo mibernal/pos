@@ -93,7 +93,7 @@ export const billingRoutes: FastifyPluginAsync = async (app) => {
       const { reference, redirectUrl } = request.query;
 
       // Update the transaction to APPROVED
-      const updatedTx = await app.db.transaction().execute(async (trx) => {
+      await app.db.transaction().execute(async (trx) => {
         const tx = await trx
           .updateTable('payment_transactions')
           .set({ status: 'APPROVED', updated_at: new Date() })

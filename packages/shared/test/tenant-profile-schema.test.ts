@@ -15,6 +15,7 @@ describe('tenant profile schemas', () => {
       phone: '6011234567',
       footerMessage: 'Gracias por su compra',
       taxMode: 'IVA',
+      businessType: null,
       createdAt: new Date().toISOString()
     });
 

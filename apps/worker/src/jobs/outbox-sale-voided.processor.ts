@@ -147,6 +147,38 @@ export function buildOutboxSaleVoidedProcessor({
       }
     });
 
+    if (invoiceDianDocument.status === 'PENDING') {
+      // La factura todavía no se envió. Dos escenarios:
+      //  a) el evento sale.created ya se resolvió sin emitir (venta anulada antes de tiempo)
+      //     -> no hay nada que anular ante la DIAN;
+      //  b) el evento sigue en la bandeja -> hay que esperar a saber si sale o no.
+      const pendingInvoiceEvent = await pool.query<{ id: string }>(
+        `SELECT id FROM outbox_events
+         WHERE tenant_id = $1 AND aggregate_id = $2
+           AND type IN ('sale.created', 'SALE_CREATED', 'sale_created')
+           AND status <> 'SENT'
+         LIMIT 1`,
+        [tenantId, saleId]
+      );
+
+      if (pendingInvoiceEvent.rows.length === 0) {
+        await markOutboxSent(pool, claimedEvent.id, nextAttemptNumber);
+        logWorkerInfo({
+          event: 'dian_outbox_void_job_skipped',
+          message: 'Anulación sin nota crédito: la factura nunca se emitió',
+          job_id: job.id?.toString(),
+          outbox_event_id: claimedEvent.id,
+          sale_id: saleId,
+          tenant_id: tenantId,
+          attempt: nextAttemptNumber,
+          dian_document_id: invoiceDianDocument.id,
+          provider_result: 'SKIPPED',
+          reason: 'INVOICE_NEVER_EMITTED'
+        });
+        return;
+      }
+    }
+
     if (invoiceDianDocument.status !== 'ACCEPTED') {
       const nextRetryAt = computeNextRetryAt(
         nextAttemptNumber,

@@ -16,7 +16,10 @@ export type ReceiptType = 'PO_LINKED' | 'BLIND';
 export type TenantTaxMode = 'IVA' | 'INC_RESTAURANT' | 'REGIMEN_SIMPLIFICADO';
 export type TenantDianProviderType = 'SIIGO' | 'ALEGRA' | 'FACTURA1' | 'FACTURADOR_PRO' | 'FACTURATECH' | 'HEKA' | 'DIAN_DIRECT' | 'HTTP_GENERIC' | 'MOCK';
 export type ProductTaxCategory = 'IVA_0' | 'IVA_5' | 'IVA_19' | 'EXEMPT' | 'EXCLUDED' | 'INC_8';
-export type InventoryLedgerOperation = 'SALE_DISCHARGE' | 'SALE_VOID_RECHARGE' | 'SALE_RETURN_RECHARGE' | 'PO_RECEIPT' | 'ADJUSTMENT_IN' | 'ADJUSTMENT_OUT' | 'TRANSFER_IN' | 'TRANSFER_OUT' | 'MANUAL_IN' | 'MANUAL_OUT' | 'CYCLE_COUNT' | 'INITIAL_SYNC';
+// Debe coincidir EXACTAMENTE con el enum `inventory_ledger_operation` creado en la
+// migración 042_immutable_ledgers.ts. Ampliar este tipo sin una migración que amplíe
+// el enum produce errores de restricción en runtime que el compilador no detecta.
+export type InventoryLedgerOperation = 'SALE_DISCHARGE' | 'RESTOCK' | 'VOID_RESTOCK' | 'ADJUSTMENT';
 export type SalesLedgerOperation = 'SALE_CREATION' | 'SALE_VOID' | 'SALE_RETURN';
 export type CashLedgerOperation = 'OPENING' | 'CASH_SALE' | 'CASH_REFUND' | 'MANUAL_IN' | 'MANUAL_OUT' | 'CLOSING_DISCREPANCY';
 export type ReservationStatus = 'PENDING' | 'CONFIRMED' | 'SEATED' | 'CANCELLED' | 'NO_SHOW';

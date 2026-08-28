@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { X, ArrowRight, Table as TableIcon } from 'lucide-react';
+import { ArrowRight, Table as TableIcon } from 'lucide-react';
 import { Modal } from '../../../components/ui/Modal';
 import { Button } from '../../../components/ui/Button';
 import { TableOrderItem, Table } from '@pos-dian/shared';
@@ -94,7 +94,7 @@ export const TransferTableModal: React.FC<TransferTableModalProps> = ({
 
       onTransferComplete?.();
       onClose();
-    } catch (err) {
+    } catch {
       setError('Error al transferir la mesa');
     }
   };

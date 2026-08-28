@@ -1,4 +1,5 @@
 import { AppError } from '../../../shared/infra/errors/app-error.js';
+import { LedgerService } from '../../../shared/infra/db/ledger-service.js';
 import type { Database } from '../../../shared/infra/db/schema.js';
 import type { Kysely, Transaction } from 'kysely'; // eslint-disable-line @typescript-eslint/no-unused-vars
 import { sql } from 'kysely';
@@ -176,7 +177,7 @@ export async function processPartialReturn(
         })
         .execute();
 
-      await trx.insertInto('inventory_balances')
+      const balanceRow = await trx.insertInto('inventory_balances')
         .values({
           tenant_id: ctx.tenantId,
           branch_id: sale.branch_id,
@@ -189,7 +190,23 @@ export async function processPartialReturn(
             on_hand_qty: sql`inventory_balances.on_hand_qty + EXCLUDED.on_hand_qty`,
             updated_at: sql`NOW()`
           }))
-        .execute();
+        .returning('on_hand_qty')
+        .executeTakeFirst();
+
+      // La devolución repone existencias, así que también tiene que quedar en el libro
+      // inmutable. Antes solo se actualizaba el saldo: la cadena de hash del inventario
+      // dejaba de cuadrar con las existencias reales, que es justo lo que el libro existe
+      // para poder demostrar.
+      await LedgerService.appendInventoryLedger(trx, {
+        tenantId: ctx.tenantId,
+        branchId: sale.branch_id,
+        productId: item.product_id,
+        variantId: item.variant_id ?? null,
+        operation: 'RESTOCK',
+        qtyChange: Number(item.qty),
+        balanceAfter: balanceRow ? Number(balanceRow.on_hand_qty) : Number(item.qty),
+        referenceId: returnRow.id
+      });
     }
 
     // 8. Create Outbox Event for DIAN Credit Note

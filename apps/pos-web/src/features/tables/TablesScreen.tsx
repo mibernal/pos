@@ -64,7 +64,6 @@ export const TablesScreen: React.FC<{ onNavigate?: (route: AppRoute) => void }> 
   const setSelectedRoomId = useTablesStore(state => state.setSelectedRoomId);
   const openCreateRoomModal = useTablesStore(state => state.openCreateRoomModal);
   const openCreateTableModal = useTablesStore(state => state.openCreateTableModal);
-  const openTableDetails = useTablesStore(state => state.openTableDetails);
   const setActiveTable = useTablesStore(state => state.setActiveTable);
 
   // Handle default room selection

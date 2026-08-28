@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React from 'react';
 import { useGetActiveDeliveries, useUpdateDeliveryStatus } from '../api/deliveries.api';
 import { usePosStore } from '../../../hooks/usePosStore';
 import { DeliveryStatus, DeliveryWithDetails } from '@pos-dian/shared';
@@ -48,7 +48,7 @@ export const DeliveryDashboard: React.FC = () => {
   );
 };
 
-const Column: React.FC<{ title: string; status: DeliveryStatus; items: DeliveryWithDetails[] }> = ({ title, status, items }) => {
+const Column: React.FC<{ title: string; status: DeliveryStatus; items: DeliveryWithDetails[] }> = ({ title, items }) => {
   return (
     <div className="flex flex-col bg-muted/50 rounded-lg p-4 h-full overflow-hidden">
       <div className="flex justify-between items-center mb-4">

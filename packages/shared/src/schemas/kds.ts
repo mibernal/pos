@@ -7,6 +7,7 @@ export const KitchenTicketSchema = z.object({
   round_id: z.string().uuid(),
   table_order_id: z.string().uuid(),
   status: z.enum(['PENDING', 'PREPARING', 'READY', 'DELIVERED']),
+  course: z.number().int().optional(),
   printed_at: z.string().nullable().optional(),
   created_at: z.string(),
   updated_at: z.string()

@@ -193,7 +193,10 @@ export async function voidSaleService(input: VoidSaleServiceInput) {
       }
     });
 
-    if (dianDocument) {
+    // Se publica siempre. El worker decide qué hacer:
+    //  - si la factura aún no salió (documento PENDING o inexistente) no hay nada que anular;
+    //  - si ya fue ACCEPTED, emite la nota crédito.
+    {
       await trx
         .insertInto('outbox_events')
         .values({
@@ -208,7 +211,7 @@ export async function voidSaleService(input: VoidSaleServiceInput) {
             sale_id: updatedSale.id,
             tenant_id: tenantId!,
             branch_id: updatedSale.branch_id,
-            invoice_dian_document_id: dianDocument.id,
+            invoice_dian_document_id: dianDocument?.id ?? null,
             sale_number: updatedSale.sale_number,
             total_cents: updatedSale.total_cents,
             void_reason: updatedSale.void_reason

@@ -1,9 +1,9 @@
-import { FastifyInstance } from 'fastify';
+import { FastifyPluginAsyncZod } from 'fastify-type-provider-zod';
 import { z } from 'zod';
 import { ReservationsRepository } from '../infra/reservations.repository.js';
 import { ReservationSchema, CreateReservationSchema, UpdateReservationSchema, UpdateReservationStatusSchema } from '@pos-dian/shared';
 
-export const reservationsRoutes = async (app: FastifyInstance) => {
+export const reservationsRoutes: FastifyPluginAsyncZod = async (app) => {
   const repo = new ReservationsRepository(app.db);
 
   app.get(
@@ -27,7 +27,7 @@ export const reservationsRoutes = async (app: FastifyInstance) => {
     async (request, reply) => {
       const tenantId = request.auth!.tenantId!;
       const { branchId } = request.params;
-      const { dateFrom, dateTo } = request.query as { dateFrom?: string, dateTo?: string };
+      const { dateFrom, dateTo } = request.query;
       
       const from = dateFrom ? new Date(dateFrom) : undefined;
       const to = dateTo ? new Date(dateTo) : undefined;

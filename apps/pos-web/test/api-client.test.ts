@@ -1,18 +1,10 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createApiClient, type AuthSession } from '../src/lib/api';
+import { buildAuthUser } from './helpers/session-fixture';
 
 const baseSession: AuthSession = {
   accessToken: 'token-123',
-  user: {
-    id: '11111111-1111-4111-8111-111111111111',
-    tenantId: '22222222-2222-4222-8222-222222222222',
-    taxMode: 'IVA',
-    role: 'ADMIN',
-    email: 'admin@demo.posdian.local',
-    name: 'Admin Demo',
-    active: true,
-    enableTables: true
-  }
+  user: buildAuthUser({ enableTables: true })
 };
 
 function buildClient(overrides?: Partial<Parameters<typeof createApiClient>[0]>) {

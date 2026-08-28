@@ -1,5 +1,6 @@
 import React from 'react';
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { fireEvent, screen, waitFor, within } from '@testing-library/react';
+import { renderWithProviders } from './helpers/render-with-providers';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { PosScreen } from '../src/features/sales';
 import { formatMoneyFromCents } from '../src/lib/format';
@@ -118,7 +119,7 @@ describe('PosScreen', () => {
       }
     ]);
 
-    render(
+    renderWithProviders(
       <PosScreen
         api={api}
         branchId="branch-1"
@@ -138,7 +139,7 @@ describe('PosScreen', () => {
       />
     );
 
-    expect(await screen.findByRole('button', { name: /agregar destacado/i })).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: /Cafe Americano/i })).toBeInTheDocument();
 
     const searchInput = screen.getByLabelText('Búsqueda rápida');
     searchInput.focus();
@@ -183,7 +184,7 @@ describe('PosScreen', () => {
       return nextValue as `${string}-${string}-${string}-${string}-${string}`;
     });
 
-    render(
+    renderWithProviders(
       <PosScreen
         api={api}
         branchId="branch-1"
@@ -203,7 +204,7 @@ describe('PosScreen', () => {
       />
     );
 
-    expect(await screen.findByRole('button', { name: /agregar destacado/i })).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: /Cafe Americano/i })).toBeInTheDocument();
 
     fireEvent.keyDown(screen.getByLabelText('Búsqueda rápida'), { key: 'Enter' });
     fireEvent.click(screen.getByRole('button', { name: /cobrar/i }));
@@ -251,7 +252,7 @@ describe('PosScreen', () => {
     ).toBeInTheDocument();
   });
 
-  it('requires exact mixed payment totals before enabling charge confirmation', async () => {
+  it('solo permite cobrar el pago mixto cuando las líneas cuadran y los vouchers están completos', async () => {
     const api = buildApiMock([
       {
         id: 'product-1',
@@ -261,7 +262,7 @@ describe('PosScreen', () => {
       }
     ]);
 
-    render(
+    renderWithProviders(
       <PosScreen
         api={api}
         branchId="branch-1"
@@ -281,7 +282,7 @@ describe('PosScreen', () => {
       />
     );
 
-    expect(await screen.findByRole('button', { name: /agregar destacado/i })).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: /Cafe Americano/i })).toBeInTheDocument();
 
     fireEvent.keyDown(screen.getByLabelText('Búsqueda rápida'), { key: 'Enter' });
     fireEvent.click(screen.getByRole('button', { name: /cobrar/i }));
@@ -290,12 +291,29 @@ describe('PosScreen', () => {
     fireEvent.click(within(dialog).getByRole('button', { name: /Mixto/i }));
 
     const confirmButton = within(dialog).getByRole('button', { name: /confirmar cobro/i });
-    expect(confirmButton).toBeDisabled();
 
-    fireEvent.change(within(dialog).getByLabelText('Monto línea 1'), { target: { value: '10' } });
-    fireEvent.change(within(dialog).getByLabelText('Monto línea 2'), { target: { value: '5' } });
+    // El panel mixto reparte el total en dos líneas de efectivo, así que arranca cuadrado.
+    expect(confirmButton).toBeEnabled();
+
+    // Si las líneas dejan de sumar el total, no se puede cobrar.
+    fireEvent.change(within(dialog).getByLabelText('Monto línea 1'), { target: { value: '1' } });
+    await waitFor(() => {
+      expect(confirmButton).toBeDisabled();
+    });
+
+    // Al volver a cuadrar la suma, se habilita.
+    fireEvent.change(within(dialog).getByLabelText('Monto línea 2'), { target: { value: '14' } });
+    await waitFor(() => {
+      expect(confirmButton).toBeEnabled();
+    });
+
+    // Una línea con tarjeta exige voucher: sin él vuelve a bloquearse.
+    fireEvent.change(within(dialog).getByLabelText('Método línea 2'), { target: { value: 'CARD' } });
+    await waitFor(() => {
+      expect(confirmButton).toBeDisabled();
+    });
+
     fireEvent.change(within(dialog).getByLabelText('Voucher línea 2'), { target: { value: '12345' } });
-
     await waitFor(() => {
       expect(confirmButton).toBeEnabled();
     });

@@ -199,7 +199,7 @@ export const adminUsersRoutes: FastifyPluginAsync = async (app) => {
         })
       }
     },
-    async (request, reply) => {
+    async (request, _reply) => {
       if (!request.auth) throw new AppError(401, 'AUTH_UNAUTHORIZED', 'No autorizado');
 
       const targetUserId = request.params.id;
@@ -261,7 +261,7 @@ export const adminUsersRoutes: FastifyPluginAsync = async (app) => {
         })
       }
     },
-    async (request, reply) => {
+    async (request, _reply) => {
       if (!request.auth) throw new AppError(401, 'AUTH_UNAUTHORIZED', 'No autorizado');
 
       const targetUserId = request.params.id;
@@ -332,7 +332,7 @@ export const adminUsersRoutes: FastifyPluginAsync = async (app) => {
         })
       }
     },
-    async (request, reply) => {
+    async (request, _reply) => {
       if (!request.auth) throw new AppError(401, 'AUTH_UNAUTHORIZED', 'No autorizado');
 
       const targetUserId = request.params.id;

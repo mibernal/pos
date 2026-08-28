@@ -15,7 +15,7 @@ export class RedisCache {
     if (cached) {
       try {
         return JSON.parse(cached) as T;
-      } catch (err) {
+      } catch {
         // Ignorar el error de parseo y recalcular
       }
     }

@@ -30,7 +30,7 @@ export function ModifierSelectorModal({ isOpen, product, onClose, onConfirm }: M
   const handleToggleOption = (groupId: string, optionId: string, maxSelections: number) => {
     setSelectedOptions(prev => {
       const next = { ...prev };
-      const groupSelections = new Set(next[groupId] || new Set());
+      const groupSelections = new Set<string>(next[groupId] ?? []);
       
       if (groupSelections.has(optionId)) {
         groupSelections.delete(optionId);

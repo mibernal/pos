@@ -3,7 +3,7 @@ import { APP_ROUTE_DEFINITIONS, type EnhancedRouteDefinition } from '../app/rout
 import type { AppRoute } from '../types';
 import { useBusinessModules } from './useBusinessModules';
 
-export function usePosNavigation(user: { role?: string; permissions?: string[] } | null, initialRoute: AppRoute = 'pos') {
+export function usePosNavigation(user: { role?: string; permissions?: string[] } | null) {
   const { hasModule } = useBusinessModules();
   const isPlatformOwner = user?.role === 'PLATFORM_OWNER';
   const isTenantAdmin = user?.role === 'ADMIN' || user?.role === 'TENANT_OWNER';

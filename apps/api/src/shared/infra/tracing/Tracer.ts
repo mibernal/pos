@@ -1,4 +1,4 @@
-import { trace, context, Span, SpanStatusCode, Attributes, SpanOptions } from '@opentelemetry/api';
+import { trace, Span, SpanStatusCode, Attributes, SpanOptions } from '@opentelemetry/api';
 
 export class TracerHelper {
   static getTracer(name: string) {

@@ -119,9 +119,9 @@ describe('Cash Reconciliation Flow E2E', () => {
         notes: 'Faltante de 1.000 justificado'
       }
     });
-    expect(reconcileRes.statusCode).toBe(200);
+    expect(reconcileRes.statusCode).toBe(201);
     const sessionClosed = reconcileRes.json() as any;
     expect(sessionClosed.cash_session.status).toBe('RECONCILED');
-    expect(sessionClosed.audit.diff_cents).toBe(-1000); // 60900 - 61900 = -1000
+    expect(sessionClosed.reconciliation.discrepancy_cents).toBe(-1000); // 60900 - 61900 = -1000
   });
 });

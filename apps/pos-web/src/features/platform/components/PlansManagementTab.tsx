@@ -4,7 +4,6 @@ import { Card, Button } from '../../../components/ui';
 import { platformKeys } from '../../../shared/query-keys';
 import { PlanFormModal } from './PlanFormModal';
 import type { BillingPlan, CreateBillingPlanInput, UpdateBillingPlanInput } from '../../../lib/api';
-import { Badge } from 'lucide-react';
 
 interface PlansManagementTabProps {
   api: ReturnType<typeof import('../../../lib/api/client').createApiClient>;

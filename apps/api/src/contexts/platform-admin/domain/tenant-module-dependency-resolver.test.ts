@@ -15,7 +15,14 @@ const getBaseState = (): TenantModulesState => ({
   enable_product_modifiers: false,
   enable_reservations: false,
   enable_waiter_shifts: false,
-  enable_qr_menu: false
+  enable_qr_menu: false,
+  enable_guests_count: false,
+  enable_restaurant: false,
+  enable_kds: false,
+  enable_inventory: false,
+  enable_fiscal: false,
+  enable_loyalty: false,
+  enable_advanced_reports: false
 });
 
 describe('TenantModuleDependencyResolver', () => {

@@ -23,5 +23,16 @@
     "eslint-config-prettier": "^10.0.1",
     "typescript": "^5.8.2",
     "vitest": "^3.0.8"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./*": {
+      "types": "./dist/*.d.ts",
+      "default": "./dist/*.js"
+    },
+    "./package.json": "./package.json"
   }
 }

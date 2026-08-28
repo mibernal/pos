@@ -1,12 +1,11 @@
 import { describe, it, expect, vi } from 'vitest';
 import { GetPlatformHealthUseCase } from './get-platform-health.use-case.js';
+import { createRawSqlExecutorMock } from '../../../../../test/helpers/kysely-raw-sql-mock.js';
 
 describe('GetPlatformHealthUseCase', () => {
   it('should return UP and correct metrics when all services are healthy', async () => {
     // Mock DB
-    const dbMock: any = {
-      executeQuery: vi.fn().mockResolvedValue({ rows: [] })
-    };
+    const dbMock: any = createRawSqlExecutorMock();
 
     // sql\`SELECT 1\`.execute(this.db) calls executeQuery internally or similar.
     // For Kysely we mock the `sql` template literal execution.
@@ -48,9 +47,7 @@ describe('GetPlatformHealthUseCase', () => {
   });
 
   it('should return DEGRADED when Redis is down', async () => {
-    const dbMock: any = {
-      executeQuery: vi.fn().mockResolvedValue({ rows: [] })
-    };
+    const dbMock: any = createRawSqlExecutorMock();
     const redisMock: any = {
       ping: vi.fn().mockRejectedValue(new Error('Connection timeout'))
     };

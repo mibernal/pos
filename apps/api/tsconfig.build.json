@@ -6,9 +6,20 @@
     "rootDir": "src",
     "baseUrl": ".",
     "paths": {
-      "@pos-dian/shared": ["../../packages/shared/dist/index.d.ts"],
-      "@pos-dian/shared/*": ["../../packages/shared/dist/*"]
+      "@pos-dian/shared": [
+        "../../packages/shared/dist/index.d.ts"
+      ],
+      "@pos-dian/shared/*": [
+        "../../packages/shared/dist/*"
+      ]
     }
   },
-  "include": ["src"]
+  "include": [
+    "src"
+  ],
+  "exclude": [
+    "src/**/*.test.ts",
+    "src/**/*.spec.ts",
+    "src/**/__tests__/**"
+  ]
 }

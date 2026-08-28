@@ -20,7 +20,7 @@ export const waitersRoutes: FastifyPluginAsyncZod = async (app) => {
     },
     async (request, reply) => {
       const { branchId } = request.params;
-      const tenantId = request.user.tenantId;
+      const tenantId = request.auth!.tenantId!;
 
       const waiters = await waitersService.listWaiters(tenantId, branchId);
       return reply.send(waiters);
@@ -39,7 +39,7 @@ export const waitersRoutes: FastifyPluginAsyncZod = async (app) => {
     },
     async (request, reply) => {
       const { branchId } = request.params;
-      const tenantId = request.user.tenantId;
+      const tenantId = request.auth!.tenantId!;
 
       const waiter = await waitersService.createWaiter(tenantId, branchId, request.body);
       return reply.status(201).send(waiter);
@@ -58,7 +58,7 @@ export const waitersRoutes: FastifyPluginAsyncZod = async (app) => {
     },
     async (request, reply) => {
       const { id } = request.params;
-      const tenantId = request.user.tenantId;
+      const tenantId = request.auth!.tenantId!;
 
       const waiter = await waitersService.updateWaiter(tenantId, id, request.body);
       return reply.send(waiter);

@@ -5,8 +5,7 @@ import {
   type CreateDeliveryPayload, 
   type DeliveryStatus, 
   type DeliveryWithItems,
-  type DeliveryWithDetails,
-  type DeliveryPerson
+  type DeliveryWithDetails
 } from '@pos-dian/shared';
 import { executeAsTenant } from '../../../shared/infra/db/rls.js';
 

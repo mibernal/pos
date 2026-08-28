@@ -161,7 +161,7 @@ export function AppTopbar({
         onClose={() => setIsMobileMenuOpen(false)}
         routeDefinitions={routeDefinitions}
         activeRoute={activeRoute}
-        onNavigate={onNavigate}
+        onNavigate={handleMobileNavigate}
         onLogout={onLogout}
       />
     </>

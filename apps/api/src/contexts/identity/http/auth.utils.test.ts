@@ -72,7 +72,7 @@ describe('auth.utils', () => {
     it('builds a standardized user dto', () => {
       const user = { id: '1', tenant_id: 't1', tenant_plan: 'STARTER', tax_mode: 'IVA', role: 'ADMIN', email: 'a@a.com', name: 'A', active: true };
       const dto = buildUserDto(user, ['b1'], ['READ'], false);
-      expect(dto).toEqual({
+      expect(dto).toMatchObject({
         id: '1',
         tenantId: 't1',
         tenantPlan: 'STARTER',
@@ -85,6 +85,14 @@ describe('auth.utils', () => {
         permissions: ['READ'],
         isPlatformRole: false
       });
+
+      // Los feature flags se resuelven a partir del tenant: sin valores en la fila,
+      // todo queda apagado salvo el conteo de comensales, que es opt-out.
+      const flagEntries = Object.entries(dto).filter(([key]) => key.startsWith('enable'));
+      expect(flagEntries.length).toBeGreaterThan(0);
+      for (const [key, value] of flagEntries) {
+        expect({ [key]: value }).toEqual({ [key]: key === 'enableGuestsCount' });
+      }
     });
   });
 

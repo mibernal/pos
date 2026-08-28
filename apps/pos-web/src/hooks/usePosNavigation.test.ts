@@ -39,7 +39,7 @@ describe('usePosNavigation', () => {
     // Arrange: Mock the business modules for a standard RETAIL
     vi.spyOn(useBusinessModulesModule, 'useBusinessModules').mockReturnValue({
       enabledModules: new Set<BusinessModule>([]),
-      hasModule: (m: BusinessModule) => false
+      hasModule: (_m: BusinessModule) => false
     });
 
     const mockUser = {

@@ -9,6 +9,9 @@ export const envSchema = z
       .min(1)
       .default('postgres://pos:pos@localhost:5432/pos_dian'),
     DIAN_PROVIDER: z.enum(['mock', 'http']).default('mock'),
+    // Clave AES-256 (hex de 64 o base64 de 44) con la que se cifran las credenciales
+    // del PAC en tenant_dian_settings. Obligatoria en producción.
+    CREDENTIALS_ENCRYPTION_KEY: z.string().min(1).optional(),
     DIAN_HTTP_URL: z.string().url().optional(),
     DIAN_HTTP_API_KEY: z.string().min(1).optional(),
     DIAN_HTTP_TIMEOUT_MS: z.coerce.number().int().positive().default(10000),
@@ -43,6 +46,15 @@ export const envSchema = z
     // DIAN_HTTP_API_KEY es obligatorio cuando se usa el proveedor http.
     // Declararlo opcional en el schema base permite que el objeto se construya,
     // pero aquí forzamos su presencia para evitar requests no autenticadas a la DIAN.
+    if (value.NODE_ENV === 'production' && !value.CREDENTIALS_ENCRYPTION_KEY) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message:
+          'CREDENTIALS_ENCRYPTION_KEY es obligatoria en producción: sin ella las credenciales del PAC quedarían en texto plano en la base de datos',
+        path: ['CREDENTIALS_ENCRYPTION_KEY']
+      });
+    }
+
     if (value.DIAN_PROVIDER === 'http' && (!value.DIAN_HTTP_API_KEY || value.DIAN_HTTP_API_KEY.trim().length < 8)) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,

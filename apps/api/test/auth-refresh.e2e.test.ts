@@ -87,7 +87,7 @@ describe('auth refresh flow e2e', () => {
 
     expect(badRefreshResponse.statusCode).toBe(401);
     const badData = badRefreshResponse.json() as any;
-    expect(badData.code).toBe('AUTH_TOKEN_REUSE_DETECTED');
+    expect(badData.error.code).toBe('AUTH_TOKEN_REUSE_DETECTED');
 
     // 4. Verificar que no queden tokens activos para el usuario
     const userTokens = await app.db

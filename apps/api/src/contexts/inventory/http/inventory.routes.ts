@@ -37,7 +37,10 @@ export async function recordInventoryTransaction(
 
   let balanceQuery = trx
     .selectFrom('inventory_balances')
-    .select(['on_hand_qty', 'in_transit_qty', 'reserved_qty'])
+    // `version` es imprescindible: sin ella el bloqueo optimista de abajo compara
+    // contra NaN y rechaza SIEMPRE (409 OPTIMISTIC_LOCK_FAILED), lo que dejaba
+    // POST /inventory/adjustments inutilizable.
+    .select(['on_hand_qty', 'in_transit_qty', 'reserved_qty', 'version'])
     .where('tenant_id', '=', tenantId)
     .where('branch_id', '=', branchId)
     .where('product_id', '=', productId)

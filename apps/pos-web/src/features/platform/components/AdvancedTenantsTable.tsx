@@ -20,10 +20,9 @@ export function AdvancedTenantsTable({
   onImpersonate,
   onCreate,
   onSearch, 
-  onFilterStatus,
-  onChangePlan,
-  onSuspend,
-  onReactivate
+  onFilterStatus
+  // TODO(fase-1): onChangePlan / onSuspend / onReactivate llegan como props
+  // pero la tabla nunca los invoca — las acciones de plataforma están muertas.
 }: AdvancedTenantsTableProps) {
   const [searchTerm, setSearchTerm] = useState('');
 

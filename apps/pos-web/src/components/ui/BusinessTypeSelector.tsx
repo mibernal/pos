@@ -1,5 +1,4 @@
 import { BUSINESS_TYPE_CATALOG, type BusinessType } from '@pos-dian/shared';
-import { Card } from './Card';
 import { Label } from './Label';
 import { Input } from './Input';
 

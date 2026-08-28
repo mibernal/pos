@@ -28,8 +28,9 @@ export function CheckoutModal({
   onClose,
   onConfirm,
   totalCents,
-  initialSplitParts,
-  initialSplitAmounts
+  initialSplitParts
+  // TODO(fase-1): initialSplitAmounts llega pero no se usa — la división por
+  // montos no precarga el cobro.
 }: {
   cartItems: CartItem[];
   customers: Customer[];

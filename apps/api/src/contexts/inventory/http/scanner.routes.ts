@@ -132,7 +132,7 @@ export const scannerRoutes: FastifyPluginAsync = async (app) => {
 
         let hasDiscrepancy = false;
         let approverUserId: string | null = null;
-        let discrepancyDetails: any[] = [];
+        const discrepancyDetails: any[] = [];
 
         if (rcpt.receipt_type === 'PO_LINKED' && rcpt.po_id) {
           const poItems = await trx

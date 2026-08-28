@@ -47,19 +47,40 @@ export class TenantModuleDependencyResolver {
       }
     }
 
+    // Un módulo apagado en cascada debe comportarse, frente a SUS hijos, igual que uno
+    // apagado a mano. Sin esto, apagar `enable_kitchen` con la impresión encendida hacía
+    // que `enable_kitchen_tickets` oscilara entre apagado (por su padre) y encendido (por
+    // su hijo) en cada vuelta: un bucle infinito SÍNCRONO que bloquea el event loop y deja
+    // toda la API sin responder.
+    const disabledByCascade = new Set<keyof TenantModulesState>();
+
+    // Red de seguridad: el grafo de dependencias es pequeño y converge en pocas vueltas.
+    // Si una regla futura vuelve a introducir un ciclo, preferimos un estado coherente y
+    // un error explícito antes que colgar el proceso.
+    const MAX_PASSES = 32;
+    let passes = 0;
+
     let hasChanges = true;
     while (hasChanges) {
+      if (passes++ >= MAX_PASSES) {
+        throw new Error(
+          'TenantModuleDependencyResolver: las dependencias de módulos no convergen. Revisa las reglas en cascada.'
+        );
+      }
       hasChanges = false;
 
       const checkDependency = (child: keyof TenantModulesState, parent: keyof TenantModulesState) => {
         if (newState[child] === true && newState[parent] === false) {
-          if (explicitChanges.has(parent) && !explicitChanges.has(child)) {
-            // User explicitly turned off the parent. Cascade disable the child.
+          const parentWasTurnedOff = explicitChanges.has(parent) || disabledByCascade.has(parent);
+          if (parentWasTurnedOff && !explicitChanges.has(child)) {
+            // El padre se apagó (a mano o en cascada): el hijo lo sigue.
             newState[child] = false;
+            disabledByCascade.add(child);
             hasChanges = true;
           } else {
-            // User explicitly turned on the child, or both/neither. Cascade enable the parent.
+            // El usuario encendió el hijo explícitamente: se enciende el padre.
             newState[parent] = true;
+            disabledByCascade.delete(parent);
             hasChanges = true;
           }
         }
@@ -75,8 +96,14 @@ export class TenantModuleDependencyResolver {
 
       // order_rounds requires either tables or kitchen
       if (newState.enable_order_rounds && !newState.enable_tables && !newState.enable_kitchen) {
-        if (explicitChanges.has('enable_tables') || explicitChanges.has('enable_kitchen')) {
+        if (
+          explicitChanges.has('enable_tables') ||
+          explicitChanges.has('enable_kitchen') ||
+          disabledByCascade.has('enable_tables') ||
+          disabledByCascade.has('enable_kitchen')
+        ) {
           newState.enable_order_rounds = false;
+          disabledByCascade.add('enable_order_rounds');
         } else {
           newState.enable_tables = true; // Fallback
         }

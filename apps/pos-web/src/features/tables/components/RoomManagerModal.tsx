@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { CreateRoomSchema, CreateRoomPayload } from '@pos-dian/shared';
+import { CreateRoomSchema } from '@pos-dian/shared';
 import { useTablesStore } from '../store/useTablesStore';
 import { useCreateRoom } from '../api/tables.api';
 import { usePosStore } from '../../../hooks/usePosStore';

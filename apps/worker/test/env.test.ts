@@ -84,6 +84,34 @@ describe('Worker Environment Configuration', () => {
       DIAN_PROVIDER: 'http',
       DIAN_HTTP_URL: 'https://api.provider.com/dian',
       DIAN_HTTP_API_KEY: 'valid-api-key-here',
+      CREDENTIALS_ENCRYPTION_KEY: 'Ry0xnJ9pQeF3rN1sVb7kZ2hT8mXcW4uD6yA0gL5oPiE='
+    });
+
+    expect(result.success).toBe(true);
+  });
+
+  it('exige CREDENTIALS_ENCRYPTION_KEY en producción', () => {
+    // Sin ella, las credenciales del PAC quedarían en texto plano en la base de datos.
+    const result = envSchema.safeParse({
+      NODE_ENV: 'production',
+      REDIS_URL: 'redis://localhost:6379',
+      DATABASE_URL: 'postgres://user:pass@localhost:5432/db',
+      DIAN_PROVIDER: 'http',
+      DIAN_HTTP_URL: 'https://api.provider.com/dian',
+      DIAN_HTTP_API_KEY: 'valid-api-key-here'
+    });
+
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.issues.some((issue) => issue.path.includes('CREDENTIALS_ENCRYPTION_KEY'))).toBe(true);
+    }
+  });
+
+  it('no la exige fuera de producción', () => {
+    const result = envSchema.safeParse({
+      NODE_ENV: 'development',
+      REDIS_URL: 'redis://localhost:6379',
+      DATABASE_URL: 'postgres://user:pass@localhost:5432/db'
     });
 
     expect(result.success).toBe(true);

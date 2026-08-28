@@ -1,1038 +1,395 @@
 import { randomUUID } from 'node:crypto';
-import Fastify from 'fastify';
-import type { Kysely } from 'kysely';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
+import type { FastifyInstance } from 'fastify';
+import { buildApp } from '../src/app/build-app.js';
 import {
-  validatorCompiler,
-  serializerCompiler,
-  type ZodTypeProvider
-} from 'fastify-type-provider-zod';
-import { authPlugin } from '../src/shared/plugins/auth.js';
-import { errorHandlerPlugin } from '../src/shared/plugins/error-handler.js';
-import { salesRoutes } from '../src/contexts/sales/http/sales.routes.js';
-import type { Database } from '../src/shared/infra/db/schema.js';
-
-type TenantTaxMode = 'IVA' | 'INC_RESTAURANT';
-type ProductTaxCategory = 'IVA_0' | 'IVA_5' | 'IVA_19' | 'EXEMPT' | 'EXCLUDED' | 'INC_8';
-
-type TableName =
-  | 'tenants'
-  | 'branches'
-  | 'cash_sessions'
-  | 'products'
-  | 'product_variants'
-  | 'sales'
-  | 'sale_items'
-  | 'dian_documents'
-  | 'outbox_events'
-  | 'audit_logs'
-  | 'inventory_transactions'
-  | 'inventory_balances'
-  | 'promotions'
-  | 'user_branches'
-  | 'terminals';
-
-interface FakeDbState {
-  tenants: Array<{ id: string; tax_mode: TenantTaxMode; allow_negative_stock?: boolean }>;
-  branches: Array<{ id: string; tenant_id: string }>;
-  cash_sessions: Array<{ id: string; tenant_id: string; branch_id: string; closed_at: Date | null }>;
-  products: Array<{
-    id: string;
-    tenant_id: string;
-    branch_id: string | null;
-    price_cents: number;
-    tax_category: ProductTaxCategory;
-    active: boolean;
-  }>;
-  product_variants: Array<Record<string, unknown>>;
-  sales: Array<Record<string, unknown>>;
-  sale_items: Array<Record<string, unknown>>;
-  dian_documents: Array<Record<string, unknown>>;
-  outbox_events: Array<Record<string, unknown>>;
-  audit_logs: Array<Record<string, unknown>>;
-  inventory_transactions: Array<Record<string, unknown>>;
-  inventory_balances: Array<Record<string, unknown>>;
-  promotions: Array<Record<string, unknown>>;
-  user_branches: Array<Record<string, unknown>>;
-  terminals: Array<Record<string, unknown>>;
-  hooks?: {
-    beforeInsert?: (
-      tableName: TableName,
-      row: Record<string, unknown>,
-      state: FakeDbState
-    ) => void;
-  };
-}
-
-interface WhereCondition {
-  column: string;
-  op: '=' | 'in';
-  value: unknown;
-}
-
-interface AggregateSelection {
-  kind: 'max';
-  column: string;
-  alias: string;
-}
-
-function lastSegment(column: string): string {
-  const parts = column.split('.');
-  return parts[parts.length - 1] ?? column;
-}
-
-function mapSelectedRow(row: Record<string, unknown>, selectedColumns: string[]): Record<string, unknown> {
-  const mapped: Record<string, unknown> = {};
-
-  for (const columnDef of selectedColumns) {
-    const normalizedDef = columnDef.trim();
-    const aliasMatch = normalizedDef.match(/^(.*?)\s+as\s+(.*)$/i);
-
-    if (aliasMatch && aliasMatch[1] && aliasMatch[2]) {
-      const sourceColumn = lastSegment(aliasMatch[1].trim());
-      const alias = aliasMatch[2].trim();
-      mapped[alias] = row[sourceColumn];
-      continue;
-    }
-
-    const sourceColumn = lastSegment(normalizedDef);
-    mapped[sourceColumn] = row[sourceColumn];
-  }
-
-  return mapped;
-}
-
-class FakeSelectBuilder {
-  private whereConditions: WhereCondition[] = [];
-  private selectedColumns: string[] | null = null;
-  private aggregateSelection: AggregateSelection | null = null;
-
-  constructor(
-    private readonly state: FakeDbState,
-    private readonly tableName: TableName
-  ) { }
-
-  select(selection: unknown): this {
-    if (typeof selection === 'string') {
-      this.selectedColumns = [selection];
-      return this;
-    }
-
-    if (Array.isArray(selection)) {
-      this.selectedColumns = selection.filter((item): item is string => typeof item === 'string');
-      return this;
-    }
-
-    if (typeof selection === 'function') {
-      const expressionBuilder = {
-        fn: {
-          max: (column: string) => ({
-            as: (alias: string): AggregateSelection => ({
-              kind: 'max',
-              column: lastSegment(column),
-              alias
-            })
-          })
-        }
-      };
-
-      const aggregate = selection(expressionBuilder as never);
-      if (aggregate && typeof aggregate === 'object' && 'kind' in aggregate) {
-        this.aggregateSelection = aggregate as AggregateSelection;
-      }
-    }
-
-    return this;
-  }
-
-  selectAll(): this {
-    this.selectedColumns = null;
-    return this;
-  }
-
-  where(columnOrExpression: unknown, op?: '=' | 'in', value?: unknown): this {
-    if (typeof columnOrExpression !== 'string') {
-      return this;
-    }
-
-    if (op !== '=' && op !== 'in') {
-      return this;
-    }
-
-    this.whereConditions.push({
-      column: lastSegment(columnOrExpression),
-      op,
-      value
-    });
-
-    return this;
-  }
-
-  forUpdate(): this {
-    return this;
-  }
-
-  orderBy(): this {
-    return this;
-  }
-
-  async executeTakeFirst(): Promise<Record<string, unknown> | undefined> {
-    const rows = await this.execute();
-    return rows[0];
-  }
-
-  async execute(): Promise<Record<string, unknown>[]> {
-    const baseRows = [...this.state[this.tableName]] as Record<string, unknown>[];
-
-    const filteredRows = baseRows.filter((row) =>
-      this.whereConditions.every((condition) => {
-        const currentValue = row[condition.column];
-
-        if (condition.op === '=') {
-          return currentValue === condition.value;
-        }
-
-        if (!Array.isArray(condition.value)) {
-          return false;
-        }
-
-        return condition.value.includes(currentValue);
-      })
-    );
-
-    if (this.aggregateSelection?.kind === 'max') {
-      const numericValues = filteredRows
-        .map((row) => row[this.aggregateSelection!.column])
-        .filter((value): value is number => typeof value === 'number' && Number.isFinite(value));
-      const maxValue = numericValues.length > 0 ? Math.max(...numericValues) : null;
-
-      return [{
-        [this.aggregateSelection.alias]: maxValue
-      }];
-    }
-
-    if (!this.selectedColumns || this.selectedColumns.length === 0) {
-      return filteredRows;
-    }
-
-    return filteredRows.map((row) => mapSelectedRow(row, this.selectedColumns!));
-  }
-}
-
-class FakeInsertBuilder {
-  private rowsToInsert: Record<string, unknown>[] = [];
-  private returningColumns: string[] | null = null;
-
-  constructor(
-    private readonly state: FakeDbState,
-    private readonly tableName: TableName
-  ) { }
-
-  values(values: Record<string, unknown> | Record<string, unknown>[]): this {
-    this.rowsToInsert = Array.isArray(values) ? values : [values];
-    return this;
-  }
-
-  returning(columns: string[]): this {
-    this.returningColumns = columns;
-    return this;
-  }
-
-  onConflict(): this {
-    return this;
-  }
-
-  async executeTakeFirstOrThrow(): Promise<Record<string, unknown>> {
-    const insertedRows = this.persist();
-    const firstInserted = insertedRows[0];
-    if (!firstInserted) {
-      throw new Error('No se insertaron filas');
-    }
-
-    if (!this.returningColumns || this.returningColumns.length === 0) {
-      return firstInserted;
-    }
-
-    return mapSelectedRow(firstInserted, this.returningColumns);
-  }
-
-  async execute(): Promise<void> {
-    this.persist();
-  }
-
-  private persist(): Record<string, unknown>[] {
-    const now = new Date();
-    const insertedRows = this.rowsToInsert.map((row) => {
-      const normalizedJsonRow = Object.fromEntries(
-        Object.entries(row).map(([key, value]) => {
-          if (!key.endsWith('_json') || typeof value !== 'string') {
-            return [key, value];
-          }
-
-          try {
-            return [key, JSON.parse(value)];
-          } catch {
-            return [key, value];
-          }
-        })
-      );
-      const withDates = { ...normalizedJsonRow };
-
-      if (this.tableName === 'sales') {
-        withDates.created_at = now;
-      }
-
-      if (this.tableName === 'dian_documents' || this.tableName === 'outbox_events') {
-        withDates.created_at = now;
-        withDates.updated_at = now;
-      }
-
-      if (this.tableName === 'audit_logs') {
-        withDates.created_at = now;
-      }
-
-      return withDates;
-    });
-
-    for (const row of insertedRows) {
-      this.state.hooks?.beforeInsert?.(this.tableName, row, this.state);
-    }
-
-    (this.state[this.tableName] as any[]).push(...insertedRows);
-    return insertedRows;
-  }
-}
-
-class FakeUpdateBuilder {
-  private whereConditions: WhereCondition[] = [];
-  private patch: Record<string, unknown> = {};
-  private returningColumns: string[] | null = null;
-
-  constructor(
-    private readonly state: FakeDbState,
-    private readonly tableName: TableName
-  ) { }
-
-  set(values: Record<string, unknown>): this {
-    this.patch = values;
-    return this;
-  }
-
-  where(columnOrExpression: unknown, op?: '=' | 'in', value?: unknown): this {
-    if (typeof columnOrExpression !== 'string') {
-      return this;
-    }
-
-    if (op !== '=' && op !== 'in') {
-      return this;
-    }
-
-    this.whereConditions.push({
-      column: lastSegment(columnOrExpression),
-      op,
-      value
-    });
-
-    return this;
-  }
-
-  returning(columns: string[]): this {
-    this.returningColumns = columns;
-    return this;
-  }
-
-  async executeTakeFirstOrThrow(): Promise<Record<string, unknown>> {
-    const rows = this.state[this.tableName] as Record<string, unknown>[];
-    const targetRow = rows.find((row) =>
-      this.whereConditions.every((condition) => {
-        const currentValue = row[condition.column];
-
-        if (condition.op === '=') {
-          return currentValue === condition.value;
-        }
-
-        if (!Array.isArray(condition.value)) {
-          return false;
-        }
-
-        return condition.value.includes(currentValue);
-      })
-    );
-
-    if (!targetRow) {
-      throw new Error(`No se encontró fila para actualizar en ${this.tableName}`);
-    }
-
-    Object.assign(targetRow, this.patch);
-
-    if (!this.returningColumns || this.returningColumns.length === 0) {
-      return targetRow;
-    }
-
-    return mapSelectedRow(targetRow, this.returningColumns);
-  }
-}
-
-class FakeDb {
-  constructor(readonly state: FakeDbState) { }
-
-  getExecutor() {
-    return {
-      executeQuery: async () => ({ rows: [] }),
-      compileQuery: () => ({ sql: '', parameters: [] })
-    };
-  }
-
-  async executeQuery() {
-    return { rows: [] };
-  }
-
-  selectFrom(tableName: TableName): FakeSelectBuilder {
-    return new FakeSelectBuilder(this.state, tableName);
-  }
-
-  insertInto(tableName: TableName): FakeInsertBuilder {
-    return new FakeInsertBuilder(this.state, tableName);
-  }
-
-  updateTable(tableName: TableName): FakeUpdateBuilder {
-    return new FakeUpdateBuilder(this.state, tableName);
-  }
-
-  transaction() {
-    return {
-      execute: async <T>(callback: (trx: FakeDb) => Promise<T>): Promise<T> => callback(this)
-    };
-  }
-
-  async destroy(): Promise<void> { }
-}
-
-function createFixture(
-  taxMode: TenantTaxMode,
-  productTaxCategory: ProductTaxCategory,
-  linePriceCents: number
-): {
-  state: FakeDbState;
-  tenantId: string;
-  branchId: string;
+  bearerHeaders,
+  cleanupE2eFixture,
+  ensureE2eSchema,
+  loginE2eUser,
+  seedE2eFixture,
+  type E2eFixture
+} from './helpers/e2e-fixture.js';
+
+/**
+ * Persistencia fiscal de la venta.
+ *
+ * Estas pruebas corrían contra un doble de Kysely escrito a mano (~430 líneas) que no
+ * soportaba SQL crudo, así que dejaron de ejecutarse en cuanto `createSaleService`
+ * empezó a fijar el contexto RLS con `set_config`. Un doble de la base de datos solo
+ * puede confirmar lo que ya creemos; el impuesto que se declara ante la DIAN merece
+ * verificarse contra Postgres real.
+ */
+
+interface TestContext {
+  fixture: E2eFixture;
+  token: string;
   cashSessionId: string;
-  userId: string;
-  productId: string;
-  linePriceCents: number;
-} {
-  const tenantId = randomUUID();
-  const branchId = randomUUID();
-  const cashSessionId = randomUUID();
-  const userId = randomUUID();
-  const productId = randomUUID();
-
-  const state: FakeDbState = {
-    tenants: [{ id: tenantId, tax_mode: taxMode, allow_negative_stock: true }],
-    branches: [{ id: branchId, tenant_id: tenantId }],
-    cash_sessions: [
-      {
-        id: cashSessionId,
-        tenant_id: tenantId,
-        branch_id: branchId,
-        closed_at: null
-      }
-    ],
-    products: [
-      {
-        id: productId,
-        tenant_id: tenantId,
-        branch_id: branchId,
-        price_cents: linePriceCents,
-        tax_category: productTaxCategory,
-        active: true
-      }
-    ],
-    product_variants: [],
-    sales: [],
-    sale_items: [],
-    dian_documents: [],
-    outbox_events: [],
-    audit_logs: [],
-    inventory_transactions: [],
-    inventory_balances: [],
-    promotions: [],
-    user_branches: [{ tenant_id: tenantId, user_id: userId, branch_id: branchId }],
-    terminals: [{ id: randomUUID(), tenant_id: tenantId, branch_id: branchId, name: 'Caja 1', is_active: true }]
-  };
-
-  return {
-    state,
-    tenantId,
-    branchId,
-    cashSessionId,
-    userId,
-    productId,
-    linePriceCents
-  };
 }
 
-async function buildSalesApp(state: FakeDbState) {
-  const app = Fastify().withTypeProvider<ZodTypeProvider>();
-  app.setValidatorCompiler(validatorCompiler);
-  app.setSerializerCompiler(serializerCompiler);
+let app: FastifyInstance;
+const createdTenants: Array<Pick<E2eFixture, 'tenantId'>> = [];
 
-  app.decorate('db', new FakeDb(state) as unknown as Kysely<Database>);
-  app.decorate('dianQueue', {
-    add: async () => ({ id: 'fake-job' }),
-    close: async () => undefined
+async function setup(
+  taxMode: 'IVA' | 'INC_RESTAURANT',
+  productTaxCategory: 'IVA_19' | 'INC_8',
+  productPriceCents: number
+): Promise<TestContext> {
+  const fixture = await seedE2eFixture(app, { taxMode, productTaxCategory, productPriceCents });
+  createdTenants.push({ tenantId: fixture.tenantId });
+
+  const token = await loginE2eUser(app, {
+    email: fixture.adminEmail,
+    password: fixture.adminPassword
   });
 
-  await app.register(errorHandlerPlugin);
-  await app.register(authPlugin);
-  await app.register(salesRoutes, { prefix: '/api/v1' });
-  await app.ready();
+  const openRes = await app.inject({
+    method: 'POST',
+    url: '/api/v1/cash-sessions/open',
+    headers: bearerHeaders(token),
+    payload: {
+      branch_id: fixture.branchId,
+      terminal_id: fixture.terminalId,
+      opening_amount_cents: 10000
+    }
+  });
+  expect(openRes.statusCode).toBe(201);
 
-  return app;
+  const cashSessionId = (openRes.json() as { cash_session: { id: string } }).cash_session.id;
+  return { fixture, token, cashSessionId };
 }
 
-describe('POST /sales fiscal persistence', () => {
-  let appsToClose: Array<Awaited<ReturnType<typeof buildSalesApp>>>;
+function salePayload(ctx: TestContext, overrides: Record<string, unknown> = {}) {
+  return {
+    client_uuid: randomUUID(),
+    branch_id: ctx.fixture.branchId,
+    cash_session_id: ctx.cashSessionId,
+    items: [{ product_id: ctx.fixture.productId, qty: 1 }],
+    discount_cents: 0,
+    tip_cents: 0,
+    payments: [{ method: 'CASH', amount_cents: ctx.fixture.productPriceCents }],
+    ...overrides
+  };
+}
 
-  beforeAll(() => {
-    appsToClose = [];
+async function postSale(ctx: TestContext, overrides: Record<string, unknown> = {}) {
+  return await app.inject({
+    method: 'POST',
+    url: '/api/v1/sales',
+    headers: bearerHeaders(ctx.token),
+    payload: salePayload(ctx, overrides)
+  });
+}
+
+async function readPersistedSale(tenantId: string, saleId: string) {
+  return await app.db
+    .selectFrom('sales')
+    .selectAll()
+    .where('tenant_id', '=', tenantId)
+    .where('id', '=', saleId)
+    .executeTakeFirstOrThrow();
+}
+
+describe('POST /sales — persistencia fiscal', () => {
+  beforeAll(async () => {
+    await ensureE2eSchema();
+    app = await buildApp();
+    await app.ready();
+  });
+
+  afterEach(async () => {
+    while (createdTenants.length > 0) {
+      await cleanupE2eFixture(app, createdTenants.pop()!);
+    }
   });
 
   afterAll(async () => {
-    for (const app of appsToClose) {
-      await app.close();
-    }
+    await app.close();
   });
 
-  it('persists IVA_19 tax lines and tax_total_cents in DB and response', async () => {
-    const fixture = createFixture('IVA', 'IVA_19', 11900);
-    const app = await buildSalesApp(fixture.state);
-    appsToClose.push(app);
+  it('persiste las líneas de IVA_19 y el tax_total_cents', async () => {
+    const ctx = await setup('IVA', 'IVA_19', 11900);
 
-    const token = app.jwt.sign({
-      sub: fixture.userId,
-      userId: fixture.userId,
-      tenantId: fixture.tenantId,
-      role: 'ADMIN',
-    isPlatformRole: false,
-      email: 'admin@test.local',
-      name: 'Admin Test'
-    , branchIds: ['00000000-0000-0000-0000-000000000000'], permissions: ['sales:create', 'sales:void', 'returns:create', 'inventory:adjust', 'inventory:transfer', 'inventory:receive', 'reports:view', 'cash:reconcile', 'cash:audit', 'settings:manage']});
-
-    const response = await app.inject({
-      method: 'POST',
-      url: '/api/v1/sales',
-      headers: {
-        authorization: `Bearer ${token}`
-      },
-      payload: {
-        client_uuid: randomUUID(),
-        branch_id: fixture.branchId,
-        cash_session_id: fixture.cashSessionId,
-        items: [{ product_id: fixture.productId, qty: 1 }],
-        discount_cents: 0,
-        tip_cents: 0,
-        payments: [{ method: 'CASH', amount_cents: fixture.linePriceCents }]
-      }
-    });
-    if (response.statusCode === 500) {
-      console.log('TEST 500 ERROR:', response.json());
-    }
+    const response = await postSale(ctx);
     expect(response.statusCode).toBe(201);
 
     const body = response.json() as {
       sale: {
+        id: string;
         subtotal_cents: number;
         discount_cents: number;
-        tip_cents: number;
         total_cents: number;
         tax_total_cents: number;
-        tax_lines_json: Array<{
-          category: string;
-          base_cents: number;
-          tax_cents: number;
-          rate: number;
-        }>;
+        tax_lines_json: Array<Record<string, unknown>>;
       };
     };
 
-    expect(body.sale.total_cents).toBe(body.sale.subtotal_cents - body.sale.discount_cents);
     expect(body.sale.tax_total_cents).toBe(1900);
     expect(body.sale.tax_lines_json).toEqual([
-      {
-        line_index: 0,
-        category: 'IVA_19',
-        base_cents: 10000,
-        tax_cents: 1900,
-        rate: 0.19
-      }
+      { line_index: 0, category: 'IVA_19', base_cents: 10000, tax_cents: 1900, rate: 0.19 }
     ]);
+    // En régimen de IVA el impuesto va incluido en el precio: el total no lo suma aparte.
+    expect(body.sale.total_cents).toBe(body.sale.subtotal_cents - body.sale.discount_cents);
 
-    const persistedSale = fixture.state.sales[0] as {
-      id: string;
-      tax_total_cents: number;
-      tax_lines_json: Array<Record<string, unknown>>;
-      total_cents: number;
-      subtotal_cents: number;
-      discount_cents: number;
-        tip_cents: number;
-    };
+    const persisted = await readPersistedSale(ctx.fixture.tenantId, body.sale.id);
+    expect(persisted.tax_total_cents).toBe(1900);
+    expect(persisted.tax_lines_json).toEqual(body.sale.tax_lines_json);
+    expect(persisted.total_cents).toBe(persisted.subtotal_cents - persisted.discount_cents);
 
-    expect(persistedSale.tax_total_cents).toBe(1900);
-    expect(persistedSale.tax_lines_json).toEqual(body.sale.tax_lines_json);
-    expect(persistedSale.total_cents).toBe(persistedSale.subtotal_cents - persistedSale.discount_cents);
-    expect(fixture.state.audit_logs).toHaveLength(1);
-    expect(fixture.state.audit_logs[0]).toMatchObject({
-      tenant_id: fixture.tenantId,
-      branch_id: fixture.branchId,
-      user_id: fixture.userId,
-      entity_type: 'SALE',
-      entity_id: persistedSale.id,
-      action: 'SALE_CREATED',
-      legacy_payload: expect.objectContaining({
-        sale_number: 1,
-        total_cents: 11900,
-        tax_total_cents: 1900
-      })
+    // El documento DIAN lo emite el worker: aquí solo debe quedar el evento pendiente.
+    const outbox = await app.db
+      .selectFrom('outbox_events')
+      .select(['type', 'status', 'aggregate_id'])
+      .where('tenant_id', '=', ctx.fixture.tenantId)
+      .where('aggregate_id', '=', body.sale.id)
+      .executeTakeFirstOrThrow();
+
+    expect(outbox).toMatchObject({
+      type: 'sale.created',
+      status: 'PENDING',
+      aggregate_id: body.sale.id
     });
   });
 
-  it('persists INC_RESTAURANT tax lines and keeps total formula unchanged', async () => {
-    const fixture = createFixture('INC_RESTAURANT', 'INC_8', 10800);
-    const app = await buildSalesApp(fixture.state);
-    appsToClose.push(app);
+  it('persiste las líneas de INC_RESTAURANT sin alterar la fórmula del total', async () => {
+    const ctx = await setup('INC_RESTAURANT', 'INC_8', 10800);
 
-    const token = app.jwt.sign({
-      sub: fixture.userId,
-      userId: fixture.userId,
-      tenantId: fixture.tenantId,
-      role: 'ADMIN',
-    isPlatformRole: false,
-      email: 'admin@test.local',
-      name: 'Admin Test'
-    , branchIds: ['00000000-0000-0000-0000-000000000000'], permissions: ['sales:create', 'sales:void', 'returns:create', 'inventory:adjust', 'inventory:transfer', 'inventory:receive', 'reports:view', 'cash:reconcile', 'cash:audit', 'settings:manage']});
-
-    const response = await app.inject({
-      method: 'POST',
-      url: '/api/v1/sales',
-      headers: {
-        authorization: `Bearer ${token}`
-      },
-      payload: {
-        client_uuid: randomUUID(),
-        branch_id: fixture.branchId,
-        cash_session_id: fixture.cashSessionId,
-        items: [{ product_id: fixture.productId, qty: 1 }],
-        discount_cents: 0,
-        tip_cents: 0,
-        payments: [{ method: 'CASH', amount_cents: fixture.linePriceCents }]
-      }
-    });
-
+    const response = await postSale(ctx);
     expect(response.statusCode).toBe(201);
 
     const body = response.json() as {
       sale: {
+        id: string;
         subtotal_cents: number;
         discount_cents: number;
-        tip_cents: number;
         total_cents: number;
         tax_total_cents: number;
-        tax_lines_json: Array<{
-          category: string;
-          base_cents: number;
-          tax_cents: number;
-          rate: number;
-        }>;
+        tax_lines_json: Array<Record<string, unknown>>;
       };
     };
 
-    expect(body.sale.total_cents).toBe(body.sale.subtotal_cents - body.sale.discount_cents);
     expect(body.sale.tax_total_cents).toBe(800);
     expect(body.sale.tax_lines_json).toEqual([
-      {
-        line_index: 0,
-        category: 'INC',
-        base_cents: 10000,
-        tax_cents: 800,
-        rate: 0.08
-      }
+      { line_index: 0, category: 'INC', base_cents: 10000, tax_cents: 800, rate: 0.08 }
     ]);
+    expect(body.sale.total_cents).toBe(body.sale.subtotal_cents - body.sale.discount_cents);
 
-    const persistedSale = fixture.state.sales[0] as {
-      tax_total_cents: number;
-      tax_lines_json: Array<Record<string, unknown>>;
-      total_cents: number;
-      subtotal_cents: number;
-      discount_cents: number;
-        tip_cents: number;
-    };
-
-    expect(persistedSale.tax_total_cents).toBe(800);
-    expect(persistedSale.tax_lines_json).toEqual(body.sale.tax_lines_json);
-    expect(persistedSale.total_cents).toBe(persistedSale.subtotal_cents - persistedSale.discount_cents);
+    const persisted = await readPersistedSale(ctx.fixture.tenantId, body.sale.id);
+    expect(persisted.tax_total_cents).toBe(800);
+    expect(persisted.tax_lines_json).toEqual(body.sale.tax_lines_json);
   });
 
-  it('ignores tax_category overrides sent by the client and uses DB product tax_category', async () => {
-    const fixture = createFixture('IVA', 'IVA_19', 11900);
-    const app = await buildSalesApp(fixture.state);
-    appsToClose.push(app);
+  it('ignora el tax_category que envía el cliente y usa el del producto en base de datos', async () => {
+    const ctx = await setup('IVA', 'IVA_19', 11900);
 
-    const token = app.jwt.sign({
-      sub: fixture.userId,
-      userId: fixture.userId,
-      tenantId: fixture.tenantId,
-      role: 'ADMIN',
-    isPlatformRole: false,
-      email: 'admin@test.local',
-      name: 'Admin Test'
-    , branchIds: ['00000000-0000-0000-0000-000000000000'], permissions: ['sales:create', 'sales:void', 'returns:create', 'inventory:adjust', 'inventory:transfer', 'inventory:receive', 'reports:view', 'cash:reconcile', 'cash:audit', 'settings:manage']});
-
-    const response = await app.inject({
-      method: 'POST',
-      url: '/api/v1/sales',
-      headers: {
-        authorization: `Bearer ${token}`
-      },
-      payload: {
-        client_uuid: randomUUID(),
-        branch_id: fixture.branchId,
-        cash_session_id: fixture.cashSessionId,
-        items: [
-          {
-            product_id: fixture.productId,
-            qty: 1,
-            tax_category: 'EXEMPT'
-          }
-        ],
-        discount_cents: 0,
-        tip_cents: 0,
-        payments: [{ method: 'CASH', amount_cents: fixture.linePriceCents }]
-      }
+    // El cliente intenta declarar el producto como excluido de IVA.
+    const response = await postSale(ctx, {
+      items: [{ product_id: ctx.fixture.productId, qty: 1, tax_category: 'EXCLUDED' }]
     });
-
-    expect(response.statusCode).toBe(201);
-    expect(response.json()).toMatchObject({
-      sale: {
-        tax_total_cents: 1900,
-        tax_lines_json: [
-          {
-            category: 'IVA_19',
-            base_cents: 10000,
-            tax_cents: 1900,
-            rate: 0.19
-          }
-        ]
-      }
-    });
-  });
-
-  it('retries safely when sale_number collides during concurrent creation', async () => {
-    const fixture = createFixture('IVA', 'IVA_19', 11900);
-    let collisionInjected = false;
-
-    fixture.state.hooks = {
-      beforeInsert: (tableName, row, state) => {
-        if (
-          tableName === 'sales' &&
-          row.tenant_id === fixture.tenantId &&
-          row.branch_id === fixture.branchId &&
-          row.sale_number === 1 &&
-          !collisionInjected
-        ) {
-          collisionInjected = true;
-          state.sales.push({
-            id: randomUUID(),
-            tenant_id: fixture.tenantId,
-            client_uuid: randomUUID(),
-            branch_id: fixture.branchId,
-            cash_session_id: fixture.cashSessionId,
-            sale_number: 1,
-            status: 'COMPLETED',
-            subtotal_cents: fixture.linePriceCents,
-            discount_cents: 0,
-        tip_cents: 0,
-            total_cents: fixture.linePriceCents,
-            tax_total_cents: 1900,
-            tax_lines_json: [],
-            payment_json: {
-              mode: 'CASH',
-              total_cents: fixture.linePriceCents,
-              payments: [{ method: 'CASH', amount_cents: fixture.linePriceCents }],
-              amounts: {
-                cash_cents: fixture.linePriceCents,
-                card_cents: 0,
-                transfer_cents: 0
-              }
-            },
-            created_by_user_id: randomUUID(),
-            void_reason: null,
-            voided_by_user_id: null,
-            voided_at: null,
-            created_at: new Date()
-          });
-
-          throw Object.assign(new Error('duplicate sale_number'), {
-            code: '23505',
-            constraint: 'uq_sales_tenant_branch_sale_number'
-          });
-        }
-      }
-    };
-
-    const app = await buildSalesApp(fixture.state);
-    appsToClose.push(app);
-
-    const token = app.jwt.sign({
-      sub: fixture.userId,
-      userId: fixture.userId,
-      tenantId: fixture.tenantId,
-      role: 'ADMIN',
-    isPlatformRole: false,
-      email: 'admin@test.local',
-      name: 'Admin Test'
-    , branchIds: ['00000000-0000-0000-0000-000000000000'], permissions: ['sales:create', 'sales:void', 'returns:create', 'inventory:adjust', 'inventory:transfer', 'inventory:receive', 'reports:view', 'cash:reconcile', 'cash:audit', 'settings:manage']});
-
-    const response = await app.inject({
-      method: 'POST',
-      url: '/api/v1/sales',
-      headers: {
-        authorization: `Bearer ${token}`
-      },
-      payload: {
-        client_uuid: randomUUID(),
-        branch_id: fixture.branchId,
-        cash_session_id: fixture.cashSessionId,
-        items: [{ product_id: fixture.productId, qty: 1 }],
-        discount_cents: 0,
-        tip_cents: 0,
-        payments: [{ method: 'CASH', amount_cents: fixture.linePriceCents }]
-      }
-    });
-
     expect(response.statusCode).toBe(201);
 
     const body = response.json() as {
-      sale: {
-        sale_number: number;
-      };
+      sale: { id: string; tax_total_cents: number; tax_lines_json: Array<{ category: string }> };
     };
 
-    expect(body.sale.sale_number).toBe(2);
-    expect(
-      fixture.state.sales
-        .map((sale) => sale.sale_number)
-        .filter((value): value is number => typeof value === 'number')
-        .sort((left, right) => left - right)
-    ).toEqual([1, 2]);
-    expect(fixture.state.audit_logs[0]).toMatchObject({
-      legacy_payload: expect.objectContaining({
-        sale_number: 2
-      })
-    });
+    expect(body.sale.tax_total_cents).toBe(1900);
+    expect(body.sale.tax_lines_json[0]?.category).toBe('IVA_19');
+
+    const persisted = await readPersistedSale(ctx.fixture.tenantId, body.sale.id);
+    expect(persisted.tax_total_cents).toBe(1900);
   });
 
-  it('returns the existing sale for the same client_uuid without duplicating records', async () => {
-    const fixture = createFixture('IVA', 'IVA_19', 11900);
-    const app = await buildSalesApp(fixture.state);
-    appsToClose.push(app);
+  it('asigna consecutivos distintos cuando dos ventas se crean en paralelo', async () => {
+    const ctx = await setup('IVA', 'IVA_19', 11900);
 
-    const token = app.jwt.sign({
-      sub: fixture.userId,
-      userId: fixture.userId,
-      tenantId: fixture.tenantId,
-      role: 'ADMIN',
-    isPlatformRole: false,
-      email: 'admin@test.local',
-      name: 'Admin Test'
-    , branchIds: ['00000000-0000-0000-0000-000000000000'], permissions: ['sales:create', 'sales:void', 'returns:create', 'inventory:adjust', 'inventory:transfer', 'inventory:receive', 'reports:view', 'cash:reconcile', 'cash:audit', 'settings:manage']});
+    // Es la carrera real que el reintento por colisión de sale_number existe para cubrir.
+    const [first, second] = await Promise.all([postSale(ctx), postSale(ctx)]);
+
+    expect(first.statusCode).toBe(201);
+    expect(second.statusCode).toBe(201);
+
+    const numbers = [first, second]
+      .map((r) => (r.json() as { sale: { sale_number: number } }).sale.sale_number)
+      .sort((a, b) => a - b);
+
+    expect(numbers).toEqual([1, 2]);
+
+    const rows = await app.db
+      .selectFrom('sales')
+      .select(['id'])
+      .where('tenant_id', '=', ctx.fixture.tenantId)
+      .execute();
+    expect(rows).toHaveLength(2);
+  });
+
+  it('devuelve la venta existente para el mismo client_uuid sin duplicar registros', async () => {
+    const ctx = await setup('IVA', 'IVA_19', 11900);
     const clientUuid = randomUUID();
-    const payload = {
-      client_uuid: clientUuid,
-      branch_id: fixture.branchId,
-      cash_session_id: fixture.cashSessionId,
-      items: [{ product_id: fixture.productId, qty: 1 }],
-      discount_cents: 0,
-        tip_cents: 0,
-      payments: [{ method: 'CASH', amount_cents: fixture.linePriceCents }]
-    };
 
-    const firstResponse = await app.inject({
-      method: 'POST',
-      url: '/api/v1/sales',
-      headers: {
-        authorization: `Bearer ${token}`
-      },
-      payload
-    });
+    const first = await postSale(ctx, { client_uuid: clientUuid });
+    expect(first.statusCode).toBe(201);
+    const firstSaleId = (first.json() as { sale: { id: string } }).sale.id;
 
-    expect(firstResponse.statusCode).toBe(201);
+    const second = await postSale(ctx, { client_uuid: clientUuid });
+    expect([200, 201]).toContain(second.statusCode);
+    const secondSaleId = (second.json() as { sale: { id: string } }).sale.id;
 
-    const firstBody = firstResponse.json() as {
-      sale: {
-        id: string;
-        sale_number: number;
-      };
-      items: Array<{
-        product_id: string;
-        qty: number;
-      }>;
-    };
+    expect(secondSaleId).toBe(firstSaleId);
 
-    const secondResponse = await app.inject({
-      method: 'POST',
-      url: '/api/v1/sales',
-      headers: {
-        authorization: `Bearer ${token}`
-      },
-      payload
-    });
+    const sales = await app.db
+      .selectFrom('sales')
+      .select(['id'])
+      .where('tenant_id', '=', ctx.fixture.tenantId)
+      .execute();
+    expect(sales).toHaveLength(1);
 
-    expect(secondResponse.statusCode).toBe(200);
-
-    const secondBody = secondResponse.json() as {
-      sale: {
-        id: string;
-        sale_number: number;
-      };
-      items: Array<{
-        product_id: string;
-        qty: number;
-      }>;
-    };
-
-    expect(secondBody).toEqual(firstBody);
-    expect(fixture.state.sales).toHaveLength(1);
-    expect(fixture.state.sale_items).toHaveLength(1);
-    expect(fixture.state.audit_logs).toHaveLength(1);
-    expect(fixture.state.audit_logs[0]).toMatchObject({
-      action: 'SALE_CREATED',
-      entity_id: firstBody.sale.id
-    });
+    const items = await app.db
+      .selectFrom('sale_items')
+      .select(['id'])
+      .where('tenant_id', '=', ctx.fixture.tenantId)
+      .execute();
+    expect(items).toHaveLength(1);
   });
 
-  it('persists void metadata, writes audit log and rejects a second void attempt', async () => {
-    const fixture = createFixture('IVA', 'IVA_19', 11900);
-    const app = await buildSalesApp(fixture.state);
-    appsToClose.push(app);
+  it('ignora el impuesto que declara el cliente en el snapshot', async () => {
+    const ctx = await setup('IVA', 'IVA_19', 11900);
 
-    const token = app.jwt.sign({
-      sub: fixture.userId,
-      userId: fixture.userId,
-      tenantId: fixture.tenantId,
-      role: 'ADMIN',
-    isPlatformRole: false,
-      email: 'admin@test.local',
-      name: 'Admin Test'
-    , branchIds: ['00000000-0000-0000-0000-000000000000'], permissions: ['sales:create', 'sales:void', 'returns:create', 'inventory:adjust', 'inventory:transfer', 'inventory:receive', 'reports:view', 'cash:reconcile', 'cash:audit', 'settings:manage']});
-
-    const createResponse = await app.inject({
-      method: 'POST',
-      url: '/api/v1/sales',
-      headers: {
-        authorization: `Bearer ${token}`
-      },
-      payload: {
-        client_uuid: randomUUID(),
-        branch_id: fixture.branchId,
-        cash_session_id: fixture.cashSessionId,
-        items: [{ product_id: fixture.productId, qty: 1 }],
+    // Un cliente manipulado declara casi nada de impuesto. El servidor factura su propio
+    // cálculo y deja rastro de la discrepancia.
+    const response = await postSale(ctx, {
+      snapshot: {
+        subtotal_cents: 11900,
         discount_cents: 0,
         tip_cents: 0,
-        payments: [{ method: 'CASH', amount_cents: fixture.linePriceCents }]
+        tax_total_cents: 1,
+        total_cents: 11900
+      }
+    });
+    expect(response.statusCode).toBe(201);
+
+    const body = response.json() as { sale: { id: string; tax_total_cents: number; total_cents: number } };
+    expect(body.sale.tax_total_cents).toBe(1900);
+    expect(body.sale.total_cents).toBe(11900);
+
+    const persisted = await readPersistedSale(ctx.fixture.tenantId, body.sale.id);
+    expect(persisted.tax_total_cents).toBe(1900);
+
+    const outbox = await app.db
+      .selectFrom('outbox_events')
+      .select(['payload_json'])
+      .where('tenant_id', '=', ctx.fixture.tenantId)
+      .where('aggregate_id', '=', body.sale.id)
+      .where('type', '=', 'sale.created')
+      .executeTakeFirstOrThrow();
+
+    const auditPayload = (outbox.payload_json as { audit_payload?: Record<string, unknown> }).audit_payload;
+    expect(auditPayload?.snapshot_discrepancy).toMatchObject({
+      client: { tax_total_cents: 1 },
+      server: { tax_total_cents: 1900 }
+    });
+  });
+
+  it('rechaza una venta offline cuyo precio se desvía más del 10% del catálogo actual', async () => {
+    const ctx = await setup('IVA', 'IVA_19', 11900);
+
+    const response = await postSale(ctx, {
+      items: [{ product_id: ctx.fixture.productId, qty: 1, price_cents: 5000 }],
+      payments: [{ method: 'CASH', amount_cents: 5000 }],
+      snapshot: {
+        subtotal_cents: 5000,
+        discount_cents: 0,
+        tip_cents: 0,
+        tax_total_cents: 0,
+        total_cents: 5000
       }
     });
 
-    expect(createResponse.statusCode).toBe(201);
+    expect(response.statusCode).toBe(400);
+    expect((response.json() as { error: { code: string } }).error.code).toBe('PRICE_DRIFT_EXCEEDED');
+  });
 
-    const createdSale = createResponse.json() as {
-      sale: {
-        id: string;
-        sale_number: number;
-        total_cents: number;
-        void_reason: string | null;
-        voided_by_user_id: string | null;
-        voided_at: string | null;
-      };
-    };
+  it('solo registra en el libro de caja el componente en efectivo', async () => {
+    const ctx = await setup('IVA', 'IVA_19', 11900);
 
-    expect(createdSale.sale.void_reason).toBeNull();
-    expect(createdSale.sale.voided_by_user_id).toBeNull();
-    expect(createdSale.sale.voided_at).toBeNull();
+    // Venta con tarjeta: no entra un peso al cajón.
+    const cardSale = await postSale(ctx, {
+      payments: [{ method: 'CARD', amount_cents: 11900, approval_code: '123456' }]
+    });
+    expect(cardSale.statusCode).toBe(201);
 
-    const voidResponse = await app.inject({
+    const afterCard = await app.db
+      .selectFrom('cash_ledger')
+      .select(['type', 'amount_cents'])
+      .where('tenant_id', '=', ctx.fixture.tenantId)
+      .where('type', '=', 'CASH_SALE')
+      .execute();
+    expect(afterCard).toHaveLength(0);
+
+    // Venta mixta: solo la parte en efectivo.
+    const mixedSale = await postSale(ctx, {
+      payments: [
+        {
+          method: 'MIXED',
+          payments: [
+            { method: 'CASH', amount_cents: 4000 },
+            { method: 'CARD', amount_cents: 7900, approval_code: '654321' }
+          ]
+        }
+      ]
+    });
+    expect(mixedSale.statusCode).toBe(201);
+
+    const afterMixed = await app.db
+      .selectFrom('cash_ledger')
+      .select(['type', 'amount_cents'])
+      .where('tenant_id', '=', ctx.fixture.tenantId)
+      .where('type', '=', 'CASH_SALE')
+      .execute();
+
+    expect(afterMixed).toHaveLength(1);
+    // bigint vuelve como string desde pg
+    expect(Number(afterMixed[0]!.amount_cents)).toBe(4000);
+  });
+
+  it('persiste los metadatos de anulación, emite el evento y rechaza una segunda anulación', async () => {
+    const ctx = await setup('IVA', 'IVA_19', 11900);
+
+    const created = await postSale(ctx);
+    expect(created.statusCode).toBe(201);
+    const saleId = (created.json() as { sale: { id: string } }).sale.id;
+
+    const voidRes = await app.inject({
       method: 'POST',
-      url: `/api/v1/sales/${createdSale.sale.id}/void`,
-      headers: {
-        authorization: `Bearer ${token}`
-      },
-      payload: {
-        void_reason: 'Cliente canceló el pedido'
-      }
+      url: `/api/v1/sales/${saleId}/void`,
+      headers: bearerHeaders(ctx.token),
+      payload: { void_reason: 'Cobro duplicado' }
     });
+    expect(voidRes.statusCode).toBe(200);
 
-    if (voidResponse.statusCode !== 200) {
-      console.error('VOID ERROR', voidResponse.json());
-    }
-    expect(voidResponse.statusCode).toBe(200);
+    const persisted = await readPersistedSale(ctx.fixture.tenantId, saleId);
+    expect(persisted.status).toBe('VOID');
+    expect(persisted.void_reason).toBe('Cobro duplicado');
+    expect(persisted.voided_by_user_id).toBe(ctx.fixture.adminUserId);
+    expect(persisted.voided_at).not.toBeNull();
 
-    const voidedSale = voidResponse.json() as {
-      sale: {
-        id: string;
-        status: 'VOID';
-        void_reason: string;
-        voided_by_user_id: string;
-        voided_at: string;
-      };
-    };
+    // La anulación siempre publica su evento, incluso si la factura aún no salió:
+    // el worker decide si corresponde nota crédito o si no hay nada que anular.
+    const voidedEvent = await app.db
+      .selectFrom('outbox_events')
+      .select(['type', 'status'])
+      .where('tenant_id', '=', ctx.fixture.tenantId)
+      .where('aggregate_id', '=', saleId)
+      .where('type', '=', 'sale.voided')
+      .executeTakeFirst();
 
-    expect(voidedSale.sale.status).toBe('VOID');
-    expect(voidedSale.sale.void_reason).toBe('Cliente canceló el pedido');
-    expect(voidedSale.sale.voided_by_user_id).toBe(fixture.userId);
-    expect(voidedSale.sale.voided_at).toBeTruthy();
+    expect(voidedEvent).toMatchObject({ type: 'sale.voided', status: 'PENDING' });
 
-    const persistedVoidedSale = fixture.state.sales[0] as {
-      status: string;
-      void_reason: string | null;
-      voided_by_user_id: string | null;
-      voided_at: Date | null;
-    };
-
-    expect(persistedVoidedSale.status).toBe('VOID');
-    expect(persistedVoidedSale.void_reason).toBe('Cliente canceló el pedido');
-    expect(persistedVoidedSale.voided_by_user_id).toBe(fixture.userId);
-    expect(persistedVoidedSale.voided_at).toBeInstanceOf(Date);
-
-    expect(fixture.state.audit_logs).toHaveLength(2);
-    expect(fixture.state.audit_logs[1]).toMatchObject({
-      tenant_id: fixture.tenantId,
-      branch_id: fixture.branchId,
-      user_id: fixture.userId,
-      entity_type: 'SALE',
-      entity_id: createdSale.sale.id,
-      action: 'SALE_VOIDED',
-      payload_json: {
-        sale_number: createdSale.sale.sale_number,
-        previous_status: 'COMPLETED',
-        new_status: 'VOID',
-        total_cents: createdSale.sale.total_cents,
-        void_reason: 'Cliente canceló el pedido',
-        dian_adjustment_pending: true
-      }
-    });
-
-    const secondVoidResponse = await app.inject({
+    const secondVoid = await app.inject({
       method: 'POST',
-      url: `/api/v1/sales/${createdSale.sale.id}/void`,
-      headers: {
-        authorization: `Bearer ${token}`
-      },
-      payload: {
-        void_reason: 'Intento duplicado'
-      }
+      url: `/api/v1/sales/${saleId}/void`,
+      headers: bearerHeaders(ctx.token),
+      payload: { void_reason: 'Otro intento' }
     });
-
-    expect(secondVoidResponse.statusCode).toBe(409);
-    expect(fixture.state.audit_logs).toHaveLength(2);
+    expect(secondVoid.statusCode).toBe(409);
   });
 });

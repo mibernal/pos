@@ -169,6 +169,6 @@ describe('Cross-Tenant Isolation E2E', () => {
 
     // Should be forbidden because user doesn't have access to secondaryBranchId
     expect(openRes.statusCode).toBe(403);
-    expect((openRes.json() as any).code).toBe('AUTH_FORBIDDEN');
+    expect((openRes.json() as any).error.code).toBe('AUTH_FORBIDDEN');
   });
 });

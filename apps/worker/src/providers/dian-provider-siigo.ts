@@ -2,7 +2,6 @@ import type {
   DianProvider,
   DianProviderEmitSaleInput,
   DianProviderEmitSaleResult,
-  DianProviderResultStatus
 } from './dian-provider.js';
 
 interface SiigoAuthResponse {

@@ -11,7 +11,6 @@ import { UpdateTenantUseCase } from '../../application/tenants/update-tenant.use
 import { ChangeTenantPlanUseCase } from '../../application/tenants/change-tenant-plan.use-case.js';
 import { UpdateTenantModulesUseCase } from '../../application/tenants/update-tenant-modules.use-case.js';
 import { UpdateTenantModulesSchema } from '@pos-dian/shared';
-import { TaxMode } from '../../domain/platform-admin.types.js';
 import { invalidateDashboardCache } from '../../../../shared/infra/cache/invalidate-dashboard-cache.js';
 
 const createTenantBodySchema = z.object({

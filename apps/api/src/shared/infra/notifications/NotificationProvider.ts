@@ -1,12 +1,3 @@
-import {
-  TenantWelcomePayload,
-  LowStockPayload,
-  SubscriptionExpiringPayload,
-  PaymentApprovedPayload,
-  PaymentRejectedPayload,
-  PlanChangePayload
-} from './NotificationEvents.js';
-
 export interface EmailOptions {
   to: string | string[];
   subject: string;

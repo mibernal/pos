@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { CreateTableSchema, CreateTablePayload } from '@pos-dian/shared';
+import { CreateTableSchema } from '@pos-dian/shared';
 import { useTablesStore } from '../store/useTablesStore';
 import { useCreateTable } from '../api/tables.api';
 import { usePosStore } from '../../../hooks/usePosStore';

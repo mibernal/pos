@@ -73,8 +73,10 @@ describe('auth hardening e2e', () => {
 
       expect(response.statusCode).toBe(401);
       expect(response.json()).toMatchObject({
-        code: 'AUTH_INVALID_CREDENTIALS',
-        message: 'Credenciales inválidas'
+        error: {
+          code: 'AUTH_INVALID_CREDENTIALS',
+          message: 'Credenciales inválidas'
+        }
       });
     }
 
@@ -88,9 +90,15 @@ describe('auth hardening e2e', () => {
     });
 
     expect(blockedResponse.statusCode).toBe(429);
+    // El contrato de error de la API es `{ error: { code, message, details } }`
+    // (shared/plugins/error-handler.ts). Antes estas pruebas afirmaban el formato por
+    // defecto de Fastify, que era lo que realmente salía porque el manejador de errores
+    // no estaba registrado con `fastify-plugin` y quedaba fuera del alcance de las rutas.
     expect(blockedResponse.json()).toMatchObject({
-      code: 'AUTH_RATE_LIMITED',
-      message: 'Demasiados intentos de inicio de sesión. Intenta de nuevo más tarde.'
+      error: {
+        code: 'AUTH_RATE_LIMITED',
+        message: 'Demasiados intentos de inicio de sesión. Intenta de nuevo más tarde.'
+      }
     });
   });
 

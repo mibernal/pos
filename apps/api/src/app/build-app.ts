@@ -337,7 +337,7 @@ export async function buildApp() {
           socket.join(`branch:${branchId}`);
           app.log.info(`Socket ${socket.id} joined branch:${branchId}`);
         }
-      } catch (err) {
+      } catch {
         app.log.warn(`Socket ${socket.id} rejected: Invalid token`);
         socket.disconnect(true);
         return;

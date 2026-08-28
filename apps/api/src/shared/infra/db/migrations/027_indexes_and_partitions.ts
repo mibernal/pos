@@ -16,6 +16,26 @@ export async function up(db: Kysely<unknown>): Promise<void> {
   // Renombrar tabla vieja
   await sql`ALTER TABLE audit_logs RENAME TO audit_logs_old;`.execute(db);
 
+  // Renombrar el índice de la restricción UNIQUE heredada de la migración 004.
+  // `ALTER TABLE ... RENAME` NO renombra los índices asociados, y los nombres de
+  // índice son únicos por esquema: sin esto, el CREATE TABLE de abajo falla con
+  // «relation "uq_audit_logs_tenant_id_pair" already exists» y toda la migración
+  // hace rollback — impidiendo construir el esquema desde cero.
+  await sql`
+    DO $$
+    BEGIN
+      IF EXISTS (
+        SELECT 1 FROM pg_constraint
+        WHERE conname = 'uq_audit_logs_tenant_id_pair'
+          AND conrelid = 'audit_logs_old'::regclass
+      ) THEN
+        ALTER TABLE audit_logs_old
+          RENAME CONSTRAINT uq_audit_logs_tenant_id_pair TO uq_audit_logs_old_tenant_id_pair;
+      END IF;
+    END
+    $$;
+  `.execute(db);
+
   // Crear tabla nueva con PARTITION BY RANGE
   await sql`
     CREATE TABLE audit_logs (

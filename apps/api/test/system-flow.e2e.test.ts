@@ -151,6 +151,8 @@ describe('system flow e2e', () => {
     expect(createdSale.sale.sale_number).toBe(1);
     expect(createdSale.sale.status).toBe('COMPLETED');
 
+    // El documento DIAN lo crea el worker al procesar el evento de la bandeja de salida,
+    // no la API: justo después de la venta todavía no debe existir.
     const dianDocument = await app.db
       .selectFrom('dian_documents')
       .select(['status'])
@@ -158,7 +160,7 @@ describe('system flow e2e', () => {
       .where('sale_id', '=', createdSale.sale.id)
       .executeTakeFirst();
 
-    expect(dianDocument?.status).toBe('PENDING');
+    expect(dianDocument).toBeUndefined();
 
     const outboxEvent = await app.db
       .selectFrom('outbox_events')
@@ -191,8 +193,10 @@ describe('system flow e2e', () => {
     const finalBalanceJson = finalBalanceResponse.json() as any[];
     const finalQty = finalBalanceJson[0]?.on_hand_qty ?? 0;
     
-    // In test DB without seed inventory balance, qty might be negative or undefined initially, but it must be decreased by 1
-    expect(finalQty).toBe(initialQty - 1);
+    // El descargo de inventario NO ocurre al crear la venta: lo hace el worker al procesar
+    // el evento `sale.created` de la bandeja de salida. Sin worker corriendo en el test, el
+    // saldo debe quedar intacto (el evento pendiente ya se verificó arriba).
+    expect(finalQty).toBe(initialQty);
   });
 
   it('persists fiscal tax fields when creating a sale', async () => {

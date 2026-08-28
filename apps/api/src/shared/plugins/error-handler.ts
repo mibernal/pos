@@ -1,4 +1,5 @@
 import type { FastifyPluginAsync, FastifyRequest } from 'fastify';
+import fp from 'fastify-plugin';
 import { ZodError } from 'zod';
 import { AppError } from '../infra/errors/app-error.js';
 import { buildRequestLogContext } from '../infra/logging/request-log-context.js';
@@ -26,7 +27,7 @@ function logHandledError(
   request.log.warn(payload, message);
 }
 
-export const errorHandlerPlugin: FastifyPluginAsync = async (app) => {
+const errorHandlerPluginImpl: FastifyPluginAsync = async (app) => {
   app.setNotFoundHandler((request, reply) => {
     request.log.warn(
       {
@@ -142,3 +143,17 @@ export const errorHandlerPlugin: FastifyPluginAsync = async (app) => {
     });
   });
 };
+
+/**
+ * Debe registrarse con `fastify-plugin`.
+ *
+ * Fastify encapsula los plugins: sin `fp`, `setErrorHandler` y `setNotFoundHandler`
+ * quedaban confinados al ámbito (vacío) de este plugin y NINGUNA ruta hermana los
+ * usaba. En la práctica la API respondía con el formato por defecto de Fastify en vez
+ * del contrato `{ error: { code, message, details } }`, el registro estructurado de
+ * errores no se ejecutaba nunca, y los 500 devolvían el mensaje interno en lugar del
+ * texto saneado.
+ */
+export const errorHandlerPlugin = fp(errorHandlerPluginImpl, {
+  name: 'error-handler-plugin'
+});

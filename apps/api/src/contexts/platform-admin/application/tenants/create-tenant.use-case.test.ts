@@ -3,7 +3,6 @@ import { CreateTenantUseCase } from './create-tenant.use-case.js';
 import type { Kysely } from 'kysely';
 import type { Database } from '../../../../shared/infra/db/schema.js';
 import type { CreateTenantCommand } from '../../domain/platform-admin.types.js';
-import { AppError } from '../../../../shared/infra/errors/app-error.js';
 
 // Mock password hasher
 vi.mock('../../../identity/auth/password.js', () => ({
@@ -69,7 +68,8 @@ describe('CreateTenantUseCase', () => {
     expect(tenantInsertValues).toMatchObject({
       business_type: 'RESTAURANT',
       custom_business_type: null,
-      enable_tables: false // Even for RESTAURANT, enable_tables is false because it's native
+      // RESTAURANT es un tipo nativo de mesas: el módulo queda habilitado de entrada.
+      enable_tables: true
     });
   });
 

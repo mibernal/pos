@@ -770,16 +770,17 @@ export const cashSessionsRoutes: FastifyPluginAsync = async (app) => {
           .returningAll()
           .executeTakeFirstOrThrow();
 
-        await trx
+        const updatedSession = await trx
           .updateTable('cash_sessions')
           .set({ status: 'RECONCILED' })
           .where('id', '=', currentSession.id)
-          .execute();
+          .returningAll()
+          .executeTakeFirstOrThrow();
 
-        return reconciliation;
+        return { reconciliation, cash_session: updatedSession };
       });
 
-      return reply.code(201).send({ reconciliation: result });
+      return reply.code(201).send(result);
     }
   );
   typedApp.get(

@@ -862,7 +862,7 @@ export function buildKitchenTicketHtml(input: KitchenTicketInput): string {
     })
     .join('');
 
-  const { date, time } = formatDateTimeParts(input.createdAt);
+  const { time } = formatDateTimeParts(input.createdAt);
 
   return `<!doctype html>
 <html lang="es">
@@ -966,7 +966,7 @@ export async function printKitchenTicketESCPOS(input: KitchenTicketInput): Promi
   pushCmd(sizeNormal);
   pushCmd(boldOff);
 
-  const { date, time } = formatDateTimeParts(input.createdAt);
+  const { time } = formatDateTimeParts(input.createdAt);
   if (input.waiterName) pushLine(`Mesero: ${input.waiterName}`);
   pushLine(`Hora: ${time}`);
   pushLine('--------------------------------');

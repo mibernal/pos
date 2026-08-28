@@ -13,7 +13,7 @@ interface SplitBillModalProps {
   onSelectMode: (mode: SplitMode, payload?: any) => void;
 }
 
-export function SplitBillModal({ isOpen, onClose, cartItems, totalCents, onSelectMode }: SplitBillModalProps) {
+export function SplitBillModal({ isOpen, onClose, totalCents, onSelectMode }: SplitBillModalProps) {
   const [mode, setMode] = useState<SplitMode | null>(null);
   const [numberOfPeople, setNumberOfPeople] = useState<number>(2);
   const [percentages, setPercentages] = useState<number[]>([50, 50]);

@@ -10,7 +10,6 @@ import {
   isSaleNumberUniqueConstraintError
 } from '../domain/sale-numbering-service.js';
 
-import { env } from '../../../app/env.js';
 import { mapSaleRow, serializeJsonArrayForDb, saleColumnList } from './sale-mapper.js';
 import { OutboxPublisher } from '../../../shared/infra/outbox/OutboxPublisher.js';
 import { SaleCreatedEvent } from '../domain/events/SaleCreatedEvent.js';
@@ -374,10 +373,18 @@ export async function createSaleService(input: CreateSaleServiceInput) {
           );
         }
 
-        let finalSubtotalCents = subtotalCents;
-        let finalDiscountCents = payload.discount_cents;
-        let finalTaxTotalCents = computedTaxes.tax_total_cents;
-        let finalTotalCents = totalCents;
+        const finalSubtotalCents = subtotalCents;
+        const finalDiscountCents = payload.discount_cents;
+        const finalTaxTotalCents = computedTaxes.tax_total_cents;
+        const finalTotalCents = totalCents;
+
+        // Diferencia entre lo que el cliente creía cobrar y lo que el servidor calculó.
+        // Se guarda en la auditoría de la venta para poder investigarla, en vez de
+        // quedar solo en una línea de log.
+        let snapshotDiscrepancy: {
+          client: { subtotal_cents: number; discount_cents: number; tax_total_cents: number; total_cents: number };
+          server: { subtotal_cents: number; discount_cents: number; tax_total_cents: number; total_cents: number };
+        } | null = null;
 
         if (payload.snapshot) {
           if (payload.snapshot.total_cents !== totalCents) {
@@ -391,19 +398,36 @@ export async function createSaleService(input: CreateSaleServiceInput) {
             }
           }
 
-          // Override with snapshot totals to prevent cash mismatch
-          finalSubtotalCents = payload.snapshot.subtotal_cents;
-          finalDiscountCents = payload.snapshot.discount_cents;
-
-          // Si el frontend no calcula impuestos (tax_total_cents = 0) pero el backend sí,
-          // preservamos el cálculo del backend para no perder el desglose de impuestos en DIAN.
-          if (payload.snapshot.tax_total_cents === 0 && computedTaxes.tax_total_cents > 0) {
-            finalTaxTotalCents = computedTaxes.tax_total_cents;
-          } else {
-            finalTaxTotalCents = payload.snapshot.tax_total_cents;
+          // El snapshot se COMPARA, nunca se copia. Antes se sobrescribían subtotal,
+          // descuento, impuesto y total con lo que mandaba el cliente, de modo que un
+          // frontend comprometido o con un error podía fijar la base gravable que iba al
+          // documento DIAN, con solo un 10% de margen como barrera.
+          //
+          // El servidor ya trabaja con los precios de la venta offline: cada ítem envía su
+          // `price_cents` y arriba se valida su deriva línea a línea. Lo que se factura es,
+          // por tanto, lo que se cobró — pero el impuesto lo determina siempre el servidor a
+          // partir de la `tax_category` que tiene el producto en base de datos.
+          if (
+            payload.snapshot.subtotal_cents !== subtotalCents ||
+            payload.snapshot.total_cents !== totalCents ||
+            (payload.snapshot.tax_total_cents !== 0 &&
+              payload.snapshot.tax_total_cents !== computedTaxes.tax_total_cents)
+          ) {
+            snapshotDiscrepancy = {
+              client: {
+                subtotal_cents: payload.snapshot.subtotal_cents,
+                discount_cents: payload.snapshot.discount_cents,
+                tax_total_cents: payload.snapshot.tax_total_cents,
+                total_cents: payload.snapshot.total_cents
+              },
+              server: {
+                subtotal_cents: subtotalCents,
+                discount_cents: payload.discount_cents,
+                tax_total_cents: computedTaxes.tax_total_cents,
+                total_cents: totalCents
+              }
+            };
           }
-
-          finalTotalCents = payload.snapshot.total_cents;
         }
 
         if (normalizedPayments.total_amount_cents !== finalTotalCents) {
@@ -479,20 +503,27 @@ export async function createSaleService(input: CreateSaleServiceInput) {
         span.setAttribute(SemanticAttributes.SALE_TOTAL_CENTS, finalTotalCents);
         span.setAttribute(SemanticAttributes.SALE_PAYMENT_MODE, normalizedPayments.mode);
 
-        const sessionLedger = await trx.selectFrom('cash_ledger')
-          .select(trx.fn.sum('amount_cents').as('current_balance'))
-          .where('cash_session_id', '=', payload.cash_session_id)
-          .executeTakeFirst();
-        const currentCashBalance = Number(sessionLedger?.current_balance || 0);
+        // Al cajón solo entra el efectivo. Registrar aquí el total de la venta hacía que
+        // tarjeta y transferencia inflaran el esperado del arqueo, de modo que todo cierre
+        // de caja arrojaba faltante y el cajero terminaba ignorando la cifra.
+        const cashComponentCents = normalizedPayments.amounts.cash_cents;
 
-        await LedgerService.appendCashLedger(trx, {
-          tenantId,
-          cashSessionId: payload.cash_session_id,
-          terminalId: cashSession.terminal_id,
-          type: 'CASH_SALE',
-          amountCents: finalTotalCents,
-          balanceAfterCents: currentCashBalance + finalTotalCents
-        });
+        if (cashComponentCents > 0) {
+          const sessionLedger = await trx.selectFrom('cash_ledger')
+            .select(trx.fn.sum('amount_cents').as('current_balance'))
+            .where('cash_session_id', '=', payload.cash_session_id)
+            .executeTakeFirst();
+          const currentCashBalance = Number(sessionLedger?.current_balance || 0);
+
+          await LedgerService.appendCashLedger(trx, {
+            tenantId,
+            cashSessionId: payload.cash_session_id,
+            terminalId: cashSession.terminal_id,
+            type: 'CASH_SALE',
+            amountCents: cashComponentCents,
+            balanceAfterCents: currentCashBalance + cashComponentCents
+          });
+        }
 
         await trx.insertInto('sale_items').values(saleItemsToInsert).execute();
 
@@ -510,7 +541,8 @@ export async function createSaleService(input: CreateSaleServiceInput) {
             subtotal_cents: finalSubtotalCents,
             discount_cents: finalDiscountCents,
             tax_total_cents: finalTaxTotalCents,
-            payment_mode: normalizedPayments.mode
+            payment_mode: normalizedPayments.mode,
+            ...(snapshotDiscrepancy ? { snapshot_discrepancy: snapshotDiscrepancy } : {})
           }
         }, saleId, payload.branch_id);
 

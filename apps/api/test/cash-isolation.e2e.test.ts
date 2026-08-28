@@ -103,6 +103,6 @@ describe('cash isolation e2e', () => {
 
     expect(response.statusCode).toBe(403);
     const body = response.json() as any;
-    expect(body.code).toBe('CASH_SESSION_FORBIDDEN');
+    expect(body.error.code).toBe('CASH_SESSION_FORBIDDEN');
   });
 });

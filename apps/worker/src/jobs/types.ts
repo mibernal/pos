@@ -40,7 +40,7 @@ export const saleVoidedPayloadSchema = z.object({
   sale_id: z.string().uuid(),
   tenant_id: z.string().uuid(),
   branch_id: z.string().uuid(),
-  invoice_dian_document_id: z.string().uuid().optional(),
+  invoice_dian_document_id: z.string().uuid().nullable().optional(),
   sale_number: z.coerce.number().optional(),
   total_cents: z.coerce.number().optional(),
   void_reason: z.string().optional(),

@@ -1,9 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { FastifyInstance } from 'fastify';
 import { verifyApprovalPin } from '../../../shared/infra/security/verify-pin.js';
 import { scannerRoutes } from './scanner.routes.js';
-import * as securityPermissions from '../../../shared/infra/security/permissions.js';
-import * as inventoryRoutes from './inventory.routes.js';
 
 vi.mock('../../../shared/infra/security/verify-pin.js', () => ({
   verifyApprovalPin: vi.fn()
@@ -19,12 +16,13 @@ vi.mock('./inventory.routes.js', () => ({
 
 describe('scanner.routes.ts', () => {
   let appMock: any;
+  let mockTrx: any;
 
   beforeEach(() => {
     vi.clearAllMocks();
     
     // Mock the db transaction
-    const mockTrx = {
+    mockTrx = {
       selectFrom: vi.fn().mockReturnThis(),
       selectAll: vi.fn().mockReturnThis(),
       where: vi.fn().mockReturnThis(),
@@ -66,10 +64,14 @@ describe('scanner.routes.ts', () => {
     const req = {
       params: { id: 'count-1' },
       body: { notes: 'test' },
-      auth: { tenantId: 't1', userId: 'u1' }
+      auth: { tenantId: 't1', userId: 'u1' },
+      headers: {},
+      ip: '127.0.0.1',
+      // build-app decora cada request con este envoltorio RLS; el mock debe traerlo.
+      executeAsTenant: async (cb: any) => cb(mockTrx)
     };
 
-    await expect(appMock.commitCountHandler(req, {} as any)).rejects.toThrow('PIN_REQUIRED');
+    await expect(appMock.commitCountHandler(req, {} as any)).rejects.toMatchObject({ code: 'PIN_REQUIRED' });
   });
 
   it('should throw INVALID_PIN if verifyApprovalPin returns null', async () => {
@@ -78,10 +80,14 @@ describe('scanner.routes.ts', () => {
     const req = {
       params: { id: 'count-1' },
       body: { notes: 'test', discrepancy_approved_by_pin: 'wrong' },
-      auth: { tenantId: 't1', userId: 'u1' }
+      auth: { tenantId: 't1', userId: 'u1' },
+      headers: {},
+      ip: '127.0.0.1',
+      // build-app decora cada request con este envoltorio RLS; el mock debe traerlo.
+      executeAsTenant: async (cb: any) => cb(mockTrx)
     };
 
-    await expect(appMock.commitCountHandler(req, {} as any)).rejects.toThrow('INVALID_PIN');
+    await expect(appMock.commitCountHandler(req, {} as any)).rejects.toMatchObject({ code: 'INVALID_PIN' });
   });
 
   it('should process the commit if PIN is valid', async () => {
@@ -91,7 +97,11 @@ describe('scanner.routes.ts', () => {
     const req = {
       params: { id: 'count-1' },
       body: { notes: 'test', discrepancy_approved_by_pin: '1234' },
-      auth: { tenantId: 't1', userId: 'u1' }
+      auth: { tenantId: 't1', userId: 'u1' },
+      headers: {},
+      ip: '127.0.0.1',
+      // build-app decora cada request con este envoltorio RLS; el mock debe traerlo.
+      executeAsTenant: async (cb: any) => cb(mockTrx)
     };
 
     await appMock.commitCountHandler(req, mockReply);

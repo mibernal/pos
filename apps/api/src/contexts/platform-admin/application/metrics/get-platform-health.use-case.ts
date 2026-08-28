@@ -28,7 +28,7 @@ export class GetPlatformHealthUseCase {
       await sql`SELECT 1`.execute(this.db);
       dbLatency = Math.round(performance.now() - dbStart);
       isDbHealthy = true;
-    } catch (e) {
+    } catch {
       isDbHealthy = false;
     }
 
@@ -38,7 +38,7 @@ export class GetPlatformHealthUseCase {
       await this.redis.ping();
       redisLatency = Math.round(performance.now() - redisStart);
       isRedisHealthy = true;
-    } catch (e) {
+    } catch {
       isRedisHealthy = false;
     }
 
@@ -49,7 +49,7 @@ export class GetPlatformHealthUseCase {
       activeWorkers = workers.length;
       pendingJobs = jobCounts.waiting || 0;
       isQueueHealthy = true;
-    } catch (e) {
+    } catch {
       isQueueHealthy = false;
     }
 

@@ -1,4 +1,3 @@
-import { useState } from 'react';
 import { useGetActiveTickets, useUpdateTicketStatus } from './api/kds.api';
 import { useKdsSync } from './hooks/useKdsSync';
 import { KitchenTicketWithItems } from '@pos-dian/shared';

@@ -80,6 +80,7 @@ describe('createSaleSchema', () => {
         status: 'COMPLETED',
         subtotal_cents: 11900,
         discount_cents: 0,
+        tip_cents: 0,
         total_cents: 11900,
         tax_total_cents: 1900,
         tax_lines_json: [
@@ -148,6 +149,7 @@ describe('createSaleSchema', () => {
         status: 'VOID',
         subtotal_cents: 11900,
         discount_cents: 0,
+        tip_cents: 0,
         total_cents: 11900,
         tax_total_cents: 1900,
         tax_lines_json: [],

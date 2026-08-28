@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { updateTenantBusinessProfileBodySchema, BUSINESS_TYPE_CATALOG } from '@pos-dian/shared';
+import { updateTenantBusinessProfileBodySchema } from '@pos-dian/shared';
 import { Banner, Modal, BusinessTypeSelector } from '../../components/ui';
 import type { PosApiClient } from '../../types';
 import type { AuthSession } from '../../lib/api/client';
@@ -11,7 +11,8 @@ export function TicketTemplateModal({
   onClose,
   onSave,
   template,
-  session
+  session,
+  refreshSession
 }: {
   api: PosApiClient;
   isOpen: boolean;
@@ -36,7 +37,14 @@ export function TicketTemplateModal({
     enable_product_modifiers: session.user.enableProductModifiers || false,
     enable_reservations: session.user.enableReservations || false,
     enable_waiter_shifts: session.user.enableWaiterShifts || false,
-    enable_qr_menu: session.user.enableQrMenu || false
+    enable_qr_menu: session.user.enableQrMenu || false,
+    enable_guests_count: session.user.enableGuestsCount || false,
+    enable_restaurant: session.user.enableRestaurant || false,
+    enable_kds: session.user.enableKds || false,
+    enable_inventory: session.user.enableInventory || false,
+    enable_fiscal: session.user.enableFiscal || false,
+    enable_loyalty: session.user.enableLoyalty || false,
+    enable_advanced_reports: session.user.enableAdvancedReports || false
   });
 
   const [error, setError] = useState<string | null>(null);

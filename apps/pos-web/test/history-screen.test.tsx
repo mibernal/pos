@@ -4,22 +4,24 @@ import { fireEvent, render, screen, waitFor, within } from '@testing-library/rea
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { SessionProvider } from '../src/features/auth';
 import { HistoryScreen } from '../src/features/history';
-import { writeAuthSession } from '../src/lib/session';
+import { writeAuthSession, writeAuthUser } from '../src/lib/session';
 import type { PosApiClient } from '../src/types';
+import { buildAuthUser } from './helpers/session-fixture';
 
 function seedSession(role: 'ADMIN' | 'CASHIER' = 'ADMIN') {
+  // El token vive solo en memoria; lo único que sobrevive a un recargue es el usuario.
+  // Sembrarlo es lo que distingue «alguien tenía sesión y caducó» de «nunca entró nadie».
+  writeAuthUser(
+    buildAuthUser({
+      taxMode: role === 'ADMIN' ? 'INC_RESTAURANT' : 'IVA',
+      role,
+      enableTables: true
+    })
+  );
+
   writeAuthSession({
     accessToken: 'token-admin',
-    user: {
-      id: '11111111-1111-4111-8111-111111111111',
-      tenantId: '22222222-2222-4222-8222-222222222222',
-      taxMode: 'IVA',
-      role,
-      email: 'admin@demo.posdian.local',
-      name: 'Admin Demo',
-      active: true,
-      enableTables: true
-    }
+    user: buildAuthUser({ role, enableTables: true })
   });
 }
 

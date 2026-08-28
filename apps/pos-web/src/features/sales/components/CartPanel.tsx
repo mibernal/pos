@@ -1,5 +1,5 @@
 import { formatMoneyFromCents } from '../../../lib/format';
-import React, { useRef, useEffect } from 'react';
+import React from 'react';
 import type { CartItem } from '../../../types';
 import { usePosStore } from '../../../hooks/usePosStore';
 import { readScaleWeight } from '../../../lib/hardware';

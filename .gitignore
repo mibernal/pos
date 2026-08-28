@@ -13,3 +13,6 @@ coverage
 
 apps/pos-web/.vite
 apps/pos-web/dev-dist
+
+# Carpeta de descarte: Claude no puede borrar archivos en este montaje
+_to_delete/

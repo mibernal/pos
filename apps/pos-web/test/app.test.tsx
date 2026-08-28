@@ -4,8 +4,9 @@ import { fireEvent, render, screen, waitFor, within } from '@testing-library/rea
 import App from '../src/app/App';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { addPendingSale, clearPendingSales } from '../src/lib/offline-queue';
-import { writeAuthSession, writePosContext } from '../src/lib/session';
+import { writeAuthSession, writeAuthUser, writePosContext } from '../src/lib/session';
 import { usePosStore } from '../src/hooks/usePosStore';
+import { buildAuthUser } from './helpers/session-fixture';
 
 function normalizeText(value: string | null | undefined) {
   return (value ?? '').replace(/\s+/g, ' ').trim();
@@ -20,18 +21,23 @@ function expectPendingCount(count: number) {
 }
 
 function seedSession(role: 'ADMIN' | 'CASHIER' = 'ADMIN') {
-  writeAuthSession({
-    accessToken: 'token-admin',
-    user: {
-      id: '11111111-1111-4111-8111-111111111111',
-      tenantId: '22222222-2222-4222-8222-222222222222',
+  // El token vive solo en memoria; lo único que sobrevive a un recargue es el usuario.
+  // Sembrarlo es lo que distingue «alguien tenía sesión y caducó» de «nunca entró nadie».
+  writeAuthUser(
+    buildAuthUser({
       taxMode: role === 'ADMIN' ? 'INC_RESTAURANT' : 'IVA',
       role,
-      email: 'admin@demo.posdian.local',
-      name: 'Admin Demo',
-      active: true,
       enableTables: true
-    }
+    })
+  );
+
+  writeAuthSession({
+    accessToken: 'token-admin',
+    user: buildAuthUser({
+      taxMode: role === 'ADMIN' ? 'INC_RESTAURANT' : 'IVA',
+      role,
+      enableTables: true
+    })
   });
 
   const context = {
@@ -45,6 +51,56 @@ function seedSession(role: 'ADMIN' | 'CASHIER' = 'ADMIN') {
   writePosContext(context);
   usePosStore.setState({ posContext: context });
 }
+
+// La app ya no confía en el `posContext` guardado: al arrancar consulta la caja del
+// terminal contra el servidor. Sin esta respuesta, cualquier prueba «autenticada»
+// termina en la pantalla de apertura de caja en vez del panel principal.
+// Los permisos que el API concede a cada rol (apps/api/src/shared/infra/security/permissions.ts).
+// `usePosNavigation` filtra las rutas con ellos, así que un usuario simulado sin permisos
+// no ve ninguna pestaña.
+const ROLE_PERMISSIONS: Record<'ADMIN' | 'CASHIER', string[]> = {
+  ADMIN: [],
+  CASHIER: [
+    'sales:create',
+    'sales:view',
+    'returns:create',
+    'inventory:view',
+    'products:view',
+    'customers:view',
+    'customers:create',
+    'customers:update',
+    'cash:open',
+    'cash:close',
+    'cash:move',
+    'terminals:view',
+    'branches:view'
+  ]
+};
+
+// Con la caja ya abierta, la app se detiene en un paso de confirmación antes de entrar
+// al punto de venta. Las pruebas que operan sobre el shell tienen que atravesarlo.
+async function enterPosShell() {
+  const continueButton = await screen.findByRole('button', { name: /Continuar al Punto de Venta/i });
+  fireEvent.click(continueButton);
+
+  // Con el módulo de mesas activo la ruta por defecto es «Mesas», no el POS. Estas
+  // pruebas ejercen la venta de mostrador, así que se posicionan explícitamente.
+  const posTab = await screen.findByRole('button', { name: 'POS' });
+  fireEvent.click(posTab);
+}
+
+const OPEN_CASH_SESSION = {
+  id: '44444444-4444-4444-8444-444444444444',
+  tenant_id: '22222222-2222-4222-8222-222222222222',
+  branch_id: '33333333-3333-4333-8333-333333333333',
+  opened_by_user_id: '11111111-1111-4111-8111-111111111111',
+  opened_at: new Date().toISOString(),
+  opening_amount_cents: 10000,
+  closed_at: null,
+  closing_cash_real_cents: null,
+  expected_cash_cents: null,
+  diff_cents: null
+};
 
 function mockAuthenticatedAppFetch(role: 'ADMIN' | 'CASHIER' = 'ADMIN') {
   return vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
@@ -61,7 +117,9 @@ function mockAuthenticatedAppFetch(role: 'ADMIN' | 'CASHIER' = 'ADMIN') {
               email: 'admin@demo.posdian.local',
               name: 'Admin Demo',
               active: true,
-              enableTables: true
+              enableTables: true,
+              permissions: ROLE_PERMISSIONS[role],
+              branchIds: ['33333333-3333-4333-8333-333333333333']
           }
         }),
         { status: 200, headers: { 'content-type': 'application/json' } }
@@ -80,7 +138,9 @@ function mockAuthenticatedAppFetch(role: 'ADMIN' | 'CASHIER' = 'ADMIN') {
               email: 'admin@demo.posdian.local',
               name: 'Admin Demo',
               active: true,
-              enableTables: true
+              enableTables: true,
+              permissions: ROLE_PERMISSIONS[role],
+              branchIds: ['33333333-3333-4333-8333-333333333333']
           }
         }),
         { status: 200, headers: { 'content-type': 'application/json' } }
@@ -118,7 +178,7 @@ function mockAuthenticatedAppFetch(role: 'ADMIN' | 'CASHIER' = 'ADMIN') {
               name: 'Sucursal Centro',
               address: 'Calle 1 # 2-3',
               created_at: new Date().toISOString(),
-              current_cash_session: null
+              current_cash_session: OPEN_CASH_SESSION
             }
           ]
         }),
@@ -158,6 +218,12 @@ function mockAuthenticatedAppFetch(role: 'ADMIN' | 'CASHIER' = 'ADMIN') {
       );
     }
 
+    if (url.includes('/cash-sessions/current')) {
+      return new Response(JSON.stringify({ cash_session: OPEN_CASH_SESSION }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' }
+      });
+    }
     return new Response(JSON.stringify({ message: 'not found' }), {
       status: 404,
       headers: { 'content-type': 'application/json' }
@@ -314,7 +380,7 @@ function mockAuthenticatedPosFetch(options?: {
               name: 'Sucursal Centro',
               address: 'Calle 1 # 2-3',
               created_at: new Date().toISOString(),
-              current_cash_session: null
+              current_cash_session: OPEN_CASH_SESSION
             }
           ]
         }),
@@ -349,6 +415,12 @@ function mockAuthenticatedPosFetch(options?: {
       });
     }
 
+    if (url.includes('/cash-sessions/current')) {
+      return new Response(JSON.stringify({ cash_session: OPEN_CASH_SESSION }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' }
+      });
+    }
     return new Response(JSON.stringify({ message: 'not found' }), {
       status: 404,
       headers: { 'content-type': 'application/json' }
@@ -443,16 +515,20 @@ describe('App', () => {
     await clearPendingSales();
   });
 
-  it('renders POS title', () => {
+  // La sesión vive solo en memoria: al montar, la app llama a /auth/refresh y muestra
+  // «Validando sesión...» hasta que esa promesa se resuelve. Todas las aserciones sobre
+  // la pantalla inicial tienen que esperar a que termine la hidratación.
+  it('renders POS title', async () => {
     render(<QueryClientProvider client={new QueryClient()}><App /></QueryClientProvider>);
-    expect(screen.getByRole('heading', { name: 'BIENVENIDO' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'Inicia sesión' })).toBeInTheDocument();
     expect(screen.getByLabelText('Correo Electrónico')).toBeInTheDocument();
   });
 
-  it('logs in and loads branch setup when credentials are valid', async () => {
+  it('tras un login válido llega al paso de apertura de caja', async () => {
     mockLoginFlowFetch();
 
     render(<QueryClientProvider client={new QueryClient()}><App /></QueryClientProvider>);
+    await screen.findByLabelText('Correo Electrónico');
 
     fireEvent.change(screen.getByLabelText('Correo Electrónico'), {
       target: { value: 'cashier@demo.posdian.local' }
@@ -462,7 +538,12 @@ describe('App', () => {
     });
     fireEvent.click(screen.getByRole('button', { name: 'Iniciar Sesión' }));
 
-    expect(await screen.findByRole('heading', { name: 'PUNTO DE VENTA' })).toBeInTheDocument();
+    // Con una sola sucursal y una sola caja, el asistente salta esos pasos y aterriza
+    // directamente en la apertura de caja.
+    expect(await screen.findByRole('heading', { name: 'Estado de la Caja' })).toBeInTheDocument();
+    expect(
+      await screen.findByRole('button', { name: /Abrir Caja y Comenzar/i })
+    ).toBeInTheDocument();
   });
 
   it('redirects to login when a persisted session is no longer valid', async () => {
@@ -486,6 +567,7 @@ describe('App', () => {
 
     render(<QueryClientProvider client={new QueryClient()}><App /></QueryClientProvider>);
 
+    await enterPosShell();
     const openConfigButton = await screen.findByTitle('Configuración DIAN');
     fireEvent.click(openConfigButton);
 
@@ -506,6 +588,7 @@ describe('App', () => {
 
     render(<QueryClientProvider client={new QueryClient()}><App /></QueryClientProvider>);
 
+    await enterPosShell();
     const productsTab = await screen.findByRole('button', { name: 'Productos' });
     fireEvent.click(productsTab);
 
@@ -520,12 +603,16 @@ describe('App', () => {
 
     expect(screen.queryByRole('button', { name: 'Configuración DIAN' })).not.toBeInTheDocument();
 
+    await enterPosShell();
     fireEvent.click(await screen.findByRole('button', { name: 'Productos' }));
 
+    // El acceso de solo lectura ya no se anuncia con un aviso: lo impone PermissionGuard
+    // alrededor de las acciones de gestión.
+    expect(await screen.findByRole('heading', { name: 'Catálogo de Productos' })).toBeInTheDocument();
     expect(
-      await screen.findByText(/como cajero, puedes ver el catálogo pero no realizar modificaciones/i)
+      await screen.findByText(/no tienes permisos para gestionar productos/i)
     ).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'Crear producto' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /crear producto/i })).not.toBeInTheDocument();
   });
 
   it('queues the sale on network failure and syncs it when backend reports the same client_uuid', async () => {
@@ -559,7 +646,11 @@ describe('App', () => {
 
     render(<QueryClientProvider client={new QueryClient()}><App /></QueryClientProvider>);
 
-    await screen.findByRole('button', { name: /agregar destacado/i });
+    await enterPosShell();
+    // El catálogo abre en la rejilla de categorías; hay que pedir el listado completo
+    // para que aparezcan las tarjetas de producto.
+    fireEvent.click(await screen.findByRole('button', { name: /Todos los Productos/i }));
+    await screen.findByRole('button', { name: /Cafe Americano/i });
     fireEvent.keyDown(await screen.findByLabelText('Búsqueda rápida'), { key: 'Enter' });
     fireEvent.click(screen.getByRole('button', { name: /cobrar/i }));
 
@@ -609,6 +700,7 @@ describe('App', () => {
     });
 
     render(<QueryClientProvider client={new QueryClient()}><App /></QueryClientProvider>);
+    await enterPosShell();
 
     await waitFor(() => {
       expectPendingCount(1);

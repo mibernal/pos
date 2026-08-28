@@ -8,7 +8,7 @@ const BATCH_SIZE = 50;
 const tenantRequestCounts = new Map<string, number>();
 
 export const billingUsagePlugin: FastifyPluginAsync = fp(async (fastify) => {
-  fastify.addHook('onResponse', async (request, reply) => {
+  fastify.addHook('onResponse', async (request, _reply) => {
     // Solo contamos peticiones autenticadas
     const tenantId = (request.user as any)?.tenantId; // eslint-disable-line @typescript-eslint/no-explicit-any
     if (!tenantId) {

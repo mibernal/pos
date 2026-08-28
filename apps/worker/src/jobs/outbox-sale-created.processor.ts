@@ -2,7 +2,6 @@ import type { Job } from 'bullmq';
 import type { Pool } from 'pg';
 import { env } from '../config/env.js';
 import { computeNextRetryAt } from '../outbox/backoff.js';
-import type { DianProvider } from '@pos-dian/shared/types/dian-provider.js';
 import {
   formatDianStatusTransitions,
   getDianEmissionBlockReason,
@@ -23,6 +22,7 @@ import {
   updateDianDocumentMetadata
 } from './shared/outbox-store.js';
 import { executeAsTenantClient } from '../infra/db/rls.js';
+import { resolveDianCredentials } from '../infra/security/dian-credentials.js';
 
 interface BuildOutboxSaleCreatedProcessorInput {
   pool: Pool;
@@ -51,6 +51,17 @@ export function buildOutboxSaleCreatedProcessor({
     const idempotencyKey = buildIdempotencyKey(payload, tenantId, saleId);
 
     // 1. Ejecutar descargo de inventario asíncrono e idempotente
+    const lowStockAlerts: Array<{
+      product_id: string;
+      product_name: string;
+      variant_id: string | null;
+      tenant_id: string;
+      branch_id: string;
+      current_qty: number;
+      min_stock_alert_qty: number;
+      sale_id: string;
+    }> = [];
+
     try {
       await executeAsTenantClient(pool, tenantId, async (client) => {
         // Verificar idempotencia de inventario (si ya existe transacción de venta, se omite)
@@ -78,7 +89,7 @@ export function buildOutboxSaleCreatedProcessor({
           });
         }
 
-        for (const [key, req] of qtyByKey.entries()) {
+        for (const req of qtyByKey.values()) {
           // Actualizar balances
           const balanceRes = await client.query(
             `INSERT INTO inventory_balances (tenant_id, branch_id, product_id, variant_id, on_hand_qty, updated_at)
@@ -146,29 +157,52 @@ export function buildOutboxSaleCreatedProcessor({
           );
 
           const productRes = await client.query(
-            `SELECT min_stock_alert_qty FROM products WHERE tenant_id = $1::uuid AND id = $2::uuid`,
+            `SELECT name, min_stock_alert_qty FROM products WHERE tenant_id = $1::uuid AND id = $2::uuid`,
             [tenantId, req.productId]
           );
-          const minAlert = productRes.rows[0]?.min_stock_alert_qty;
+          const product = productRes.rows[0];
+          const minAlert = product?.min_stock_alert_qty;
 
           if (minAlert !== null && minAlert !== undefined && onHandQty <= minAlert) {
-            const eventPayload = {
+            // Solo se anota. La publicación ocurre DESPUÉS del commit: una alerta de
+            // stock no puede tener la potestad de revertir el descargo de inventario
+            // ni de impedir que la venta se facture.
+            lowStockAlerts.push({
               product_id: req.productId,
+              product_name: String(product?.name ?? ''),
               variant_id: req.variantId,
+              tenant_id: tenantId,
               branch_id: payload.branch_id,
               current_qty: onHandQty,
-              min_stock_alert_qty: minAlert,
+              min_stock_alert_qty: Number(minAlert),
               sale_id: saleId
-            };
-            await client.query(
-              `INSERT INTO outbox_events 
-               (id, tenant_id, aggregate_type, aggregate_id, event_type, payload_json, status, attempts, created_at, updated_at)
-               VALUES (gen_random_uuid(), $1::uuid, 'INVENTORY', $2::uuid, 'StockLowEvent', $3, 'PENDING', 0, NOW(), NOW())`,
-              [tenantId, req.productId, JSON.stringify(eventPayload)]
-            );
+            });
           }
         }
       });
+
+      // Publicación best-effort, fuera de la transacción y con su propio try/catch.
+      for (const alert of lowStockAlerts) {
+        try {
+          await pool.query(
+            `INSERT INTO outbox_events
+               (id, tenant_id, type, event_version, aggregate_type, aggregate_id, branch_id,
+                payload_json, status, attempts, created_at, updated_at)
+             VALUES (gen_random_uuid(), $1::uuid, 'low_stock.alert', 1, 'INVENTORY', $2::uuid, $3::uuid,
+                     $4, 'PENDING', 0, NOW(), NOW())`,
+            [alert.tenant_id, alert.product_id, alert.branch_id, JSON.stringify(alert)]
+          );
+        } catch (alertError) {
+          logWorkerError({
+            event: 'low_stock_alert_publish_failed',
+            message: 'No se pudo publicar la alerta de bajo stock (la venta no se ve afectada)',
+            job_id: job.id?.toString(),
+            sale_id: saleId,
+            tenant_id: tenantId,
+            error: alertError
+          });
+        }
+      }
       logWorkerInfo({
         event: 'sale_inventory_discharged',
         message: 'Successfully discharged inventory for sale',
@@ -234,6 +268,30 @@ export function buildOutboxSaleCreatedProcessor({
     }
 
     // 2. Emisión DIAN
+
+    // Si la venta se anuló mientras el evento esperaba en la bandeja de salida, no hay
+    // factura que emitir: enviarla obligaría a una nota crédito inmediata y quemaría un
+    // consecutivo de la resolución. El inventario ya se descargó arriba y la anulación
+    // lo repone, de modo que el ledger conserva ambos movimientos.
+    const saleStatusRes = await pool.query<{ status: string }>(
+      `SELECT status FROM sales WHERE tenant_id = $1 AND id = $2`,
+      [tenantId, saleId]
+    );
+    if (saleStatusRes.rows[0]?.status === 'VOID') {
+      await markOutboxSent(pool, claimedEvent.id, nextAttemptNumber);
+      logWorkerInfo({
+        event: 'dian_outbox_job_skipped',
+        message: 'Emisión DIAN omitida: la venta fue anulada antes de emitirse',
+        job_id: job.id?.toString(),
+        outbox_event_id: claimedEvent.id,
+        sale_id: saleId,
+        tenant_id: tenantId,
+        attempt: nextAttemptNumber,
+        provider_result: 'SKIPPED',
+        reason: 'SALE_VOIDED_BEFORE_EMISSION'
+      });
+      return;
+    }
 
     const dianDocument = await getOrCreateDianDocument(pool, tenantId, saleId, 'INVOICE');
 
@@ -326,7 +384,11 @@ export function buildOutboxSaleCreatedProcessor({
 
       const provider = buildDianProvider({
         provider_name: providerConfig.provider_name,
-        credentials: providerConfig.credentials as Record<string, unknown>,
+        credentials: resolveDianCredentials(providerConfig.credentials, {
+          tenantId,
+          isProduction: env.NODE_ENV === 'production',
+          encryptionKey: env.CREDENTIALS_ENCRYPTION_KEY
+        }),
         test_mode: providerConfig.test_mode
       });
 

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef } from 'react';
-import { Banner, PlaceholderImage } from '../../components/ui';
+import { Banner } from '../../components/ui';
 import { formatMoneyFromCents } from '../../lib/format';
 import { extractTicketPayments, printSaleTicket, printSaleTicketESCPOS, printKitchenTicket, printKitchenTicketESCPOS, type KitchenTicketInput } from '../../lib/ticket-printer';
 import type { PendingSaleRecord } from '../../lib/offline-queue';
@@ -101,7 +101,7 @@ export function PosScreen({
     }
   }, [activeTable, setSelectedCategory]);
 
-  const { data: tableOrderData, isLoading: isLoadingTableOrder } = useGetTableOrder(branchId, activeTable?.id);
+  const { data: tableOrderData } = useGetTableOrder(branchId, activeTable?.id);
   const { mutateAsync: saveTableOrder, isPending: isSavingTableOrder } = useSaveTableOrder();
   const { mutateAsync: sendToKitchen, isPending: isSendingToKitchen } = useSendTableOrderToKitchen();
   const { mutateAsync: fireKitchenCourse, isPending: isFiringCourse } = useFireKitchenCourse();
@@ -525,7 +525,7 @@ export function PosScreen({
                               printKitchenTicket(printInput);
                             }
                           }
-                        } catch (printErr) {
+                        } catch {
                           setSaleError('Error al imprimir comanda. Verifique la impresora.');
                         }
                       }
@@ -536,7 +536,7 @@ export function PosScreen({
                       setActiveTable(null);
                       onNavigate?.('tables');
                     }, 1500);
-                  } catch (e) {
+                  } catch {
                     setSaleError('Error al guardar en la mesa');
                   }
                 }}
@@ -577,7 +577,7 @@ export function PosScreen({
                   onClick={async () => {
                     try {
                       await fireKitchenCourse({ branchId, tableId: activeTable.id });
-                    } catch (e) {
+                    } catch {
                       setSaleError('Error al marchar tiempos');
                     }
                   }}
@@ -596,7 +596,7 @@ export function PosScreen({
                       await clearTableOrder({ branchId, tableId: activeTable.id });
                       setActiveTable(null);
                       onNavigate?.('tables');
-                    } catch (e) {
+                    } catch {
                       setSaleError('Error al liberar la mesa');
                     }
                   }

@@ -4,7 +4,6 @@ import { PageHeader, Banner } from '../../components/ui';
 import { useReservations, useUpdateReservationStatus } from './api/reservations.api';
 import { ReservationModal } from './components/ReservationModal';
 import { format, startOfDay, endOfDay } from 'date-fns';
-import { es } from 'date-fns/locale';
 import type { Reservation, ReservationStatus } from '@pos-dian/shared';
 
 interface Props {

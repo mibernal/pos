@@ -149,7 +149,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       if (sessionRef.current) {
         commitSession({ ...sessionRef.current, user: response.user });
       }
-    } catch (error) {
+    } catch {
       // Ignore background refresh errors
     }
   }, [commitSession]);
@@ -275,7 +275,10 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       clearAuthMessage,
       authState,
       isHydrating,
-      isAuthenticated: authState === 'authenticated',
+      // `reauth_required` cuenta como autenticado a propósito: `RequireSession` cambia
+      // toda la app por la pantalla de login cuando esto es false, y desmontar el POS
+      // detrás del modal de reautenticación le borra el carrito al cajero a mitad de venta.
+      isAuthenticated: authState === 'authenticated' || authState === 'reauth_required',
       login,
       logout,
       role: user?.role ?? null,

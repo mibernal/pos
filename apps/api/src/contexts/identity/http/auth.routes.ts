@@ -1,4 +1,4 @@
-import { randomBytes, createHash, randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import type { FastifyPluginAsync } from 'fastify';
 import { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { loginBodySchema } from '@pos-dian/shared';
@@ -398,7 +398,7 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
         body: z.object({ session_id: z.string() })
       }
     },
-    async (request, reply) => {
+    async (request, _reply) => {
       const { session_id } = request.body;
 
       const session = await app.db.selectFrom('impersonation_sessions')
@@ -592,7 +592,7 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
         body: z.object({ session_id: z.string() })
       }
     },
-    async (request, reply) => {
+    async (request, _reply) => {
       const { session_id } = request.body;
 
       await app.db.updateTable('impersonation_sessions')

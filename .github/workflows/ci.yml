@@ -1,15 +1,50 @@
 name: CI
-env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 on:
   push:
     branches: [main, master]
   pull_request:
 
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  # Debe coincidir con los servicios declarados abajo y con los defaults de apps/api/src/app/env.ts
+  DATABASE_URL: postgres://pos:pos@localhost:5432/pos_dian
+  REDIS_URL: redis://localhost:6379
+  JWT_SECRET: ci-secret-that-is-at-least-thirty-two-chars-long
+  NODE_ENV: test
+
 jobs:
   lint-test-build:
     runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: pos_dian
+          POSTGRES_USER: pos
+          POSTGRES_PASSWORD: pos
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U pos -d pos_dian"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
 
     steps:
       - name: Checkout
@@ -32,6 +67,13 @@ jobs:
 
       - name: Typecheck
         run: pnpm typecheck
+
+      # Aplica las 88 migraciones desde cero contra una base vacía.
+      # Es a la vez el setup de los e2e y una prueba de que el esquema se puede
+      # construir desde el primer archivo — que es lo que ocurre en cada
+      # instalación nueva, cloud u on-premise.
+      - name: Migrate database (desde cero)
+        run: pnpm --filter @pos-dian/api db:migrate
 
       - name: Test
         run: pnpm test

@@ -228,6 +228,6 @@ describe('Sales - Price Drift & Snapshots', () => {
 
     expect(response.statusCode).toBe(400);
     const body = response.json() as any;
-    expect(body.code).toBe('PRICE_DRIFT_EXCEEDED');
+    expect(body.error.code).toBe('PRICE_DRIFT_EXCEEDED');
   });
 });

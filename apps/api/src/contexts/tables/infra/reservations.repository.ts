@@ -1,8 +1,8 @@
 import { Kysely } from 'kysely';
-import { Database } from '../../shared/infra/db/schema.js';
+import { Database } from '../../../shared/infra/db/schema.js';
 import { executeAsTenant } from '../../../shared/infra/db/rls.js';
 import { randomUUID } from 'crypto';
-import { CreateReservationPayload, UpdateReservationPayload, UpdateReservationStatusPayload, Reservation } from '@pos-dian/shared';
+import { CreateReservationPayload, UpdateReservationPayload, Reservation } from '@pos-dian/shared';
 
 export class ReservationsRepository {
   constructor(private readonly db: Kysely<Database>) { }
