@@ -3,6 +3,8 @@ import { FastifyInstance } from 'fastify';
 import { sql } from 'kysely';
 import { buildApp } from '../src/app/build-app.js';
 import {
+  adminDb,
+  closeAdminDb,
   bearerHeaders,
   cleanupE2eFixture,
   ensureE2eSchema,
@@ -29,6 +31,7 @@ describe('Outbox Events E2E', () => {
   });
 
   afterAll(async () => {
+    await closeAdminDb();
     await app.close();
   });
 
@@ -76,7 +79,7 @@ describe('Outbox Events E2E', () => {
     // Check that an outbox event was created
     const { rows } = await sql<{ id: string; type: string; aggregate_id: string }>`
       SELECT id, type, aggregate_id FROM outbox_events WHERE tenant_id = ${fixture.tenantId} AND aggregate_id = ${saleId}
-    `.execute(app.db);
+    `.execute(adminDb());
 
     expect(rows.length).toBeGreaterThan(0);
     const saleCreatedEvent = rows.find((r: any) => r.type === 'sale.created');
@@ -134,13 +137,19 @@ describe('Outbox Events E2E', () => {
 
     const { rows } = await sql<{ id: string; type: string; aggregate_id: string }>`
       SELECT id, type, aggregate_id FROM outbox_events WHERE tenant_id = ${fixture.tenantId} AND aggregate_id = ${saleId}
-    `.execute(app.db);
+    `.execute(adminDb());
 
     const saleVoidedEvent = rows.find((r: any) => r.type === 'sale.voided');
     expect(saleVoidedEvent).toBeDefined();
     expect(saleVoidedEvent!.aggregate_id).toBe(saleId);
   });
 
+  // Saltada a propósito: la alerta de bajo stock ya no la publica el API. El inventario se
+  // descarga en el worker al procesar `sale.created`, y la alerta se publica después del
+  // commit de esa transacción (una alerta no puede tumbar una venta, ver D-041). Este caso
+  // se cubre donde ahora ocurre: apps/worker/test/outbox-sale-created.processor.test.ts,
+  // "publica la alerta de bajo stock sin poner en riesgo el descargo ni la emisión".
+  // Se conserva el cuerpo por si el descargo vuelve algún día al camino síncrono.
   it.skip('creates a low_stock.alert outbox event when stock falls below min_stock_alert_qty', async () => {
     const fixture = await seedE2eFixture(app);
     fixturesToCleanup.push(fixture);
@@ -151,12 +160,12 @@ describe('Outbox Events E2E', () => {
     });
 
     // 1. Give the product a min_stock_alert_qty of 5 and current stock of 6
-    await app.db.updateTable('products')
+    await adminDb().updateTable('products')
       .set({ min_stock_alert_qty: 5 })
       .where('id', '=', fixture.productId)
       .execute();
 
-    await app.db.insertInto('inventory_balances').values({
+    await adminDb().insertInto('inventory_balances').values({
       tenant_id: fixture.tenantId,
       branch_id: fixture.branchId,
       product_id: fixture.productId,
@@ -196,7 +205,7 @@ describe('Outbox Events E2E', () => {
     // 4. Verify the outbox event for LOW_STOCK_ALERT was created
     const { rows } = await sql<{ id: string; type: string; aggregate_id: string }>`
       SELECT id, type, aggregate_id FROM outbox_events WHERE tenant_id = ${fixture.tenantId} AND aggregate_id = ${fixture.productId}
-    `.execute(app.db);
+    `.execute(adminDb());
 
     const lowStockAlertEvent = rows.find((r: any) => r.type === 'low_stock.alert');
     expect(lowStockAlertEvent).toBeDefined();

@@ -34,3 +34,19 @@ export function createDb(): Kysely<Database> {
     plugins: [new DbMetricsPlugin()]
   });
 }
+
+/**
+ * Conexión con el rol dueño del esquema, para migraciones y semillas.
+ *
+ * La API corre con un rol SIN BYPASSRLS a propósito: así el aislamiento entre comercios lo
+ * impone PostgreSQL. Ese rol no puede hacer DDL ni sembrar filas de varios comercios, que
+ * es justo lo que migrar y sembrar necesitan.
+ */
+export function createAdminDb(): Kysely<Database> {
+  const pool = new Pool({
+    connectionString: env.ADMIN_DATABASE_URL ?? env.DATABASE_URL,
+    max: 4
+  });
+
+  return new Kysely<Database>({ dialect: new PostgresDialect({ pool }) });
+}

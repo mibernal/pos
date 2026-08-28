@@ -1,6 +1,7 @@
 import type { FastifyPluginAsync, FastifyRequest } from 'fastify';
 import fp from 'fastify-plugin';
 import { ZodError } from 'zod';
+import { hasZodFastifySchemaValidationErrors, isResponseSerializationError } from 'fastify-type-provider-zod';
 import { AppError } from '../infra/errors/app-error.js';
 import { buildRequestLogContext } from '../infra/logging/request-log-context.js';
 
@@ -81,6 +82,58 @@ const errorHandlerPluginImpl: FastifyPluginAsync = async (app) => {
           code: 'VALIDATION_ERROR',
           message: 'Solicitud inválida',
           details: error.flatten()
+        }
+      });
+    }
+
+    // Validación de la petición hecha por Fastify a partir del esquema Zod de la ruta.
+    //
+    // El error que llega aquí NO es un `ZodError`: `fastify-type-provider-zod` lo envuelve
+    // en un error propio de Fastify. Sin esta rama caía hasta el 500 genérico, de modo que
+    // *toda* petición mal formada del cliente respondía "Ocurrió un error interno" con
+    // `details: null` — el servidor culpándose a sí mismo del error del cliente, y sin
+    // decir qué campo estaba mal. Fue así como se manifestó el intento de crear un usuario
+    // con rol WAITER cuando el enum de la ruta todavía no lo incluía.
+    if (hasZodFastifySchemaValidationErrors(error)) {
+      // `instancePath` viene como "/role" o "/items/0/qty"; se normaliza a la notación por
+      // puntos que ya usa el resto de los errores de validación de la API.
+      const details = {
+        issues: error.validation.map((issue) => ({
+          path: issue.instancePath.replace(/^\//, '').replaceAll('/', '.'),
+          message: issue.message ?? 'Valor inválido',
+          code: issue.keyword
+        }))
+      };
+
+      logHandledError(request, 'warn', error, 'VALIDATION_ERROR', details, 'Request validation failed');
+
+      return reply.status(400).send({
+        error: {
+          code: 'VALIDATION_ERROR',
+          message: 'Solicitud inválida',
+          details
+        }
+      });
+    }
+
+    // La respuesta no cumple el esquema declarado por la ruta. Es un defecto del servidor,
+    // no del cliente, y se registra como tal: 500, pero con el detalle en el log para que
+    // no haya que adivinar qué campo faltaba.
+    if (isResponseSerializationError(error)) {
+      logHandledError(
+        request,
+        'error',
+        error,
+        'RESPONSE_SERIALIZATION_ERROR',
+        { method: error.method, url: error.url, issues: error.cause.issues },
+        'Response did not match the declared schema'
+      );
+
+      return reply.status(500).send({
+        error: {
+          code: 'INTERNAL_SERVER_ERROR',
+          message: 'Ocurrió un error interno',
+          details: null
         }
       });
     }

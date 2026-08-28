@@ -3,6 +3,8 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import type { FastifyInstance } from 'fastify';
 import { buildApp } from '../../../app/build-app.js';
 import {
+  adminDb,
+  closeAdminDb,
   cleanupE2eFixture,
   ensureE2eSchema,
   seedE2eFixture,
@@ -30,7 +32,7 @@ async function seedOpenTableOrder(fixture: E2eFixture, qty: number) {
   const orderId = randomUUID();
   createdRooms.push(roomId);
 
-  await app.db.transaction().execute(async (trx) => {
+  await adminDb().transaction().execute(async (trx) => {
     await trx
       .insertInto('rooms')
       .values({
@@ -86,7 +88,7 @@ async function seedOpenTableOrder(fixture: E2eFixture, qty: number) {
 }
 
 async function setQty(fixture: E2eFixture, orderId: string, qty: number) {
-  await app.db
+  await adminDb()
     .updateTable('table_order_items')
     .set({ qty, line_total_cents: fixture.productPriceCents * qty })
     .where('tenant_id', '=', fixture.tenantId)
@@ -99,25 +101,26 @@ describe('TableOrdersRepository — envío a cocina por deltas', () => {
     await ensureE2eSchema();
     app = await buildApp();
     await app.ready();
-    repository = new TableOrdersRepository(app.db);
+    repository = new TableOrdersRepository(adminDb());
   });
 
   afterEach(async () => {
     while (createdTenants.length > 0) {
       const tenant = createdTenants.pop()!;
-      await app.db.deleteFrom('kitchen_ticket_items').where('tenant_id', '=', tenant.tenantId).execute();
-      await app.db.deleteFrom('kitchen_tickets').where('tenant_id', '=', tenant.tenantId).execute();
-      await app.db.deleteFrom('order_rounds').where('tenant_id', '=', tenant.tenantId).execute();
-      await app.db.deleteFrom('table_order_items').where('tenant_id', '=', tenant.tenantId).execute();
-      await app.db.deleteFrom('table_orders').where('tenant_id', '=', tenant.tenantId).execute();
-      await app.db.deleteFrom('tables').where('tenant_id', '=', tenant.tenantId).execute();
-      await app.db.deleteFrom('rooms').where('tenant_id', '=', tenant.tenantId).execute();
+      await adminDb().deleteFrom('kitchen_ticket_items').where('tenant_id', '=', tenant.tenantId).execute();
+      await adminDb().deleteFrom('kitchen_tickets').where('tenant_id', '=', tenant.tenantId).execute();
+      await adminDb().deleteFrom('order_rounds').where('tenant_id', '=', tenant.tenantId).execute();
+      await adminDb().deleteFrom('table_order_items').where('tenant_id', '=', tenant.tenantId).execute();
+      await adminDb().deleteFrom('table_orders').where('tenant_id', '=', tenant.tenantId).execute();
+      await adminDb().deleteFrom('tables').where('tenant_id', '=', tenant.tenantId).execute();
+      await adminDb().deleteFrom('rooms').where('tenant_id', '=', tenant.tenantId).execute();
       await cleanupE2eFixture(app, tenant);
     }
     createdRooms.length = 0;
   });
 
   afterAll(async () => {
+    await closeAdminDb();
     await app.close();
   });
 
@@ -138,7 +141,7 @@ describe('TableOrdersRepository — envío a cocina por deltas', () => {
     expect(Number(result.itemsSent[0]!.qtyToSend)).toBe(2);
     expect(result.itemsSent[0]!.notes).toBe('Sin cebolla');
 
-    const tickets = await app.db
+    const tickets = await adminDb()
       .selectFrom('kitchen_tickets')
       .select(['id', 'course', 'status'])
       .where('tenant_id', '=', fixture.tenantId)
@@ -148,7 +151,7 @@ describe('TableOrdersRepository — envío a cocina por deltas', () => {
     expect(tickets[0]!.course).toBe(1);
     expect(tickets[0]!.status).toBe('PENDING');
 
-    const ticketItems = await app.db
+    const ticketItems = await adminDb()
       .selectFrom('kitchen_ticket_items')
       .select(['product_id', 'qty'])
       .where('tenant_id', '=', fixture.tenantId)
@@ -177,7 +180,7 @@ describe('TableOrdersRepository — envío a cocina por deltas', () => {
     expect(second.itemsSent).toHaveLength(1);
     expect(Number(second.itemsSent[0]!.qtyToSend)).toBe(1);
 
-    const rounds = await app.db
+    const rounds = await adminDb()
       .selectFrom('order_rounds')
       .select(['round_number'])
       .where('tenant_id', '=', fixture.tenantId)
@@ -201,7 +204,7 @@ describe('TableOrdersRepository — envío a cocina por deltas', () => {
 
     expect(second.itemsSent).toHaveLength(0);
 
-    const rounds = await app.db
+    const rounds = await adminDb()
       .selectFrom('order_rounds')
       .select(['id'])
       .where('tenant_id', '=', fixture.tenantId)

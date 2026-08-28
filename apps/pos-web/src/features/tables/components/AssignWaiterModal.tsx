@@ -1,18 +1,24 @@
 import React, { useState } from 'react';
-import type { UserRole } from '../../../lib/api';
+import { useGetWaiters } from '../api/waiters.api';
 
-interface UserItem {
-  id: string;
-  name: string;
-  role: UserRole;
-  active: boolean;
-}
-
+/**
+ * Asignación de mesero a una mesa.
+ *
+ * Antes esta pantalla listaba *usuarios* con rol WAITER o ADMIN y enviaba el id del
+ * usuario. Desde la migración 074 `tables.waiter_id` apunta a `waiters.id`, no a
+ * `users.id`, así que guardar violaba la llave foránea y la petición se caía. Y como
+ * ningún usuario podía tener rol WAITER —el enum del API no lo incluía—, la lista solo
+ * mostraba administradores. De ahí el síntoma que reportó el negocio: no había manera de
+ * asignar un mesero a una mesa.
+ *
+ * Ahora lee la misma fuente que el selector al abrir mesa: la plantilla de meseros de la
+ * sucursal, que se administra en Configuración → Meseros.
+ */
 interface AssignWaiterModalProps {
   isOpen: boolean;
   onClose: () => void;
   onAssign: (waiterId: string | null) => Promise<void>;
-  users: UserItem[];
+  branchId: string;
   currentWaiterId?: string | null;
   tableName: string;
 }
@@ -21,15 +27,15 @@ export const AssignWaiterModal: React.FC<AssignWaiterModalProps> = ({
   isOpen,
   onClose,
   onAssign,
-  users,
+  branchId,
   currentWaiterId,
   tableName
 }) => {
   const [selectedWaiterId, setSelectedWaiterId] = useState<string | null>(currentWaiterId || null);
   const [loading, setLoading] = useState(false);
+  const { data: allWaiters, isLoading } = useGetWaiters(branchId);
 
-  // We consider waiters any user that has role WAITER or ADMIN
-  const waiters = users.filter(u => u.active && (u.role === 'WAITER' || u.role === 'ADMIN'));
+  const waiters = (allWaiters ?? []).filter((w) => w.is_active);
 
   if (!isOpen) return null;
 
@@ -85,16 +91,17 @@ export const AssignWaiterModal: React.FC<AssignWaiterModalProps> = ({
                 }`}
               >
                 <span>{waiter.name}</span>
-                {waiter.role === 'ADMIN' && (
-                  <span className="text-xs bg-gray-200 text-gray-600 px-2 py-0.5 rounded-full">Admin</span>
-                )}
               </button>
             ))}
-            
-            {waiters.length === 0 && (
+
+            {isLoading && (
+              <div className="text-center py-6 text-gray-500">Cargando meseros...</div>
+            )}
+
+            {!isLoading && waiters.length === 0 && (
               <div className="text-center py-6 text-gray-500 bg-gray-50 rounded-lg border border-dashed">
-                <p>No hay meseros activos disponibles.</p>
-                <p className="text-sm mt-1">Crea usuarios con rol WAITER en Admin.</p>
+                <p>No hay meseros activos en esta sucursal.</p>
+                <p className="text-sm mt-1">Agrégalos en la pantalla <strong>Meseros</strong>.</p>
               </div>
             )}
           </div>

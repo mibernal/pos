@@ -242,18 +242,67 @@ El worker loguea por job: `outbox_event_id`, `sale_id`, `tenant_id`, `attempt`, 
 |---|---|
 | `PLATFORM_OWNER` / `PLATFORM_ADMIN` | Control total del SaaS: Gestión de Tenants (crear, suspender, reactivar), cambio de planes de facturación, y CRUD transversal sobre los usuarios de cualquier Tenant. |
 | `ADMIN` | Todo en su Tenant: configurar negocio, sucursales, usuarios, productos, anular ventas, dashboard global, auto-gestión de suscripción, control total de caja |
-| `MANAGER` | Sus sucursales: administrar cajeros, reportes, movimientos de inventario. **Sin** dashboard global, anulaciones ni facturación |
+| `MANAGER` | Sus sucursales: administrar el personal de piso (cajeros y meseros), reportes, movimientos de inventario. **Sin** dashboard global, anulaciones ni facturación |
 | `CASHIER` | Abrir/cerrar su caja, vender, ver historial de ventas, ver saldos de inventario |
+| `WAITER` | Tomar pedidos en mesa y enviarlos a cocina. **Sin** caja, catálogo, usuarios ni anulaciones. Incluye `sales:create` porque las pantallas de Mesas y POS se habilitan con ese permiso (D-047) |
 | `AUDITOR` | Solo lectura global: trazabilidad, alertas, audit logs |
+
+Los roles se derivan de una sola lista (`USER_ROLES` en `packages/shared`); estuvieron escritos a mano en cinco sitios y desincronizados, con la consecuencia de que `WAITER` fue inalcanzable durante meses pese a existir en el enum de Postgres (D-045).
+
+### Mesero ≠ usuario con rol `WAITER`
+
+Son dos cosas distintas y conviene no confundirlas:
+
+- La **plantilla de meseros** vive en la tabla `waiters` (nombre, PIN opcional, sucursal). Es lo que se asigna a una mesa: `tables.waiter_id`, `table_orders.waiter_id` y `sales.waiter_id` referencian `waiters.id` desde la migración 074.
+- El **rol `WAITER`** es una cuenta de acceso a la aplicación, para el mesero que además usa una tablet. `waiters.user_id` los vincula cuando ambos existen, y es opcional.
+
+La mayoría de los meseros de un restaurante no necesita cuenta. Ver D-046.
 
 ---
 
 ## Seguridad
 
-- **RLS (Row Level Security):** PostgreSQL enforced por `tenant_id` en datos de negocio. `refresh_tokens` excluida de RLS (D-015) para permitir el ciclo de autenticación.
-- **JWT:** Tokens de corta duración + refresh tokens por tenant.
+### Aislamiento por tenant (RLS)
+
+Es la única barrera que separa a un comercio de otro, así que conviene entender exactamente dónde vive.
+
+**El mecanismo.** Cada petición que toca datos de negocio pasa por `executeAsTenant(db, tenantId, fn)`, que abre una transacción y ejecuta `set_config('app.current_tenant', <id>, true)` — el `true` es local a la transacción, de modo que el valor no se filtra a la siguiente petición que reutilice esa conexión del pool. Las políticas comparan:
+
+```sql
+tenant_id::text = current_setting('app.current_tenant', true)
+```
+
+Si nadie fijó la variable, `current_setting(..., true)` devuelve `NULL`, la comparación es `NULL` (no verdadera) y la consulta devuelve **cero filas**. Olvidar el contexto es un bug visible —una pantalla vacía—, no una fuga silenciosa.
+
+**Quién se conecta.** El mecanismo anterior no sirve de nada si el rol de conexión salta las políticas, que es exactamente como estuvo el sistema hasta la fase 2: RLS habilitado, políticas escritas, y la API conectada con el dueño del esquema, que las ignora por definición. Desde entonces:
+
+| Conexión | Rol | Para qué |
+|---|---|---|
+| `DATABASE_URL` | `pos_api` (miembro de `api_user`) | La API. Sin `BYPASSRLS`, sin `SUPERUSER`, sin DDL. |
+| `ADMIN_DATABASE_URL` | dueño del esquema | Migraciones y semillas, nada más. |
+| worker | dueño del esquema | Deliberado: bandeja de salida, rollups y renovaciones recorren todos los comercios por diseño. Su superficie de entrada son jobs propios, no peticiones de usuario. |
+
+Todas las tablas de negocio llevan además `FORCE ROW LEVEL SECURITY`, para que ni el dueño se salte las políticas si alguien vuelve a apuntar la API allí por accidente.
+
+**Lo que apareció al mover la conexión.** El cambio de rol destapó tres clases de defecto que llevaban meses ocultos, corregidos en la migración `088_rls_consistency`:
+
+1. **Variable equivocada** (`order_rounds`, `tenant_dian_settings`): las políticas leían `app.current_tenant_id`, que nadie fija. Con RLS real habrían devuelto cero filas — y en el caso de `tenant_dian_settings` eso significa ninguna credencial del PAC, es decir, ninguna factura emitida.
+2. **RESTRICTIVE sin permisiva** (6 tablas de restaurante y domicilios): en PostgreSQL una política restrictiva *acota* a las permisivas; sin ninguna permisiva que acotar, niega todo. Domicilios, meseros y cocina se habrían apagado por completo.
+3. **Sin RLS** (10 tablas con `tenant_id`, incluida la partición por defecto de `audit_logs`): el aislamiento dependía enteramente de que ninguna consulta olvidara su `WHERE tenant_id`.
+
+**Exclusiones deliberadas.** `refresh_tokens` queda fuera (D-015): el ciclo de autenticación necesita leerla *antes* de saber a qué tenant pertenece la petición. Las tablas de plataforma (`tenants`, `plans`, `subscription_events`) tampoco llevan política de tenant porque su alcance es transversal por naturaleza; su control es de rol, no de fila. La lista completa y su justificación están en D-038.
+
+**Cómo se verifica.** `apps/api/src/shared/infra/db/__tests__/rls.spec.ts` corre contra PostgreSQL real: lectura cruzada por id, `UPDATE`/`DELETE` sobre filas ajenas, `INSERT` a nombre de otro tenant y `COUNT(*)` sin `WHERE`. Un `beforeAll` consulta `pg_roles` y **falla la suite** si el rol de conexión tiene `BYPASSRLS`, porque en ese caso las pruebas pasarían sin comprobar nada — que es precisamente lo que ocurría antes, con tres de ellas marcadas `skip`.
+
+### Resto de controles
+
+- **JWT:** Tokens de corta duración + refresh tokens por tenant. El token de sesión **no** se acepta por la URL salvo en streams SSE (`GET …/stream`), donde `EventSource` no admite cabeceras; ahí se redacta del log (D-049).
+- **`JWT_SECRET`:** en producción se valida por variedad, no solo por longitud — se rechazan los marcadores de posición y los secretos de menos de 16 caracteres distintos (D-054).
+- **Cabeceras:** `@fastify/helmet` con HSTS en producción y `referrer-policy: no-referrer`. Sin CSP a propósito: la API sirve JSON y Swagger, no el HTML de la aplicación (D-053).
+- **`/metrics`:** cerrado en producción tras `METRICS_TOKEN`, con comparación en tiempo constante; sin token configurado responde 404 (D-050).
 - **Rate Limiting:** Login con `AUTH_LOGIN_RATE_LIMIT_MAX` / `AUTH_LOGIN_RATE_LIMIT_WINDOW_MS`.
 - **CORS:** Configurable por entorno (`CORS_ALLOWED_ORIGINS`).
+- **Errores de validación:** 400 con el campo que falla, no 500 (D-048).
 - **`request_id`:** Inyectado en todos los logs del API para trazabilidad por request.
 - **`audit_logs`:** Apertura/cierre de caja, creación/anulación de venta, cambios fiscales y de catálogo.
 
@@ -293,15 +342,24 @@ flowchart LR
 
 ## Pendientes para Producción
 
+Plan completo y razonado en `docs/ROADMAP-PRODUCCION.md`.
+
 | Ítem | Estado |
 |---|---|
-| Provider DIAN real (PAC) certificado | ⏳ Pendiente |
-| Consulta/webhook para documentos en estado `SENT` | ⏳ Pendiente |
-| Despliegue HTTPS, secretos, multi-instancia | ⏳ Pendiente |
-| Políticas operativas: soporte, rotación de usuarios, recuperación | ⏳ Pendiente |
+| Compilación, esquema desde cero y suite verde en CI | ✅ Fase 0 |
+| Correcciones de negocio (stock, totales fiscales, caja, anulación, mock DIAN, credenciales cifradas) | ✅ Fase 1 |
+| RLS aplicado por el motor con rol sin `BYPASSRLS` | ✅ Fase 2 |
+| Apagado ordenado, `helmet`, `/metrics` autenticado, token fuera del query string | ✅ Fase 3 |
+| Gestión de secretos en un gestor real y rotación de las credenciales de ejemplo | ⏳ Infraestructura |
+| Provider DIAN real (PAC) certificado | ⏳ Fase 4 |
+| Cierre de ciclo para documentos en estado `SENT` | ⏳ Fase 4 |
+| Control de resolución y prefijo de numeración | ⏳ Fase 4 |
+| Escalado horizontal (advisory locks, adaptador Redis de Socket.io, `SKIP LOCKED`) | ⏳ Fase 5 |
+| Despliegue HTTPS, multi-instancia | ⏳ Pendiente |
+| Políticas operativas: soporte, rotación de usuarios, ensayo real de restauración | ⏳ Pendiente |
 | Observabilidad centralizada (stack Grafana) | ✅ Implementado localmente |
 | Integración hardware (impresoras, báscula) | ✅ Implementado (Web Serial API) |
-| **Backup automático PostgreSQL + GCS** | ✅ Implementado (GitHub Actions) |
+| **Backup automático PostgreSQL + GCS** | ✅ Implementado (GitHub Actions) — la *restauración* nunca se ha ensayado de punta a punta |
 | **Medición SaaS (billing metrics)** | ✅ Implementado (snapshot scheduler) |
 | **Feature Flags Jerárquicos** | ✅ Implementado (macro + micro) |
 

@@ -7,9 +7,13 @@ services:
     environment:
       POSTGRES_DB: pos_dian
       POSTGRES_USER: pos
-      POSTGRES_PASSWORD: pos
+      # Contraseña por defecto solo para desarrollo local. En cualquier entorno compartido
+      # se define POSTGRES_PASSWORD en el .env y el puerto no se publica al host.
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-pos}
     ports:
-      - '5432:5432'
+      # Se publica en loopback, no en 0.0.0.0: un '5432:5432' pelado deja la base expuesta
+      # a toda la red del equipo, y en un portátil en un local eso es la red del comercio.
+      - '127.0.0.1:5432:5432'
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
@@ -24,7 +28,7 @@ services:
     container_name: pos-dian-redis
     restart: unless-stopped
     ports:
-      - '6379:6379'
+      - '127.0.0.1:6379:6379'
     volumes:
       - redis_data:/data
     healthcheck:

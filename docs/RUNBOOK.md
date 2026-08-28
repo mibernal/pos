@@ -45,11 +45,31 @@ pnpm install
 
 Requiere pnpm `10.x`. Instalar con: `npm install -g pnpm@latest`
 
-### 4. Migraciones y Semilla Demo
+### 4. Migraciones, rol de la API y semilla demo
 
 ```bash
+# Migra con el rol dueño del esquema (ADMIN_DATABASE_URL)
 pnpm --filter @pos-dian/api db:migrate
+
+# Crea el rol con el que se conecta la API: SIN BYPASSRLS.
+# Debe ir DESPUÉS de migrar: el rol `api_user` lo definen las migraciones 057/089.
+DATABASE_URL=$ADMIN_DATABASE_URL ./infra/scripts/create-api-role.sh pos_api
+
 pnpm --filter @pos-dian/api db:seed
+```
+
+> **Por qué dos conexiones.** La API usa `DATABASE_URL` con un rol restringido, de modo
+> que el aislamiento entre comercios lo imponga PostgreSQL y no dependa de que ninguna
+> consulta olvide su `WHERE tenant_id`. Migraciones, semillas y el worker usan
+> `ADMIN_DATABASE_URL` (el rol dueño): hacen DDL y leen a través de todos los comercios,
+> cosa que el rol de la API no puede —ni debe— hacer. Ver D-036 en `docs/DECISIONS.md`.
+
+Verificación rápida de que el rol es el correcto:
+
+```bash
+psql "$ADMIN_DATABASE_URL" -c \
+  "SELECT rolname, rolbypassrls FROM pg_roles WHERE rolname='pos_api';"
+# rolbypassrls debe ser 'f'. Si es 't', el aislamiento es ficticio.
 ```
 
 ### 5. Arrancar en Modo Desarrollo
@@ -291,11 +311,20 @@ open http://localhost:3000/docs
 
 ## Pendientes para Producción
 
-- [ ] Provider DIAN real certificado y flujo de finalización para documentos `SENT`.
-- [ ] Despliegue con HTTPS, gestión de secretos (Vault / GCP Secret Manager) y monitoreo centralizado en la nube.
+Plan completo, con el porqué de cada ítem y los criterios de salida, en **`docs/ROADMAP-PRODUCCION.md`**. Resumen operativo:
+
+- [x] ~~Backups automáticos~~ — Implementado (GitHub Actions + GCS). **Pero la restauración nunca se ha ensayado de punta a punta**; hacerlo es requisito de salida.
+- [x] ~~El esquema se construye desde cero y CI lo verifica~~ — Fase 0.
+- [x] ~~Ningún valor fiscal proviene del cliente; credenciales del PAC cifradas~~ — Fase 1.
+- [x] ~~La API corre con un rol sin `BYPASSRLS`~~ — Fase 2. Ver "Diagnóstico de aislamiento por tenant (RLS)" más abajo.
+- [x] ~~Apagado ordenado en la API (`SIGTERM` → drenaje) y comando documentado de migración en un servidor productivo~~ — Fase 3.
+- [x] ~~`helmet`, `/metrics` autenticado, token de sesión fuera del query string, validación de entropía de `JWT_SECRET`~~ — Fase 3.
+- [ ] Gestión de secretos (Vault / GCP Secret Manager); rotar en los entornos reales toda credencial de ejemplo del repositorio. Es trabajo de infraestructura, no de código.
+- [ ] Provider DIAN real certificado y cierre del ciclo para documentos en `SENT`; control de resolución y consecutivo — Fase 4. **Bloquea facturar legalmente.**
+- [ ] Instancia única hasta completar la Fase 5 (advisory locks, adaptador Redis de Socket.io, `SKIP LOCKED`). Debe estar aceptado por escrito.
+- [ ] Despliegue con HTTPS y monitoreo centralizado en la nube.
 - [ ] Políticas operativas: soporte, rotación de usuarios y recuperación de incidentes.
 - [ ] Impresión ESC/POS integrada en el flujo de caja (actualmente requiere confirmación manual del puerto serial).
-- [x] ~~Backups automáticos~~ — Implementado (GitHub Actions + GCS).
 
 ---
 
@@ -382,3 +411,178 @@ Si necesitas investigar un cuello de botella o fuga de memoria:
    docker-compose -f infra/docker-compose.obs.yml up -d otel-collector tempo prometheus grafana
    ```
 3. Recordar apagar la infraestructura y revertir `.env` una vez localizado el error para ahorrar costos (un servidor Tempo y Loki en alto volumen puede costar igual que el propio servidor de la DB).
+
+---
+
+## Diagnóstico de aislamiento por tenant (RLS)
+
+**Síntoma: un módulo aparece vacío (mesas, cocina, domicilios, meseros) aunque hay datos.**
+Casi siempre es una consulta que no pasa por `executeAsTenant()`, o una política que usa
+una variable distinta de `app.current_tenant`. Comprobar:
+
+```sql
+-- Políticas mal configuradas: no debería devolver ninguna fila
+SELECT tablename, policyname, permissive
+FROM pg_policies
+WHERE schemaname='public'
+  AND (permissive='RESTRICTIVE' OR qual LIKE '%app.current_tenant_id%');
+
+-- Tablas con tenant_id que quedaron sin RLS
+SELECT c.relname
+FROM pg_class c
+JOIN pg_namespace n ON n.oid = c.relnamespace
+JOIN information_schema.columns col
+  ON col.table_name = c.relname AND col.table_schema='public' AND col.column_name='tenant_id'
+WHERE n.nspname='public' AND c.relkind='r' AND NOT c.relrowsecurity AND col.is_nullable='NO';
+```
+
+Las exclusiones legítimas están en D-038; cualquier otra tabla en esa lista es un hallazgo.
+
+**Síntoma: la API devuelve 500 con «permission denied for table X».**
+El rol `api_user` no tiene permisos sobre una tabla creada por una migración posterior.
+Se resuelve volviendo a correr la migración 089, que refresca los `GRANT`.
+
+**Síntoma: no se emite ninguna factura y el log dice que faltan las credenciales DIAN.**
+Con RLS aplicado, `tenant_dian_settings` solo es legible dentro del contexto del comercio.
+Verificar también que las credenciales estén cifradas (D-040):
+
+```bash
+# Genera una clave para CREDENTIALS_ENCRYPTION_KEY
+pnpm --filter @pos-dian/worker encrypt-credentials
+
+# Cifra un objeto de credenciales
+CREDENTIALS_ENCRYPTION_KEY=... pnpm --filter @pos-dian/worker encrypt-credentials \
+  '{"username":"...","access_key":"..."}'
+```
+
+---
+
+## Ejecutar las pruebas
+
+Las pruebas de la API corren contra PostgreSQL real y con el **rol restringido**, para que
+una regresión de aislamiento haga fallar la suite:
+
+```bash
+docker compose -f infra/docker-compose.yml up -d
+pnpm --filter @pos-dian/api db:migrate
+DATABASE_URL=$ADMIN_DATABASE_URL ./infra/scripts/create-api-role.sh pos_api
+pnpm test
+```
+
+`turbo.json` declara en `globalEnv` las variables que las tareas necesitan ver. Turbo 2
+filtra el entorno por defecto: una variable no declarada ahí **no llega** a los scripts y
+el código cae a sus valores por defecto —cosa que ya ocurrió una vez, haciendo que las
+pruebas corrieran contra el rol dueño sin que nadie lo notara.
+
+
+---
+
+## Despliegue y ciclo de vida del proceso (fase 3)
+
+### Migrar antes de arrancar
+
+El migrador es un entrypoint independiente y **no** carga la configuración de la aplicación: solo necesita la conexión del dueño del esquema. Eso permite correrlo como contenedor de un solo uso sin repartirle la clave de Resend ni el proveedor DIAN.
+
+```bash
+# dentro del contenedor de la API, con el bundle ya compilado
+ADMIN_DATABASE_URL=postgres://pos:<clave>@db:5432/pos_dian \
+  node dist/shared/infra/db/migrate.js
+
+# o, desde el monorepo
+pnpm --filter @pos-dian/api db:migrate:prod
+```
+
+Si falta la variable, falla de inmediato con un mensaje que lo dice. Es el mismo comando que verifica CI en cada PR.
+
+En Compose o Kubernetes va como paso previo:
+
+```yaml
+  migrate:
+    image: pos-dian-api
+    command: ["node", "dist/shared/infra/db/migrate.js"]
+    environment:
+      ADMIN_DATABASE_URL: postgres://pos:...@db:5432/pos_dian
+    depends_on:
+      postgres: { condition: service_healthy }
+
+  api:
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+```
+
+**Después de un despliegue que añade tablas**, correr también la migración de permisos —ya incluida como `089`— es automático; solo hace falta volver a ejecutar `create-api-role.sh` si se rota la contraseña de `pos_api`.
+
+### Despliegue en caliente
+
+La API atiende `SIGTERM` y `SIGINT`:
+
+1. Deja de aceptar conexiones nuevas.
+2. Espera a que terminen las peticiones en vuelo (incluido un `POST /sales` a medio confirmar).
+3. Cierra la cola de BullMQ, la conexión de Redis y el pool de Postgres.
+4. Sale con código 0.
+
+Si el drenaje excede `SHUTDOWN_TIMEOUT_MS` (25 s por defecto), registra `El cierre ordenado excedió su plazo` y sale con 1. El plazo está por debajo de los 30 s que espera un orquestador antes del `SIGKILL`; si se aumenta, hay que aumentar también `terminationGracePeriodSeconds` o el equivalente de la plataforma.
+
+Comprobación rápida en un servidor:
+
+```bash
+kill -TERM <pid>
+# en el log:  "Cierre ordenado iniciado: no se aceptan peticiones nuevas"
+# código de salida esperado: 0
+```
+
+### Consultar `/metrics` en producción
+
+Fuera de producción el endpoint está abierto. En producción exige `METRICS_TOKEN`:
+
+```bash
+curl -H "Authorization: Bearer $METRICS_TOKEN" https://api.ejemplo.co/metrics
+```
+
+Si el endpoint devuelve **404**, la causa más probable no es la ruta sino que `METRICS_TOKEN` no está configurado: en ese caso se oculta a propósito, para no confirmar que existe. Un **401** significa que el token no coincide.
+
+### Secretos que el arranque rechaza
+
+En producción la API no arranca si:
+
+| Variable | Regla |
+|---|---|
+| `JWT_SECRET` | mínimo 32 caracteres, **y** ni marcador de posición (`replace`, `change`, `example`, `default`, …) ni menos de 16 caracteres distintos |
+| `CORS_ALLOWED_ORIGINS` | obligatorio y no vacío |
+| `DIAN_PROVIDER` | no puede ser `mock` |
+| `RESEND_API_KEY` | obligatorio si `NOTIFICATION_PROVIDER=RESEND` |
+
+Generar secretos: `openssl rand -base64 48` (JWT), `openssl rand -hex 24` (métricas).
+
+---
+
+## Meseros: cómo funciona y qué revisar
+
+Dos conceptos distintos que conviene no confundir (D-046):
+
+- **Mesero** (`waiters`): una fila de la plantilla de la sucursal, con nombre y PIN opcional. Es lo que se asigna a una mesa. Se administra en **Meseros**, que requiere el módulo `waiters` activo y el permiso `branches:manage`.
+- **Usuario con rol `WAITER`**: una cuenta de acceso a la aplicación, para el mesero que además usa una tablet. Se crea en **Usuarios**; la opción solo aparece si el módulo `waiters` está activo.
+
+No hace falta lo segundo para lo primero. La mayoría de los meseros no necesita cuenta.
+
+### «No aparece ningún mesero para asignar»
+
+1. ¿El comercio tiene `enable_waiters`? Sin el módulo, la asignación no se ofrece y las mesas se abren sin mesero (es el comportamiento correcto, no un fallo).
+2. ¿Hay filas en `waiters` para esa sucursal, activas?
+
+   ```sql
+   SELECT id, name, is_active FROM waiters
+   WHERE tenant_id = '<tenant>' AND branch_id = '<sucursal>';
+   ```
+
+3. Si la lista está vacía, se agregan en la pantalla **Meseros**. Crear usuarios con rol `WAITER` **no** los añade a esta lista.
+
+### «No aparece la opción de mesero al crear un usuario»
+
+Depende del módulo `waiters` del comercio. Se comprueba con:
+
+```sql
+SELECT enable_tables, enable_waiters FROM tenants WHERE id = '<tenant>';
+```
+
+El flag se activa desde el SuperAdmin de plataforma. Activar `enable_waiters` activa `enable_tables` en cascada (la dependencia está declarada en `TenantModuleDependencyResolver`).

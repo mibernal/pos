@@ -1,5 +1,5 @@
 import { sql } from 'kysely';
-import { createDb } from './connection.js';
+import { createAdminDb } from './connection.js';
 import { hashPassword } from '../../../contexts/identity/auth/password.js';
 import { Queue } from 'bullmq';
 import { OUTBOX_QUEUE_NAME } from '@pos-dian/shared';
@@ -58,7 +58,7 @@ const demoCredentials = {
 } as const;
 
 async function runSeed(): Promise<void> {
-  const db = createDb();
+  const db = createAdminDb();
   const redisUrl = process.env.REDIS_URL ?? 'redis://localhost:6379';
   const queue = new Queue(OUTBOX_QUEUE_NAME, { connection: { url: redisUrl } });
 

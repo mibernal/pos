@@ -15,5 +15,8 @@
   },
   "devDependencies": {
     "turbo": "^2.9.16"
+  },
+  "dependencies": {
+    "@fastify/helmet": "^13.1.1"
   }
 }

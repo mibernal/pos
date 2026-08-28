@@ -1,6 +1,12 @@
 import type { ColumnType, Generated } from 'kysely';
+import type { USER_ROLES } from '@pos-dian/shared';
 
-export type UserRole = 'PLATFORM_OWNER' | 'TENANT_OWNER' | 'ADMIN' | 'MANAGER' | 'CASHIER' | 'AUDITOR';
+/**
+ * Refleja el enum `user_role_enum` de Postgres. Derivado del esquema compartido para que
+ * no vuelva a divergir: esta lista estuvo sin `WAITER` mientras la base sí lo tenía desde
+ * la migración 066, y por eso el rol existía en el motor pero era inalcanzable.
+ */
+export type UserRole = (typeof USER_ROLES)[number];
 export type SaleStatus = 'COMPLETED' | 'VOID';
 export type DianDocumentStatus = 'PENDING' | 'SENT' | 'ACCEPTED' | 'REJECTED';
 export type DianDocumentType = 'INVOICE' | 'CREDIT_NOTE' | 'SUPPORT_DOC';

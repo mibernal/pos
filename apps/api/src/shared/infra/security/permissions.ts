@@ -132,6 +132,24 @@ export const ROLE_PERMISSIONS: Record<UserRole, UserPermission[]> = {
     'branches:view',
     'alerts:view',
     'audit:view'
+  ],
+  /**
+   * Mesero. Toma pedidos en mesa y los envía a cocina; no maneja caja, ni catálogo, ni
+   * usuarios, ni anula ventas.
+   *
+   * `sales:create` es necesario, no opcional: las pantallas de Mesas y POS del frontend se
+   * habilitan con ese permiso, y el pedido de mesa termina convirtiéndose en una venta. Si
+   * un negocio prefiere que el mesero no cobre, la vía correcta es quitarle el turno de
+   * caja, no este permiso — sin él la cuenta de mesero no ve absolutamente nada.
+   */
+  WAITER: [
+    'sales:create',
+    'sales:view',
+    'products:view',
+    'customers:view',
+    'customers:create',
+    'branches:view',
+    'terminals:view'
   ]
 };
 

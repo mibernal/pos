@@ -2,6 +2,8 @@ import { describe, it, expect, beforeAll, afterAll, afterEach } from 'vitest';
 import { FastifyInstance } from 'fastify';
 import { buildApp } from '../src/app/build-app.js';
 import {
+  adminDb,
+  closeAdminDb,
   cleanupE2eFixture,
   ensureE2eSchema,
   seedE2eFixture,
@@ -27,6 +29,7 @@ describe('auth refresh flow e2e', () => {
   });
 
   afterAll(async () => {
+    await closeAdminDb();
     if (app) {
       await app.close();
     }
@@ -90,7 +93,7 @@ describe('auth refresh flow e2e', () => {
     expect(badData.error.code).toBe('AUTH_TOKEN_REUSE_DETECTED');
 
     // 4. Verificar que no queden tokens activos para el usuario
-    const userTokens = await app.db
+    const userTokens = await adminDb()
       .selectFrom('refresh_tokens')
       .selectAll()
       .where('user_id', '=', loginData.user.id)

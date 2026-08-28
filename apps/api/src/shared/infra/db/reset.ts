@@ -1,8 +1,8 @@
-import { createDb } from './connection.js';
+import { createAdminDb } from './connection.js';
 import { sql } from 'kysely';
 
 async function resetDatabase() {
-  const db = createDb();
+  const db = createAdminDb();
   try {
     console.log('[reset] Dropping public schema...');
     await sql`DROP SCHEMA public CASCADE;`.execute(db);

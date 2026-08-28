@@ -44,6 +44,16 @@ function mapClaimsToAuthContext(claims: JwtClaims): AuthContext {
   };
 }
 
+/**
+ * Los únicos endpoints donde se acepta el token por la URL: streams de servidor
+ * (`EventSource`), que no pueden mandar cabeceras. Se exige además que sea un GET.
+ */
+function isSseRequest(request: { method: string; url: string }): boolean {
+  if (request.method !== 'GET') return false;
+  const path = request.url.split('?')[0] ?? '';
+  return path.endsWith('/stream');
+}
+
 const authPluginImpl: FastifyPluginAsync = async (app) => {
   await app.register(jwt, {
     secret: env.JWT_SECRET,
@@ -57,9 +67,20 @@ const authPluginImpl: FastifyPluginAsync = async (app) => {
 
   app.decorate('authenticate', async (request) => {
     try {
-      // Allow token from query param for EventSource (SSE)
-      if (!request.headers.authorization && request.query && typeof request.query === 'object' && 'token' in request.query) {
-        request.headers.authorization = `Bearer ${(request.query as any).token}`; // eslint-disable-line @typescript-eslint/no-explicit-any
+      // `EventSource` no permite cabeceras propias, así que los streams SSE tienen que
+      // mandar el token por la URL. Es una concesión al navegador, no un mecanismo
+      // general: un JWT en la query queda en los registros de los proxys, en el historial
+      // del navegador y en la cabecera `Referer` hacia terceros.
+      //
+      // Antes esta puerta estaba abierta en *todas* las rutas, de modo que cualquier
+      // petición podía autenticarse con `?token=…` y dejar el token escrito por el camino.
+      // Ahora solo se acepta en los endpoints de streaming, y el token se borra de la URL
+      // que se registra (ver el serializador de peticiones en `build-app.ts`).
+      if (!request.headers.authorization && isSseRequest(request)) {
+        const query = request.query as { token?: unknown } | undefined;
+        if (query && typeof query.token === 'string') {
+          request.headers.authorization = `Bearer ${query.token}`;
+        }
       }
       await request.jwtVerify<JwtClaims>();
       request.auth = mapClaimsToAuthContext(request.user);

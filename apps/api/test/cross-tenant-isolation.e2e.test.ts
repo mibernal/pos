@@ -2,6 +2,8 @@ import { describe, it, expect, beforeAll, afterAll, afterEach } from 'vitest';
 import { FastifyInstance } from 'fastify';
 import { buildApp } from '../src/app/build-app.js';
 import {
+  adminDb,
+  closeAdminDb,
   bearerHeaders,
   cleanupE2eFixture,
   ensureE2eSchema,
@@ -29,6 +31,7 @@ describe('Cross-Tenant Isolation E2E', () => {
   });
 
   afterAll(async () => {
+    await closeAdminDb();
     await app.close();
   });
 
@@ -125,7 +128,7 @@ describe('Cross-Tenant Isolation E2E', () => {
 
     // Create a secondary branch manually in the same tenant
     const secondaryBranchId = randomUUID();
-    await app.db.insertInto('branches').values({
+    await adminDb().insertInto('branches').values({
       id: secondaryBranchId,
       tenant_id: fixture.tenantId,
       name: 'Secondary Branch',
@@ -133,7 +136,7 @@ describe('Cross-Tenant Isolation E2E', () => {
     }).execute();
 
     const secondaryTerminalId = randomUUID();
-    await app.db.insertInto('terminals').values({
+    await adminDb().insertInto('terminals').values({
       id: secondaryTerminalId,
       tenant_id: fixture.tenantId,
       branch_id: secondaryBranchId,
@@ -150,7 +153,7 @@ describe('Cross-Tenant Isolation E2E', () => {
     // However, if no user_branches are defined, the system might block access to ALL branches
     // or allow all branches. Let's assume the user is assigned only to fixture.branchId.
     // Let's insert the assignment just in case.
-    await app.db.insertInto('user_branches').values({
+    await adminDb().insertInto('user_branches').values({
       user_id: fixture.cashierUserId,
       branch_id: fixture.branchId,
       tenant_id: fixture.tenantId

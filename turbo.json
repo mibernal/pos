@@ -2,21 +2,50 @@
   "$schema": "https://turbo.build/schema.json",
   "tasks": {
     "build": {
-      "dependsOn": ["^build"],
-      "outputs": ["dist/**", "build/**"]
+      "dependsOn": [
+        "^build"
+      ],
+      "outputs": [
+        "dist/**",
+        "build/**"
+      ]
     },
     "lint": {
-      "dependsOn": ["^lint"]
+      "dependsOn": [
+        "^lint"
+      ]
     },
     "typecheck": {
-      "dependsOn": ["^build"]
+      "dependsOn": [
+        "^build"
+      ]
     },
     "test": {
-      "dependsOn": ["^test"]
+      "dependsOn": [
+        "^test"
+      ]
     },
     "dev": {
       "cache": false,
       "persistent": true
     }
-  }
+  },
+  "globalEnv": [
+    "ADMIN_DATABASE_URL",
+    "CI",
+    "CORS_ALLOWED_ORIGINS",
+    "CREDENTIALS_ENCRYPTION_KEY",
+    "DATABASE_URL",
+    "DIAN_HTTP_API_KEY",
+    "DIAN_HTTP_URL",
+    "DIAN_PROVIDER",
+    "HOST",
+    "JWT_SECRET",
+    "METRICS_TOKEN",
+    "NODE_ENV",
+    "POSTGRES_PASSWORD",
+    "REDIS_URL",
+    "SHUTDOWN_TIMEOUT_MS",
+    "VITE_API_URL"
+  ]
 }

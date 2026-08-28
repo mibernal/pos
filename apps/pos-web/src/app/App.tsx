@@ -1,6 +1,7 @@
 import { lazy, Suspense, useEffect, useState, type ReactNode } from 'react';
 import { AppShellLayout, AppTopbar } from '../components/layout';
 import { Banner, ShellMessage } from '../components/ui';
+import { ErrorBoundary } from '../components/ErrorBoundary';
 import { LoginScreen, RequireSession, SessionProvider, useSession, PermissionGuard, ReauthModal } from '../features/auth';
 import { CloseCashSessionModal, CashControlScreen, CashMovementModal } from '../features/cash-sessions';
 import { BranchSetupScreen } from '../features/branches';
@@ -39,6 +40,7 @@ function AppShell() {
   const { api, logout, session, refreshSession } = useSession();
   const { commitPosContext, posContext } = usePosStore();
   const { activeRoute, navigate, resetNavigation, routeDefinitions } = usePosNavigation(session?.user ?? null);
+  const activeRouteLabel = routeDefinitions.find((r) => r.id === activeRoute)?.label ?? 'esta pantalla';
   const {
     isOnline,
     pendingSales,
@@ -291,9 +293,14 @@ function AppShell() {
               )}
               {syncMessage ? <Banner tone="info">{syncMessage}</Banner> : null}
               {syncError ? <Banner tone="error">{syncError}</Banner> : null}
-              <Suspense fallback={<ShellMessage title="Cargando módulo..." subtitle="Preparando vista" />}>
-                {currentScreen}
-              </Suspense>
+              {/* Barrera por pantalla: un fallo en Reportes no debe tumbar el POS. La clave
+                  por ruta reinicia la barrera al navegar, para que la pantalla siguiente no
+                  herede el estado de error de la anterior. */}
+              <ErrorBoundary key={activeRoute} scope={activeRouteLabel}>
+                <Suspense fallback={<ShellMessage title="Cargando módulo..." subtitle="Preparando vista" />}>
+                  {currentScreen}
+                </Suspense>
+              </ErrorBoundary>
 
               <TicketTemplateModal
                 api={api}

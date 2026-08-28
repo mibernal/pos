@@ -2,7 +2,26 @@
 
 Un Sistema de Punto de Venta (POS) y Gestión Hospitalaria (Hospitality & Retail) multi-tenant de alto rendimiento con emisión de facturación electrónica (DIAN) en Colombia. Diseñado con una arquitectura modular habilitable (Feature Flags), asíncrona, capacidades Offline-First PWA, observabilidad distribuida y preparado para la nube.
 
-> **Estado actual (Junio 2026):** Sistema Enterprise activo. Feature Flags Jerárquicos (Macro + Micro) implementados y configurables desde el SuperAdmin. Sistema de medición SaaS (billing metrics) en producción via snapshots en `subscription_events`. Backup automático diario de PostgreSQL en GCS con validación semanal de integridad. Dashboard Live consolidado en Reportes (pestaña ⚡ En Vivo). Arquitectura de Módulos migrada a tenant flags directos. Sincronización Offline resiliente en cajas operativas.
+> **Estado actual (Agosto 2026):** funcionalmente completo y en endurecimiento previo a producción.
+>
+> Cerradas las fases 0, 1 y 2 del plan de `docs/ROADMAP-PRODUCCION.md`: el monorepo compila y pasa lint sin errores, el esquema se construye desde cero (90 migraciones), la suite corre verde (222 pruebas: 135 API contra PostgreSQL real, 41 worker, 28 pos-web, 18 shared) y CI ejecuta todo eso en cada PR.
+>
+> El cambio más importante de esta etapa: **la API dejó de conectarse con el dueño del esquema**. Ahora usa el rol `pos_api`, sin `BYPASSRLS`, de modo que el aislamiento por tenant lo aplica PostgreSQL y no la disciplina de quien escribe la consulta. Ver "Arquitectura Multi-Tenant" más abajo y D-036…D-044 en `docs/DECISIONS.md`.
+>
+> **Todavía no apto para facturar en producción:** faltan las fases 3 a 5 (operabilidad, certificación PAC real y escalado horizontal). El detalle está al final de este archivo.
+
+---
+
+## 📚 Documentación
+
+| Archivo | Para qué sirve |
+|---|---|
+| `docs/ROADMAP-PRODUCCION.md` | **Empieza aquí si vuelves después de un tiempo.** Qué se cerró en las fases 0–2, con qué evidencia, qué falta en las 3–5, el plan on-premise y los criterios de salida a producción. |
+| `docs/ARCHITECTURE.md` | Componentes, flujos de sistema, modelo de datos, y la explicación completa del aislamiento por tenant. |
+| `docs/DECISIONS.md` | Registro de decisiones (ADR). Cuando algo del código parezca raro, la razón suele estar aquí. |
+| `docs/RUNBOOK.md` | Procedimientos operativos: despliegue, migraciones, diagnóstico de RLS, cómo correr las pruebas. |
+| `docs/API.md` | Contrato HTTP. |
+| `MEMORY.md` | Decisiones core, lecciones aprendidas y auditorías pendientes, a alto nivel. |
 
 ---
 
@@ -32,8 +51,13 @@ El SaaS escala dinámicamente mediante 14 Feature Flags granulares, ajustando la
 
 ## 🌍 Arquitectura Multi-Tenant & SaaS Core
 
-- **Seguridad RLS:** Aislamiento lógico de base de datos inyectando `app.current_tenant_id` en Kysely, bloqueando cruces de información a nivel nativo.
-- **Roles:** Gestión cruzada (`PLATFORM_OWNER`, `PLATFORM_ADMIN`) y roles granulares de negocio (`ADMIN`, `MANAGER`, `CASHIER`, `AUDITOR`).
+- **Aislamiento por tenant (RLS), aplicado por el motor:** cada petición abre una transacción y fija `app.current_tenant` con `set_config(..., true)` a través de `executeAsTenant`. Las políticas comparan `tenant_id::text = current_setting('app.current_tenant', true)`; si nadie fijó la variable, `current_setting` devuelve `NULL`, la comparación es falsa y la consulta **no devuelve nada**. Falla cerrado, no abierto.
+- **Dos conexiones, dos roles.** Es la pieza que hace real todo lo anterior:
+  - `DATABASE_URL` → rol `pos_api`, **sin `BYPASSRLS` y sin DDL**. Es con el que corre la API. Todas las tablas de negocio están en `FORCE ROW LEVEL SECURITY`, así que ni siquiera un dueño accidental saltaría las políticas.
+  - `ADMIN_DATABASE_URL` → rol dueño del esquema. Solo migraciones y semillas.
+  - Hasta la fase 2 la API se conectaba con el dueño: el RLS estaba encendido pero era decorativo. Al mover la conexión aparecieron doce tablas sin política, seis que negaban todo (RESTRICTIVE sin permisiva) y dos que leían una variable que nadie fijaba —`tenant_dian_settings` entre ellas, es decir, cero credenciales del PAC y cero facturas—. La migración `088_rls_consistency` corrige las tres clases de defecto; `089_api_role_grants` reparte los permisos del rol.
+- **Roles de aplicación:** gestión cruzada (`PLATFORM_OWNER`, `PLATFORM_ADMIN`) y roles granulares de negocio (`ADMIN`, `MANAGER`, `CASHIER`, `AUDITOR`).
+- **Verificación viva:** `apps/api/src/shared/infra/db/__tests__/rls.spec.ts` prueba el aislamiento contra PostgreSQL real —lectura cruzada, `UPDATE`/`DELETE` ajenos, `INSERT` a nombre de otro, `COUNT(*)` sin `WHERE`— y aborta si el rol de conexión tiene `BYPASSRLS`, para que la suite no vuelva a pasar por accidente.
 - **SuperAdmin Dashboard:** Gestión transversal con queries analíticas pesadas (ARR, MRR) cacheadas en **Redis** con patrones de invalidación (SCAN+DEL).
 - **Billing:** Motor `RenewalEngine` en background (BullMQ) integrado con Webhooks para cobros recurrentes de planes SaaS.
 
@@ -97,21 +121,45 @@ docker compose -f infra/docker-compose.yml -f infra/docker-compose.obs.yml up -d
 > **Nota:** Si solo deseas levantar la base de datos y caché sin observabilidad, puedes omitir el segundo archivo:
 > `docker compose -f infra/docker-compose.yml up -d`
 
-### 5. Dependencias
+### 4. Dependencias
 ```bash
 pnpm install
 ```
 
-### 6. Base de Datos
+### 5. Base de Datos
+
+Las migraciones y las semillas corren con el **rol dueño** (`ADMIN_DATABASE_URL`):
+
 ```bash
-pnpm --filter @pos-dian/api db:migrate
+pnpm --filter @pos-dian/api db:migrate   # 90 migraciones, construye el esquema desde cero
 pnpm --filter @pos-dian/api db:seed
 ```
+
+### 6. Rol de conexión de la API
+
+Este paso va **después** de migrar (el rol de grupo `api_user` lo crean las migraciones 057 y 089) y es lo que hace que el RLS sea real:
+
+```bash
+./infra/scripts/create-api-role.sh "$(openssl rand -base64 32)"
+```
+
+El script imprime `salta_rls`. Si sale `t`, algo está mal: el aislamiento entre comercios sería ficticio. Copia la contraseña generada a `DATABASE_URL` en tu `.env`; deja el rol dueño en `ADMIN_DATABASE_URL`.
+
+> El worker sí usa el rol dueño: sus tareas programadas (bandeja de salida, rollups, renovaciones) recorren todos los comercios por diseño y no pueden estar sujetas al filtro por tenant.
 
 ### 7. Ejecutar en Modo Desarrollo
 ```bash
 pnpm dev
 ```
+
+### 8. Verificar
+```bash
+pnpm lint        # 0 errores
+pnpm typecheck   # 0 errores
+pnpm test        # 222 pruebas
+```
+
+Las pruebas del API y del worker corren contra PostgreSQL y Redis reales, no contra dobles. Necesitan `DATABASE_URL` y `ADMIN_DATABASE_URL` exportadas; Turbo filtra el entorno, así que toda variable que las pruebas necesiten tiene que estar declarada en `globalEnv` de `turbo.json` o simplemente no llega al proceso (y el código cae en sus valores por defecto sin avisar — nos costó una tarde). Detalle en `docs/RUNBOOK.md` → "Ejecutar las pruebas".
 
 ---
 
@@ -198,13 +246,20 @@ El proyecto incluye Dockerfiles multi-etapa listos para Producción.
 ```bash
 docker build -t pos-dian-api -f apps/api/Dockerfile .
 ```
-Variables requeridas: `DATABASE_URL`, `JWT_SECRET`, `CORS_ALLOWED_ORIGINS`, `OTLP_TRACE_ENDPOINT` (opcional)
+Variables requeridas: `DATABASE_URL` (rol `pos_api`, **sin `BYPASSRLS`**), `JWT_SECRET`, `CORS_ALLOWED_ORIGINS`, `OTLP_TRACE_ENDPOINT` (opcional).
+
+`ADMIN_DATABASE_URL` **no** se le pasa al contenedor de la API: las migraciones son un paso de despliegue aparte, no algo que la API haga al arrancar.
 
 ### Worker (BullMQ)
 ```bash
 docker build -t pos-dian-worker -f apps/worker/Dockerfile .
 ```
-Variables requeridas: `DATABASE_URL`, `REDIS_URL`, `DIAN_PROVIDER`, `DIAN_HTTP_URL`
+Variables requeridas: `DATABASE_URL` (aquí sí el rol dueño: las tareas programadas recorren todos los comercios), `REDIS_URL`, `DIAN_PROVIDER`, `DIAN_HTTP_URL`, `CREDENTIALS_ENCRYPTION_KEY`.
+
+Dos guardas que el worker impone al arrancar y conviene conocer antes del primer despliegue:
+
+- `DIAN_PROVIDER=mock` **aborta** si `NODE_ENV=production`. Un worker productivo en modo mock devolvería CUDEs inventados y nadie se enteraría hasta la primera visita de la DIAN.
+- Las credenciales del PAC en `tenant_dian_settings` se guardan cifradas (AES-256-GCM) con `CREDENTIALS_ENCRYPTION_KEY`. En producción, encontrar credenciales en texto plano es un error de arranque, no una advertencia. Para cifrar las existentes: `pnpm --filter @pos-dian/worker encrypt-credentials`. Genera la llave con `openssl rand -base64 32`.
 
 > El worker expone `/health` en `$PORT` (default `8080`) para cumplir con SLA de plataformas PaaS (Render, Railway, DigitalOcean App Platform).
 
@@ -215,13 +270,28 @@ VITE_API_URL=https://tu-api.com/api/v1 pnpm --filter @pos-dian/pos-web build
 Desplegable en Vercel, Netlify o S3 + CloudFront.
 
 ### CI/CD
-La integración continua está parametrizada en `.github/workflows/ci.yml` y ejecuta `pnpm build`, `pnpm lint` y `pnpm test` en todos los Pull Requests hacia `main`.
+`.github/workflows/ci.yml` levanta PostgreSQL 16 y Redis 7 como servicios, migra con el rol dueño, crea `pos_api` con `create-api-role.sh` y corre `pnpm lint`, `pnpm typecheck`, `pnpm build` y `pnpm test` en cada PR hacia `main`. Las pruebas de RLS solo son significativas porque el paso del rol existe: sin él pasarían por accidente.
 
 ---
 
-## ⚠️ Pendientes para Producción
+## ⚠️ Camino a Producción
 
-- Provider DIAN real (PAC) certificado end-to-end.
-- Consulta/webhook de finalización para documentos que queden en estado `SENT`.
-- Despliegue con HTTPS, gestión de secretos, backups automáticos y operación multi-instancia.
-- Políticas operativas de soporte, rotación de usuarios y recuperación de incidentes.
+El plan completo, con el porqué de cada ítem, está en **`docs/ROADMAP-PRODUCCION.md`**. Resumen del estado:
+
+### Cerrado
+
+| Fase | Qué se cerró |
+|---|---|
+| **0 — Que compile y se pueda verificar** | 59 errores de TypeScript a 0 · el esquema se construye desde cero (la migración 027 lo impedía) · suite verde en los cuatro paquetes · CI que efectivamente corre |
+| **1 — Correcciones de negocio** | Alerta de bajo stock movida fuera de la transacción de inventario (insertaba en una columna inexistente y tumbaba el descargo y la emisión) · totales fiscales calculados por el servidor, nunca tomados del snapshot del cliente · `cash_ledger` registra solo el componente en efectivo · guarda de venta anulada antes de emitir · mock DIAN prohibido en producción · credenciales del PAC cifradas en reposo |
+| **2 — RLS de verdad** | La API se conecta con `pos_api`, sin `BYPASSRLS` · migración 088 corrige 20 tablas (política ausente, variable equivocada, RESTRICTIVE sin permisiva) · `FORCE ROW LEVEL SECURITY` · pruebas de aislamiento reales con guarda de precondición |
+
+### Pendiente
+
+| Fase | Qué falta | Bloquea |
+|---|---|---|
+| **3 — Operabilidad** | Apagado ordenado (drenar jobs en vuelo), migraciones como paso de despliegue, `helmet`, autenticación en `/metrics`, quitar el JWT por query string en WebSockets, validar entropía de `JWT_SECRET`, `ErrorBoundary` en la PWA, gestión de secretos | Primer despliegue serio |
+| **4 — Fiscal** | Certificación end-to-end con un PAC real · cierre del ciclo para documentos que quedan en `SENT` · control de resolución y prefijo de numeración · flujo domicilio → venta → DIAN | **Facturar legalmente** |
+| **5 — Escalado** | Locks de asesoría en el worker, adaptador Redis para Socket.io, `SKIP LOCKED` en la bandeja de salida | Segunda instancia |
+
+Fuera del plan por fases, sigue abierto lo operativo: HTTPS, rotación de usuarios, políticas de soporte y ensayo real de recuperación desde backup (el backup existe y se valida; la restauración nunca se ha ejecutado de punta a punta).

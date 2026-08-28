@@ -1,4 +1,10 @@
-export type UserRole = 'PLATFORM_OWNER' | 'TENANT_OWNER' | 'ADMIN' | 'MANAGER' | 'CASHIER' | 'AUDITOR';
+import type { USER_ROLES } from '@pos-dian/shared';
+
+/**
+ * Derivado del esquema compartido. Escribirlo a mano aquí fue lo que dejó `WAITER` fuera
+ * del API mientras existía en Postgres y en el paquete compartido.
+ */
+export type UserRole = (typeof USER_ROLES)[number];
 
 export type UserPermission =
   // Sales

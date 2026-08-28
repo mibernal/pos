@@ -3,6 +3,8 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import type { FastifyInstance } from 'fastify';
 import { buildApp } from '../src/app/build-app.js';
 import {
+  adminDb,
+  closeAdminDb,
   bearerHeaders,
   cleanupE2eFixture,
   ensureE2eSchema,
@@ -118,6 +120,7 @@ describe('system flow e2e', () => {
   });
 
   afterAll(async () => {
+    await closeAdminDb();
     if (app) {
       await app.close();
     }
@@ -153,7 +156,7 @@ describe('system flow e2e', () => {
 
     // El documento DIAN lo crea el worker al procesar el evento de la bandeja de salida,
     // no la API: justo después de la venta todavía no debe existir.
-    const dianDocument = await app.db
+    const dianDocument = await adminDb()
       .selectFrom('dian_documents')
       .select(['status'])
       .where('tenant_id', '=', fixture.tenantId)
@@ -162,7 +165,7 @@ describe('system flow e2e', () => {
 
     expect(dianDocument).toBeUndefined();
 
-    const outboxEvent = await app.db
+    const outboxEvent = await adminDb()
       .selectFrom('outbox_events')
       .select(['type', 'aggregate_type', 'aggregate_id', 'branch_id', 'status', 'payload_json'])
       .where('tenant_id', '=', fixture.tenantId)
@@ -225,7 +228,7 @@ describe('system flow e2e', () => {
       }
     ]);
 
-    const persistedSale = await app.db
+    const persistedSale = await adminDb()
       .selectFrom('sales')
       .select(['tax_total_cents', 'tax_lines_json', 'total_cents'])
       .where('tenant_id', '=', fixture.tenantId)
@@ -285,7 +288,7 @@ describe('system flow e2e', () => {
     });
     expect(body.sale.voided_at).toBeTruthy();
 
-    const persistedSale = await app.db
+    const persistedSale = await adminDb()
       .selectFrom('sales')
       .select(['status', 'void_reason', 'voided_by_user_id', 'voided_at'])
       .where('tenant_id', '=', fixture.tenantId)
@@ -324,7 +327,7 @@ describe('system flow e2e', () => {
 
     expect(response.statusCode).toBe(403);
 
-    const persistedSale = await app.db
+    const persistedSale = await adminDb()
       .selectFrom('sales')
       .select(['status', 'void_reason', 'voided_by_user_id'])
       .where('tenant_id', '=', fixture.tenantId)
@@ -442,7 +445,7 @@ describe('system flow e2e', () => {
 
     expect(reconcileResponse.statusCode).toBe(201);
 
-    const checkSession = await app.db
+    const checkSession = await adminDb()
       .selectFrom('cash_sessions')
       .select(['status'])
       .where('id', '=', openedSession.cash_session.id)
@@ -450,7 +453,7 @@ describe('system flow e2e', () => {
 
     expect(checkSession?.status).toBe('RECONCILED');
 
-    const checkReconciliation = await app.db
+    const checkReconciliation = await adminDb()
       .selectFrom('cash_reconciliations')
       .select(['reconciled_by_user_id', 'resolution_notes'])
       .where('cash_session_id', '=', openedSession.cash_session.id)

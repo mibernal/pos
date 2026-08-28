@@ -10,9 +10,10 @@ import { Plus, Settings } from 'lucide-react';
 import { Button } from '../../components/ui/Button';
 import { AssignWaiterModal } from './components/AssignWaiterModal';
 import { OpenTableModal } from './components/OpenTableModal';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useSaveTableOrder } from './api/tables.api';
 import { useSession } from '../auth/context/SessionProvider';
+import { useModules } from '../modules/FeatureModuleProvider';
 
 import type { AppRoute } from '../../types';
 import { useReservations } from '../reservations/api/reservations.api';
@@ -23,14 +24,11 @@ export const TablesScreen: React.FC<{ onNavigate?: (route: AppRoute) => void }> 
   const { api } = useSession();
   const posContext = usePosStore((state) => state.posContext);
   const currentBranchId = posContext?.branchId;
+  // Un comercio puede tener mesas sin llevar control de meseros. En ese caso no se ofrece
+  // asignarlos ni se exige uno para abrir la mesa.
+  const { hasModule } = useModules();
+  const hasWaiters = hasModule('waiters');
   const { data: rooms, isLoading, error } = useGetRooms(currentBranchId);
-  const { data: users = [] } = useQuery({
-    queryKey: ['users'],
-    queryFn: () => api.listUsers(),
-    enabled: !!currentBranchId,
-    staleTime: 60_000
-  });
-
   const now = new Date();
   const dateFrom = startOfDay(now).toISOString();
   const dateTo = endOfDay(now).toISOString();
@@ -164,7 +162,7 @@ export const TablesScreen: React.FC<{ onNavigate?: (route: AppRoute) => void }> 
                       table={table} 
                       waiterName={table.waiterName}
                       reservationTime={reservationTime}
-                      onAssignWaiter={(id) => setWaiterModalTableId(id)}
+                      onAssignWaiter={hasWaiters ? (id) => setWaiterModalTableId(id) : undefined}
                       onClick={(id) => {
                         const t = activeRoom.tables.find(x => x.id === id);
                         if (t) {
@@ -197,7 +195,7 @@ export const TablesScreen: React.FC<{ onNavigate?: (route: AppRoute) => void }> 
           onAssign={async (waiterId) => {
             await assignWaiterMutation.mutateAsync({ tableId: waiterModalTableId, waiterId });
           }}
-          users={users}
+          branchId={currentBranchId}
           currentWaiterId={activeRoom?.tables.find(t => t.id === waiterModalTableId)?.waiterId}
           tableName={activeRoom?.tables.find(t => t.id === waiterModalTableId)?.name || 'Mesa'}
         />

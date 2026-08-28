@@ -4,6 +4,8 @@ import { FastifyInstance } from 'fastify';
 import { hashPassword } from '../src/contexts/identity/auth/password.js';
 import { buildApp } from '../src/app/build-app.js';
 import {
+  adminDb,
+  closeAdminDb,
   bearerHeaders,
   cleanupE2eFixture,
   ensureE2eSchema,
@@ -31,6 +33,7 @@ describe('cash isolation e2e', () => {
   });
 
   afterAll(async () => {
+    await closeAdminDb();
     if (app) {
       await app.close();
     }
@@ -50,7 +53,7 @@ describe('cash isolation e2e', () => {
     const cashierBPassword = 'Password123!';
     const hash = await hashPassword(cashierBPassword);
 
-    await app.db.insertInto('users').values({
+    await adminDb().insertInto('users').values({
       id: cashierBId,
       tenant_id: fixture.tenantId,
       email: cashierBEmail,
@@ -60,7 +63,7 @@ describe('cash isolation e2e', () => {
       active: true
     }).execute();
 
-    await app.db.insertInto('user_branches').values({
+    await adminDb().insertInto('user_branches').values({
       user_id: cashierBId,
       branch_id: fixture.branchId,
       tenant_id: fixture.tenantId

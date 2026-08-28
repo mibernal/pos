@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { randomUUID, timingSafeEqual } from 'node:crypto';
 import { trace, context } from '@opentelemetry/api';
 import Fastify from 'fastify';
 import cors from '@fastify/cors';
@@ -111,6 +111,22 @@ function buildRedisClient(): Redis {
   });
 }
 
+
+/**
+ * Comparación en tiempo constante para el token de `/metrics`.
+ *
+ * Un `===` sobre secretos revela su longitud y su prefijo por el tiempo que tarda en
+ * fallar. Es un detalle pequeño, pero el endpoint es público y el costo de hacerlo bien
+ * son cinco líneas.
+ */
+function timingSafeEqualString(a: string, b: string): boolean {
+  const bufA = Buffer.from(a);
+  const bufB = Buffer.from(b);
+  if (bufA.length !== bufB.length) return false;
+  return timingSafeEqual(bufA, bufB);
+}
+
+
 export async function buildApp() {
   const allowedOrigins = new Set(resolveCorsAllowedOrigins(env.NODE_ENV, env.CORS_ALLOWED_ORIGINS));
 
@@ -122,7 +138,25 @@ export async function buildApp() {
 
   const app = Fastify({
     logger: {
-      redact: ['req.headers.authorization', 'req.headers.cookie', 'password', 'body.password', 'body.token'],
+      redact: [
+        'req.headers.authorization',
+        'req.headers.cookie',
+        'req.query.token',
+        'password',
+        'body.password',
+        'body.token'
+      ],
+      serializers: {
+        // Los streams SSE llevan el token en la URL porque `EventSource` no admite
+        // cabeceras. Sin esto, ese token quedaría escrito en cada línea de log.
+        req(request: { method: string; url: string; id?: string }) {
+          return {
+            method: request.method,
+            url: request.url.replace(/([?&]token=)[^&]*/gi, '$1[REDACTED]'),
+            id: request.id
+          };
+        }
+      },
       transport: {
         targets: [
           ...(env.NODE_ENV === 'development' ? [{ target: 'pino-pretty' }] : []),
@@ -225,6 +259,22 @@ export async function buildApp() {
     secret: env.JWT_SECRET // Use same secret for signed cookies if needed later
   });
 
+  // Cabeceras de seguridad.
+  //
+  // La API sirve JSON y la documentación de Swagger, no HTML de la aplicación —la PWA se
+  // despliega aparte—, así que la CSP restrictiva por defecto rompería `/docs` sin
+  // proteger nada que importe. Se deja fuera la CSP y se conservan las cabeceras que sí
+  // aplican a una API: HSTS, nosniff, y no filtrar el referrer a terceros.
+  await app.register(import('@fastify/helmet').then((m) => m.default), {
+    contentSecurityPolicy: false,
+    crossOriginEmbedderPolicy: false,
+    // `crossOriginResourcePolicy: same-origin` bloquearía a la PWA, que vive en otro
+    // origen; el control real de quién puede llamar a la API es CORS, arriba.
+    crossOriginResourcePolicy: false,
+    hsts: env.NODE_ENV === 'production' ? { maxAge: 31_536_000, includeSubDomains: true } : false,
+    referrerPolicy: { policy: 'no-referrer' }
+  });
+
   await app.register(cors, {
     credentials: true,
     origin: (origin, callback) => {
@@ -304,6 +354,34 @@ export async function buildApp() {
   await app.register(fastifyMetrics.default || fastifyMetrics, {
     endpoint: '/metrics',
     defaultMetrics: { enabled: true }
+  });
+
+  // `/metrics` estaba abierto a internet. Expone rutas, latencias y volumen por endpoint:
+  // reconocimiento gratuito, y una fuga de información de negocio (cuántas ventas por
+  // minuto tiene la plataforma) para cualquiera que encuentre el puerto.
+  //
+  // Fuera de producción se deja abierto para no estorbar al desarrollo local. En
+  // producción se exige `METRICS_TOKEN`; si no está configurado, el endpoint responde 404
+  // —no 401— para no anunciar siquiera que existe.
+  app.addHook('onRequest', async (request, reply) => {
+    if (request.url.split('?')[0] !== '/metrics') return;
+    if (env.NODE_ENV !== 'production') return;
+
+    const expected = env.METRICS_TOKEN;
+
+    if (!expected) {
+      return reply.status(404).send({
+        error: { code: 'NOT_FOUND', message: 'Endpoint no encontrado', details: null }
+      });
+    }
+
+    const provided = request.headers.authorization?.replace(/^Bearer\s+/i, '');
+
+    if (!provided || !timingSafeEqualString(provided, expected)) {
+      return reply.status(401).send({
+        error: { code: 'AUTH_UNAUTHORIZED', message: 'No autorizado', details: null }
+      });
+    }
   });
 
   app.addHook('onClose', async (instance) => {

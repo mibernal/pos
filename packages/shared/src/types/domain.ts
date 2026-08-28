@@ -1,4 +1,11 @@
-export type UserRole = 'ADMIN' | 'MANAGER' | 'CASHIER' | 'AUDITOR';
+import type { USER_ROLES } from '../schemas/auth.js';
+
+/**
+ * Derivado del esquema para que no pueda volver a divergir. Antes esta lista omitía
+ * `WAITER`, `PLATFORM_OWNER` y `TENANT_OWNER`, y el frontend no podía ni representar
+ * un mesero.
+ */
+export type UserRole = (typeof USER_ROLES)[number];
 
 export type BusinessType =
   | 'RESTAURANT'

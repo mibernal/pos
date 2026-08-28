@@ -2,6 +2,8 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import type { FastifyInstance } from 'fastify';
 import { buildApp } from '../src/app/build-app.js';
 import {
+  adminDb,
+  closeAdminDb,
   bearerHeaders,
   cleanupE2eFixture,
   ensureE2eSchema,
@@ -32,7 +34,7 @@ async function setup() {
 }
 
 async function readAuditLogs(tenantId: string, action: string) {
-  return await app.db
+  return await adminDb()
     .selectFrom('audit_logs')
     .selectAll()
     .where('tenant_id', '=', tenantId)
@@ -54,6 +56,7 @@ describe('auditoría del perfil del comercio', () => {
   });
 
   afterAll(async () => {
+    await closeAdminDb();
     await app.close();
   });
 
@@ -69,7 +72,7 @@ describe('auditoría del perfil del comercio', () => {
 
     expect(response.statusCode).toBe(200);
 
-    const tenant = await app.db
+    const tenant = await adminDb()
       .selectFrom('tenants')
       .select(['tax_mode'])
       .where('id', '=', fixture.tenantId)
@@ -94,7 +97,7 @@ describe('auditoría del perfil del comercio', () => {
   it('actualiza el perfil comercial y deja el antes y el después en auditoría', async () => {
     const { fixture, token } = await setup();
 
-    const previous = await app.db
+    const previous = await adminDb()
       .selectFrom('tenants')
       .select(['business_name', 'address', 'phone', 'footer_message'])
       .where('id', '=', fixture.tenantId)
@@ -124,7 +127,7 @@ describe('auditoría del perfil del comercio', () => {
       taxMode: 'IVA'
     });
 
-    const tenant = await app.db
+    const tenant = await adminDb()
       .selectFrom('tenants')
       .select(['business_name', 'nit', 'address', 'phone', 'footer_message'])
       .where('id', '=', fixture.tenantId)

@@ -10,7 +10,8 @@ const ROLE_LEVEL: Record<UserRole, number> = {
   ADMIN: 80,
   MANAGER: 50,
   AUDITOR: 40,
-  CASHIER: 10
+  CASHIER: 10,
+  WAITER: 10
 };
 
 export function isPlatformRole(role: UserRole): boolean {
@@ -45,8 +46,15 @@ export function assertCanManageRole(actorRole: UserRole, targetRole: UserRole): 
     return; // Can manage ADMIN, MANAGER, AUDITOR, CASHIER
   }
 
-  // Strict hierarchy for the rest: must be strictly greater level
-  if (ROLE_LEVEL[actorRole] <= ROLE_LEVEL[targetRole]) {
+  // Jerarquía estricta para el resto: hay que estar por encima.
+  //
+  // Los niveles se leen antes de comparar porque un rol que no esté en la tabla daría
+  // `undefined`, y toda comparación numérica con `undefined` es falsa: el guard dejaría
+  // pasar la operación en vez de bloquearla. Ante un rol desconocido se falla cerrado.
+  const actorLevel = ROLE_LEVEL[actorRole];
+  const targetLevel = ROLE_LEVEL[targetRole];
+
+  if (actorLevel === undefined || targetLevel === undefined || actorLevel <= targetLevel) {
     throw new AppError(
       403,
       'AUTH_FORBIDDEN',

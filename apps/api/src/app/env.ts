@@ -11,6 +11,10 @@ const envSchema = z.object({
     .min(1)
     .default('postgres://pos:pos@localhost:5432/pos_dian'),
   DATABASE_POOL_MAX: z.coerce.number().int().positive().default(10),
+  // Rol dueño del esquema. Lo usan migraciones y semillas, que hacen DDL y siembran filas
+  // de varios comercios: operaciones que el rol restringido de la API no puede —ni debe—
+  // realizar. Si no se define, se cae a DATABASE_URL (entorno de desarrollo simple).
+  ADMIN_DATABASE_URL: z.string().min(1).optional(),
   JWT_SECRET: z.string().min(32),
   JWT_EXPIRES_IN: z.string().min(2).default('15m'),
   REFRESH_TOKEN_EXPIRES_IN: z.string().min(2).default('7d'),
@@ -39,7 +43,12 @@ const envSchema = z.object({
   // Platform Admin Cache TTLs
   CACHE_DASHBOARD_METRICS_TTL_S: z.coerce.number().int().nonnegative().default(120),
   CACHE_GROWTH_METRICS_TTL_S: z.coerce.number().int().nonnegative().default(600),
-  CACHE_BILLING_METRICS_TTL_S: z.coerce.number().int().nonnegative().default(300)
+  CACHE_BILLING_METRICS_TTL_S: z.coerce.number().int().nonnegative().default(300),
+
+  // Token para `/metrics`. Sin él, el endpoint queda cerrado en producción: las métricas
+  // de Prometheus incluyen rutas, latencias y volumen por endpoint, que es reconocimiento
+  // gratuito para cualquiera que encuentre el puerto abierto.
+  METRICS_TOKEN: z.string().min(16).optional()
 }).superRefine((value, ctx) => {
 
   if (value.NODE_ENV === 'production' && value.NOTIFICATION_PROVIDER === 'RESEND' && !value.RESEND_API_KEY) {
@@ -58,6 +67,32 @@ const envSchema = z.object({
     });
   }
 
+  // Un `JWT_SECRET` de 32 caracteres puede seguir siendo trivial: el marcador de posición
+  // del repositorio los tiene, y aun así lo conoce cualquiera que haya visto el proyecto.
+  // Firmar los tokens de sesión de todos los comercios con él equivale a no firmarlos.
+  if (value.NODE_ENV === 'production') {
+    const secret = value.JWT_SECRET;
+    const distinctChars = new Set(secret).size;
+    const looksLikePlaceholder = /replace|change|example|secret-?key|placeholder|your-|test|demo|default/i.test(secret);
+
+    if (looksLikePlaceholder) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['JWT_SECRET'],
+        message:
+          'JWT_SECRET parece un valor de ejemplo. Genera uno real: openssl rand -base64 48'
+      });
+    } else if (distinctChars < 16) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['JWT_SECRET'],
+        message:
+          `JWT_SECRET tiene muy poca variedad (${distinctChars} caracteres distintos). ` +
+          'Genera uno real: openssl rand -base64 48'
+      });
+    }
+  }
+
   // C11: Bloquear DIAN_PROVIDER=mock en producción — riesgo fiscal crítico
   if (value.NODE_ENV === 'production' && value.DIAN_PROVIDER === 'mock') {
     ctx.addIssue({
@@ -67,5 +102,11 @@ const envSchema = z.object({
     });
   }
 });
+
+/**
+ * Se exporta para poder probar las reglas de producción sin arrancar el proceso con esas
+ * variables. `env` sigue siendo el objeto ya validado que usa el resto de la aplicación.
+ */
+export { envSchema };
 
 export const env = envSchema.parse(process.env);

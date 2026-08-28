@@ -8,6 +8,10 @@ export const envSchema = z
       .string()
       .min(1)
       .default('postgres://pos:pos@localhost:5432/pos_dian'),
+    // El worker usa el rol dueño: sus tareas programadas (bandeja de salida, rollups,
+    // renovaciones) recorren todos los comercios y no pueden estar sujetas al filtro
+    // por tenant. El trabajo por comercio sí fija el contexto con `executeAsTenantClient`.
+    ADMIN_DATABASE_URL: z.string().min(1).optional(),
     DIAN_PROVIDER: z.enum(['mock', 'http']).default('mock'),
     // Clave AES-256 (hex de 64 o base64 de 44) con la que se cifran las credenciales
     // del PAC en tenant_dian_settings. Obligatoria en producción.

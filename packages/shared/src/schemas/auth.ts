@@ -1,7 +1,38 @@
 import { z } from 'zod';
 import { businessTypeSchema } from './business-type.js';
 
-export const userRoleSchema = z.enum(['PLATFORM_OWNER', 'TENANT_OWNER', 'ADMIN', 'MANAGER', 'CASHIER', 'AUDITOR', 'WAITER']);
+/**
+ * Roles de usuario. Esta es la única definición: el tipo `UserRole` del paquete compartido
+ * y el del API se derivan de aquí.
+ *
+ * Estuvieron desincronizados durante meses —el enum de Postgres tenía `WAITER` desde la
+ * migración 066, este esquema también, pero el tipo del API y el del frontend no—, y el
+ * resultado era que no había forma de crear un mesero por ninguna vía.
+ */
+export const USER_ROLES = [
+  'PLATFORM_OWNER',
+  'TENANT_OWNER',
+  'ADMIN',
+  'MANAGER',
+  'CASHIER',
+  'AUDITOR',
+  'WAITER'
+] as const;
+
+export const userRoleSchema = z.enum(USER_ROLES);
+
+/**
+ * Roles que un administrador de negocio puede asignar desde la pantalla de usuarios.
+ * `PLATFORM_OWNER` queda fuera a propósito: solo la plataforma lo otorga.
+ */
+export const ASSIGNABLE_USER_ROLES = [
+  'TENANT_OWNER',
+  'ADMIN',
+  'MANAGER',
+  'CASHIER',
+  'AUDITOR',
+  'WAITER'
+] as const;
 export const tenantTaxModeSchema = z.enum(['IVA', 'INC_RESTAURANT', 'REGIMEN_SIMPLIFICADO']);
 
 export const loginBodySchema = z.object({

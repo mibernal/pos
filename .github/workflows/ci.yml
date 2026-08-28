@@ -11,8 +11,10 @@ concurrency:
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-  # Debe coincidir con los servicios declarados abajo y con los defaults de apps/api/src/app/env.ts
-  DATABASE_URL: postgres://pos:pos@localhost:5432/pos_dian
+  # La API se prueba con el rol restringido (sin BYPASSRLS): si el aislamiento por tenant
+  # se rompe, las pruebas lo notan. Migraciones y semillas usan el rol dueño.
+  DATABASE_URL: postgres://pos_api:pos_api@localhost:5432/pos_dian
+  ADMIN_DATABASE_URL: postgres://pos:pos@localhost:5432/pos_dian
   REDIS_URL: redis://localhost:6379
   JWT_SECRET: ci-secret-that-is-at-least-thirty-two-chars-long
   NODE_ENV: test
@@ -73,10 +75,32 @@ jobs:
       # construir desde el primer archivo — que es lo que ocurre en cada
       # instalación nueva, cloud u on-premise.
       - name: Migrate database (desde cero)
+        env:
+          DATABASE_URL: ${{ env.ADMIN_DATABASE_URL }}
         run: pnpm --filter @pos-dian/api db:migrate
+
+      # El rol de la API se crea después de migrar: `api_user` lo definen las
+      # migraciones 057/089.
+      - name: Crear el rol de conexión de la API (sin BYPASSRLS)
+        env:
+          DATABASE_URL: ${{ env.ADMIN_DATABASE_URL }}
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+          ./infra/scripts/create-api-role.sh pos_api
 
       - name: Test
         run: pnpm test
 
       - name: Build
         run: pnpm build
+
+      # La migración de producción es un paso de despliegue aparte, sin `tsx` y sin el
+      # `.env` del repositorio. Se comprueba aquí porque es la única forma de saber que el
+      # entrypoint compilado sigue arrancando: no lo ejerce ninguna prueba.
+      - name: Verificar el entrypoint de migración compilado
+        env:
+          ADMIN_DATABASE_URL: postgres://pos:pos@localhost:5432/pos_dian
+        run: |
+          cd apps/api
+          env -u DATABASE_URL -u JWT_SECRET -u NODE_ENV \
+            node dist/shared/infra/db/migrate.js

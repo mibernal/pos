@@ -197,3 +197,101 @@
 - El Worker utiliza un Patrón Factory (`buildDianProvider()`) para inyectar dinámicamente el adaptador adecuado en tiempo de procesamiento del outbox.
 - **Motivo:** En un modelo SaaS, es inviable forzar a todos los clientes a facturar a través de un único Proveedor Tecnológico. Esta arquitectura permite abstraer los payloads específicos de cada PAC manteniendo una interfaz centralizada `DianProvider`.
 
+
+## D-036 — El aislamiento entre comercios lo impone PostgreSQL, no la disciplina de quien consulta
+- La API se conecta con el rol `pos_api` (miembro de `api_user`), **sin BYPASSRLS**. Toda consulta con datos de un comercio pasa por `executeAsTenant()`, que fija `app.current_tenant` con `SET LOCAL` dentro de la transacción.
+- Migraciones y semillas usan `ADMIN_DATABASE_URL` (el rol dueño del esquema): hacen DDL y siembran filas de varios comercios, cosa que el rol restringido no puede —ni debe— hacer.
+- El worker también usa el rol dueño: sus tareas programadas (bandeja de salida, rollups, renovaciones, alertas) recorren todos los comercios por diseño. El trabajo *por comercio* sí fija el contexto con `executeAsTenantClient()`.
+- El rol de la API se crea con `./infra/scripts/create-api-role.sh` **después** de migrar.
+- **Motivo:** hasta agosto de 2026 el RLS estaba encendido en la base pero era decorativo, porque la API se conectaba con el dueño del esquema y lo saltaba. El aislamiento dependía por entero de que ninguna de las 138 rutas olvidara su `WHERE tenant_id`. Un solo descuido era una fuga de datos entre comercios.
+
+## D-037 — Coherencia de las políticas RLS (migración 088)
+- Todas las políticas de aislamiento son **PERMISSIVE**, usan `app.current_tenant` y van acompañadas de `FORCE ROW LEVEL SECURITY`.
+- Corregido en la migración 088:
+  - `order_rounds` y `tenant_dian_settings` usaban `app.current_tenant_id`, una variable que nadie fija. Con RLS aplicado habrían devuelto cero filas: rondas de cocina vacías y —peor— ninguna credencial del PAC, es decir ninguna factura emitida.
+  - Seis tablas de restaurante y domicilios (`deliveries`, `delivery_items`, `delivery_persons`, `waiters`, `kitchen_tickets`, `kitchen_ticket_items`) tenían política **solo RESTRICTIVE**. En PostgreSQL una restrictiva sin permisiva que la acompañe niega todo.
+  - Diez tablas con `tenant_id` no tenían RLS en absoluto (`branches`, `rooms`, `tables`, `reservations`, `suppliers`, `product_images`, `product_modifier_groups`, `product_modifier_options`, `bulk_import_jobs` y la partición `audit_logs_default`).
+- **Motivo:** con RLS decorativo estos defectos eran invisibles. Al pasar a un rol sin BYPASSRLS habrían apagado módulos enteros el primer día.
+
+## D-038 — Tablas deliberadamente fuera de RLS
+Se documentan porque la ausencia de política es una decisión, no un olvido:
+
+| Tabla | Motivo |
+|---|---|
+| `users`, `refresh_tokens` | El login y el refresh ocurren antes de que exista contexto de tenant; además su `tenant_id` es nulo para roles de plataforma. Ver D-015. |
+| `platform_events` | `tenant_id` nulo para eventos de plataforma. |
+| `tenant_subscriptions`, `payment_transactions`, `tenant_module_audit_logs` | Las lecturas del SuperAdmin (MRR, ARR, auditoría de módulos) son transversales a todos los comercios por definición. El control es de permisos (`platform:*`), no de fila. |
+| `idempotency_records` | El plugin de idempotencia actúa antes de resolver el tenant de la petición. |
+| `tenants`, `billing_plans`, `platform_settings`, `subscription_events`, `impersonation_sessions` | Son globales: no tienen `tenant_id`. |
+
+## D-039 — El servidor es la única fuente de los valores fiscales
+- `create-sale.service.ts` calcula subtotal, descuento, impuesto y total a partir de los precios de línea y de la `tax_category` que el producto tiene en base de datos. El `snapshot` que envía el cliente se **compara**, nunca se copia.
+- Si difiere, la discrepancia queda registrada en la auditoría de la venta (`audit_payload.snapshot_discrepancy`). Si el precio de una línea se desvía más del 10% del catálogo, la venta se rechaza con `PRICE_DRIFT_EXCEEDED`.
+- **Motivo:** antes el snapshot sobrescribía los cuatro valores, de modo que un frontend comprometido o con un error podía fijar la base gravable que viajaba al documento DIAN, con solo un 10% de margen como barrera. La venta offline sigue facturándose por lo que se cobró, porque cada ítem envía su `price_cents` y el servidor calcula sobre ellos; lo que ya no puede venir del cliente es el impuesto.
+
+## D-040 — Las credenciales del PAC se guardan cifradas
+- `tenant_dian_settings.credentials` almacena un sobre AES-256-GCM (`packages/shared/src/crypto/secret-box.ts`). La clave vive en `CREDENTIALS_ENCRYPTION_KEY`, obligatoria en producción.
+- El worker rechaza credenciales en texto plano cuando `NODE_ENV=production`; fuera de producción las acepta con un aviso.
+- Se generan y cifran con `pnpm --filter @pos-dian/worker encrypt-credentials`.
+- **Motivo:** en claro, un volcado de la base o un respaldo mal guardado entrega la capacidad de emitir documentos fiscales a nombre de todos los comercios a la vez.
+
+## D-041 — Una alerta no puede tumbar una venta
+- La alerta de bajo stock se acumula durante el descargo de inventario y se publica **después** del commit, en su propia transacción y con su propio manejo de error.
+- **Motivo:** la publicación vivía dentro de la transacción de descargo y usaba una columna inexistente (`event_type`). Cuando un producto cruzaba su mínimo, la transacción hacía rollback, el inventario no se descargaba y la factura DIAN de esa venta no se emitía nunca: el evento quedaba reintentándose en bucle cada cinco segundos.
+
+## D-042 — Anular antes de emitir no manda la factura a la DIAN
+- El evento `sale.voided` se publica **siempre**, exista o no ya el documento. El procesador de `sale.created` comprueba el estado de la venta antes de emitir y omite la emisión si está anulada; el de `sale.voided` distingue «la factura nunca salió» (nada que anular) de «la factura ya fue aceptada» (nota crédito).
+- **Motivo:** el evento de anulación solo se publicaba si ya existía el documento —que crea el worker—, así que anular dentro de la ventana del worker (el caso más común: el cajero se equivoca y anula de inmediato) mandaba la factura a la DIAN sin nota crédito.
+
+## D-043 — `no-explicit-any` es un aviso, `no-unused-vars` es un error
+- ESLint reporta `@typescript-eslint/no-explicit-any` como *warning* (~142 avisos) y `no-unused-vars` como *error*.
+- **Motivo:** un `any` es deuda medible que conviene bajar con el tiempo, pero no un defecto de corrección; como error bloqueaba el build y el equipo terminaba desactivando el gate entero. Una variable sin usar, en cambio, casi siempre señala código muerto o cableado incompleto: de los 65 que había salieron varios defectos reales (props recibidas y nunca invocadas, un `refreshSession` declarado pero no recibido).
+
+## D-044 — El manejador de errores se registra con `fastify-plugin`
+- `errorHandlerPlugin` va envuelto en `fp()`.
+- **Motivo:** Fastify encapsula los plugins. Sin `fp`, `setErrorHandler` y `setNotFoundHandler` quedaban confinados al ámbito (vacío) del propio plugin y **ninguna ruta hermana los usaba**: la API respondía con el formato por defecto de Fastify en vez del contrato `{ error: { code, message, details } }`, el registro estructurado de errores no se ejecutaba nunca, los 500 devolvían el mensaje interno sin sanear, y la detección de `QUOTA_EXCEEDED` en el frontend jamás disparaba.
+
+## D-045 — Los roles se derivan de una sola lista
+- `USER_ROLES` en `packages/shared/src/schemas/auth.ts` es la única definición. De ahí salen el `UserRole` del paquete compartido, el del API, el del esquema de base y el `z.enum` de las rutas de usuarios. `apps/api/src/shared/infra/security/roles.test.ts` falla si un rol se queda sin permisos o sin nivel de jerarquía.
+- **Motivo:** los roles estaban escritos a mano en cinco sitios y llevaban meses desincronizados. `WAITER` existía en el enum de Postgres desde la migración 066 y en el esquema compartido, pero no en el tipo del API ni en el `z.enum` de la ruta de creación de usuarios: **no había forma de crear un mesero por ninguna vía**, ni por la interfaz ni por la API. El coste de derivar es una línea; el de no hacerlo fue una funcionalidad completa inalcanzable en producción.
+
+## D-046 — Un mesero es una fila de `waiters`, no un usuario
+- `tables.waiter_id`, `table_orders.waiter_id` y `sales.waiter_id` apuntan a `waiters.id` desde la migración 074. La plantilla de meseros se administra en la pantalla **Meseros** y es independiente de las cuentas de acceso; `waiters.user_id` es opcional y solo vincula un mesero con su cuenta cuando existe.
+- **Motivo:** en un restaurante la mayoría de los meseros no necesita cuenta —el pedido lo captura quien tiene la tablet—, y forzar un usuario por mesero convierte cada contratación en un alta de acceso. La consecuencia de no tenerlo claro fue concreta: `AssignWaiterModal` listaba *usuarios* y enviaba `users.id` a un campo que referencia `waiters.id`, de modo que asignar mesero a una mesa violaba la llave foránea y fallaba siempre.
+- El rol `WAITER` sigue existiendo y es para lo otro: darle acceso a la aplicación al mesero que sí lo necesita.
+
+## D-047 — El rol de mesero incluye `sales:create`
+- `WAITER` recibe `sales:create`, `sales:view`, `products:view`, `customers:view`, `customers:create`, `branches:view` y `terminals:view`. Nada de caja, catálogo, usuarios ni anulaciones.
+- **Motivo:** las pantallas de Mesas y POS del frontend se habilitan con `sales:create`; sin él, una cuenta de mesero no ve absolutamente nada y es inservible. Si un negocio no quiere que sus meseros cobren, la vía correcta es no abrirles turno de caja, no recortar este permiso.
+
+## D-048 — Los errores de validación responden 400 con el campo que falla
+- El manejador de errores trata `hasZodFastifySchemaValidationErrors` (400 con `details.issues`) e `isResponseSerializationError` (500, con el detalle solo en el log).
+- **Motivo:** el error que produce Fastify a partir del esquema Zod de una ruta **no** es un `ZodError`, así que caía hasta el 500 genérico: *toda* petición mal formada del cliente respondía «Ocurrió un error interno» con `details: null`. El servidor se culpaba a sí mismo del error del cliente y no decía qué campo estaba mal — que es exactamente por qué el fallo de creación de meseros fue tan difícil de ver desde la interfaz.
+
+## D-049 — El token de sesión por la URL solo en streams SSE
+- `authenticate` acepta `?token=` únicamente en peticiones GET cuyo camino termina en `/stream`. El serializador de peticiones del log reemplaza ese valor por `[REDACTED]`.
+- **Motivo:** `EventSource` no permite cabeceras propias, así que los streams no tienen alternativa. Pero la puerta estaba abierta en *todas* las rutas, y un JWT en la query queda escrito en los registros de los proxys, en el historial del navegador y en la cabecera `Referer` hacia terceros. El handshake de Socket.io ya usaba `auth.token`, que es lo correcto.
+
+## D-050 — `/metrics` cerrado en producción, y con 404
+- Fuera de producción queda abierto. En producción exige `METRICS_TOKEN` (comparación en tiempo constante); si la variable no está configurada, el endpoint responde **404**, no 401.
+- **Motivo:** las métricas de Prometheus exponen rutas, latencias y volumen por endpoint — reconocimiento gratuito, y una fuga de información de negocio (cuántas ventas por minuto tiene la plataforma). El 404 evita además confirmar que el endpoint existe.
+
+## D-051 — El migrador no importa la configuración de la aplicación
+- `migrate.ts` construye su propia conexión desde `ADMIN_DATABASE_URL`/`DATABASE_URL` en vez de usar `app/env.ts`.
+- **Motivo:** el esquema de entorno de la API valida toda la configuración de la aplicación —clave de Resend, proveedor DIAN, orígenes de CORS— y en producción hace fallar el arranque si falta cualquiera. Migrar no necesita nada de eso, y exigirlo obliga a repartir secretos no relacionados a un contenedor efímero que solo toca el esquema. Se comprueba en CI porque ninguna prueba ejerce el entrypoint compilado.
+
+## D-052 — Cierre ordenado con plazo y salida forzada
+- La API atiende `SIGTERM`/`SIGINT`: limpia los temporizadores, llama a `app.close()` (que drena las peticiones en vuelo y dispara el hook `onClose`) y sale con 0. Si el drenaje excede `SHUTDOWN_TIMEOUT_MS` (25 s por defecto), registra el hecho y sale con 1.
+- **Motivo:** sin esto, cada despliegue cortaba peticiones a medio procesar —incluido un `POST /sales` a medio confirmar— y el `setInterval` de métricas mantenía el proceso vivo. El plazo va por debajo de los 30 s que espera un orquestador antes del SIGKILL: un proceso que no muere es peor que uno que corta, porque acaba muriendo igual sin cerrar nada.
+
+## D-053 — Sin CSP en la API, con HSTS y `no-referrer`
+- `@fastify/helmet` con `contentSecurityPolicy: false`, `crossOriginResourcePolicy: false`, HSTS solo en producción y `referrerPolicy: no-referrer`.
+- **Motivo:** la API sirve JSON y la documentación de Swagger, no el HTML de la aplicación —la PWA se despliega aparte—, así que una CSP restrictiva rompería `/docs` sin proteger nada que importe. `crossOriginResourcePolicy` en `same-origin` bloquearía a la PWA, que vive en otro origen; el control real de quién puede llamar a la API es CORS.
+
+## D-054 — `JWT_SECRET` se valida por variedad, no solo por longitud
+- En producción se rechaza el secreto si parece un marcador de posición (`replace`, `change`, `example`, `default`, …) o si tiene menos de 16 caracteres distintos.
+- **Motivo:** el `min(32)` que ya existía lo cumple el propio valor de ejemplo del repositorio, que conoce cualquiera que haya visto el proyecto. Firmar con él las sesiones de todos los comercios equivale a no firmarlas.
+
+## D-055 — La barrera de errores dice el estado de la cola offline
+- `ErrorBoundary` envuelve la aplicación entera y, por separado, cada pantalla (con `key={activeRoute}`). Al fallar, consulta `getPendingSalesCount()` y muestra cuántas ventas quedan guardadas en el dispositivo, pidiendo explícitamente no cerrar sesión.
+- **Motivo:** la reacción natural de un cajero ante una pantalla en blanco es recargar, cerrar sesión o reinstalar la app; cerrar sesión sí puede costarle la cola de IndexedDB. El mensaje que evita esa pérdida vale más que el mensaje de error en sí. La barrera por pantalla evita además que un fallo en Reportes tumbe el POS.

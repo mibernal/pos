@@ -15,6 +15,7 @@ import {
   buildIpRateLimitKey
 } from '../../../shared/infra/security/login-rate-limit.js';
 import { getPermissionsForRole } from '../../../shared/infra/security/permissions.js';
+import { executeAsTenant } from '../../../shared/infra/db/rls.js';
 import { writeAuditLog } from '../../../shared/domain/audit/write-audit-log.js';
 import { SubscriptionService } from '../../billing/application/subscription.service.js';
 import {
@@ -264,7 +265,11 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
         throw new AppError(403, 'AUTH_FORBIDDEN', 'El negocio se encuentra suspendido. Contacta al administrador de la plataforma.');
       }
 
-      const branchIds = await getUserBranchIds(app.db, user.id, user.tenant_id);
+      // `user_branches` está bajo RLS. En el login todavía no hay contexto de tenant,
+      // pero ya sabemos a cuál pertenece el usuario: se fija explícitamente para la lectura.
+      const branchIds = user.tenant_id
+        ? await executeAsTenant(app.db, user.tenant_id, (trx) => getUserBranchIds(trx, user.id, user.tenant_id))
+        : [];
       const isPlatformRole = user.role === 'PLATFORM_OWNER';
       const permissions = getPermissionsForRole(user.role);
 

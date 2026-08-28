@@ -3,6 +3,8 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import type { FastifyInstance } from 'fastify';
 import { buildApp } from '../src/app/build-app.js';
 import {
+  adminDb,
+  closeAdminDb,
   bearerHeaders,
   cleanupE2eFixture,
   ensureE2eSchema,
@@ -82,7 +84,7 @@ async function postSale(ctx: TestContext, overrides: Record<string, unknown> = {
 }
 
 async function readPersistedSale(tenantId: string, saleId: string) {
-  return await app.db
+  return await adminDb()
     .selectFrom('sales')
     .selectAll()
     .where('tenant_id', '=', tenantId)
@@ -104,6 +106,7 @@ describe('POST /sales — persistencia fiscal', () => {
   });
 
   afterAll(async () => {
+    await closeAdminDb();
     await app.close();
   });
 
@@ -137,7 +140,7 @@ describe('POST /sales — persistencia fiscal', () => {
     expect(persisted.total_cents).toBe(persisted.subtotal_cents - persisted.discount_cents);
 
     // El documento DIAN lo emite el worker: aquí solo debe quedar el evento pendiente.
-    const outbox = await app.db
+    const outbox = await adminDb()
       .selectFrom('outbox_events')
       .select(['type', 'status', 'aggregate_id'])
       .where('tenant_id', '=', ctx.fixture.tenantId)
@@ -214,7 +217,7 @@ describe('POST /sales — persistencia fiscal', () => {
 
     expect(numbers).toEqual([1, 2]);
 
-    const rows = await app.db
+    const rows = await adminDb()
       .selectFrom('sales')
       .select(['id'])
       .where('tenant_id', '=', ctx.fixture.tenantId)
@@ -236,14 +239,14 @@ describe('POST /sales — persistencia fiscal', () => {
 
     expect(secondSaleId).toBe(firstSaleId);
 
-    const sales = await app.db
+    const sales = await adminDb()
       .selectFrom('sales')
       .select(['id'])
       .where('tenant_id', '=', ctx.fixture.tenantId)
       .execute();
     expect(sales).toHaveLength(1);
 
-    const items = await app.db
+    const items = await adminDb()
       .selectFrom('sale_items')
       .select(['id'])
       .where('tenant_id', '=', ctx.fixture.tenantId)
@@ -274,7 +277,7 @@ describe('POST /sales — persistencia fiscal', () => {
     const persisted = await readPersistedSale(ctx.fixture.tenantId, body.sale.id);
     expect(persisted.tax_total_cents).toBe(1900);
 
-    const outbox = await app.db
+    const outbox = await adminDb()
       .selectFrom('outbox_events')
       .select(['payload_json'])
       .where('tenant_id', '=', ctx.fixture.tenantId)
@@ -317,7 +320,7 @@ describe('POST /sales — persistencia fiscal', () => {
     });
     expect(cardSale.statusCode).toBe(201);
 
-    const afterCard = await app.db
+    const afterCard = await adminDb()
       .selectFrom('cash_ledger')
       .select(['type', 'amount_cents'])
       .where('tenant_id', '=', ctx.fixture.tenantId)
@@ -339,7 +342,7 @@ describe('POST /sales — persistencia fiscal', () => {
     });
     expect(mixedSale.statusCode).toBe(201);
 
-    const afterMixed = await app.db
+    const afterMixed = await adminDb()
       .selectFrom('cash_ledger')
       .select(['type', 'amount_cents'])
       .where('tenant_id', '=', ctx.fixture.tenantId)
@@ -374,7 +377,7 @@ describe('POST /sales — persistencia fiscal', () => {
 
     // La anulación siempre publica su evento, incluso si la factura aún no salió:
     // el worker decide si corresponde nota crédito o si no hay nada que anular.
-    const voidedEvent = await app.db
+    const voidedEvent = await adminDb()
       .selectFrom('outbox_events')
       .select(['type', 'status'])
       .where('tenant_id', '=', ctx.fixture.tenantId)

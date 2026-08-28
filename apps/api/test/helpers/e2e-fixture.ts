@@ -1,9 +1,10 @@
 import { randomUUID } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
-import { sql } from 'kysely';
+import { Kysely, PostgresDialect, sql, type Transaction } from 'kysely';
+import { executeAsTenant } from '../../src/shared/infra/db/rls.js';
+import { Pool } from 'pg';
 import { hashPassword } from '../../src/contexts/identity/auth/password.js';
-import { createDb } from '../../src/shared/infra/db/connection.js';
-import type { ProductTaxCategory, TenantTaxMode } from '../../src/shared/infra/db/schema.js';
+import type { Database, ProductTaxCategory, TenantTaxMode } from '../../src/shared/infra/db/schema.js';
 
 const adminPassword = 'Admin123*';
 const cashierPassword = 'Cashier123*';
@@ -37,317 +38,85 @@ export interface E2eFixture {
 
 let schemaReadyPromise: Promise<void> | null = null;
 
+/**
+ * Conexión administrativa para preparar y limpiar datos de prueba.
+ *
+ * La app bajo prueba se conecta con un rol SIN BYPASSRLS —es el punto de la fase 2—, así
+ * que no puede sembrar filas fuera de un contexto de tenant. Sembrar y limpiar son
+ * operaciones de administración, igual que en un despliegue real, y usan el rol dueño.
+ */
+function createAdminDb(): Kysely<Database> {
+  const connectionString = process.env.ADMIN_DATABASE_URL ?? process.env.DATABASE_URL;
+  return new Kysely<Database>({
+    dialect: new PostgresDialect({ pool: new Pool({ connectionString, max: 4 }) })
+  });
+}
+
+let sharedAdminDb: Kysely<Database> | null = null;
+
+/**
+ * Conexión administrativa compartida para sembrar, limpiar y para las aserciones que
+ * consultan la base directamente. El aislamiento se verifica en pruebas dedicadas que sí
+ * pasan por la conexión de la app (ver `readAsTenant` y cross-tenant-isolation).
+ */
+export function adminDb(): Kysely<Database> {
+  sharedAdminDb ??= createAdminDb();
+  return sharedAdminDb;
+}
+
+export async function closeAdminDb(): Promise<void> {
+  if (sharedAdminDb) {
+    await sharedAdminDb.destroy();
+    sharedAdminDb = null;
+  }
+}
+
+/**
+ * Verifica que la base de pruebas tenga el esquema migrado.
+ *
+ * Antes esta función parcheaba el esquema con 33 `ALTER TABLE ... IF NOT EXISTS`, porque
+ * correr las migraciones de verdad no funcionaba (la 027 fallaba en cualquier base nueva).
+ * El resultado era un esquema de test que divergía del real por diseño: las pruebas podían
+ * pasar con migraciones rotas. Corregida la 027, lo correcto es exigir el esquema migrado
+ * y fallar con un mensaje claro si no lo está.
+ */
 export function ensureE2eSchema(): Promise<void> {
   schemaReadyPromise ??= (async () => {
-    const db = createDb();
-    let schemaLockAcquired = false;
+    const db = adminDb();
 
     try {
-      await sql`SELECT pg_advisory_lock(hashtext('pos_dian_e2e_schema'))`.execute(db);
-      schemaLockAcquired = true;
+      const applied = await sql<{ count: string }>`
+        SELECT count(*)::text AS count FROM kysely_migration
+      `.execute(db).then((result) => Number(result.rows[0]?.count ?? 0)).catch(() => 0);
 
-      await sql`
-        ALTER TABLE tenants
-        ADD COLUMN IF NOT EXISTS tax_mode TEXT NOT NULL DEFAULT 'IVA'
-      `.execute(db);
-
-      await sql`
-        ALTER TABLE tenants
-        ADD COLUMN IF NOT EXISTS address TEXT NOT NULL DEFAULT 'Dirección no configurada'
-      `.execute(db);
-
-      await sql`
-        ALTER TABLE tenants
-        ADD COLUMN IF NOT EXISTS phone TEXT NULL
-      `.execute(db);
-
-      await sql`
-        ALTER TABLE tenants
-        ADD COLUMN IF NOT EXISTS footer_message TEXT NULL
-      `.execute(db);
-
-      await sql`
-        ALTER TABLE products
-        ADD COLUMN IF NOT EXISTS tax_category TEXT NOT NULL DEFAULT 'IVA_19'
-      `.execute(db);
-
-      await sql`
-        ALTER TABLE sales
-        ADD COLUMN IF NOT EXISTS client_uuid UUID
-      `.execute(db);
-
-      await sql`
-        ALTER TABLE sales
-        ADD COLUMN IF NOT EXISTS tax_total_cents INTEGER NOT NULL DEFAULT 0
-      `.execute(db);
-
-      await sql`
-        ALTER TABLE sales
-        ADD COLUMN IF NOT EXISTS tax_lines_json JSONB NOT NULL DEFAULT '[]'::jsonb
-      `.execute(db);
-
-      await sql`
-        ALTER TABLE sales
-        ADD COLUMN IF NOT EXISTS void_reason TEXT NULL
-      `.execute(db);
-
-      await sql`
-        ALTER TABLE sales
-        ADD COLUMN IF NOT EXISTS voided_by_user_id UUID NULL
-      `.execute(db);
-
-      await sql`
-        ALTER TABLE sales
-        ADD COLUMN IF NOT EXISTS voided_at TIMESTAMPTZ NULL
-      `.execute(db);
-
-      await sql`
-        CREATE TABLE IF NOT EXISTS audit_logs (
-          id UUID PRIMARY KEY,
-          tenant_id UUID NOT NULL,
-          branch_id UUID NULL,
-          user_id UUID NULL,
-          entity_type TEXT NOT NULL,
-          entity_id TEXT NOT NULL,
-          action TEXT NOT NULL,
-          payload_json JSONB NOT NULL DEFAULT '{}'::jsonb,
-          created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-          CONSTRAINT fk_audit_logs_tenant FOREIGN KEY (tenant_id) REFERENCES tenants (id) ON DELETE CASCADE,
-          CONSTRAINT fk_audit_logs_branch FOREIGN KEY (branch_id) REFERENCES branches (id) ON DELETE SET NULL,
-          CONSTRAINT fk_audit_logs_user FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE SET NULL
-        )
-      `.execute(db);
-
-      await sql`
-        ALTER TABLE dian_documents
-        ADD COLUMN IF NOT EXISTS document_type TEXT NOT NULL DEFAULT 'INVOICE'
-      `.execute(db);
-
-      await sql`
-        ALTER TABLE dian_documents
-        ADD COLUMN IF NOT EXISTS parent_document_id UUID NULL
-      `.execute(db);
-
-      await sql`
-        DO $$ BEGIN
-          IF NOT EXISTS (
-            SELECT 1
-            FROM pg_constraint
-            WHERE conname = 'ck_dian_documents_document_type'
-              AND conrelid = 'dian_documents'::regclass
-          ) THEN
-            ALTER TABLE dian_documents
-            ADD CONSTRAINT ck_dian_documents_document_type
-            CHECK (document_type IN ('INVOICE', 'CREDIT_NOTE'));
-          END IF;
-        END $$
-      `.execute(db);
-
-      await sql`
-        DO $$ BEGIN
-          IF NOT EXISTS (
-            SELECT 1
-            FROM pg_constraint
-            WHERE conname = 'fk_dian_documents_parent_document'
-              AND conrelid = 'dian_documents'::regclass
-          ) THEN
-            ALTER TABLE dian_documents
-            ADD CONSTRAINT fk_dian_documents_parent_document
-            FOREIGN KEY (parent_document_id) REFERENCES dian_documents (id) ON DELETE SET NULL;
-          END IF;
-        END $$
-      `.execute(db);
-
-      await sql`
-        ALTER TABLE dian_documents
-        DROP CONSTRAINT IF EXISTS uq_dian_documents_tenant_sale
-      `.execute(db);
-
-      await sql`
-        DO $$ BEGIN
-          IF NOT EXISTS (
-            SELECT 1
-            FROM pg_constraint
-            WHERE conname = 'uq_dian_documents_tenant_sale_type'
-              AND conrelid = 'dian_documents'::regclass
-          ) THEN
-            ALTER TABLE dian_documents
-            ADD CONSTRAINT uq_dian_documents_tenant_sale_type
-            UNIQUE (tenant_id, sale_id, document_type);
-          END IF;
-        END $$
-      `.execute(db);
-
-      await sql`
-        CREATE INDEX IF NOT EXISTS idx_dian_documents_tenant_sale_type
-        ON dian_documents (tenant_id, sale_id, document_type)
-      `.execute(db);
-
-      await sql`
-        ALTER TABLE tenants
-        ADD COLUMN IF NOT EXISTS allow_negative_stock BOOLEAN NOT NULL DEFAULT TRUE
-      `.execute(db);
-
-      await sql`
-        ALTER TABLE products
-        ADD COLUMN IF NOT EXISTS min_stock_alert_qty INTEGER NULL
-      `.execute(db);
-
-      await sql`
-        CREATE TABLE IF NOT EXISTS product_variants (
-          id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-          tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
-          product_id UUID NOT NULL REFERENCES products(id) ON DELETE CASCADE,
-          name VARCHAR NOT NULL,
-          price_cents INTEGER NOT NULL,
-          barcode VARCHAR NULL,
-          active BOOLEAN NOT NULL DEFAULT TRUE,
-          created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-          updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-        )
-      `.execute(db);
-
-      await sql`
-        ALTER TABLE sale_items
-        ADD COLUMN IF NOT EXISTS variant_id UUID REFERENCES product_variants(id) ON DELETE SET NULL
-      `.execute(db);
-
-      await sql`
-        CREATE TABLE IF NOT EXISTS promotions (
-          id UUID PRIMARY KEY,
-          tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
-          product_id UUID NOT NULL REFERENCES products(id) ON DELETE CASCADE,
-          type VARCHAR NOT NULL,
-          value_cents INTEGER NOT NULL,
-          buy_qty INTEGER NULL,
-          get_qty INTEGER NULL,
-          start_date TIMESTAMP NOT NULL,
-          end_date TIMESTAMP NULL,
-          active BOOLEAN NOT NULL DEFAULT TRUE,
-          created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-          updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
-        )
-      `.execute(db);
-
-      await sql`
-        CREATE TABLE IF NOT EXISTS sale_returns (
-          id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-          tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
-          sale_id UUID NOT NULL REFERENCES sales(id) ON DELETE CASCADE,
-          created_by_user_id UUID NOT NULL REFERENCES users(id),
-          total_refund_cents INTEGER NOT NULL CHECK (total_refund_cents >= 0),
-          reason TEXT,
-          created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
-        )
-      `.execute(db);
-      await sql`
-        CREATE TABLE IF NOT EXISTS return_items (
-          id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-          tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
-          return_id UUID NOT NULL REFERENCES sale_returns(id) ON DELETE CASCADE,
-          product_id UUID NOT NULL REFERENCES products(id),
-          qty NUMERIC(10,3) NOT NULL CHECK (qty > 0),
-          refund_cents INTEGER NOT NULL CHECK (refund_cents >= 0),
-          created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
-        )
-      `.execute(db);
-
-      await sql`
-        CREATE TABLE IF NOT EXISTS cash_movements (
-          id UUID PRIMARY KEY,
-          tenant_id UUID NOT NULL REFERENCES tenants(id),
-          cash_session_id UUID NOT NULL REFERENCES cash_sessions(id),
-          user_id UUID NOT NULL REFERENCES users(id),
-          type VARCHAR(10) NOT NULL,
-          amount_cents INTEGER NOT NULL,
-          reason TEXT NOT NULL,
-          created_at TIMESTAMP NOT NULL DEFAULT NOW()
-        )
-      `.execute(db);
-
-      await sql`
-        CREATE TABLE IF NOT EXISTS cash_session_audits (
-          id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-          tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
-          cash_session_id UUID NOT NULL REFERENCES cash_sessions(id) ON DELETE CASCADE,
-          user_id UUID NOT NULL,
-          observed_cash_cents INTEGER NOT NULL,
-          expected_cash_cents INTEGER NOT NULL,
-          diff_cents INTEGER NOT NULL,
-          notes TEXT,
-          created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-        )
-      `.execute(db);
-
-      await sql`
-        CREATE TABLE IF NOT EXISTS terminals (
-          id UUID PRIMARY KEY,
-          tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
-          branch_id UUID NOT NULL REFERENCES branches(id) ON DELETE CASCADE,
-          name VARCHAR NOT NULL,
-          is_active BOOLEAN NOT NULL DEFAULT TRUE,
-          created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-          updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-        )
-      `.execute(db);
-
-      await sql`
-        CREATE TABLE IF NOT EXISTS user_branches (
-          tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
-          user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-          branch_id UUID NOT NULL REFERENCES branches(id) ON DELETE CASCADE,
-          PRIMARY KEY (tenant_id, user_id, branch_id)
-        )
-      `.execute(db);
-
-      await sql`
-        CREATE TABLE IF NOT EXISTS inventory_balances (
-          id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-          tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
-          branch_id UUID NOT NULL REFERENCES branches(id) ON DELETE CASCADE,
-          product_id UUID NOT NULL REFERENCES products(id) ON DELETE CASCADE,
-          variant_id UUID NULL,
-          on_hand_qty NUMERIC(10,3) NOT NULL DEFAULT 0,
-          reserved_qty NUMERIC(10,3) NOT NULL DEFAULT 0,
-          in_transit_qty NUMERIC(10,3) NOT NULL DEFAULT 0,
-          updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-        )
-      `.execute(db);
-
-      await sql`
-        DO $$ BEGIN
-          BEGIN
-            ALTER TABLE inventory_balances
-            ADD COLUMN IF NOT EXISTS on_hand_qty NUMERIC(10,3) NOT NULL DEFAULT 0,
-            ADD COLUMN IF NOT EXISTS reserved_qty NUMERIC(10,3) NOT NULL DEFAULT 0,
-            ADD COLUMN IF NOT EXISTS in_transit_qty NUMERIC(10,3) NOT NULL DEFAULT 0;
-          EXCEPTION WHEN undefined_table THEN
-          END;
-        END $$;
-      `.execute(db);
-
-      await sql`
-        DO $$ BEGIN
-          BEGIN
-            ALTER TABLE outbox_events
-            ADD COLUMN IF NOT EXISTS event_version INTEGER NOT NULL DEFAULT 1,
-            ADD COLUMN IF NOT EXISTS aggregate_type VARCHAR NOT NULL DEFAULT 'SALE',
-            ADD COLUMN IF NOT EXISTS branch_id UUID NULL,
-            ADD COLUMN IF NOT EXISTS metadata_json JSONB NULL;
-          EXCEPTION WHEN undefined_table THEN
-          END;
-        END $$;
-      `.execute(db);
-
-    } finally {
-      if (schemaLockAcquired) {
-        await sql`SELECT pg_advisory_unlock(hashtext('pos_dian_e2e_schema'))`.execute(db);
+      if (applied === 0) {
+        throw new Error(
+          'La base de pruebas no tiene el esquema migrado. Ejecuta:\n' +
+            '  pnpm --filter @pos-dian/api db:migrate'
+        );
       }
-      await db.destroy();
+    } catch (error) {
+      schemaReadyPromise = null;
+      throw error;
     }
   })();
 
   return schemaReadyPromise;
+}
+
+/**
+ * Lee la base como lo haría la app: con el rol restringido y el contexto de tenant fijado.
+ *
+ * Las aserciones que consultan la base directamente tienen que pasar por aquí. Si usaran
+ * una conexión con BYPASSRLS verían filas que la app no puede ver, y una regresión de
+ * aislamiento pasaría desapercibida justo en las pruebas escritas para detectarla.
+ */
+export async function readAsTenant<T>(
+  app: FastifyInstance,
+  tenantId: string,
+  read: (trx: Transaction<Database>) => Promise<T>
+): Promise<T> {
+  return executeAsTenant(app.db, tenantId, read);
 }
 
 export async function seedE2eFixture(
@@ -371,7 +140,7 @@ export async function seedE2eFixture(
   const adminPasswordHash = await getAdminPasswordHash();
   const cashierPasswordHash = await getCashierPasswordHash();
 
-  await app.db.transaction().execute(async (trx) => {
+  await adminDb().transaction().execute(async (trx) => {
     await trx
       .insertInto('tenants')
       .values({
@@ -487,7 +256,7 @@ export async function cleanupE2eFixture(
   app: FastifyInstance,
   fixture: Pick<E2eFixture, 'tenantId'>
 ): Promise<void> {
-  await app.db.transaction().execute(async (trx) => {
+  await adminDb().transaction().execute(async (trx) => {
     await sql`ALTER TABLE inventory_ledger DISABLE TRIGGER USER`.execute(trx);
     await sql`ALTER TABLE sales_ledger DISABLE TRIGGER USER`.execute(trx);
     await sql`ALTER TABLE cash_ledger DISABLE TRIGGER USER`.execute(trx);

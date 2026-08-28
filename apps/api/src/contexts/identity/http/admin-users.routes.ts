@@ -8,12 +8,15 @@ import { assertCanManageRole, assertIsNotSelfRoleChange } from '../../../shared/
 import { QuotaGuard } from '../../../shared/infra/security/quota-guard.js';
 import { writeAuditLog } from '../../../shared/domain/audit/write-audit-log.js';
 import { jsonArrayFrom } from 'kysely/helpers/postgres';
+import { userRoleSchema } from '@pos-dian/shared';
 
 const createUserBodySchema = z.object({
   email: z.string().email(),
   password: z.string().min(8),
   name: z.string().min(1),
-  role: z.enum(['PLATFORM_OWNER', 'TENANT_OWNER', 'ADMIN', 'MANAGER', 'CASHIER', 'AUDITOR']),
+  // Se toma del esquema compartido a propósito: escribir la lista a mano aquí fue lo que
+  // dejó `WAITER` fuera del API durante meses.
+  role: userRoleSchema,
   active: z.boolean().default(true),
   branch_ids: z.array(z.string().uuid()).optional()
 });
@@ -60,10 +63,10 @@ export const adminUsersRoutes: FastifyPluginAsync = async (app) => {
         query = query.where('users.tenant_id', 'is', null);
       }
 
-      // Managers can only see CASHIERS in their own branches
+      // Un gerente solo ve al personal de piso de sus propias sucursales.
       if (request.auth!.role !== 'ADMIN' && request.auth!.role !== 'TENANT_OWNER' && !request.auth!.isPlatformRole) {
         query = query
-          .where('users.role', '=', 'CASHIER')
+          .where('users.role', 'in', ['CASHIER', 'WAITER'])
           .where(({ exists, selectFrom }) =>
             exists(
               selectFrom('user_branches as ub')
@@ -195,7 +198,7 @@ export const adminUsersRoutes: FastifyPluginAsync = async (app) => {
         security: [{ bearerAuth: [] }],
         params: z.object({ id: z.string().uuid() }),
         body: z.object({
-          role: z.enum(['PLATFORM_OWNER', 'TENANT_OWNER', 'ADMIN', 'MANAGER', 'CASHIER', 'AUDITOR'])
+          role: userRoleSchema
         })
       }
     },
@@ -361,9 +364,9 @@ export const adminUsersRoutes: FastifyPluginAsync = async (app) => {
           throw new AppError(403, 'AUTH_FORBIDDEN', 'No puedes asignar sucursales a las que no tienes acceso');
         }
 
-        // Verify target user is only CASHIER
-        if (targetUserValidation.role !== 'CASHIER') {
-          throw new AppError(403, 'AUTH_FORBIDDEN', 'Solo puedes modificar sucursales de cajeros');
+        // Un gerente solo administra las sucursales del personal de piso: cajeros y meseros.
+        if (targetUserValidation.role !== 'CASHIER' && targetUserValidation.role !== 'WAITER') {
+          throw new AppError(403, 'AUTH_FORBIDDEN', 'Solo puedes modificar sucursales de cajeros y meseros');
         }
       }
 

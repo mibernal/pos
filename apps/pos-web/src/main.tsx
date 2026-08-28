@@ -10,6 +10,7 @@ if ('serviceWorker' in navigator) {
 }
 
 import { ApiClientError } from './lib/api';
+import { ErrorBoundary } from './components/ErrorBoundary';
 
 // Solicitar almacenamiento persistente para evitar evicción de la cola offline en móviles
 if (navigator.storage && navigator.storage.persist) {
@@ -36,7 +37,11 @@ const queryClient = new QueryClient({
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
     <QueryClientProvider client={queryClient}>
-      <App />
+      {/* Última red: si algo revienta fuera de una pantalla concreta, el cajero ve un
+          mensaje con el estado de su cola offline en vez de una página en blanco. */}
+      <ErrorBoundary>
+        <App />
+      </ErrorBoundary>
     </QueryClientProvider>
   </React.StrictMode>
 );

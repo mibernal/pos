@@ -1,10 +1,21 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { randomUUID } from 'node:crypto';
-import { createDb } from '../../../shared/infra/db/connection.js';
+import { Kysely, PostgresDialect } from 'kysely';
+import { Pool } from 'pg';
+import type { Database } from '../../../shared/infra/db/schema.js';
 import { recordInventoryTransaction } from '../http/inventory.routes.js';
 import { sql } from 'kysely'; // eslint-disable-line @typescript-eslint/no-unused-vars
 
-const db = createDb();
+// La app se conecta con un rol sin BYPASSRLS. Sembrar tenant, sucursal y producto es una
+// operación de administración, igual que las migraciones: usa el rol dueño del esquema.
+const db = new Kysely<Database>({
+  dialect: new PostgresDialect({
+    pool: new Pool({
+      connectionString: process.env.ADMIN_DATABASE_URL ?? process.env.DATABASE_URL,
+      max: 10
+    })
+  })
+});
 
 describe('Inventory Concurrency Stress Test', () => {
   const tenantId = randomUUID();

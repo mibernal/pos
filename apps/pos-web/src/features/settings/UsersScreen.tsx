@@ -5,6 +5,7 @@ import type { PosApiClient } from '../../types';
 import { Banner, Modal, ShellMessage } from '../../components/ui';
 import type { UserRole } from '../../lib/api/client';
 import { useSession } from '../auth';
+import { useModules } from '../modules/FeatureModuleProvider';
 
 interface UsersScreenProps {
   api: PosApiClient;
@@ -18,6 +19,10 @@ export function UsersScreen({ api }: UsersScreenProps) {
   const canCreateAdmin = currentRole === 'PLATFORM_OWNER' || currentRole === 'TENANT_OWNER';
   const isStarterPlan = session?.user.tenantPlan === 'STARTER';
   const canCreateManager = (canCreateAdmin || currentRole === 'ADMIN') && !isStarterPlan;
+  // El rol de mesero solo tiene sentido —y solo se ofrece— en un comercio con el módulo
+  // de meseros activo.
+  const { hasModule } = useModules();
+  const canCreateWaiter = hasModule('waiters');
   const queryClient = useQueryClient();
 
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
@@ -168,7 +173,7 @@ export function UsersScreen({ api }: UsersScreenProps) {
                     </span>
                   </td>
                   <td style={{ padding: '0.75rem 1rem', textAlign: 'right' }}>
-                    {u.role === 'CASHIER' && (
+                    {(u.role === 'CASHIER' || u.role === 'WAITER') && (
                       <button className="ghost-button button-sm" onClick={() => openAssignModal(u)}>
                         🏢 Asignar Sucursales
                       </button>
@@ -228,6 +233,7 @@ export function UsersScreen({ api }: UsersScreenProps) {
                     required
                   >
                     <option value="CASHIER">Cajero</option>
+                    {canCreateWaiter && <option value="WAITER">Mesero</option>}
                     {canCreateManager && <option value="MANAGER">Gerente</option>}
                     {canCreateManager && <option value="AUDITOR">Auditor</option>}
                     {canCreateAdmin && <option value="ADMIN">Administrador</option>}
@@ -235,7 +241,7 @@ export function UsersScreen({ api }: UsersScreenProps) {
                 </label>
               </div>
 
-              {role === 'CASHIER' && branches.length > 0 && (
+              {(role === 'CASHIER' || role === 'WAITER') && branches.length > 0 && (
                 <div className="field">
                   <span>Asignar Sucursales</span>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', marginTop: '0.5rem', maxHeight: '150px', overflowY: 'auto', padding: '0.5rem', border: '1px solid var(--color-slate-700)', borderRadius: '4px' }}>

@@ -1,7 +1,7 @@
-import { createDb } from './connection.js';
+import { createAdminDb } from './connection.js';
 import { sql } from 'kysely';
 
-const db = createDb();
+const db = createAdminDb();
 
 async function main() {
   console.log('⚠️ INICIANDO BORRADO FÍSICO DE DATOS (TRUNCATE CASCADE)...');

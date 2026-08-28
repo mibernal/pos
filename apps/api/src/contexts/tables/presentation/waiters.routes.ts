@@ -35,7 +35,10 @@ export const waitersRoutes: FastifyPluginAsyncZod = async (app) => {
         body: CreateWaiterSchema,
         response: { 201: WaiterSchema }
       },
-      preHandler: [app.requireModule(['waiters'])]
+      // Administrar la plantilla es tarea de administración. La lectura (GET) queda abierta
+      // a cualquiera del comercio con el módulo activo, porque el selector de mesero de la
+      // pantalla de mesas lo usa un cajero o un mesero, no un administrador.
+      preHandler: [app.requireModule(['waiters']), app.requirePermissions(['branches:manage'])]
     },
     async (request, reply) => {
       const { branchId } = request.params;
@@ -54,7 +57,7 @@ export const waitersRoutes: FastifyPluginAsyncZod = async (app) => {
         body: UpdateWaiterSchema,
         response: { 200: WaiterSchema }
       },
-      preHandler: [app.requireModule(['waiters'])]
+      preHandler: [app.requireModule(['waiters']), app.requirePermissions(['branches:manage'])]
     },
     async (request, reply) => {
       const { id } = request.params;
