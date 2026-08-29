@@ -762,6 +762,20 @@ export interface TenantSubscriptionsTable {
   updated_at: Generated<Date>;
 }
 
+export interface PaymentWebhookEventsTable {
+  id: string;
+  gateway: string;
+  event_id: string | null;
+  reference: string | null;
+  signature_valid: boolean;
+  status: Generated<string>;
+  amount_cents: number | null;
+  payload_json: JsonColumn;
+  error: string | null;
+  received_at: Generated<Date>;
+  processed_at: Date | null;
+}
+
 export interface PlatformEventsTable {
   id: Generated<string>;
   tenant_id: string | null;
@@ -1011,6 +1025,7 @@ export interface Database {
   impersonation_sessions: ImpersonationSessionsTable;
   billing_plans: BillingPlansTable;
   tenant_subscriptions: TenantSubscriptionsTable;
+  payment_webhook_events: PaymentWebhookEventsTable;
   payment_transactions: PaymentTransactionsTable;
   bulk_import_jobs: BulkImportJobsTable;
   idempotency_records: IdempotencyRecordsTable;

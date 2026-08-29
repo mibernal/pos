@@ -11,6 +11,17 @@ export interface PaymentWebhookResult {
   reference: string;
   gatewayTransactionId: string;
   status: 'PENDING' | 'APPROVED' | 'DECLINED' | 'ERROR';
+  /**
+   * Importe que la pasarela dice haber cobrado, en centavos.
+   *
+   * Se compara contra el importe registrado al crear el checkout antes de conceder nada.
+   * La firma del webhook prueba que el mensaje viene de la pasarela; no prueba que el
+   * importe sea el que corresponde al plan que se va a activar.
+   */
+  amountCents?: number;
+  currency?: string;
+  /** Identificador del evento en la pasarela, cuando lo hay, para deduplicar reintentos. */
+  eventId?: string;
   rawPayload: any; // eslint-disable-line @typescript-eslint/no-explicit-any
 }
 

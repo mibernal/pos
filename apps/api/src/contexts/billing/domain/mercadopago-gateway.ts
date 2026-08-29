@@ -125,10 +125,16 @@ export class MercadoPagoGateway implements IPaymentGateway {
         status = 'ERROR';
       }
 
+      // MercadoPago devuelve el importe en unidades de la moneda, no en centavos.
+      const transactionAmount = Number(payment.transaction_amount);
+
       return {
         reference: payment.external_reference || '',
         gatewayTransactionId: dataId.toString(),
         status,
+        amountCents: Number.isFinite(transactionAmount) ? Math.round(transactionAmount * 100) : undefined,
+        currency: payment.currency_id,
+        eventId: `${dataId}:${mpStatus}`,
         rawPayload: payload
       };
     } catch {

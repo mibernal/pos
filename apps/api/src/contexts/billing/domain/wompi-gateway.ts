@@ -72,6 +72,12 @@ export class WompiGateway implements IPaymentGateway {
       reference: transaction?.reference || '',
       gatewayTransactionId: transaction?.id || '',
       status,
+      // Wompi entrega el importe ya en centavos.
+      amountCents: typeof transaction?.amount_in_cents === 'number' ? transaction.amount_in_cents : undefined,
+      currency: transaction?.currency,
+      // Wompi no envía un id de evento propio: el par transacción + estado identifica el
+      // hecho, y es lo que hace idempotente un reintento de la pasarela.
+      eventId: transaction?.id ? `${transaction.id}:${transaction.status}` : undefined,
       rawPayload: payload
     };
   }

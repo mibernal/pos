@@ -64,6 +64,10 @@ export class StripeGateway implements IPaymentGateway {
         reference: session.client_reference_id || '',
         status: 'APPROVED',
         gatewayTransactionId: session.id,
+        // Stripe entrega el importe en la unidad mínima de la moneda: centavos para COP y USD.
+        amountCents: typeof session.amount_total === 'number' ? session.amount_total : undefined,
+        currency: session.currency?.toUpperCase(),
+        eventId: typeof payload.id === 'string' ? payload.id : undefined,
         rawPayload: payload
       };
     }

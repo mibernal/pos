@@ -4,7 +4,8 @@ import { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { AppError } from '../../../shared/infra/errors/app-error.js';
 import { env } from '../../../app/env.js';
 import { createCheckoutSession } from '../application/create-checkout-session.js';
-import { SubscriptionService } from '../application/subscription.service.js';
+import { SubscriptionService, LIVE_SUBSCRIPTION_STATUSES } from '../application/subscription.service.js';
+import { periodDaysForCycle } from '../../platform-admin/application/billing-plans/resolve-plan.js';
 
 const checkoutBodySchema = z.object({
   planId: z.string(),
@@ -105,8 +106,24 @@ export const billingRoutes: FastifyPluginAsync = async (app) => {
           const metadata = tx.metadata_json as { planId?: string } | null;
           if (metadata?.planId) {
             const planId = metadata.planId;
-            const sub = await trx.selectFrom('tenant_subscriptions').select(['plan_id', 'status']).where('tenant_id', '=', tx.tenant_id).executeTakeFirst();
-              
+
+            // El periodo sale del ciclo del plan, no de un 30 fijo: si el checkout simulado
+            // concediera siempre un mes, el modo de prueba dejaría de parecerse al real.
+            const plan = await trx
+              .selectFrom('billing_plans')
+              .select(['billing_cycle'])
+              .where('id', '=', planId)
+              .executeTakeFirst();
+            const periodDays = periodDaysForCycle(plan?.billing_cycle ?? 'MONTHLY');
+
+            const sub = await trx
+              .selectFrom('tenant_subscriptions')
+              .select(['plan_id', 'status'])
+              .where('tenant_id', '=', tx.tenant_id)
+              .where('status', 'in', [...LIVE_SUBSCRIPTION_STATUSES])
+              .orderBy('created_at', 'desc')
+              .executeTakeFirst();
+
             await trx.updateTable('tenants')
               .set({ status: 'ACTIVE' })
               .where('id', '=', tx.tenant_id)
@@ -117,9 +134,9 @@ export const billingRoutes: FastifyPluginAsync = async (app) => {
             }
 
             if (sub?.status === 'ACTIVE') {
-              await SubscriptionService.renewSubscription(trx, tx.tenant_id, 30);
+              await SubscriptionService.renewSubscription(trx, tx.tenant_id, periodDays);
             } else {
-              await SubscriptionService.activateSubscription(trx, tx.tenant_id, 30);
+              await SubscriptionService.activateSubscription(trx, tx.tenant_id, periodDays);
             }
           }
         }
