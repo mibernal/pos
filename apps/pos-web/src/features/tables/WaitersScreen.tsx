@@ -24,7 +24,7 @@ export function WaitersScreen() {
     setIsModalOpen(true);
   };
 
-  const handleSave = async (data: { name: string; pin: string | null; is_active: boolean }) => {
+  const handleSave = async (data: { name: string; pin?: string | null; is_active: boolean }) => {
     try {
       if (editingWaiter) {
         await updateWaiter({ branchId: branchId ?? '', id: editingWaiter.id, payload: data });
@@ -85,7 +85,7 @@ export function WaitersScreen() {
                   <tr key={waiter.id} className="hover:bg-slate-50/50 transition-colors">
                     <td className="p-4 font-medium">{waiter.name}</td>
                     <td className="p-4">
-                      {waiter.pin ? <span className="font-mono bg-slate-100 px-2 py-1 rounded text-sm tracking-widest">****</span> : <span className="text-slate-400 italic text-sm">Sin PIN</span>}
+                      {waiter.has_pin ? <span className="font-mono bg-slate-100 px-2 py-1 rounded text-sm tracking-widest">••••</span> : <span className="text-slate-400 italic text-sm">Sin PIN</span>}
                     </td>
                     <td className="p-4">
                       <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${waiter.is_active ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>

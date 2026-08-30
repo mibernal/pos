@@ -158,7 +158,8 @@ export interface WaitersTable {
   branch_id: string;
   user_id: string | null;
   name: string;
-  pin: string | null;
+  // Argon2, como `users.pin_hash`. Nunca sale en una respuesta: ver la nota del repositorio.
+  pin_hash: string | null;
   is_active: Generated<boolean>;
   created_at: Generated<Date>;
   updated_at: Generated<Date>;

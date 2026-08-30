@@ -128,8 +128,13 @@ export const reportsRoutes: FastifyPluginAsync = async (app) => {
       const { branch_id } = request.query;
       if (branch_id) ensureUserCanAccessBranch(request.auth, branch_id);
 
-      const useCase = new WaiterReportsUseCase(app.db);
-      return await useCase.execute(request.auth.tenantId!, request.query);
+      // Dentro del contexto de comercio. Iba contra `app.db` sin fijar `app.current_tenant`:
+      // con RLS forzado y el rol de la API sin BYPASSRLS, `sales` devolvía cero filas y el
+      // informe salía vacío en producción sin que nada fallara.
+      return await request.executeAsTenant(async (trx) => {
+        const useCase = new WaiterReportsUseCase(trx as unknown as typeof app.db);
+        return await useCase.execute(request.auth!.tenantId!, request.query);
+      });
     }
   );
 
