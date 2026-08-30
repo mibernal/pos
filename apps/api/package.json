@@ -12,6 +12,7 @@
     "dev": "node --env-file=../../.env --import tsx --watch src/index.ts",
     "db:migrate": "node --env-file=../../.env --import tsx src/shared/infra/db/migrate.ts",
     "db:migrate:prod": "node dist/shared/infra/db/migrate.js",
+    "db:ensure-api-role": "node --env-file=../../.env --import tsx src/shared/infra/db/ensure-api-role.ts",
     "db:doctor": "node --env-file=../../.env --import tsx src/shared/infra/db/doctor.ts",
     "db:doctor:prod": "node dist/shared/infra/db/doctor.js",
     "db:seed": "node --env-file=../../.env --import tsx src/shared/infra/db/seed.ts",

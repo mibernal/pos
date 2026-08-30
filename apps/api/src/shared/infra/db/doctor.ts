@@ -75,7 +75,7 @@ async function main(): Promise<void> {
       'error',
       'Rol api_user',
       'No existe. Es un rol del clúster, no de la base: restaurar un volcado o recrear el contenedor de Postgres lo deja fuera, porque pg_dump no exporta roles.',
-      './infra/scripts/create-api-role.sh "$(openssl rand -base64 32)"'
+      'pnpm --filter @pos-dian/api db:ensure-api-role'
     );
   } else {
     add('ok', 'Rol api_user', 'Existe.');
@@ -125,7 +125,7 @@ async function main(): Promise<void> {
         'error',
         'Conexión de la API',
         `No se pudo conectar con DATABASE_URL: ${error instanceof Error ? error.message : String(error)}`,
-        'Si el rol no existe: ./infra/scripts/create-api-role.sh "$(openssl rand -base64 32)"'
+        'Si el rol no existe: pnpm --filter @pos-dian/api db:ensure-api-role'
       );
     }
   } else {
@@ -164,59 +164,134 @@ async function main(): Promise<void> {
   `
     .execute(admin)
     .then((r) => r.rows)
-    .catch(() => []);
-
-  for (const tenant of tenants) {
-    const label = `${tenant.name}`;
-
-    if (!tenant.has_settings) {
-      add('warn', `DIAN · ${label}`, 'Sin proveedor PAC configurado en tenant_dian_settings. No podrá emitir.');
-    }
-
-    if (!tenant.has_resolution) {
+    .catch((error) => {
+      // Se avisa en vez de tragarse el error: esta consulta une con `dian_resolutions`, que
+      // no existe hasta la migración 090. Al principio devolvía [] en silencio y la sección
+      // de comercios simplemente no aparecía — el usuario se quedaba sin el diagnóstico de
+      // numeración y de meseros sin saber por qué.
       add(
         'warn',
-        `Numeración · ${label}`,
-        'Sin resolución de facturación activa. Las ventas no obtendrán número fiscal y quedarán reintentando.',
-        'POST /api/v1/dian/resolutions — ver docs/CERTIFICACION-PAC.md'
+        'Configuración por comercio',
+        `No se pudo revisar: ${error instanceof Error ? error.message : String(error)}`,
+        'Si menciona dian_resolutions, falta aplicar la migración 090: pnpm --filter @pos-dian/api db:migrate'
       );
-    } else {
-      const remaining = Number(tenant.remaining ?? 0);
-      const daysLeft = tenant.valid_until
-        ? Math.floor((new Date(`${tenant.valid_until}T00:00:00Z`).getTime() - Date.now()) / 86_400_000)
-        : 0;
+      return [];
+    });
 
-      if (remaining <= 0) {
-        add('error', `Numeración · ${label}`, 'Rango agotado: el comercio no puede facturar.', 'Solicitar rango nuevo a la DIAN.');
-      } else if (daysLeft < 0) {
-        add('error', `Numeración · ${label}`, `Resolución vencida el ${tenant.valid_until}.`, 'Solicitar resolución nueva.');
-      } else if (remaining < 500 || daysLeft <= 30) {
-        add('warn', `Numeración · ${label}`, `Quedan ${remaining} números y ${daysLeft} días de vigencia.`);
-      } else {
-        add('ok', `Numeración · ${label}`, `${remaining} números libres, vence en ${daysLeft} días.`);
-      }
-    }
+  if (tenants.length === 0 && !results.some((r) => r.title === 'Configuración por comercio')) {
+    add('warn', 'Comercios', 'No hay ninguno activo en la base. Siembra el entorno de demo con db:seed si es una instalación nueva.');
+  }
 
-    // Meseros: los dos motivos por los que «no aparece ningún mesero para asignar».
-    if (tenant.enable_waiters) {
-      const count = Number(tenant.waiters);
-      if (count === 0) {
-        add(
-          'warn',
-          `Meseros · ${label}`,
-          'El módulo está activo pero no hay ningún mesero activo en la plantilla. El selector al abrir mesa saldrá vacío.',
-          'Agrégalos en la pantalla Meseros. Crear usuarios con rol WAITER no los añade a esa lista.'
-        );
-      } else {
-        add('ok', `Meseros · ${label}`, `${count} meseros activos.`);
-      }
-    } else if (tenant.enable_tables) {
-      add(
-        'ok',
-        `Meseros · ${label}`,
-        'Módulo de meseros desactivado: las mesas se abren sin asignar mesero (comportamiento correcto).'
-      );
-    }
+  /**
+   * Los comercios se agrupan en vez de imprimir una línea por cada uno.
+   *
+   * La primera versión sacaba dos avisos por comercio: en una base de desarrollo con cien
+   * tenants de prueba acumulados eso son 185 líneas idénticas, y un informe que nadie lee
+   * es lo mismo que no tener informe. Se resume, y se nombran solo unos pocos.
+   */
+  const TEST_TENANT = /^(Tenant E2E |Stress Test|Tenant [AB]$|Numeración$)/;
+  const real = tenants.filter((t) => !TEST_TENANT.test(t.name));
+  const testOnes = tenants.filter((t) => TEST_TENANT.test(t.name));
+
+  if (testOnes.length > 0) {
+    add(
+      'warn',
+      'Comercios de prueba',
+      `${testOnes.length} comercios con nombre de fixture (Tenant E2E…, Stress Test…) siguen en la base. ` +
+        'No se revisan y ensucian los informes; suelen quedar de suites que fallaron a mitad.',
+      'pnpm --filter @pos-dian/api db:doctor -- --limpiar-comercios-de-prueba'
+    );
+  }
+
+  function summarize(
+    title: string,
+    matching: typeof real,
+    level: Level,
+    detail: (count: number, names: string) => string,
+    fix?: string
+  ): void {
+    if (matching.length === 0) return;
+    // Se nombran hasta tres: suficiente para saber a quién mirar, sin llenar la pantalla.
+    const names = matching.slice(0, 3).map((t) => t.name).join(', ');
+    const suffix = matching.length > 3 ? ` y ${matching.length - 3} más` : '';
+    add(level, title, detail(matching.length, names + suffix), fix);
+  }
+
+  summarize(
+    'DIAN · proveedor',
+    real.filter((t) => !t.has_settings),
+    'warn',
+    (n, names) => `${n} comercios sin proveedor PAC en tenant_dian_settings: ${names}. No podrán emitir.`
+  );
+
+  const withoutResolution = real.filter((t) => !t.has_resolution);
+  summarize(
+    'Numeración · sin resolución',
+    withoutResolution,
+    'warn',
+    (n, names) =>
+      `${n} comercios sin resolución de facturación activa: ${names}. ` +
+      'Sus ventas no obtendrán número fiscal y quedarán reintentando.',
+    'POST /api/v1/dian/resolutions — ver docs/CERTIFICACION-PAC.md'
+  );
+
+  const withResolution = real.filter((t) => t.has_resolution);
+  const daysLeftOf = (t: (typeof real)[number]) =>
+    t.valid_until
+      ? Math.floor((new Date(`${t.valid_until}T00:00:00Z`).getTime() - Date.now()) / 86_400_000)
+      : 0;
+
+  summarize(
+    'Numeración · rango agotado',
+    withResolution.filter((t) => Number(t.remaining ?? 0) <= 0),
+    'error',
+    (n, names) => `${n} comercios agotaron su rango y NO pueden facturar: ${names}.`,
+    'Solicitar rango nuevo a la DIAN.'
+  );
+
+  summarize(
+    'Numeración · resolución vencida',
+    withResolution.filter((t) => Number(t.remaining ?? 0) > 0 && daysLeftOf(t) < 0),
+    'error',
+    (n, names) => `${n} comercios con la resolución vencida y NO pueden facturar: ${names}.`,
+    'Solicitar resolución nueva a la DIAN.'
+  );
+
+  summarize(
+    'Numeración · por agotarse',
+    withResolution.filter(
+      (t) => Number(t.remaining ?? 0) > 0 && daysLeftOf(t) >= 0 && (Number(t.remaining ?? 0) < 500 || daysLeftOf(t) <= 30)
+    ),
+    'warn',
+    (n, names) => `${n} comercios con poco rango o vigencia próxima a vencer: ${names}.`
+  );
+
+  const healthy = withResolution.filter(
+    (t) => Number(t.remaining ?? 0) >= 500 && daysLeftOf(t) > 30
+  );
+  if (healthy.length > 0) {
+    add('ok', 'Numeración', `${healthy.length} comercios con numeración vigente y rango suficiente.`);
+  }
+
+  // Meseros: las dos causas de «no aparece ningún mesero para asignar».
+  summarize(
+    'Meseros · plantilla vacía',
+    real.filter((t) => t.enable_waiters && Number(t.waiters) === 0),
+    'warn',
+    (n, names) =>
+      `${n} comercios tienen el módulo de meseros activo pero ninguno en la plantilla: ${names}. ` +
+      'El selector al abrir mesa saldrá vacío.',
+    'Agrégalos en la pantalla Meseros. Crear usuarios con rol WAITER no los añade a esa lista.'
+  );
+
+  const withWaiters = real.filter((t) => t.enable_waiters && Number(t.waiters) > 0);
+  if (withWaiters.length > 0) {
+    add(
+      'ok',
+      'Meseros',
+      `${withWaiters.length} comercios con meseros activos: ` +
+        withWaiters.map((t) => `${t.name} (${t.waiters})`).slice(0, 3).join(', ')
+    );
   }
 
   // ── Documentos fiscales sin cerrar ─────────────────────────────────────────────────
@@ -226,9 +301,11 @@ async function main(): Promise<void> {
   `
     .execute(admin)
     .then((r) => Number(r.rows[0]?.n ?? 0))
-    .catch(() => 0);
+    .catch(() => -1);
 
-  if (stuck > 0) {
+  if (stuck < 0) {
+    add('warn', 'Documentos DIAN', 'No se pudo consultar dian_documents.');
+  } else if (stuck > 0) {
     add(
       'warn',
       'Documentos DIAN',
@@ -237,6 +314,39 @@ async function main(): Promise<void> {
     );
   } else {
     add('ok', 'Documentos DIAN', 'Ninguno atascado.');
+  }
+
+  // ── Limpieza opcional de comercios de prueba ───────────────────────────────────────
+  //
+  // Las suites e2e siembran un comercio por caso y lo borran al terminar; cuando una suite
+  // se corta a mitad, el comercio se queda. Con el tiempo se acumulan cientos en la base de
+  // desarrollo y el informe deja de ser legible.
+  //
+  // Solo borra los que llevan nombre de fixture, nunca uno real, y hay que pedirlo
+  // explícitamente: borrar comercios no es algo que un comando de diagnóstico deba hacer
+  // por su cuenta.
+  if (process.argv.includes('--limpiar-comercios-de-prueba')) {
+    const doomed = tenants.filter((t) => /^(Tenant E2E |Stress Test|Tenant [AB]$|Numeración$)/.test(t.name));
+
+    if (doomed.length === 0) {
+      console.log('\nNo hay comercios de prueba que borrar.\n');
+    } else {
+      console.log(`\nBorrando ${doomed.length} comercios de prueba…`);
+      let deleted = 0;
+      for (const tenant of doomed) {
+        try {
+          // El borrado en cascada de las claves foráneas se encarga del resto.
+          await sql`DELETE FROM tenants WHERE id = ${tenant.id}`.execute(admin);
+          deleted += 1;
+        } catch (error) {
+          console.warn(`  No se pudo borrar ${tenant.name}: ${error instanceof Error ? error.message : error}`);
+        }
+      }
+      console.log(`Borrados ${deleted} de ${doomed.length}.\n`);
+      console.log('Vuelve a ejecutar `db:doctor` sin la bandera para ver el informe limpio.\n');
+      await admin.destroy();
+      process.exit(0);
+    }
   }
 
   await admin.destroy();

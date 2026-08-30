@@ -68,5 +68,22 @@ export const envSchema = z
     }
   });
 
-export const env = envSchema.parse(process.env);
+
+/**
+ * En un archivo `.env`, `FOO=` significa «sin configurar», no «cadena vacía». Pero para
+ * Node es una cadena vacía, que **no** es `undefined`: una variable declarada como
+ * `z.string().min(16).optional()` pasa el `optional()` y revienta contra el `min(16)`.
+ *
+ * Pasó de verdad: `.env.example` traía `METRICS_TOKEN=` y eso impedía arrancar la API y el
+ * worker con un error que no decía nada del `.env`. Aquí se normaliza antes de validar.
+ */
+function stripEmptyStrings(source: NodeJS.ProcessEnv): Record<string, string | undefined> {
+  const cleaned: Record<string, string | undefined> = {};
+  for (const [key, value] of Object.entries(source)) {
+    cleaned[key] = typeof value === 'string' && value.trim() === '' ? undefined : value;
+  }
+  return cleaned;
+}
+
+export const env = envSchema.parse(stripEmptyStrings(process.env));
 

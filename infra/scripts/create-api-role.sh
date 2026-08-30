@@ -6,7 +6,10 @@
 #   ./infra/scripts/create-api-role.sh <contraseña>
 #
 # Requiere una conexión con el dueño del esquema (PGHOST/PGUSER/PGDATABASE o DATABASE_URL).
-# Ejecutar DESPUÉS de las migraciones: el rol `api_user` lo crea la migración 057/089.
+# Crea `api_user` si falta (es un rol del clúster; pg_dump no lo exporta).
+#
+# Alternativa sin necesidad de `psql`, útil cuando Postgres corre en Docker:
+#   pnpm --filter @pos-dian/api db:ensure-api-role
 set -euo pipefail
 
 PASSWORD="${1:-}"
@@ -19,6 +22,23 @@ fi
 psql "${DATABASE_URL:-}" -v ON_ERROR_STOP=1 <<SQL
 DO \$\$
 BEGIN
+  -- api_user es un rol del CLÚSTER: pg_dump no lo exporta, así que restaurar un volcado o
+  -- recrear el contenedor de Postgres lo deja fuera. Sin él, el CREATE USER de abajo falla
+  -- con «role api_user does not exist».
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'api_user') THEN
+    CREATE ROLE api_user NOLOGIN;
+    RAISE NOTICE 'Rol api_user creado.';
+  END IF;
+
+  GRANT USAGE ON SCHEMA public TO api_user;
+  GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO api_user;
+  GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO api_user;
+  GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO api_user;
+  ALTER DEFAULT PRIVILEGES IN SCHEMA public
+    GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO api_user;
+  ALTER DEFAULT PRIVILEGES IN SCHEMA public
+    GRANT USAGE, SELECT ON SEQUENCES TO api_user;
+
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'pos_api') THEN
     CREATE USER pos_api WITH PASSWORD '${PASSWORD}' IN ROLE api_user;
   ELSE
