@@ -45,7 +45,7 @@ export function TenantDetailDrawer({ api, tenant, isOpen, onClose, onSuccess }: 
     business_name: tenant?.business_name || '',
     nit: tenant?.document_number || '',
     tax_mode: 'IVA',
-    plan: tenant?.plan_name || 'STARTER',
+    plan: tenant?.plan_id || 'STARTER',
     business_type: tenant?.business_type || 'OTHER',
     owner_email: tenant?.owner_email || '',
     owner_name: '',
@@ -81,7 +81,7 @@ export function TenantDetailDrawer({ api, tenant, isOpen, onClose, onSuccess }: 
         business_name: tenant.business_name || '',
         nit: tenant.document_number || '',
         tax_mode: 'IVA',
-        plan: tenant.plan_name || 'STARTER',
+        plan: tenant.plan_id || 'STARTER',
         business_type: tenant.business_type || 'OTHER',
         owner_email: tenant.owner_email || '',
         owner_name: '',
@@ -134,7 +134,7 @@ export function TenantDetailDrawer({ api, tenant, isOpen, onClose, onSuccess }: 
         reason: 'Actualización de configuración desde Platform Admin'
       });
 
-      if (formData.plan !== tenant.plan_name) {
+      if (formData.plan !== tenant.plan_id) {
         await api.changeTenantPlan(tenant.id, formData.plan);
       }
       onSuccess();
@@ -494,8 +494,10 @@ export function TenantDetailDrawer({ api, tenant, isOpen, onClose, onSuccess }: 
                     onChange={e => setFormData({...formData, plan: e.target.value})}
                     className="flex h-11 w-full rounded-lg border border-input bg-background px-3 py-2 text-sm text-foreground shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                   >
+                    {/* El identificador, no el nombre: el nombre se puede editar desde el
+                        catálogo de planes y dejaría de coincidir. */}
                     {plansData?.plans?.map((p: BillingPlan) => (
-                      <option key={p.id} value={p.name}>{p.name} (${(p.price_cents / 100).toFixed(0)}/mes)</option>
+                      <option key={p.id} value={p.id}>{p.name} (${(p.price_cents / 100).toFixed(0)}/mes)</option>
                     )) || (
                       <>
                         <option value="STARTER">Starter</option>

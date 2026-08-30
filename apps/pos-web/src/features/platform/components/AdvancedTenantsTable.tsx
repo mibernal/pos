@@ -9,20 +9,21 @@ interface AdvancedTenantsTableProps {
   onCreate: () => void;
   onSearch: (query: string) => void;
   onFilterStatus: (status: string) => void;
-  onChangePlan: (tenant: PlatformTenantSearchResult) => void;
-  onSuspend: (tenant: PlatformTenantSearchResult) => void;
-  onReactivate: (tenant: PlatformTenantSearchResult) => void;
 }
 
-export function AdvancedTenantsTable({ 
-  tenants, 
-  onEdit, // we will use this to open the drawer
+/**
+ * Cambiar de plan, suspender y reactivar se hacen desde `TenantDetailDrawer`, que es donde
+ * están el motivo de suspensión y el catálogo de planes. La tabla recibía además
+ * `onChangePlan`, `onSuspend` y `onReactivate` y no invocaba ninguno: tres props muertas y
+ * un TODO que hacía pensar que las acciones no existían en ninguna parte. Se retiran.
+ */
+export function AdvancedTenantsTable({
+  tenants,
+  onEdit, // abre el drawer, donde están las acciones
   onImpersonate,
   onCreate,
-  onSearch, 
+  onSearch,
   onFilterStatus
-  // TODO(fase-1): onChangePlan / onSuspend / onReactivate llegan como props
-  // pero la tabla nunca los invoca — las acciones de plataforma están muertas.
 }: AdvancedTenantsTableProps) {
   const [searchTerm, setSearchTerm] = useState('');
 

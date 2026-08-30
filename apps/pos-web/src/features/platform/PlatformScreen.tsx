@@ -131,9 +131,6 @@ export function PlatformScreen({ api }: PlatformScreenProps) {
               onImpersonate={handleImpersonate}
               onCreate={() => setIsCreateModalOpen(true)}
               onEdit={(tenant: PlatformTenantSearchResult) => setSelectedTenant(tenant)}
-              onChangePlan={(tenant: PlatformTenantSearchResult) => setSelectedTenant(tenant)} // Plan is now inside drawer
-              onSuspend={(tenant: PlatformTenantSearchResult) => setSelectedTenant(tenant)} // Actions are inside drawer
-              onReactivate={(tenant: PlatformTenantSearchResult) => setSelectedTenant(tenant)}
             />
           )}
 

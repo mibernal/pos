@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { sql } from 'kysely';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { FastifyInstance } from 'fastify';
 import { buildApp } from '../src/app/build-app.js';
@@ -198,30 +199,16 @@ describe('PIN del mesero', () => {
       })
       .execute();
 
-    await adminDb()
-      .insertInto('sales')
-      .values({
-        id: randomUUID(),
-        tenant_id: fixture.tenantId,
-        branch_id: fixture.branchId,
-        cash_session_id: cashSessionId,
-        sale_number: 1,
-        status: 'COMPLETED',
-        // `ck_sales_total_formula`: total = subtotal - descuento + propina.
-        subtotal_cents: 100000,
-        total_cents: 105000,
-        tip_cents: 5000,
-        waiter_id: waiterId,
-        created_by_user_id: fixture.adminUserId,
-        client_uuid: randomUUID(),
-        payment_json: {
-          mode: 'CASH',
-          total_cents: 105000,
-          amounts: { cash_cents: 105000, card_cents: 0, transfer_cents: 0 },
-          payments: [{ method: 'CASH', amount_cents: 105000 }]
-        } as never
-      })
-      .execute();
+    // SQL crudo, como el resto de las e2e que siembran ventas: `ck_sales_total_formula`
+    // exige total = subtotal - descuento + propina.
+    await sql`
+      INSERT INTO sales (id, tenant_id, branch_id, cash_session_id, sale_number, client_uuid,
+                         created_by_user_id, subtotal_cents, discount_cents, tax_total_cents,
+                         total_cents, tip_cents, waiter_id, payment_json, tax_lines_json, status)
+      VALUES (${randomUUID()}, ${fixture.tenantId}, ${fixture.branchId}, ${cashSessionId},
+              91001, ${randomUUID()}, ${fixture.adminUserId}, 100000, 0, 0,
+              105000, 5000, ${waiterId}, '{}'::jsonb, '[]'::jsonb, 'COMPLETED')
+    `.execute(adminDb());
 
     const report = await app.inject({
       method: 'GET',

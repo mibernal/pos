@@ -71,6 +71,7 @@ export interface PlatformTenantSearchResult {
   business_name: string | null;
   document_number: string | null;
   status: string;
+  plan_id: string | null;
   plan_name: string | null;
   plan_price_cents: number | null;
   subscription_status: string | null;

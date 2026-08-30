@@ -142,8 +142,12 @@ export function CreateTenantModal({ api, onClose, onSuccess }: CreateTenantModal
               <div className="space-y-2">
                 <Label>Plan de Suscripción</Label>
                 <select value={formData.plan} onChange={e => setFormData({...formData, plan: e.target.value})} className="flex h-11 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500">
+                  {/* El valor es el `id`, no el nombre. El formulario arranca en 'STARTER'
+                      —un id— y las opciones valían `p.name`: un administrador que no tocaba
+                      el desplegable enviaba un identificador que la búsqueda por nombre no
+                      encontraba, y el comercio se creaba sin suscripción. */}
                   {plans.map(p => (
-                    <option key={p.name} value={p.name}>{p.name} - ${(p.price_cents / 100).toLocaleString('es-CO')}/mes</option>
+                    <option key={p.id} value={p.id}>{p.name} - ${(p.price_cents / 100).toLocaleString('es-CO')}/mes</option>
                   ))}
                   {plans.length === 0 && <option value="STARTER">STARTER</option>}
                 </select>
