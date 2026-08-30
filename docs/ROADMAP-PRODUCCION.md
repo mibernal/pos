@@ -18,6 +18,7 @@ Punto de partida: auditoría sobre `main` del 25 de agosto de 2026. El sistema e
 | 3 | Hacerlo operable | ✅ Completada — 28 ago 2026 |
 | 4 | Cerrar el ciclo fiscal con el PAC real | ✅ Código completo — 28 ago 2026 · ⏳ falta la certificación con el PAC |
 | 5 | Escala horizontal | ⏳ Diferible hasta ~20 clientes |
+| 6 | Cerrar las fugas silenciosas (producto) | ✅ Completada — 30 ago 2026 |
 
 ---
 
@@ -173,6 +174,101 @@ No se factura automáticamente al marcar ENTREGADO porque una venta necesita tur
 - Un adaptador propio, si el PAC contratado no encaja con `HTTP_GENERIC` (uno o dos días de trabajo, no una reescritura).
 
 **Criterio de salida.** Un ciclo completo verificado con la DIAN: factura aceptada con CUDE, nota crédito por anulación, y consecutivo sin huecos.
+
+---
+
+## Fase 6 — Cerrar las fugas silenciosas ✅
+
+Primera fase de la ruta de producto (`auditoria_producto_2026-08-28.md`). Todos los
+defectos comparten una forma: **una capa se movió y las otras se quedaron**, y ninguno
+fallaba ruidosamente. Por eso llevaban meses ahí.
+
+### Lo que se corrigió
+
+**Alta de comercios sin suscripción.** El alta buscaba el plan por `billing_plans.name`
+mientras el catálogo se identifica por `id` (`'STARTER'` / `'Plan Starter'`). El formulario
+del panel arranca en `'STARTER'` y sus opciones valían `p.name`: un administrador que no
+tocaba el desplegable enviaba un identificador que la consulta no encontraba, y el
+`if (planRow)` se saltaba la creación de la suscripción **devolviendo 201**. Había dos
+comercios así en la base de desarrollo. Ahora `resolveBillingPlan` acepta id o nombre, un
+plan inválido es un 400, y los dos desplegables del panel envían el identificador.
+
+**El trial no podía montar el negocio.** `QuotaGuard` exigía `status = 'ACTIVE'` y el
+registro público crea la suscripción en `TRIAL`: durante los 14 días de prueba, crear un
+cajero o una segunda sucursal respondía `403 QUOTA_EXCEEDED · «No se encontró una
+suscripción activa»`. Ahora `TRIAL` y `PAST_DUE` (gracia) dan derecho, y «suscripción
+inactiva» dejó de disfrazarse de «cuota agotada» — que en el cliente web abre el modal de
+mejora de plan, inútil para quien está suspendido.
+
+**Bajas que no contaba nadie.** `cancelSubscription` escribía `'CANCELED'` con una ele
+mientras el tipo y las métricas consultan `'CANCELLED'`. Migración 091: normaliza el
+histórico, añade el `CHECK` que lo impide, y un índice único parcial que deja **una sola
+suscripción viva por comercio**. Todas las lecturas filtran por estado y ordenan: antes
+`executeTakeFirst()` devolvía una fila arbitraria, incluido el `plan_id` que se firma en el
+JWT.
+
+**Seis módulos que valían siempre falso.** Los macro-módulos de la migración 086 se leían
+en `buildAuthClaims` y no se seleccionaban en ninguna de las dos consultas de
+autenticación. No lo notaba nadie porque ninguna ruta los exige todavía; la primera que lo
+hiciera habría respondido 403 a todos los comercios. Hay una prueba que compara los claims
+contra las columnas de `tenants`, columna por columna.
+
+**Un plan anual concedía un mes.** `billing_cycle` se le pasaba a la pasarela para cobrar y
+la activación sumaba 30 días fijos.
+
+**Cobros que se perdían.** Las tres rutas de webhook respondían 200 a todo —firma inválida
+incluida— «para evitar reintentos maliciosos». Eso descarta también el reintento legítimo:
+un fallo nuestro procesando un pago aprobado se daba por entregado y el cobro desaparecía
+sin dejar rastro. Ahora el código HTTP depende de quién falló (400 la firma, 200 lo ajeno o
+ya aplicado, 500 lo nuestro), la migración 092 guarda el cuerpo crudo antes de intentar
+nada, y el importe se contrasta contra la transacción: la firma prueba el origen del
+mensaje, no la cifra.
+
+**El PIN del mesero era público.** `waiters.pin` se guardaba en claro, el repositorio hacía
+`selectAll()` y el esquema de respuesta lo incluía. `GET /branches/:id/waiters` está
+abierta a propósito a cualquiera con el módulo activo, así que **cualquier empleado podía
+leer el PIN de todos sus compañeros** desde la pestaña de red. Migración 094: Argon2 en
+`pin_hash`, como `users.pin_hash` desde la 056, y hacia fuera solo `has_pin`. Los PIN
+existentes hay que volver a asignarlos. De paso: dos meseros de la misma sucursal ya no
+pueden compartir PIN, editar el nombre ya no lo borra, y la sucursal de la URL se valida
+contra el comercio.
+
+**El informe de meseros salía vacío.** Unía `users.id = sales.waiter_id` cuando desde la
+migración 074 ese campo referencia `waiters.id`, y consultaba fuera de `executeAsTenant`,
+de modo que con RLS forzado `sales` devolvía cero filas.
+
+### Dos defectos que aparecieron al probarlo, no al leerlo
+
+1. **El webhook de pago nunca fijaba contexto de comercio.** Con el rol real de la API —sin
+   `BYPASSRLS`— la escritura de auditoría y las de la suscripción las denegaba Postgres: el
+   pago quedaba cobrado y sin aplicar. Ahora va dentro de `executeAsTenant`, como el webhook
+   de la DIAN. Con el rol dueño no se veía.
+
+2. **Migración 093 — los permisos por defecto pertenecían al rol equivocado.** La 089 dejó
+   configurados los `ALTER DEFAULT PRIVILEGES` y su propia nota lo dice: solo aplican a los
+   objetos creados por el rol que los configuró. En la base real estaban a nombre de
+   `postgres`, mientras que las migraciones corren como dueño del esquema. Es decir: **cada
+   tabla nueva de cada migración futura nacía invisible para la API**. Lo destapó la tabla
+   de la 092 al fallar dentro de su propio `catch`.
+
+### Y uno que solo se veía fuera de CI
+
+`inventory-stress.test.ts` sembraba el NIT fijo `'000000'` desde un `beforeAll` que corre
+aunque sus pruebas estén saltadas. En CI pasa porque la base nace vacía; en una base de
+desarrollo fallaba desde la segunda ejecución y arrastraba a toda la suite del API.
+
+**Criterio de salida — cumplido.** Un comercio se registra, monta usuarios y sucursales
+durante la prueba gratuita, paga un plan anual y recibe 365 días. El informe de meseros
+muestra nombres. `GET /waiters` no contiene ningún PIN. Un webhook con firma inválida
+responde 400 y queda registrado; uno que falla por nuestra causa responde 500 para que la
+pasarela reintente.
+
+Verificación: lint sin errores, typecheck 6/6, build 4/4 y **308 pruebas** (199 API, 60
+worker, 31 pos-web, 18 shared) contra PostgreSQL y Redis reales. 22 de ellas nuevas, una
+por defecto corregido.
+
+**Queda pendiente, y no es código:** los dos comercios sin suscripción de la base de
+desarrollo siguen sin plan asignado.
 
 ---
 
