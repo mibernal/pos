@@ -4,9 +4,14 @@ import { AppError } from '../../../../shared/infra/errors/app-error.js';
 import { randomUUID } from 'crypto';
 import { resolveBillingPlan, periodDaysForCycle } from '../billing-plans/resolve-plan.js';
 import { LIVE_SUBSCRIPTION_STATUSES } from '../../../billing/application/subscription.service.js';
+import type { EntitlementsResolver } from '../../../../shared/infra/entitlements/entitlements-resolver.js';
 
 export class ChangeTenantPlanUseCase {
-  constructor(private readonly db: Kysely<Database>) {}
+  constructor(
+    private readonly db: Kysely<Database>,
+    /** Cambiar de plan cambia módulos y límites: la caché tiene que caer con el cambio. */
+    private readonly entitlements?: EntitlementsResolver
+  ) {}
 
   async execute(tenantId: string, newPlan: string, actorId: string, actorEmail: string) {
     const tenant = await this.db.selectFrom('tenants').where('id', '=', tenantId).selectAll().executeTakeFirst();
@@ -79,5 +84,7 @@ export class ChangeTenantPlanUseCase {
         }).execute();
       }
     });
+
+    await this.entitlements?.invalidate(tenantId);
   }
 }

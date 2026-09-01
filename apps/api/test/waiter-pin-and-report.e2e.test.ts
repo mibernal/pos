@@ -8,6 +8,7 @@ import {
   bearerHeaders,
   cleanupE2eFixture,
   ensureE2eSchema,
+  grantModules,
   loginE2eUser,
   seedE2eFixture,
   type E2eFixture
@@ -27,11 +28,7 @@ let app: FastifyInstance;
 const fixtures: E2eFixture[] = [];
 
 async function enableWaiters(tenantId: string) {
-  await adminDb()
-    .updateTable('tenants')
-    .set({ enable_restaurant: true, enable_tables: true, enable_waiters: true })
-    .where('id', '=', tenantId)
-    .execute();
+  await grantModules(tenantId, ['restaurant', 'tables', 'waiters']);
 }
 
 async function adminToken(fixture: E2eFixture) {

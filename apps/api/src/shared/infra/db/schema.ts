@@ -763,6 +763,36 @@ export interface TenantSubscriptionsTable {
   updated_at: Generated<Date>;
 }
 
+export interface PlanEntitlementsTable {
+  plan_id: string;
+  entitlement_key: string;
+  limit_value: number;
+  updated_at: Generated<Date>;
+}
+
+export interface PlanModulesTable {
+  plan_id: string;
+  module: string;
+}
+
+export interface TenantModuleOverridesTable {
+  tenant_id: string;
+  module: string;
+  enabled: boolean;
+  reason: string;
+  expires_at: Date | null;
+  created_at: Generated<Date>;
+}
+
+export interface TenantLimitOverridesTable {
+  tenant_id: string;
+  entitlement_key: string;
+  limit_value: number;
+  reason: string;
+  expires_at: Date | null;
+  created_at: Generated<Date>;
+}
+
 export interface PaymentWebhookEventsTable {
   id: string;
   gateway: string;
@@ -1027,6 +1057,10 @@ export interface Database {
   billing_plans: BillingPlansTable;
   tenant_subscriptions: TenantSubscriptionsTable;
   payment_webhook_events: PaymentWebhookEventsTable;
+  plan_entitlements: PlanEntitlementsTable;
+  plan_modules: PlanModulesTable;
+  tenant_module_overrides: TenantModuleOverridesTable;
+  tenant_limit_overrides: TenantLimitOverridesTable;
   payment_transactions: PaymentTransactionsTable;
   bulk_import_jobs: BulkImportJobsTable;
   idempotency_records: IdempotencyRecordsTable;

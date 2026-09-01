@@ -4,8 +4,24 @@ import type { FastifyInstance } from 'fastify';
 import { buildApp } from '../src/app/build-app.js';
 import { adminDb, cleanupE2eFixture, ensureE2eSchema, seedE2eFixture, type E2eFixture } from './helpers/e2e-fixture.js';
 import { CreateTenantUseCase } from '../src/contexts/platform-admin/application/tenants/create-tenant.use-case.js';
-import { QuotaGuard } from '../src/shared/infra/security/quota-guard.js';
+import { EntitlementsResolver } from '../src/shared/infra/entitlements/entitlements-resolver.js';
+import { EntitlementGuard } from '../src/shared/infra/entitlements/entitlement-guard.js';
 import { SubscriptionService } from '../src/contexts/billing/application/subscription.service.js';
+
+/**
+ * Sin Redis a propósito: el resolutor lee la base en cada llamada y la prueba no depende de
+ * que alguien haya invalidado una caché.
+ */
+function guard() {
+  return new EntitlementGuard(new EntitlementsResolver(adminDb()));
+}
+
+/** El guard exige la transacción que insertaría: la comprobación se serializa dentro. */
+function assertCanCreate(tenantId: string, key: 'users' | 'branches') {
+  return adminDb()
+    .transaction()
+    .execute((trx) => guard().assertCanCreate(trx, tenantId, key));
+}
 
 /**
  * Integridad de la suscripción de un comercio, contra PostgreSQL real.
@@ -134,7 +150,7 @@ describe('Integridad de la suscripción', () => {
       .execute();
 
     // STARTER admite 3 usuarios y la fixture crea 2: queda sitio para uno más.
-    await expect(QuotaGuard.assertCanCreateUser(adminDb(), fixture.tenantId)).resolves.toBeUndefined();
+    await expect(assertCanCreate(fixture.tenantId, 'users')).resolves.toBeUndefined();
   });
 
   it('una suscripción suspendida no invita a mejorar de plan, dice que está suspendida', async () => {
@@ -149,7 +165,7 @@ describe('Integridad de la suscripción', () => {
 
     // El cliente web abre el modal de mejora de plan al ver `QUOTA_EXCEEDED`: ofrecerle
     // pagar más a quien tiene la suscripción suspendida no lo lleva a ninguna parte.
-    await expect(QuotaGuard.assertCanCreateUser(adminDb(), fixture.tenantId)).rejects.toMatchObject({
+    await expect(assertCanCreate(fixture.tenantId, 'users')).rejects.toMatchObject({
       statusCode: 403,
       code: 'SUBSCRIPTION_INACTIVE'
     });
@@ -160,7 +176,7 @@ describe('Integridad de la suscripción', () => {
     fixtures.push(fixture);
 
     // STARTER admite 1 sucursal y la fixture ya creó la suya.
-    await expect(QuotaGuard.assertCanCreateBranch(adminDb(), fixture.tenantId)).rejects.toMatchObject({
+    await expect(assertCanCreate(fixture.tenantId, 'branches')).rejects.toMatchObject({
       statusCode: 403,
       code: 'QUOTA_EXCEEDED'
     });

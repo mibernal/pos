@@ -52,6 +52,8 @@ import { dianWebhookRoutes } from '../contexts/fiscal/http/dian-webhook.routes.j
 import { auditContextStorage } from '../shared/infra/audit/audit-context.js';
 import { createDb } from '../shared/infra/db/connection.js';
 import { executeAsTenant } from '../shared/infra/db/rls.js';
+import { EntitlementsResolver } from '../shared/infra/entitlements/entitlements-resolver.js';
+import { EntitlementGuard } from '../shared/infra/entitlements/entitlement-guard.js';
 import { env } from './env.js';
 import { resolveCorsAllowedOrigins } from './cors.js';
 
@@ -242,6 +244,12 @@ export async function buildApp() {
 
   // el outbox en DB es el mecanismo de comunicación con el worker.
   app.decorate('redis', redisClient);
+
+  // Resolutor de entitlements y guard de cuotas. Se decoran antes que el plugin de auth
+  // porque `requireModule` y `requirePermissions` los usan en cada petición.
+  const entitlementsResolver = new EntitlementsResolver(app.db, redisClient);
+  app.decorate('entitlements', entitlementsResolver);
+  app.decorate('entitlementGuard', new EntitlementGuard(entitlementsResolver));
   app.decorate('bulkImportQueue', bulkImportQueue);
 
   app.decorateRequest('executeAsTenant', function (callback: any) {

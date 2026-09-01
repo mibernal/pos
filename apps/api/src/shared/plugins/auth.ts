@@ -54,6 +54,78 @@ function isSseRequest(request: { method: string; url: string }): boolean {
   return path.endsWith('/stream');
 }
 
+/**
+ * Permisos que se apagan cuando la suscripción está en mora (`PAST_DUE`).
+ *
+ * La regla es una sola y se aplica aquí, no ruta por ruta: **la caja nunca se apaga**. Un
+ * comercio en mora sigue vendiendo, cobrando, abriendo y cerrando turno, mandando a cocina
+ * y moviendo mesas; lo que pierde es el backoffice — informes, catálogo, usuarios,
+ * sucursales, configuración y auditoría. Apagarle el punto de venta a alguien que debe dos
+ * semanas no acelera el pago: le hace perder el día y nos convierte a nosotros en el
+ * problema.
+ *
+ * Nótese lo que **no** está en esta lista: `sales:*`, `cash:*`, `returns:create`,
+ * `customers:*`, `products:view`, `inventory:view`, `terminals:view` y `branches:view`. Sin
+ * ellos no se puede atender a un cliente.
+ */
+const DEGRADED_DENIED_PERMISSIONS = new Set<UserPermission>([
+  'reports:view',
+  'dashboard:view',
+  'dashboard:global:view',
+  'products:manage',
+  'inventory:adjust',
+  'inventory:transfer',
+  'inventory:receive',
+  'inventory:approve_discrepancy',
+  'users:manage',
+  'branches:manage',
+  'terminals:manage',
+  'settings:manage',
+  'audit:view',
+  'alerts:manage',
+  'tenant:settings:manage'
+]);
+
+/**
+ * Aplica el nivel de servicio del comercio antes de comprobar el permiso concreto.
+ *
+ * Hasta la fase 7, el estado de la suscripción no se miraba en ninguna petición: lo único
+ * que bloqueaba era `tenants.status = 'SUSPENDED'`, y solo en el login. Una suscripción
+ * cancelada o vencida hacía meses seguía operando con normalidad — no había ninguna barrera
+ * técnica entre pagar y no pagar.
+ */
+async function assertServiceLevelAllows(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  app: any,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  request: any,
+  permissions: UserPermission[]
+): Promise<void> {
+  if (!request.auth?.tenantId) return;
+
+  const entitlements = await app.entitlements.resolve(request.auth.tenantId);
+
+  if (entitlements.serviceLevel === 'BLOCKED') {
+    throw new AppError(
+      403,
+      'SUBSCRIPTION_INACTIVE',
+      'La suscripción de este negocio no está activa. Contacta al administrador para reactivarla.'
+    );
+  }
+
+  if (entitlements.serviceLevel === 'DEGRADED') {
+    const blocked = permissions.filter((p) => DEGRADED_DENIED_PERMISSIONS.has(p));
+    if (blocked.length > 0) {
+      throw new AppError(
+        403,
+        'SUBSCRIPTION_PAST_DUE',
+        'Tu suscripción está pendiente de pago. Puedes seguir vendiendo y cobrando; el resto de la administración se reactiva al ponerte al día.',
+        { blocked_permissions: blocked }
+      );
+    }
+  }
+}
+
 const authPluginImpl: FastifyPluginAsync = async (app) => {
   await app.register(jwt, {
     secret: env.JWT_SECRET,
@@ -102,6 +174,8 @@ const authPluginImpl: FastifyPluginAsync = async (app) => {
         return;
       }
 
+      await assertServiceLevelAllows(app, request, permissions);
+
       if (request.auth.role === 'TENANT_OWNER' || request.auth.role === 'ADMIN') {
         // TENANT_OWNER and ADMIN bypass permissions checks for convenience, EXCEPT for platform permissions
         // We ensure platform permissions are NOT bypassed by TENANT_OWNER/ADMIN
@@ -132,6 +206,16 @@ const authPluginImpl: FastifyPluginAsync = async (app) => {
     }
   });
 
+  /**
+   * `table_transfer` y `pre_check` no son módulos con estado propio: son alias de `tables`.
+   * Antes vivían como dos ramas más del `switch`; ahora se resuelven aquí, que es el único
+   * sitio donde el alias tiene sentido.
+   */
+  const MODULE_ALIASES: Partial<Record<import('@pos-dian/shared').BusinessModule, import('@pos-dian/shared').AssignableModule>> = {
+    table_transfer: 'tables',
+    pre_check: 'tables'
+  };
+
   app.decorate('requireModule', (modules: import('@pos-dian/shared').BusinessModule[]) => {
     return async (request) => {
       await app.authenticate(request);
@@ -140,37 +224,20 @@ const authPluginImpl: FastifyPluginAsync = async (app) => {
         throw new AppError(403, 'AUTH_FORBIDDEN', 'No autorizado');
       }
 
-      // Check if at least one of the required modules is enabled.
-      // E.g., if requireModule(['tables', 'kitchen']) is called, it passes if AT LEAST ONE is active.
-      const hasAccess = modules.some(m => {
-        switch (m) {
-          case 'restaurant': return request.auth!.enableRestaurant;
-          case 'kds': return request.auth!.enableKds;
-          case 'inventory': return request.auth!.enableInventory;
-          case 'fiscal': return request.auth!.enableFiscal;
-          case 'loyalty': return request.auth!.enableLoyalty;
-          case 'advanced_reports': return request.auth!.enableAdvancedReports;
-          case 'tables': return request.auth!.enableTables;
-          case 'delivery': return request.auth!.enableDelivery;
-          case 'waiters': return request.auth!.enableWaiters;
-          case 'split_bill': return request.auth!.enableSplitBill;
-          case 'tips': return request.auth!.enableTips;
-          case 'kitchen': return request.auth!.enableKitchen;
-          case 'kitchen_display': return request.auth!.enableKitchenDisplay;
-          case 'kitchen_tickets': return request.auth!.enableKitchenTickets;
-          case 'kitchen_printing': return request.auth!.enableKitchenPrinting;
-          case 'order_rounds': return request.auth!.enableOrderRounds;
-          case 'product_modifiers': return request.auth!.enableProductModifiers;
-          case 'reservations': return request.auth!.enableReservations;
-          case 'waiter_shifts': return request.auth!.enableWaiterShifts;
-          case 'qr_menu': return request.auth!.enableQrMenu;
-          case 'guests_count': return request.auth!.enableGuestsCount;
-          // Legacy support or alias logic just in case:
-          case 'table_transfer': return request.auth!.enableTables;
-          case 'pre_check': return request.auth!.enableTables;
-          default: return false;
-        }
-      });
+      // Un rol de plataforma no tiene comercio propio; el que suplanta sí lo tiene.
+      if (request.auth.isPlatformRole && !request.auth.tenantId) {
+        return;
+      }
+
+      // Los módulos se resuelven contra la base (con caché en Redis), no contra el token.
+      // Mientras viajaban firmados en el JWT, encender un módulo no surtía efecto hasta que
+      // el usuario cerraba sesión — y un `switch` de 21 ramas escrito a mano ya se había
+      // desincronizado una vez de las columnas que decía representar.
+      const entitlements = await app.entitlements.resolve(request.auth.tenantId!);
+      const enabled = new Set(entitlements.modules);
+
+      // Basta con uno: `requireModule(['tables', 'kitchen'])` pasa si cualquiera está activo.
+      const hasAccess = modules.some((m) => enabled.has(MODULE_ALIASES[m] ?? (m as never)));
 
       if (!hasAccess) {
         throw new AppError(403, 'MODULE_DISABLED', 'Este módulo no está habilitado para tu suscripción');

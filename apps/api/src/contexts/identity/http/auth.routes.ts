@@ -24,7 +24,8 @@ import {
   setRefreshTokenCookie,
   buildAuthResponse,
   getUserForAuth,
-  buildUserDto
+  buildUserDto,
+  applyResolvedModules
 } from './auth.utils.js';
 import { NotificationService } from '../../../shared/infra/notifications/NotificationService.js';
 
@@ -299,6 +300,12 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
 
       setRefreshTokenCookie(reply, refreshTokenRaw, expMs, env.NODE_ENV === 'production');
 
+      // Los módulos del token se derivan del plan resuelto, no de las columnas: ver la
+      // nota en `applyResolvedModules`.
+      if (user.tenant_id) {
+        applyResolvedModules(user, (await app.entitlements.resolve(user.tenant_id)).modules);
+      }
+
       return await buildAuthResponse(
         app.jwt,
         user,
@@ -339,6 +346,13 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
       const branchIds = await getUserBranchIds(trx, user.id, user.tenant_id);
       const permissions = getPermissionsForRole(user.role);
       const isPlatformRole = user.role === 'PLATFORM_OWNER';
+
+      // `/auth/me` no pasa por `buildAuthResponse`: arma el DTO directamente. Sin esta
+      // línea, el login y `/me` daban módulos distintos para el mismo comercio — que es
+      // exactamente la deriva entre capas que esta fase viene a cerrar.
+      if (user.tenant_id) {
+        applyResolvedModules(user, (await app.entitlements.resolve(user.tenant_id)).modules);
+      }
 
       return {
         user: buildUserDto(user, branchIds, permissions, isPlatformRole, { isImpersonating: request.auth!.isImpersonating })
@@ -438,6 +452,12 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
       const branchIds = await getUserBranchIds(app.db, user.id, user.tenant_id);
       const permissions = getPermissionsForRole(user.role);
       const isPlatformRole = user.role === 'PLATFORM_OWNER';
+
+      // Los módulos del token se derivan del plan resuelto, no de las columnas: ver la
+      // nota en `applyResolvedModules`.
+      if (user.tenant_id) {
+        applyResolvedModules(user, (await app.entitlements.resolve(user.tenant_id)).modules);
+      }
 
       return await buildAuthResponse(
         app.jwt,
@@ -588,6 +608,12 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
       const branchIds = await getUserBranchIds(app.db, user.id, user.tenant_id);
       const permissions = getPermissionsForRole(user.role);
       const isPlatformRole = user.role === 'PLATFORM_OWNER';
+
+      // Los módulos del token se derivan del plan resuelto, no de las columnas: ver la
+      // nota en `applyResolvedModules`.
+      if (user.tenant_id) {
+        applyResolvedModules(user, (await app.entitlements.resolve(user.tenant_id)).modules);
+      }
 
       return await buildAuthResponse(
         app.jwt,

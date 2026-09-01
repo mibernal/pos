@@ -1,5 +1,29 @@
 import { randomBytes, createHash } from 'node:crypto';
 import { LIVE_SUBSCRIPTION_STATUSES } from '../../billing/application/subscription.service.js';
+import { ASSIGNABLE_MODULES, MODULE_COLUMN, type AssignableModule } from '@pos-dian/shared';
+
+/**
+ * Escribe sobre la fila del usuario los módulos que resolvió el plan.
+ *
+ * Los claims del token y el DTO que consume el frontend se construyen a partir de las
+ * columnas `enable_*` de `tenants`. Desde la fase 7 esas columnas son una vista de
+ * compatibilidad, no la fuente: la fuente es el plan más las excepciones del comercio. Si
+ * el token siguiera saliendo de las columnas, un cambio de plan movería lo que el backend
+ * permite sin mover lo que el frontend enseña — y el comercio vería menús que no puede
+ * usar, o dejaría de ver los que sí. Se derivan de lo mismo para que no puedan divergir.
+ */
+export function applyResolvedModules(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  user: any,
+  modules: readonly AssignableModule[]
+) {
+  if (!user) return user;
+  const enabled = new Set(modules);
+  for (const module of ASSIGNABLE_MODULES) {
+    user[MODULE_COLUMN[module]] = enabled.has(module);
+  }
+  return user;
+}
 
 export function parseExpiryToMs(expiresIn: string): number {
   const match = expiresIn.match(/^(\d+)([dhms])$/);

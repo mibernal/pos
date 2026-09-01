@@ -7,6 +7,7 @@ import {
   bearerHeaders,
   cleanupE2eFixture,
   ensureE2eSchema,
+  grantModules,
   loginE2eUser,
   seedE2eFixture,
   type E2eFixture
@@ -26,15 +27,9 @@ const fixtures: E2eFixture[] = [];
 const createdRooms: string[] = [];
 
 async function enableRestaurantModules(tenantId: string) {
-  await adminDb()
-    .updateTable('tenants')
-    .set({
-      enable_restaurant: true,
-      enable_tables: true,
-      enable_waiters: true
-    })
-    .where('id', '=', tenantId)
-    .execute();
+  // Desde la fase 7 los módulos salen del plan; encender la columna de `tenants` ya no
+  // habilita nada. Se conceden como excepción, igual que hace el panel de plataforma.
+  await grantModules(tenantId, ['restaurant', 'tables', 'waiters']);
 }
 
 async function seedRoomAndTable(fixture: E2eFixture) {

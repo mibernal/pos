@@ -185,7 +185,7 @@ export const platformTenantsRoutes: FastifyPluginAsync = async (app) => {
       body: changePlanBodySchema
     }
   }, async (request) => {
-    const useCase = new ChangeTenantPlanUseCase(app.db);
+    const useCase = new ChangeTenantPlanUseCase(app.db, app.entitlements);
     await useCase.execute(request.params.id, request.body.new_plan, request.auth!.userId, request.auth!.email);
     await invalidateDashboardCache(app.redis);
     return { success: true };
@@ -199,7 +199,7 @@ export const platformTenantsRoutes: FastifyPluginAsync = async (app) => {
       body: UpdateTenantModulesSchema
     }
   }, async (request) => {
-    const useCase = new UpdateTenantModulesUseCase(app.db);
+    const useCase = new UpdateTenantModulesUseCase(app.db, app.entitlements);
     await useCase.execute(request.params.id, request.body, request.auth!.userId);
     await invalidateDashboardCache(app.redis);
     return { success: true };

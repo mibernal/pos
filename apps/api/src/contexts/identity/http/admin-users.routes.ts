@@ -5,7 +5,6 @@ import { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { AppError } from '../../../shared/infra/errors/app-error.js';
 import { hashPassword } from '../auth/password.js';
 import { assertCanManageRole, assertIsNotSelfRoleChange } from '../../../shared/infra/security/role-guard.js';
-import { QuotaGuard } from '../../../shared/infra/security/quota-guard.js';
 import { writeAuditLog } from '../../../shared/domain/audit/write-audit-log.js';
 import { jsonArrayFrom } from 'kysely/helpers/postgres';
 import { userRoleSchema } from '@pos-dian/shared';
@@ -133,11 +132,12 @@ export const adminUsersRoutes: FastifyPluginAsync = async (app) => {
         throw new AppError(400, 'BAD_REQUEST', 'No se puede crear un usuario sin tenant_id a menos que sea PLATFORM_OWNER');
       }
 
-      if (targetTenantId) {
-        await QuotaGuard.assertCanCreateUser(app.db, targetTenantId);
-      }
-
       return await request.executeAsTenant(async (trx) => {
+      // La cuota se comprueba **dentro** de la transacción que inserta. Antes iba fuera y
+      // contra `app.db`: dos peticiones simultáneas veían el mismo conteo y ambas pasaban.
+      if (targetTenantId) {
+        await app.entitlementGuard.assertCanCreate(trx, targetTenantId, 'users');
+      }
       const createdUser = await (async () => {
         const user = await trx
           .insertInto('users')
@@ -289,7 +289,7 @@ export const adminUsersRoutes: FastifyPluginAsync = async (app) => {
 
       // Si el usuario estaba inactivo y se va a activar, revisar la cuota de usuarios activos.
       if (!targetUser.active && active && targetUser.tenant_id) {
-        await QuotaGuard.assertCanCreateUser(trx as any, targetUser.tenant_id);
+        await app.entitlementGuard.assertCanCreate(trx, targetUser.tenant_id, 'users');
       }
 
       await trx.updateTable('users')

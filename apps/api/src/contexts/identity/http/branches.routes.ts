@@ -3,7 +3,6 @@ import { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { AppError } from '../../../shared/infra/errors/app-error.js';
 import { z } from 'zod';
 import { randomUUID } from 'node:crypto';
-import { QuotaGuard } from '../../../shared/infra/security/quota-guard.js';
 
 const createBranchBodySchema = z.object({
   name: z.string().min(1),
@@ -93,7 +92,7 @@ export const branchesRoutes: FastifyPluginAsync = async (app) => {
       const payload = createBranchBodySchema.parse(request.body);
 
       return await request.executeAsTenant(async (trx) => {
-      await QuotaGuard.assertCanCreateBranch(trx as any, request.auth!.tenantId!);
+      await app.entitlementGuard.assertCanCreate(trx, request.auth!.tenantId!, 'branches');
 
       const createdBranch = await trx
         .insertInto('branches')

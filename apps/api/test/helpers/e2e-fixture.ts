@@ -322,3 +322,31 @@ export function bearerHeaders(token: string): Record<string, string> {
     authorization: `Bearer ${token}`
   };
 }
+
+/**
+ * Concede módulos a un comercio de prueba.
+ *
+ * Desde la fase 7 los módulos salen del plan, así que encender la columna booleana de
+ * `tenants` ya no habilita nada: el resolutor no la mira. Una prueba que quiera un módulo
+ * lo pide como excepción, que es exactamente el camino que usa el panel de plataforma.
+ */
+export async function grantModules(
+  tenantId: string,
+  modules: ReadonlyArray<import('@pos-dian/shared').AssignableModule>
+): Promise<void> {
+  if (modules.length === 0) return;
+
+  await adminDb()
+    .insertInto('tenant_module_overrides')
+    .values(
+      modules.map((module) => ({
+        tenant_id: tenantId,
+        module,
+        enabled: true,
+        reason: 'Fixture de pruebas e2e',
+        expires_at: null
+      }))
+    )
+    .onConflict((oc) => oc.columns(['tenant_id', 'module']).doUpdateSet({ enabled: true }))
+    .execute();
+}
