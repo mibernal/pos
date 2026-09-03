@@ -350,6 +350,58 @@ export interface SalesTable {
   created_at: Generated<Date>;
 }
 
+export interface CustomerCreditAccountsTable {
+  tenant_id: string;
+  customer_id: string;
+  /** `null` es sin límite; 0 es cliente sin fiado. */
+  credit_limit_cents: number | null;
+  terms_days: Generated<number>;
+  status: Generated<string>;
+  notes: string | null;
+  created_at: Generated<Date>;
+  updated_at: Generated<Date>;
+}
+
+export interface CustomerReceivablesTable {
+  id: string;
+  tenant_id: string;
+  customer_id: string;
+  branch_id: string;
+  sale_id: string | null;
+  original_cents: number;
+  balance_cents: number;
+  status: Generated<string>;
+  due_at: Date | null;
+  notes: string | null;
+  created_at: Generated<Date>;
+  updated_at: Generated<Date>;
+}
+
+export interface CustomerPaymentsTable {
+  id: string;
+  tenant_id: string;
+  customer_id: string;
+  branch_id: string;
+  /** El turno en que se recibió: un abono en efectivo entra al cajón y debe llegar al arqueo. */
+  cash_session_id: string | null;
+  method_code: string;
+  kind: string;
+  amount_cents: number;
+  reference: string | null;
+  received_by_user_id: string;
+  notes: string | null;
+  created_at: Generated<Date>;
+}
+
+export interface CustomerPaymentAllocationsTable {
+  id: string;
+  tenant_id: string;
+  payment_id: string;
+  receivable_id: string;
+  amount_cents: number;
+  created_at: Generated<Date>;
+}
+
 export interface PaymentMethodCatalogTable {
   tenant_id: string;
   code: string;
@@ -1162,6 +1214,10 @@ export interface Database {
   sales: SalesTable;
   sale_payments: SalePaymentsTable;
   payment_method_catalog: PaymentMethodCatalogTable;
+  customer_credit_accounts: CustomerCreditAccountsTable;
+  customer_receivables: CustomerReceivablesTable;
+  customer_payments: CustomerPaymentsTable;
+  customer_payment_allocations: CustomerPaymentAllocationsTable;
   sale_items: SaleItemsTable;
   sale_returns: SaleReturnsTable;
   return_items: ReturnItemsTable;

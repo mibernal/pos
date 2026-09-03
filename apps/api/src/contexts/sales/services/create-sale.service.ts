@@ -5,6 +5,7 @@ import type { Kysely } from 'kysely';
 import { AppError } from '../../../shared/infra/errors/app-error.js';
 import { normalizeSalePayments } from './payments.js';
 import { PaymentMethodsRepository } from '../infra/payment-methods.repository.js';
+import { ReceivablesService } from '../application/receivables.service.js';
 import { computeTaxes, type ComputeTaxesLineInput } from '../../../shared/domain/tax/index.js';
 import {
   getNextSaleNumberForBranchInTransaction,
@@ -91,12 +92,31 @@ export async function createSaleService(input: CreateSaleServiceInput) {
          * cobrar y el importe desaparece: ni está en el cajón ni se le puede reclamar a
          * nadie.
          */
-        if (normalizedPayments.payments.some((payment) => payment.method === 'STORE_CREDIT') && !payload.customer_id) {
+        const creditCents = normalizedPayments.payments
+          .filter((payment) => payment.method === 'STORE_CREDIT')
+          .reduce((suma, payment) => suma + payment.amount_cents, 0);
+
+        if (creditCents > 0 && !payload.customer_id) {
           throw new AppError(
             400,
             'CUSTOMER_REQUIRED_FOR_CREDIT',
             'Una venta a crédito necesita un cliente identificado'
           );
+        }
+
+        /**
+         * El cupo se comprueba aquí, con el lock del cliente tomado dentro de esta misma
+         * transacción. Comprobarlo antes y fiar después es la carrera por la que dos ventas
+         * simultáneas dejan a un cliente de 100.000 de tope debiendo 180.000.
+         */
+        let creditTermsDays = 30;
+        if (creditCents > 0) {
+          const cuenta = await ReceivablesService.assertCanTakeCredit(trx, {
+            tenantId,
+            customerId: payload.customer_id!,
+            amountCents: creditCents
+          });
+          creditTermsDays = cuenta.termsDays;
         }
 
         let cashSession = await trx
@@ -535,6 +555,20 @@ export async function createSaleService(input: CreateSaleServiceInput) {
             }))
           )
           .execute();
+
+        if (creditCents > 0) {
+          // El fiado deja de ser solo una etiqueta en el Z y pasa a ser una deuda con
+          // titular, importe y fecha de vencimiento.
+          await ReceivablesService.createForSale(trx, {
+            tenantId,
+            customerId: payload.customer_id!,
+            branchId: payload.branch_id,
+            saleId,
+            amountCents: creditCents,
+            termsDays: creditTermsDays,
+            now: new Date()
+          });
+        }
 
         await LedgerService.appendSalesLedger(trx, {
           tenantId,

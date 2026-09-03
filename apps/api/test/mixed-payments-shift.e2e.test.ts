@@ -122,6 +122,13 @@ describe('Turno con medios de pago mezclados', () => {
       })
       .execute();
 
+    // Fiar exige cupo configurado: abrirlo es una decisión del comercio, no algo que ocurra
+    // porque el cajero eligió «fiado» en la pantalla de cobro.
+    await adminDb()
+      .insertInto('customer_credit_accounts')
+      .values({ tenant_id: fixture.tenantId, customer_id: cliente, credit_limit_cents: 500000, terms_days: 15 })
+      .execute();
+
     const fiado = await venta(
       fixture,
       token,
