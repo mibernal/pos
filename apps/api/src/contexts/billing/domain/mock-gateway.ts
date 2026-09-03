@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import type {
   AutoChargeInput,
   AutoChargeResult,
@@ -39,9 +40,11 @@ export class MockGateway implements IPaymentGateway {
 
   async tokenizePaymentMethod(input: TokenizePaymentMethodInput): Promise<TokenizedPaymentMethod> {
     // El token de tarjeta se conserva dentro de la fuente de pago para que la prueba pueda
-    // pedir un rechazo escribiéndolo en el token: `tok_DECLINE`.
+    // pedir un rechazo escribiéndolo en el token: `tok_DECLINE`. El sufijo aleatorio imita
+    // que cada fuente de pago es única —la tabla lo exige con un índice— para que dos
+    // comercios puedan registrar «la misma» tarjeta de prueba sin chocar.
     return {
-      gatewayToken: `MOCK_SRC_${input.cardToken}`,
+      gatewayToken: `MOCK_SRC_${input.cardToken}_${randomUUID()}`,
       brand: 'VISA',
       lastFour: '4242',
       expMonth: 12,

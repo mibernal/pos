@@ -40,6 +40,7 @@ import { journalRoutes } from '../contexts/sales/http/journal.routes.js';
 import { auditRoutes } from '../contexts/admin/http/audit.routes.js';
 import { terminalsRoutes } from '../contexts/sales/http/terminals.routes.js';
 import { billingRoutes } from '../contexts/billing/http/billing.routes.js';
+import { billingPortalRoutes } from '../contexts/billing/http/billing-portal.routes.js';
 import { webhooksRoutes } from '../contexts/billing/http/webhooks.routes.js';
 import { tablesRoutes } from '../contexts/tables/presentation/tables.routes.js';
 import { reservationsRoutes } from '../contexts/tables/presentation/reservations.routes.js';
@@ -347,6 +348,7 @@ export async function buildApp() {
   await app.register(terminalsRoutes, { prefix: '/api/v1' });
   await app.register(journalRoutes, { prefix: '/api/v1' });
   await app.register(billingRoutes, { prefix: '/api/v1' });
+  await app.register(billingPortalRoutes, { prefix: '/api/v1' });
   await app.register(webhooksRoutes, { prefix: '/api/v1' });
   await app.register(tablesRoutes, { prefix: '/api/v1' });
   await app.register(reservationsRoutes, { prefix: '/api/v1' });

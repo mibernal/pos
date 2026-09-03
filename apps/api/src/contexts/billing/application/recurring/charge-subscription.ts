@@ -184,6 +184,119 @@ export async function chargeSubscription(
  * A. Reservar
  * ------------------------------------------------------------------ */
 
+/**
+ * Devuelve la factura pendiente del periodo, emitiéndola si todavía no existe.
+ *
+ * Una factura abierta manda sobre cualquier cálculo de periodo: es lo que hace que un
+ * reintento cobre exactamente lo mismo que el intento que falló —mismo importe, mismo
+ * periodo, mismo número— en lugar de emitir una factura nueva cada vez.
+ */
+async function openInvoiceFor(
+  trx: Transaction<Database>,
+  input: {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    subscription: any;
+    plan: { id: string; name: string; price_cents: number; billing_cycle: string };
+    tenantId: string;
+    now: Date;
+  }
+) {
+  const open = await trx
+    .selectFrom('subscription_invoices')
+    .selectAll()
+    .where('subscription_id', '=', input.subscription.id)
+    .where('status', '=', 'OPEN')
+    .orderBy('period_start', 'asc')
+    .executeTakeFirst();
+
+  if (open) return open;
+
+  const periodDays = periodDaysForCycle(input.plan.billing_cycle);
+
+  // El periodo nuevo empieza donde terminó el anterior, no «hoy»: si no, cada cobro con un
+  // día de retraso le regala ese día al comercio y el aniversario se va corriendo.
+  const anchor =
+    input.subscription.status === 'TRIAL'
+      ? (input.subscription.trial_ends_at ?? input.subscription.current_period_end ?? input.now)
+      : (input.subscription.current_period_end ?? input.now);
+
+  const periodStart = new Date(anchor);
+  const periodEnd = new Date(periodStart);
+  periodEnd.setDate(periodEnd.getDate() + periodDays);
+
+  const issued = await SubscriptionInvoiceService.issueForPeriod(trx, {
+    tenantId: input.tenantId,
+    subscriptionId: input.subscription.id,
+    planId: input.plan.id,
+    planName: input.plan.name,
+    billingCycle: input.plan.billing_cycle,
+    periodStart,
+    periodEnd,
+    couponCode: input.subscription.coupon_code,
+    now: input.now,
+    lines: [
+      {
+        description: `Plan ${input.plan.name} · ${input.plan.billing_cycle === 'YEARLY' ? 'anual' : 'mensual'}`,
+        quantity: 1,
+        unitPriceCents: input.plan.price_cents
+      }
+    ]
+  });
+
+  return issued.invoice;
+}
+
+/**
+ * Emite la factura del periodo sin cobrarla.
+ *
+ * Es el caso del comercio que no tiene medio de pago, o que apagó la renovación automática:
+ * la suscripción vence igual y tiene que quedar una factura que se pueda pagar a mano. Sin
+ * esto, «no se pudo cobrar» dejaba al comercio en mora sin decirle cuánto debe.
+ */
+export async function ensureOpenInvoice(
+  deps: RecurringBillingDeps,
+  subscriptionId: string
+): Promise<{ invoiceId: string; invoiceNumber: string; totalCents: number } | null> {
+  const now = deps.now?.() ?? new Date();
+
+  const head = await deps.db
+    .selectFrom('tenant_subscriptions')
+    .select(['tenant_id', 'status'])
+    .where('id', '=', subscriptionId)
+    .executeTakeFirst();
+
+  if (!head || head.status === 'CANCELLED') return null;
+
+  return executeAsTenant(deps.db, head.tenant_id, async (trx) => {
+    await lockSubscription(trx, subscriptionId);
+
+    const subscription = await trx
+      .selectFrom('tenant_subscriptions')
+      .selectAll()
+      .where('id', '=', subscriptionId)
+      .executeTakeFirst();
+
+    if (!subscription) return null;
+
+    const plan = await trx
+      .selectFrom('billing_plans')
+      .select(['id', 'name', 'price_cents', 'billing_cycle'])
+      .where('id', '=', subscription.plan_id)
+      .executeTakeFirst();
+
+    if (!plan) return null;
+
+    const invoice = await openInvoiceFor(trx, {
+      subscription,
+      plan,
+      tenantId: head.tenant_id,
+      now
+    });
+
+    return { invoiceId: invoice.id, invoiceNumber: invoice.number, totalCents: invoice.total_cents };
+  });
+}
+
 async function reserveCharge(
   trx: Transaction<Database>,
   input: { subscriptionId: string; tenantId: string; now: Date; reason: ChargeReason }
@@ -222,56 +335,7 @@ async function reserveCharge(
     .where('role', '=', 'TENANT_OWNER')
     .executeTakeFirst();
 
-  /**
-   * Una factura abierta manda sobre cualquier cálculo de periodo. Es lo que hace que un
-   * reintento cobre exactamente lo mismo que el intento que falló —mismo importe, mismo
-   * periodo, mismo número— en lugar de emitir una factura nueva por cada reintento.
-   */
-  const open = await trx
-    .selectFrom('subscription_invoices')
-    .selectAll()
-    .where('subscription_id', '=', input.subscriptionId)
-    .where('status', '=', 'OPEN')
-    .orderBy('period_start', 'asc')
-    .executeTakeFirst();
-
-  let invoice = open;
-
-  if (!invoice) {
-    const periodDays = periodDaysForCycle(plan.billing_cycle);
-
-    // El periodo nuevo empieza donde terminó el anterior, no «hoy»: si no, cada cobro con
-    // un día de retraso le regala ese día al comercio y el aniversario se va corriendo.
-    const anchor =
-      subscription.status === 'TRIAL'
-        ? (subscription.trial_ends_at ?? subscription.current_period_end ?? input.now)
-        : (subscription.current_period_end ?? input.now);
-
-    const periodStart = new Date(anchor);
-    const periodEnd = new Date(periodStart);
-    periodEnd.setDate(periodEnd.getDate() + periodDays);
-
-    const issued = await SubscriptionInvoiceService.issueForPeriod(trx, {
-      tenantId: input.tenantId,
-      subscriptionId: input.subscriptionId,
-      planId: plan.id,
-      planName: plan.name,
-      billingCycle: plan.billing_cycle,
-      periodStart,
-      periodEnd,
-      couponCode: subscription.coupon_code,
-      now: input.now,
-      lines: [
-        {
-          description: `Plan ${plan.name} · ${plan.billing_cycle === 'YEARLY' ? 'anual' : 'mensual'}`,
-          quantity: 1,
-          unitPriceCents: plan.price_cents
-        }
-      ]
-    });
-
-    invoice = issued.invoice;
-  }
+  const invoice = await openInvoiceFor(trx, { subscription, plan, tenantId: input.tenantId, now: input.now });
 
   const method = await PaymentMethodsService.findDefault(trx, input.tenantId);
 
@@ -768,8 +832,14 @@ export async function settleInvoiceFromWebhook(
 async function invalidateCaches(deps: RecurringBillingDeps, tenantId: string): Promise<void> {
   if (!deps.redis) return;
 
-  // El nivel de servicio depende del estado de la suscripción, y acaba de cambiar: sin esto
-  // el comercio sigue viendo el producto anterior hasta que caduque la caché.
-  await new EntitlementsResolver(deps.db, deps.redis).invalidate(tenantId);
-  await invalidateDashboardCache(deps.redis);
+  try {
+    // El nivel de servicio depende del estado de la suscripción, y acaba de cambiar: sin
+    // esto el comercio sigue viendo el producto anterior hasta que caduque la caché.
+    await new EntitlementsResolver(deps.db, deps.redis).invalidate(tenantId);
+    await invalidateDashboardCache(deps.redis);
+  } catch {
+    // Y si la caché no se deja invalidar, caduca sola en cinco minutos. Lo que no puede
+    // pasar es que eso deshaga un cobro que la pasarela ya dio por bueno: el dinero ya se
+    // movió, y propagar el fallo aquí dejaría la factura sin asentar.
+  }
 }

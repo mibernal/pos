@@ -7,7 +7,12 @@ import { NotificationService } from '../../../shared/infra/notifications/Notific
 import { EntitlementsResolver } from '../../../shared/infra/entitlements/entitlements-resolver.js';
 import { TracerHelper } from '../../../shared/infra/tracing/Tracer.js';
 import { SubscriptionService } from './subscription.service.js';
-import { chargeSubscription, type ChargeResult, type RecurringBillingDeps } from './recurring/charge-subscription.js';
+import {
+  chargeSubscription,
+  ensureOpenInvoice,
+  type ChargeResult,
+  type RecurringBillingDeps
+} from './recurring/charge-subscription.js';
 import { DunningService } from './recurring/dunning.service.js';
 import { SubscriptionInvoiceService } from './recurring/subscription-invoice.service.js';
 import type { IPaymentGateway } from '../domain/payment-gateway.interface.js';
@@ -340,6 +345,13 @@ export class RenewalEngine {
   ): Promise<void> {
     if (result.outcome !== 'no_payment_method') return;
 
+    /**
+     * La factura se emite igual. El periodo transcurre y se debe, se pueda cobrar o no, y
+     * un comercio al que se le dice «no pudimos cobrarte» sin decirle cuánto debe ni dónde
+     * pagarlo no tiene forma de arreglarlo.
+     */
+    const emitida = await ensureOpenInvoice(deps, subscriptionId);
+
     const graceDays = env.BILLING_GRACE_PERIOD_DAYS;
 
     const isNew = await executeAsTenant(deps.db, tenantId, async (trx) => {
@@ -364,6 +376,7 @@ export class RenewalEngine {
       await DunningService.record(trx, {
         tenantId,
         subscriptionId,
+        invoiceId: emitida?.invoiceId ?? null,
         step: 'GRACE_STARTED',
         periodKey,
         detail: `${reason}. Periodo de gracia de ${graceDays} días`
@@ -372,6 +385,7 @@ export class RenewalEngine {
       return DunningService.record(trx, {
         tenantId,
         subscriptionId,
+        invoiceId: emitida?.invoiceId ?? null,
         step: 'DEGRADED',
         periodKey,
         detail: 'Sin medio de pago registrado; informes y configuración restringidos',
@@ -398,7 +412,7 @@ export class RenewalEngine {
     await new NotificationService(deps.db).notifyChargeFailed(tenantId, {
       tenantName: context.tenant_name,
       planName: context.plan_name,
-      amountCents: result.amountCents ?? context.price_cents,
+      amountCents: emitida?.totalCents ?? result.amountCents ?? context.price_cents,
       reason: 'No hay un medio de pago registrado en la cuenta',
       attempt: 0,
       totalAttempts: env.BILLING_MAX_RETRIES + 1,
