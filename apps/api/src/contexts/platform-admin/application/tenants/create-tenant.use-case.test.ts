@@ -17,6 +17,8 @@ describe('CreateTenantUseCase', () => {
     trxMock = {
       insertInto: vi.fn().mockReturnThis(),
       values: vi.fn().mockReturnThis(),
+      // La siembra del catálogo de medios de pago inserta con `ON CONFLICT DO NOTHING`.
+      onConflict: vi.fn().mockReturnThis(),
       execute: vi.fn().mockResolvedValue(undefined),
       selectFrom: vi.fn().mockReturnThis(),
       where: vi.fn().mockReturnThis(),

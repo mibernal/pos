@@ -5,6 +5,7 @@ import { randomUUID } from 'crypto';
 import { hashPassword } from '../../../identity/auth/password.js';
 import { CreateTenantCommand } from '../../domain/platform-admin.types.js';
 import { resolveBillingPlan, periodDaysForCycle } from '../billing-plans/resolve-plan.js';
+import { PaymentMethodsRepository } from '../../../sales/infra/payment-methods.repository.js';
 
 export class CreateTenantUseCase {
   constructor(private readonly db: Kysely<Database>) {}
@@ -63,6 +64,13 @@ export class CreateTenantUseCase {
       }).execute();
 
       const branchId = randomUUID();
+      /**
+       * Los medios de pago del comercio. Sin esto, un comercio nuevo cobraría con el
+       * catálogo por defecto en memoria y no podría encender Nequi ni el fiado hasta que
+       * alguien le sembrara las filas a mano.
+       */
+      await PaymentMethodsRepository.seedDefaults(trx, tenantId);
+
       await trx.insertInto('branches').values({
         id: branchId,
         tenant_id: tenantId,

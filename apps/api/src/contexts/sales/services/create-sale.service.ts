@@ -4,6 +4,7 @@ import type { Database } from '../../../shared/infra/db/schema.js';
 import type { Kysely } from 'kysely';
 import { AppError } from '../../../shared/infra/errors/app-error.js';
 import { normalizeSalePayments } from './payments.js';
+import { PaymentMethodsRepository } from '../infra/payment-methods.repository.js';
 import { computeTaxes, type ComputeTaxesLineInput } from '../../../shared/domain/tax/index.js';
 import {
   getNextSaleNumberForBranchInTransaction,
@@ -63,8 +64,6 @@ export async function createSaleService(input: CreateSaleServiceInput) {
     return { sale: existingSale, isIdempotentHit: true };
   }
 
-  const normalizedPayments = normalizeSalePayments(payload.payments);
-
   let createdSale: ReturnType<typeof loadExistingSaleByClientUuid> extends Promise<infer R> ? Exclude<R, null> : never;
   const maxNumberingAttempts = 2;
   let lastCreateError: unknown = null;
@@ -77,6 +76,28 @@ export async function createSaleService(input: CreateSaleServiceInput) {
       return db.transaction().execute(async (trx) => {
         // Configurar el contexto RLS para esta transacción
         await sql`SELECT set_config('app.current_tenant', ${tenantId}, true)`.execute(trx);
+
+        /**
+         * Los pagos se normalizan **dentro** de la transacción porque se validan contra el
+         * catálogo del comercio: qué medios existen, cuáles están encendidos y cuáles
+         * exigen referencia. Hacerlo fuera sería comprobar contra un catálogo que puede
+         * haber cambiado antes de que la venta se escriba.
+         */
+        const paymentCatalog = await PaymentMethodsRepository.loadCatalog(trx, tenantId);
+        const normalizedPayments = normalizeSalePayments(payload.payments, paymentCatalog);
+
+        /**
+         * Fiar exige saber a quién. Sin cliente, la venta a crédito no genera cuenta por
+         * cobrar y el importe desaparece: ni está en el cajón ni se le puede reclamar a
+         * nadie.
+         */
+        if (normalizedPayments.payments.some((payment) => payment.method === 'STORE_CREDIT') && !payload.customer_id) {
+          throw new AppError(
+            400,
+            'CUSTOMER_REQUIRED_FOR_CREDIT',
+            'Una venta a crédito necesita un cliente identificado'
+          );
+        }
 
         let cashSession = await trx
           .selectFrom('cash_sessions')
@@ -489,6 +510,31 @@ export async function createSaleService(input: CreateSaleServiceInput) {
           })
           .returning([...saleColumnList])
           .executeTakeFirstOrThrow();
+
+        /**
+         * Los pagos, como filas. `payment_json` sigue guardándose —es lo que envió el
+         * cliente y sirve de respaldo— pero deja de ser la fuente de verdad: el arqueo y el
+         * Z leen de aquí, donde cada pago tiene su tipo, su referencia y su vuelto.
+         */
+        await trx
+          .insertInto('sale_payments')
+          .values(
+            normalizedPayments.payments.map((payment) => ({
+              id: randomUUID(),
+              tenant_id: tenantId!,
+              branch_id: payload.branch_id,
+              sale_id: saleId,
+              cash_session_id: payload.cash_session_id,
+              method_code: payment.method_code,
+              kind: payment.method,
+              amount_cents: payment.amount_cents,
+              tendered_cents: payment.tendered_cents ?? null,
+              change_cents: payment.change_cents ?? null,
+              reference: payment.reference ?? null,
+              metadata_json: null
+            }))
+          )
+          .execute();
 
         await LedgerService.appendSalesLedger(trx, {
           tenantId,

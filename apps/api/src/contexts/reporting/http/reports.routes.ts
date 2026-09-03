@@ -1,7 +1,13 @@
 import type { FastifyPluginAsync } from 'fastify';
 import { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { sql } from 'kysely';
-import { salesReportQuerySchema, kardexQuerySchema, waiterReportQuerySchema } from '@pos-dian/shared';
+import {
+  salesReportQuerySchema,
+  kardexQuerySchema,
+  waiterReportQuerySchema,
+  PAYMENT_KIND_BEHAVIOR,
+  type PaymentKind
+} from '@pos-dian/shared';
 import { WaiterReportsUseCase } from '../application/waiter-reports.use-case.js';
 
 import { AppError } from '../../../shared/infra/errors/app-error.js';
@@ -54,54 +60,58 @@ export const reportsRoutes: FastifyPluginAsync = async (app) => {
         ])
         .executeTakeFirst();
 
-      // For revenue_by_method, we need to extract from payment_json.
-      // Easiest is to select all matching sales payment_json and group in JS,
-      // as payment_json is unstructured jsonb in a simple view. 
-      // Kysely json functions can be complex across dialects, so querying JSON values:
-      let salesFiltered = trx
-        .selectFrom('sales')
-        .select(['payment_json'])
-        .where('tenant_id', '=', request.auth!.tenantId!)
-        .where('status', '=', 'COMPLETED');
+      /**
+       * Ingresos por medio de pago, desde `sale_payments`.
+       *
+       * Antes esto traía a memoria el `payment_json` de **todas** las ventas del rango y
+       * las agrupaba en JavaScript, con su propio objeto literal de cuatro claves —una de
+       * ellas `MIXED`, que no es un medio de pago sino la ausencia de uno—. Además del
+       * coste, cualquier medio nuevo caía fuera del informe sin avisar. Ahora es un
+       * `GROUP BY` y el desglose lo arma el mismo código que usa el reporte Z.
+       */
+      let paymentsQuery = trx
+        .selectFrom('sale_payments as sp')
+        .innerJoin('sales as s', 's.id', 'sp.sale_id')
+        .leftJoin('payment_method_catalog as c', (join) =>
+          join.onRef('c.tenant_id', '=', 'sp.tenant_id').onRef('c.code', '=', 'sp.method_code')
+        )
+        .select((eb) => [
+          'sp.method_code',
+          'sp.kind',
+          'c.label',
+          eb.fn.sum<number>('sp.amount_cents').as('amount_cents'),
+          eb.fn.count<number>('sp.id').as('count')
+        ])
+        .where('sp.tenant_id', '=', request.auth!.tenantId!)
+        .where('s.status', '=', 'COMPLETED')
+        .groupBy(['sp.method_code', 'sp.kind', 'c.label']);
 
       if (branch_id) {
-        salesFiltered = salesFiltered.where('branch_id', '=', branch_id as string);
+        paymentsQuery = paymentsQuery.where('sp.branch_id', '=', branch_id as string);
       } else if (request.auth!.role !== 'ADMIN' && request.auth!.role !== 'TENANT_OWNER' && !request.auth!.isPlatformRole) {
-        salesFiltered = salesFiltered.where('branch_id', 'in', request.auth!.branchIds);
+        paymentsQuery = paymentsQuery.where('sp.branch_id', 'in', request.auth!.branchIds);
       }
-      if (from) salesFiltered = salesFiltered.where('created_at', '>=', new Date(from));
-      if (to) salesFiltered = salesFiltered.where('created_at', '<=', new Date(to));
-      
-      const salesData = await salesFiltered.execute();
+      if (from) paymentsQuery = paymentsQuery.where('sp.created_at', '>=', new Date(from));
+      if (to) paymentsQuery = paymentsQuery.where('sp.created_at', '<=', new Date(to));
 
-      const methodRevenues: Record<string, number> = {
-        CASH: 0,
-        CARD: 0,
-        TRANSFER: 0,
-        MIXED: 0 // Ideally MIXED means split, so we iterate through sub-payments
-      };
+      const paymentRows = await paymentsQuery.execute();
 
-      salesData.forEach(sale => {
-        const payment = sale.payment_json as Record<string, unknown> | null;
-        if (!payment) return;
-        
-        if (payment.mode === 'MIXED' && Array.isArray(payment.payments)) {
-          payment.payments.forEach((p: Record<string, unknown>) => {
-            const method = p.method as string;
-            methodRevenues[method] = (methodRevenues[method] || 0) + (Number(p.amount_cents) || 0);
-          });
-        } else {
-          const method = payment.mode as string;
-          methodRevenues[method] = (methodRevenues[method] || 0) + (Number(payment.total_cents) || 0);
-        }
-      });
+      const revenue_by_method = paymentRows
+        .map((row) => {
+          const kind = row.kind as PaymentKind;
+          const behavior = PAYMENT_KIND_BEHAVIOR[kind];
+          return {
+            method: row.method_code,
+            kind,
+            label: row.label ?? behavior.label,
+            group: behavior.group,
+            amount_cents: Number(row.amount_cents),
+            count: Number(row.count)
+          };
+        })
+        .filter((row) => row.amount_cents > 0)
+        .sort((a, b) => b.amount_cents - a.amount_cents);
 
-      const revenue_by_method = Object.entries(methodRevenues)
-        .filter(([, amount]) => amount > 0)
-        .map(([method, amount_cents]) => ({
-          method,
-          amount_cents
-        }));
 
       return {
         total_revenue_cents: Number(rows?.total_revenue_cents || 0),

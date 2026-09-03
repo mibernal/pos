@@ -3,10 +3,12 @@ import { z } from 'zod';
 import { LedgerService } from '../../../shared/infra/db/ledger-service.js';
 import type { FastifyPluginAsync } from 'fastify';
 import { ZodTypeProvider } from 'fastify-type-provider-zod';
+import { loadShiftPayments } from '../infra/shift-payments.repository.js';
 import { AppError } from '../../../shared/infra/errors/app-error.js';
 import {
   calculateDiffCents,
-  calculateExpectedCashCents
+  calculateExpectedCashCents,
+  buildShiftPaymentSummary
 } from '../domain/cash-sessions-service.js';
 import { writeAuditLog } from '../../../shared/domain/audit/write-audit-log.js';
 import { buildRequestLogContext } from '../../../shared/infra/logging/request-log-context.js';
@@ -273,14 +275,10 @@ export const cashSessionsRoutes: FastifyPluginAsync = async (app) => {
           throw new AppError(409, 'CASH_SESSION_ALREADY_CLOSED', 'La sesión de caja ya está cerrada');
         }
 
-        const salePayments = await trx
-          .selectFrom('sales')
-          .select(['payment_json', 'total_cents'])
-          .where('tenant_id', '=', request.auth!.tenantId!)
-          .where('branch_id', '=', currentSession.branch_id)
-          .where('cash_session_id', '=', currentSession.id)
-          .where('status', '=', 'COMPLETED')
-          .execute();
+        const shift = await loadShiftPayments(trx, {
+          tenantId: request.auth!.tenantId!,
+          cashSessionId: currentSession.id
+        });
 
         const cashMovements = await trx
           .selectFrom('cash_movements')
@@ -291,7 +289,7 @@ export const cashSessionsRoutes: FastifyPluginAsync = async (app) => {
 
         const expectedCashCents = calculateExpectedCashCents(
           currentSession.opening_amount_cents,
-          salePayments,
+          shift.payments,
           cashMovements
         );
         const diffCents = calculateDiffCents(expectedCashCents, payload.observed_cash_cents);
@@ -323,7 +321,7 @@ export const cashSessionsRoutes: FastifyPluginAsync = async (app) => {
             observed_cash_cents: payload.observed_cash_cents,
             expected_cash_cents: expectedCashCents,
             diff_cents: diffCents,
-            completed_sales_count: salePayments.length
+            completed_sales_count: shift.salesCount
           }
         });
 
@@ -404,14 +402,10 @@ export const cashSessionsRoutes: FastifyPluginAsync = async (app) => {
           throw new AppError(409, 'CASH_SESSION_ALREADY_CLOSED', 'La sesión de caja ya está cerrada');
         }
 
-        const salePayments = await trx
-          .selectFrom('sales')
-          .select(['payment_json', 'total_cents'])
-          .where('tenant_id', '=', request.auth!.tenantId!)
-          .where('branch_id', '=', currentSession.branch_id)
-          .where('cash_session_id', '=', currentSession.id)
-          .where('status', '=', 'COMPLETED')
-          .execute();
+        const shift = await loadShiftPayments(trx, {
+          tenantId: request.auth!.tenantId!,
+          cashSessionId: currentSession.id
+        });
 
         const cashMovements = await trx
           .selectFrom('cash_movements')
@@ -422,7 +416,7 @@ export const cashSessionsRoutes: FastifyPluginAsync = async (app) => {
 
         const expectedCashCents = calculateExpectedCashCents(
           currentSession.opening_amount_cents,
-          salePayments,
+          shift.payments,
           cashMovements
         );
         const diffCents = calculateDiffCents(expectedCashCents, payload.closing_cash_real_cents);
@@ -500,45 +494,30 @@ export const cashSessionsRoutes: FastifyPluginAsync = async (app) => {
             closing_cash_real_cents: updatedSession.closing_cash_real_cents,
             expected_cash_cents: expectedCashCents,
             diff_cents: diffCents,
-            completed_sales_count: salePayments.length
+            completed_sales_count: shift.salesCount
           }
         });
 
-        const methodRevenues: Record<string, number> = {
-          CASH: 0,
-          CARD: 0,
-          TRANSFER: 0
-        };
+        /**
+         * El desglose sale de las filas de pago y se **congela** en la sesión: reimprimir
+         * este Z dentro de tres meses tiene que devolver lo que dijo hoy, aunque desde
+         * entonces se renombren medios o se anulen ventas.
+         */
+        const breakdown = buildShiftPaymentSummary(shift.payments);
 
-        let completedSalesTotalCents = 0;
-
-        salePayments.forEach(sale => {
-          completedSalesTotalCents += Number(sale.total_cents) || 0;
-          const payment = sale.payment_json as Record<string, unknown> | null;
-          if (!payment) return;
-
-          if (payment.mode === 'MIXED' && Array.isArray(payment.payments)) {
-            payment.payments.forEach((p: Record<string, unknown>) => {
-              const method = p.method as string;
-              if (methodRevenues[method] !== undefined) {
-                methodRevenues[method] += Number(p.amount_cents) || 0;
-              }
-            });
-          } else {
-            const method = payment.mode as string;
-            if (methodRevenues[method] !== undefined) {
-              methodRevenues[method] += Number(payment.total_cents) || 0;
-            }
-          }
-        });
+        await trx
+          .updateTable('cash_sessions')
+          .set({ payment_breakdown_json: breakdown as never })
+          .where('id', '=', currentSession.id)
+          .execute();
 
         return {
           updatedSession,
-          completedSalesCount: salePayments.length,
-          completedSalesTotalCents,
+          completedSalesCount: shift.salesCount,
+          completedSalesTotalCents: shift.salesTotalCents,
           expectedCashCents,
           diffCents,
-          methodRevenues
+          breakdown
         };
       });
 
@@ -567,7 +546,7 @@ export const cashSessionsRoutes: FastifyPluginAsync = async (app) => {
           completed_sales_total_cents: result.completedSalesTotalCents,
           expected_cash_cents: isCashier ? 0 : result.expectedCashCents,
           diff_cents: isCashier ? 0 : result.diffCents,
-          payment_breakdown: result.methodRevenues
+          payment_breakdown: result.breakdown
         }
       };
     }
@@ -806,7 +785,7 @@ export const cashSessionsRoutes: FastifyPluginAsync = async (app) => {
         .select([
           'id', 'tenant_id', 'branch_id', 'terminal_id', 'opened_by_user_id',
           'opened_at', 'opening_amount_cents', 'closed_at', 'closing_cash_real_cents',
-          'expected_cash_cents', 'diff_cents', 'status'
+          'expected_cash_cents', 'diff_cents', 'status', 'payment_breakdown_json'
         ])
         .where('tenant_id', '=', request.auth!.tenantId!)
         .where('id', '=', params.id)
@@ -818,14 +797,10 @@ export const cashSessionsRoutes: FastifyPluginAsync = async (app) => {
 
       ensureUserCanAccessBranch(request.auth!, session.branch_id);
 
-      const salePayments = await trx
-        .selectFrom('sales')
-        .select(['payment_json', 'total_cents'])
-        .where('tenant_id', '=', request.auth!.tenantId!)
-        .where('branch_id', '=', session.branch_id)
-        .where('cash_session_id', '=', session.id)
-        .where('status', '=', 'COMPLETED')
-        .execute();
+      const shift = await loadShiftPayments(trx, {
+        tenantId: request.auth!.tenantId!,
+        cashSessionId: session.id
+      });
 
       const cashMovements = await trx
         .selectFrom('cash_movements')
@@ -834,41 +809,21 @@ export const cashSessionsRoutes: FastifyPluginAsync = async (app) => {
         .where('cash_session_id', '=', session.id)
         .execute();
 
-      let completedSalesTotalCents = 0;
-      const methodRevenues: Record<string, number> = {
-        CASH: 0,
-        CARD: 0,
-        TRANSFER: 0
-      };
-
-      salePayments.forEach(sale => {
-        completedSalesTotalCents += Number(sale.total_cents) || 0;
-        const payment = sale.payment_json as Record<string, unknown> | null;
-        if (!payment) return;
-
-        if (payment.mode === 'MIXED' && Array.isArray(payment.payments)) {
-          payment.payments.forEach((p: Record<string, unknown>) => {
-            const method = p.method as string;
-            if (methodRevenues[method] !== undefined) {
-              methodRevenues[method] += Number(p.amount_cents) || 0;
-            }
-          });
-        } else {
-          const method = payment.mode as string;
-          if (methodRevenues[method] !== undefined) {
-            methodRevenues[method] += Number(payment.total_cents) || 0;
-          }
-        }
-      });
+      /**
+       * Si el turno ya cerró, se devuelve el desglose que se congeló entonces. Recalcularlo
+       * convertiría un documento de cierre en una consulta cuyo resultado cambia solo: una
+       * anulación posterior bastaría para que el Z reimpreso no cuadrara con el original.
+       */
+      const breakdown = session.payment_breakdown_json ?? buildShiftPaymentSummary(shift.payments);
 
       return reply.code(200).send({
         cash_session: mapCashSession(session),
         summary: {
-          completed_sales_count: salePayments.length,
-          completed_sales_total_cents: completedSalesTotalCents,
+          completed_sales_count: shift.salesCount,
+          completed_sales_total_cents: shift.salesTotalCents,
           expected_cash_cents: session.expected_cash_cents ?? 0,
           diff_cents: session.diff_cents ?? 0,
-          payment_breakdown: methodRevenues,
+          payment_breakdown: breakdown,
           cash_movements: cashMovements.reduce((acc, mov) => {
             if (mov.type === 'IN') acc.in += mov.amount_cents;
             if (mov.type === 'OUT') acc.out += mov.amount_cents;

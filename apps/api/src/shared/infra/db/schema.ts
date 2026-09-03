@@ -279,6 +279,8 @@ export interface CashSessionsTable {
   closing_cash_real_cents: number | null;
   expected_cash_cents: number | null;
   diff_cents: number | null;
+  /** Desglose congelado al cerrar: reimprimir un Z antiguo devuelve lo que ese Z decía. */
+  payment_breakdown_json: NullableJsonColumn;
 }
 
 export interface UserBranchesTable {
@@ -345,6 +347,36 @@ export interface SalesTable {
   void_reason: string | null;
   voided_by_user_id: string | null;
   voided_at: Date | null;
+  created_at: Generated<Date>;
+}
+
+export interface PaymentMethodCatalogTable {
+  tenant_id: string;
+  code: string;
+  kind: string;
+  label: string;
+  active: Generated<boolean>;
+  requires_reference: Generated<boolean>;
+  sort_order: Generated<number>;
+  is_system: Generated<boolean>;
+  created_at: Generated<Date>;
+}
+
+export interface SalePaymentsTable {
+  id: string;
+  tenant_id: string;
+  branch_id: string;
+  sale_id: string;
+  cash_session_id: string;
+  method_code: string;
+  /** Copiado en el cobro, no unido contra el catálogo: el comportamiento del dinero es un
+   *  hecho del momento, no una propiedad que se pueda editar después. */
+  kind: string;
+  amount_cents: number;
+  tendered_cents: number | null;
+  change_cents: number | null;
+  reference: string | null;
+  metadata_json: NullableJsonColumn;
   created_at: Generated<Date>;
 }
 
@@ -1128,6 +1160,8 @@ export interface Database {
   cash_sessions: CashSessionsTable;
   cash_session_audits: CashSessionAuditsTable;
   sales: SalesTable;
+  sale_payments: SalePaymentsTable;
+  payment_method_catalog: PaymentMethodCatalogTable;
   sale_items: SaleItemsTable;
   sale_returns: SaleReturnsTable;
   return_items: ReturnItemsTable;

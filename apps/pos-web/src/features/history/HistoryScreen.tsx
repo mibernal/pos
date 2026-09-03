@@ -8,17 +8,16 @@ import type { PosApiClient } from '../../types';
 import { PermissionGuard, useSession } from '../auth';
 import { inferTaxModeFromSale } from '../sales';
 import { ReturnSaleModal } from './components/ReturnSaleModal';
+import { PAYMENT_KIND_BEHAVIOR, type PaymentKind } from '@pos-dian/shared';
 
-function paymentMethodLabel(method: 'CASH' | 'CARD' | 'TRANSFER'): string {
-  if (method === 'CASH') {
-    return 'Efectivo';
-  }
-
-  if (method === 'CARD') {
-    return 'Tarjeta';
-  }
-
-  return 'Transferencia';
+/**
+ * La etiqueta de cada medio sale de la tabla compartida, no de una cadena de `if` con los
+ * tres de siempre. Es la misma que usa el backend en el reporte Z, así que una venta con
+ * Nequi no puede aparecer aquí como «Transferencia» —que es lo que hacía este `return`
+ * final para cualquier método que no reconociera—.
+ */
+function paymentMethodLabel(method: PaymentKind): string {
+  return PAYMENT_KIND_BEHAVIOR[method]?.label ?? method;
 }
 
 function paymentModeLabel(mode: SalesListItem['payment_json']['mode']): string {

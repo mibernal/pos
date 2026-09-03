@@ -5,6 +5,7 @@ import { executeAsTenant } from '../../src/shared/infra/db/rls.js';
 import { Pool } from 'pg';
 import { hashPassword } from '../../src/contexts/identity/auth/password.js';
 import type { Database, ProductTaxCategory, TenantTaxMode } from '../../src/shared/infra/db/schema.js';
+import { PaymentMethodsRepository } from '../../src/contexts/sales/infra/payment-methods.repository.js';
 
 const adminPassword = 'Admin123*';
 const cashierPassword = 'Cashier123*';
@@ -167,6 +168,13 @@ export async function seedE2eFixture(
         starts_at: new Date()
       })
       .execute();
+
+    // Sin catálogo, una venta con Nequi o fiado se rechaza: el comercio de prueba tiene que
+
+    // nacer igual que uno real.
+
+    await PaymentMethodsRepository.seedDefaults(trx, tenantId);
+
 
     await trx
       .insertInto('branches')

@@ -29,6 +29,7 @@ import {
   assertTenantAccessible
 } from './auth.utils.js';
 import { NotificationService } from '../../../shared/infra/notifications/NotificationService.js';
+import { PaymentMethodsRepository } from '../../sales/infra/payment-methods.repository.js';
 
 const registerBodySchema = z.object({
   email: z.string().trim().email().transform((value) => value.toLowerCase()),
@@ -127,6 +128,14 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
         }).execute();
 
         const branchId = randomUUID();
+        /**
+         * El catálogo de medios de pago del comercio. Se siembra aquí y no solo en el alta por
+         * panel porque un comercio que se registra solo nace por este camino: sin filas, podría
+         * cobrar con los medios por defecto pero no encender Nequi ni el fiado, y no habría
+         * nada que activar en su pantalla de configuración.
+         */
+        await PaymentMethodsRepository.seedDefaults(trx, tenantId);
+
         await trx.insertInto('branches').values({
           id: branchId,
           tenant_id: tenantId!,
