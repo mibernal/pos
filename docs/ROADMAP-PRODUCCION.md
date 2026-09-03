@@ -519,6 +519,28 @@ el motor no cobraría nada el día del despliegue.
 El código está y la variable `WOMPI_API_URL` existe para apuntar al sandbox; falta hacerlo con
 una cuenta.
 
+### Antes de encender el motor en producción
+
+La migración le puso `next_billing_at` a las suscripciones que ya existían, así que **en la
+primera pasada el motor las mira todas**. En la base de desarrollo eso son 12 suscripciones
+activas ya vencidas y ninguna con medio de pago registrado: la primera ejecución les emitiría
+su factura y las dejaría en `PAST_DUE` —degradadas, con la caja funcionando— y siete días
+después las suspendería.
+
+Es el comportamiento correcto y no debe sorprender el día del despliegue. Antes de encender
+el scheduler conviene decidir una de estas tres:
+
+1. **Avisar y dar plazo**: correr una vez `UPDATE tenant_subscriptions SET next_billing_at =
+   now() + interval '30 days'` sobre la cartera existente, mandar el aviso de renovación y
+   dejar que registren tarjeta durante ese mes.
+2. **Cobrar desde el principio** a quien ya venía pagando por otro medio, registrando su
+   método de pago primero.
+3. **Excluir la cartera antigua** dejándole `auto_renew = false`: seguirán recibiendo factura
+   y podrán pagarla a mano desde el portal.
+
+La primera es la que menos ruido genera. Lo que no conviene es encender el motor sin elegir:
+doce comercios degradados el mismo día son doce llamadas a soporte.
+
 ---
 
 ## Fase 5 — Escala horizontal ⏳
