@@ -455,6 +455,46 @@ describe('El cobro recurrente ocurre solo', () => {
     expect(detalle.statusCode).toBe(404);
   }, 90_000);
 
+  it('reactiva sola una cuenta suspendida en cuanto el comercio registra una tarjeta', async () => {
+    const fixture = await newTenant();
+    const vencimiento = new Date(T0.getTime() - DAY);
+    await makeDueSubscription(fixture.tenantId, vencimiento);
+
+    // Se deja caer hasta la suspensión sin medio de pago.
+    await RenewalEngine.runAll(app.db, { gateway: new MockGateway(), now: () => T0 });
+    const tSuspension = new Date(vencimiento.getTime() + 8 * DAY);
+    await RenewalEngine.processSuspensions({ db: app.db, gateway: new MockGateway(), now: () => tSuspension });
+    expect((await subscription(fixture.tenantId)).status).toBe('SUSPENDED');
+
+    // Registrar la tarjeta pone `next_retry_at` en ahora mismo. El comercio no tiene que
+    // buscar ningún botón: la siguiente pasada del motor lo reactiva.
+    await registerCard(fixture, 'tok_ok');
+
+    /**
+     * Este paso es el único que no usa el reloj simulado, y a propósito: registrar la
+     * tarjeta programa el reintento con el reloj de pared —«cóbrame en cuanto puedas»— y
+     * eso es exactamente lo que debe hacer en producción. Adelantar aquí el reloj simulado
+     * probaría el reloj, no la reactivación.
+     */
+    const tRecuperacion = new Date(Date.now() + HOUR);
+    expect(
+      await RenewalEngine.processRetries({ db: app.db, gateway: new MockGateway(), now: () => tRecuperacion })
+    ).toBe(1);
+
+    const sub = await subscription(fixture.tenantId);
+    expect(sub.status).toBe('ACTIVE');
+    expect(sub.suspended_at).toBeNull();
+
+    const tenant = await adminDb()
+      .selectFrom('tenants')
+      .select(['status'])
+      .where('id', '=', fixture.tenantId)
+      .executeTakeFirstOrThrow();
+    expect(tenant.status).toBe('ACTIVE');
+
+    expect(await dunningSteps(fixture.tenantId)).toContain('RECOVERED');
+  }, 90_000);
+
   it('cobra al instante cuando el comercio arregla la tarjeta y pide cobrar ahora', async () => {
     const fixture = await newTenant();
     await makeDueSubscription(fixture.tenantId, new Date(T0.getTime() - DAY));

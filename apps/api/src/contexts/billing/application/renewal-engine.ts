@@ -223,7 +223,14 @@ export class RenewalEngine {
     const pending = await deps.db
       .selectFrom('tenant_subscriptions')
       .select(['id', 'tenant_id'])
-      .where('status', '=', 'PAST_DUE')
+      /**
+       * `SUSPENDED` entra a propósito. Registrar una tarjeta pone `next_retry_at` en ahora
+       * mismo, así que un comercio suspendido que arregla su medio de pago se reactiva en
+       * la siguiente pasada sin tener que encontrar ningún botón. No hay bucle posible: sus
+       * reintentos ya están agotados, de modo que si este cobro también falla,
+       * `next_retry_at` vuelve a quedar en nulo.
+       */
+      .where('status', 'in', ['PAST_DUE', 'SUSPENDED'])
       .where('auto_renew', '=', true)
       .where('payment_method_id', 'is not', null)
       .where('next_retry_at', 'is not', null)

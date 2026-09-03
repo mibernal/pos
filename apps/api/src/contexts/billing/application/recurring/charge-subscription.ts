@@ -211,6 +211,37 @@ async function openInvoiceFor(
 
   if (open) return open;
 
+  /**
+   * Una factura dada por incobrable vuelve a abrirse si se intenta cobrarla otra vez.
+   *
+   * Es el caso del comercio suspendido que registra una tarjeta. Sin esto pasaba algo
+   * bastante peor que no reactivarlo: el índice único `(subscription_id, period_start)`
+   * incluye las incobrables, así que `issueForPeriod` devolvía la vieja, la liquidación
+   * exigía `OPEN` y no hacía nada… **después** de que la pasarela hubiera cobrado. El
+   * comercio pagaba y seguía suspendido.
+   *
+   * Se reabre en lugar de emitir una nueva: el número no cambia, y el histórico cuenta lo
+   * que de verdad pasó —se dio por perdida y luego se cobró— en vez de dejar dos facturas
+   * del mismo periodo.
+   */
+  const writtenOff = await trx
+    .selectFrom('subscription_invoices')
+    .selectAll()
+    .where('subscription_id', '=', input.subscription.id)
+    .where('status', '=', 'UNCOLLECTIBLE')
+    .orderBy('period_start', 'asc')
+    .executeTakeFirst();
+
+  if (writtenOff) {
+    await trx
+      .updateTable('subscription_invoices')
+      .set({ status: 'OPEN', updated_at: input.now })
+      .where('id', '=', writtenOff.id)
+      .execute();
+
+    return { ...writtenOff, status: 'OPEN' };
+  }
+
   const periodDays = periodDaysForCycle(input.plan.billing_cycle);
 
   // El periodo nuevo empieza donde terminó el anterior, no «hoy»: si no, cada cobro con un

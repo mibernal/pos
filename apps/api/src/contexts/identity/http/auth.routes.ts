@@ -25,7 +25,8 @@ import {
   buildAuthResponse,
   getUserForAuth,
   buildUserDto,
-  applyResolvedModules
+  applyResolvedModules,
+  assertTenantAccessible
 } from './auth.utils.js';
 import { NotificationService } from '../../../shared/infra/notifications/NotificationService.js';
 
@@ -274,9 +275,7 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
 
       const user = validCandidates[0]!;
 
-      if (user.tenant_status === 'SUSPENDED') {
-        throw new AppError(403, 'AUTH_FORBIDDEN', 'El negocio se encuentra suspendido. Contacta al administrador de la plataforma.');
-      }
+      assertTenantAccessible(user);
 
       // `user_branches` está bajo RLS. En el login todavía no hay contexto de tenant,
       // pero ya sabemos a cuál pertenece el usuario: se fija explícitamente para la lectura.
@@ -339,9 +338,7 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
         throw new AppError(401, 'AUTH_UNAUTHORIZED', 'Usuario no encontrado o inactivo');
       }
 
-      if (user.tenant_status === 'SUSPENDED') {
-        throw new AppError(403, 'AUTH_FORBIDDEN', 'El negocio se encuentra suspendido. Contacta al administrador de la plataforma.');
-      }
+      assertTenantAccessible(user);
 
       const branchIds = await getUserBranchIds(trx, user.id, user.tenant_id);
       const permissions = getPermissionsForRole(user.role);
@@ -573,9 +570,11 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
         throw new AppError(401, 'AUTH_UNAUTHORIZED', 'User not found or inactive');
       }
 
-      if (user.tenant_status === 'SUSPENDED') {
+      try {
+        assertTenantAccessible(user);
+      } catch (error) {
         reply.clearCookie('pos_refresh_token', { path: '/' });
-        throw new AppError(403, 'AUTH_FORBIDDEN', 'El negocio se encuentra suspendido. Contacta al administrador de la plataforma.');
+        throw error;
       }
 
       const { refreshTokenRaw, refreshTokenHash, expMs, expiresAt } = generateRefreshToken(env.REFRESH_TOKEN_EXPIRES_IN);

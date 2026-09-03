@@ -453,6 +453,11 @@ La degradación es la de la fase 7 y no se tocó: `PAST_DUE` apaga informes y co
 **deja la caja funcionando**. Apagarle el punto de venta a un comercio en mora no acelera el
 pago, le hace perder el día y nos convierte a nosotros en el problema.
 
+La salida es igual de automática que la entrada: registrar una tarjeta programa el reintento
+para ya mismo, así que un comercio suspendido que arregla su medio de pago vuelve solo en la
+siguiente pasada del motor, sin buscar ningún botón y sin que nadie de plataforma toque
+nada.
+
 ### Wompi como pasarela del cobro automático
 
 De las tres integradas, es la que expone fuentes de pago reutilizables en Colombia.
@@ -478,7 +483,7 @@ El panel de plataforma gana `Ingresos`: MRR, ARR, ingreso por cuenta, churn a 30
 que antes no se podía medir— **lo efectivamente cobrado frente a lo facturado**. La
 diferencia entre esas dos cifras es la que dice si la cobranza funciona.
 
-### Dos defectos que encontraron las pruebas, no la lectura
+### Cuatro defectos que encontraron las pruebas, no la lectura
 
 - Una suscripción sin medio de pago quedaba en mora **sin factura**. Se le decía al comercio
   «no pudimos cobrarte» sin decirle cuánto debe ni dónde pagarlo. Ahora la factura se emite
@@ -486,6 +491,23 @@ diferencia entre esas dos cifras es la que dice si la cobranza funciona.
 - Un fallo al invalidar la caché tumbaba el cobro entero. El dinero ya se había movido:
   propagar ese error dejaba la factura sin asentar. La caché caduca sola en cinco minutos; el
   cobro se asienta igual.
+- **La suspensión era un callejón sin salida.** El login devolvía 403 a cualquiera de un
+  comercio suspendido, con un «contacta al administrador de la plataforma» heredado de cuando
+  suspender era una decisión humana. Ahora que la decide el motor de cobro, el correo de
+  suspensión decía «con un pago se reactiva todo», el comercio hacía clic y no podía ni
+  entrar a pagar: la única salida era que alguien de plataforma interviniera a mano, que es
+  justo lo que el cobro automático viene a evitar. El dueño y el administrador entran ahora,
+  y solo para eso: el nivel de servicio sigue siendo `BLOCKED` y `requirePermissions` deniega
+  todo lo demás. El resto del equipo sigue fuera, porque solo vería errores.
+- **Y el peor de los cuatro.** Al suspender, la factura se marca incobrable. El índice único
+  `(subscription_id, period_start)` incluye esas, así que cuando un comercio suspendido
+  registraba una tarjeta, el cobro recuperaba la factura vieja, la liquidación exigía `OPEN`
+  y no hacía nada — **después** de que la pasarela hubiera cobrado. El comercio pagaba y
+  seguía suspendido. Ahora una factura incobrable se reabre al intentar cobrarla otra vez:
+  mismo número, y el histórico cuenta lo que pasó de verdad.
+
+Los cuatro son del mismo tipo: código que se lee bien y hace algo distinto de lo que dice.
+Ninguno se veía sin recorrer el ciclo entero contra PostgreSQL.
 
 **Criterio de salida — cumplido.** Una suscripción llega a su vencimiento y se cobra sola. Un
 cobro rechazado recorre los reintentos, avisa, degrada y suspende sin intervención. Las nueve

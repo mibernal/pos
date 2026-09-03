@@ -1,4 +1,5 @@
 import { randomBytes, createHash } from 'node:crypto';
+import { AppError } from '../../../shared/infra/errors/app-error.js';
 import { LIVE_SUBSCRIPTION_STATUSES } from '../../billing/application/subscription.service.js';
 import { ASSIGNABLE_MODULES, MODULE_COLUMN, type AssignableModule } from '@pos-dian/shared';
 
@@ -214,4 +215,32 @@ export async function getUserForAuth(db: any, userId: string, tenantId?: string)
   }
 
   return await query.executeTakeFirst();
+}
+
+/**
+ * Quién puede entrar cuando el comercio está suspendido.
+ *
+ * Hasta ahora: nadie. El login devolvía 403 con «contacta al administrador de la
+ * plataforma», y como la suspensión por falta de pago la decide el motor de cobro y no una
+ * persona, la cuenta quedaba en un callejón sin salida: el correo de suspensión dice «con
+ * un pago se reactiva todo», el comercio hace clic, y no puede ni iniciar sesión para
+ * pagar. La única salida era que alguien de plataforma interviniera a mano — justo lo que
+ * el cobro automático viene a evitar.
+ *
+ * Ahora el dueño y el administrador entran, y **solo** para poder pagar: el nivel de
+ * servicio de una suscripción suspendida es `BLOCKED`, y `requirePermissions` deniega todo
+ * lo que pase por él. El portal de facturación no pasa por ahí a propósito. El resto del
+ * equipo sigue fuera: un cajero que entrara solo vería errores, y decirle que el negocio
+ * está suspendido es más útil que dejarlo pelearse con una aplicación que no responde.
+ */
+export function assertTenantAccessible(user: { tenant_status?: string | null; role?: string | null }): void {
+  if (user.tenant_status !== 'SUSPENDED') return;
+
+  if (user.role === 'TENANT_OWNER' || user.role === 'ADMIN' || user.role === 'PLATFORM_OWNER') return;
+
+  throw new AppError(
+    403,
+    'AUTH_FORBIDDEN',
+    'El negocio se encuentra suspendido. El propietario puede reactivarlo desde la sección de facturación.'
+  );
 }
