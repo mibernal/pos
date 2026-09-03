@@ -19,6 +19,7 @@ Punto de partida: auditoría sobre `main` del 25 de agosto de 2026. El sistema e
 | 4 | Cerrar el ciclo fiscal con el PAC real | ✅ Código completo — 28 ago 2026 · ⏳ falta la certificación con el PAC |
 | 5 | Escala horizontal | ⏳ Diferible hasta ~20 clientes |
 | 6 | Cerrar las fugas silenciosas (producto) | ✅ Completada — 30 ago 2026 |
+| 7 | Que el plan gobierne el producto | ✅ Completada — 30 ago 2026 |
 
 ---
 
@@ -269,6 +270,98 @@ por defecto corregido.
 
 **Queda pendiente, y no es código:** los dos comercios sin suscripción de la base de
 desarrollo siguen sin plan asignado.
+
+---
+
+## Fase 7 — Que el plan gobierne el producto ✅
+
+**El problema.** El precio y las capacidades eran dos sistemas que nadie sincronizaba. Un
+plan era un registro con `price_cents` y un `features_json` de dos claves —`users` y
+`branches`—, y esas eran las **únicas** cuotas que se comprobaban en todo el sistema. Los
+módulos vivían en 21 columnas booleanas de `tenants` que un super-admin encendía a mano, sin
+relación con lo que el comercio pagaba. Vender un plan superior era, literalmente, editar la
+base de datos. Y como cada módulo nuevo exigía una columna, un claim del JWT, una rama de
+`switch` y una línea de frontend, el catálogo no podía crecer sin una migración.
+
+### Los entitlements pasan a ser datos
+
+Migración **095**: `plan_entitlements` (siete dimensiones limitables), `plan_modules`, y dos
+tablas de excepciones por comercio —módulos y límites— con **motivo y caducidad**. Un
+override sin motivo es un booleano suelto con otro nombre: dentro de seis meses nadie sabe
+por qué ese comercio tiene ese módulo.
+
+**La migración no le quita nada a nadie.** Los módulos de un comercio eran per-comercio, no
+per-plan, así que hay comercios con módulos que su plan no incluiría; apagárselos sería
+romperles el negocio para arreglar nuestro modelo. Cada uno se convirtió en una concesión
+explícita: **104 concesiones en 87 comercios**. Después de migrar, todos ven exactamente lo
+mismo que antes; lo que cambia es que ahora está escrito de dónde viene cada permiso.
+
+Migración **096**: RLS con `FORCE` en las dos tablas de excepciones, que llevan `tenant_id`.
+Las de plan quedan fuera a propósito — son catálogo global, como `billing_plans`.
+
+### Una sola fuente de verdad
+
+`EntitlementsResolver` resuelve módulos, límites y nivel de servicio por petición, con caché
+en Redis e invalidación explícita al cambiar plan, módulos u overrides. Dos consecuencias:
+
+- **Los módulos dejan de viajar firmados en el JWT.** Encender uno surte efecto en la
+  siguiente petición, sin cerrar sesión. Antes era imposible.
+- **El `switch` de 21 ramas de `requireModule` desaparece.** Era una de las cuatro copias
+  del mapa de módulos, y ya se había desincronizado de las columnas que decía representar
+  (fase 6, PL-06).
+
+Los claims del token se derivan de los módulos resueltos. Si salieran de las columnas, un
+cambio de plan movería lo que el backend permite sin mover lo que el frontend enseña. Una
+prueba nueva cazó exactamente esa deriva en `/auth/me`, que arma su DTO por su cuenta sin
+pasar por `buildAuthResponse`.
+
+### Cuotas sin carreras
+
+`EntitlementGuard` sustituye a `QuotaGuard`. Las dimensiones vienen del catálogo —añadir una
+es una fila, no un método— y el conteo se serializa con `pg_advisory_xact_lock` **dentro de
+la transacción que inserta**. El guard anterior contaba fuera de ella, así que dos peticiones
+simultáneas veían el mismo conteo y ambas pasaban: un plan de tres usuarios acababa con
+cuatro. Hay una prueba que lo reproduce.
+
+`monthly_sales` se mide y **no se bloquea**: cortar la facturación de un comercio a mitad de
+servicio no es una decisión que un límite comercial deba tomar.
+
+### La mora degrada, no apaga
+
+Hasta ahora el estado de la suscripción no se miraba en ninguna petición: lo único que
+bloqueaba era `tenants.status = 'SUSPENDED'`, y solo en el login. Una suscripción cancelada
+hacía meses seguía operando con normalidad — no había ninguna barrera técnica entre pagar y
+no pagar.
+
+Ahora se aplica en la capa de permisos, con una sola regla y sin tocar rutas: `PAST_DUE`
+apaga informes, catálogo, usuarios, sucursales, configuración y auditoría, y **deja la caja
+funcionando** — vender, cobrar, abrir y cerrar turno, cocina y mesas. Apagarle el punto de
+venta a quien debe dos semanas no acelera el pago: le hace perder el día y nos convierte a
+nosotros en el problema.
+
+### El cambio de plan se puede ver antes de hacerlo
+
+`POST /platform/tenants/:id/plan/preview` responde qué módulos gana y pierde, qué límites
+quedarían por debajo de lo que ya usa, y cuánto dinero implica. El cambio real **rechaza con
+409** una bajada que dejaría al comercio fuera de cuota, con el detalle de qué sobra; hay que
+reenviar con `force`. Antes era un `UPDATE plan_id` y el comercio quedaba permanentemente por
+encima de su límite sin que nadie se enterara hasta que llamaba.
+
+El prorrateo convierte el valor no consumido en días del plan nuevo y **no emite un cargo**:
+no hay cobro recurrente todavía (fase 8) y emitirlo sería inventar un movimiento que nadie
+concilia. El `charge_cents` que devuelve es lo que habrá que cobrar cuando exista.
+
+**Criterio de salida — cumplido.** Crear un plan con sus módulos y límites, asignarlo y ver
+el cambio sin que nadie cierre sesión ni se toque una migración. Bajar de plan avisa
+exactamente qué queda fuera de cuota.
+
+Verificación: lint sin errores, typecheck 6/6, build 4/4 y **317 pruebas** (208 API, 60
+worker, 31 pos-web, 18 shared). 8 nuevas, entre ellas la de concurrencia y la de degradación.
+
+**Lo que queda de la fase, y es de interfaz:** el editor de límites y módulos existe como API
+(`PUT /platform/plans/:id/entitlements`) pero no tiene pantalla; el panel sigue editando
+módulos comercio por comercio. Y el portal del comercio no muestra todavía su consumo contra
+los límites, que ya expone `GET /platform/tenants/:id/usage`.
 
 ---
 
