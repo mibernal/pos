@@ -9,6 +9,7 @@ import { SubscriptionService } from './subscription.service.js';
 import { periodDaysForCycle } from '../../platform-admin/application/billing-plans/resolve-plan.js';
 import { NotificationService } from '../../../shared/infra/notifications/NotificationService.js';
 import { executeAsTenant } from '../../../shared/infra/db/rls.js';
+import { settleInvoiceFromWebhook } from './recurring/charge-subscription.js';
 import { TracerHelper } from '../../../shared/infra/tracing/Tracer.js';
 import { SemanticAttributes } from '../../../shared/infra/tracing/SemanticAttributes.js';
 
@@ -217,6 +218,7 @@ export async function processPaymentWebhook(
             tenantName,
             metadata: tx.metadata_json,
             amountCents: tx.amount_cents,
+            transactionId: tx.id,
             notificationService
           });
         }
@@ -262,11 +264,48 @@ async function applyApprovedPayment(
     tenantName: string;
     metadata: unknown;
     amountCents: number;
+    transactionId: string;
     notificationService: NotificationService;
   }
 ) {
-  const meta = (input.metadata ?? {}) as { planId?: string; autoRenew?: boolean };
+  const meta = (input.metadata ?? {}) as { planId?: string; autoRenew?: boolean; invoiceId?: string };
   const planId = meta.planId;
+
+  /**
+   * Cobro recurrente que la pasarela dejó en curso y ahora confirma.
+   *
+   * Tiene su propio camino porque ya hay una factura emitida con su periodo: aplicarle la
+   * lógica del checkout —que suma días a partir de hoy— movería el aniversario del comercio
+   * cada vez que la pasarela tarda en responder.
+   */
+  if (meta.invoiceId) {
+    const settled = await settleInvoiceFromWebhook(db, {
+      tenantId: input.tenantId,
+      invoiceId: meta.invoiceId,
+      paymentTransactionId: input.transactionId
+    });
+
+    if (settled) {
+      const invoice = await db
+        .selectFrom('subscription_invoices')
+        .select(['number', 'plan_name', 'period_start', 'period_end', 'total_cents'])
+        .where('id', '=', meta.invoiceId)
+        .executeTakeFirst();
+
+      if (invoice) {
+        await input.notificationService.notifyInvoicePaid(input.tenantId, {
+          tenantName: input.tenantName,
+          planName: invoice.plan_name,
+          invoiceNumber: invoice.number,
+          periodStart: invoice.period_start.toLocaleDateString('es-CO'),
+          periodEnd: invoice.period_end.toLocaleDateString('es-CO'),
+          amountCents: invoice.total_cents
+        });
+      }
+    }
+
+    return;
+  }
 
   if (!planId) return;
 

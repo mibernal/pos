@@ -25,6 +25,10 @@ const envSchema = z.object({
   SALE_VOID_MAX_AGE_HOURS: z.coerce.number().int().positive().max(720).default(24),
   WOMPI_PUBLIC_KEY: z.string().optional(),
   WOMPI_EVENTS_KEY: z.string().optional(),
+  // Llave privada de Wompi. Solo se usa server-to-server: es la que autoriza a cobrar sobre
+  // una fuente de pago guardada, sin el tarjetahabiente delante. Nunca sale al frontend.
+  WOMPI_PRIVATE_KEY: z.string().optional(),
+  WOMPI_API_URL: z.string().url().default('https://production.wompi.co/v1'),
   MERCADOPAGO_ACCESS_TOKEN: z.string().optional(),
   MERCADOPAGO_WEBHOOK_SECRET: z.string().optional(),
   STRIPE_SECRET_KEY: z.string().optional(),
@@ -39,6 +43,19 @@ const envSchema = z.object({
   BILLING_GRACE_PERIOD_DAYS: z.coerce.number().int().default(7),
   BILLING_TRIAL_DAYS: z.coerce.number().int().default(14),
   BILLING_SUSPENSION_AFTER_DAYS: z.coerce.number().int().default(30),
+  // Pasarela con la que se cobra solo. Las demás quedan como pago manual por checkout:
+  // solo Wompi expone fuentes de pago reutilizables en Colombia.
+  BILLING_RECURRING_GATEWAY: z.enum(['WOMPI', 'MOCK']).default('WOMPI'),
+  // IVA sobre el servicio, desglosado en la factura. 0.19 en Colombia.
+  BILLING_TAX_RATE: z.coerce.number().min(0).max(1).default(0.19),
+  BILLING_INVOICE_PREFIX: z.string().min(1).max(10).default('POS'),
+  // Días de plazo de la factura antes de considerarla vencida.
+  BILLING_INVOICE_DUE_DAYS: z.coerce.number().int().nonnegative().default(3),
+  // Descuento del ciclo anual, en porcentaje sobre doce mensualidades.
+  BILLING_YEARLY_DISCOUNT_PERCENT: z.coerce.number().min(0).max(90).default(15),
+  // A dónde manda el correo de cobranza. Sin esto los avisos dicen qué pasó pero no dónde
+  // arreglarlo, que es la mitad del trabajo.
+  BILLING_PORTAL_URL: z.string().url().optional(),
 
   // Platform Admin Cache TTLs
   CACHE_DASHBOARD_METRICS_TTL_S: z.coerce.number().int().nonnegative().default(120),

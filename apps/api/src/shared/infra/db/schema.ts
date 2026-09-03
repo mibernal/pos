@@ -758,6 +758,11 @@ export interface TenantSubscriptionsTable {
   cancelled_at: Date | null;
   cancellation_reason: string | null;
   payment_method_token: string | null;
+  payment_method_id: string | null;
+  coupon_code: string | null;
+  coupon_periods_left: number | null;
+  next_retry_at: Date | null;
+  dunning_stage: string | null;
   auto_renew: Generated<boolean>;
   created_at: Generated<Date>;
   updated_at: Generated<Date>;
@@ -805,6 +810,104 @@ export interface PaymentWebhookEventsTable {
   error: string | null;
   received_at: Generated<Date>;
   processed_at: Date | null;
+}
+
+export interface TenantPaymentMethodsTable {
+  id: string;
+  tenant_id: string;
+  gateway: string;
+  gateway_token: string;
+  brand: string | null;
+  last_four: string | null;
+  exp_month: number | null;
+  exp_year: number | null;
+  holder_name: string | null;
+  status: Generated<string>;
+  is_default: Generated<boolean>;
+  metadata_json: NullableJsonColumn;
+  created_at: Generated<Date>;
+  updated_at: Generated<Date>;
+}
+
+export interface BillingInvoiceSequencesTable {
+  scope: string;
+  prefix: string;
+  last_number: Generated<number>;
+  updated_at: Generated<Date>;
+}
+
+export interface BillingCouponsTable {
+  code: string;
+  description: string | null;
+  type: string;
+  value: number;
+  duration: Generated<string>;
+  duration_periods: number | null;
+  max_redemptions: number | null;
+  redeemed_count: Generated<number>;
+  valid_from: Date | null;
+  valid_until: Date | null;
+  active: Generated<boolean>;
+  created_at: Generated<Date>;
+}
+
+export interface TenantCouponRedemptionsTable {
+  id: string;
+  tenant_id: string;
+  coupon_code: string;
+  redeemed_at: Generated<Date>;
+}
+
+export interface SubscriptionInvoicesTable {
+  id: string;
+  tenant_id: string;
+  subscription_id: string;
+  number: string;
+  status: Generated<string>;
+  plan_id: string;
+  plan_name: string;
+  billing_cycle: string;
+  period_start: Date;
+  period_end: Date;
+  subtotal_cents: number;
+  discount_cents: Generated<number>;
+  tax_cents: Generated<number>;
+  total_cents: number;
+  currency: Generated<string>;
+  coupon_code: string | null;
+  payment_transaction_id: string | null;
+  attempt_count: Generated<number>;
+  issued_at: Generated<Date>;
+  due_at: Date | null;
+  paid_at: Date | null;
+  metadata_json: NullableJsonColumn;
+  created_at: Generated<Date>;
+  updated_at: Generated<Date>;
+}
+
+export interface SubscriptionInvoiceItemsTable {
+  id: string;
+  tenant_id: string;
+  invoice_id: string;
+  description: string;
+  quantity: Generated<number>;
+  unit_price_cents: number;
+  amount_cents: number;
+  sort_order: Generated<number>;
+}
+
+export interface DunningEventsTable {
+  id: string;
+  tenant_id: string;
+  subscription_id: string;
+  invoice_id: string | null;
+  step: string;
+  period_key: string;
+  attempt: Generated<number>;
+  notified: Generated<boolean>;
+  detail: string | null;
+  metadata_json: NullableJsonColumn;
+  occurred_at: Generated<Date>;
 }
 
 export interface PlatformEventsTable {
@@ -1066,6 +1169,13 @@ export interface Database {
   idempotency_records: IdempotencyRecordsTable;
   platform_events: PlatformEventsTable;
   subscription_events: SubscriptionEventsTable;
+  tenant_payment_methods: TenantPaymentMethodsTable;
+  billing_invoice_sequences: BillingInvoiceSequencesTable;
+  billing_coupons: BillingCouponsTable;
+  tenant_coupon_redemptions: TenantCouponRedemptionsTable;
+  subscription_invoices: SubscriptionInvoicesTable;
+  subscription_invoice_items: SubscriptionInvoiceItemsTable;
+  dunning_events: DunningEventsTable;
   product_images: ProductImagesTable;
   rooms: RoomsTable;
   tables: TablesTable;
