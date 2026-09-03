@@ -6,6 +6,20 @@ import { CreatePlanUseCase } from '../../application/billing-plans/create-plan.u
 import { UpdatePlanUseCase } from '../../application/billing-plans/update-plan.use-case.js';
 import { DeletePlanUseCase } from '../../application/billing-plans/delete-plan.use-case.js';
 import { invalidateDashboardCache } from '../../../../shared/infra/cache/invalidate-dashboard-cache.js';
+import { PlanEntitlementsUseCase } from '../../application/billing-plans/plan-entitlements.use-case.js';
+import { assignableModuleSchema, entitlementKeySchema, limitValueSchema } from '@pos-dian/shared';
+
+/**
+ * Lo que un plan da: límites por dimensión y módulos incluidos.
+ *
+ * `features_json` se conserva por compatibilidad —hay pantallas que aún lo leen— pero ya no
+ * es donde se decide nada. Los límites reales viven en `plan_entitlements` y los módulos en
+ * `plan_modules`, que es lo que consulta el resolutor.
+ */
+const planEntitlementsBodySchema = z.object({
+  limits: z.record(entitlementKeySchema, limitValueSchema).optional(),
+  modules: z.array(assignableModuleSchema).optional()
+});
 
 const planFeaturesSchema = z.object({
   users: z.number(),
@@ -69,6 +83,31 @@ export const platformPlansRoutes: FastifyPluginAsync = async (app) => {
   }, async (request) => {
     const useCase = new UpdatePlanUseCase(app.db);
     await useCase.execute(request.params.id, request.body as any, request.auth!.userId, request.auth!.email);
+    await invalidateDashboardCache(app.redis);
+    return { success: true };
+  });
+
+  typedApp.get('/platform/plans/:id/entitlements', {
+    schema: {
+      tags: ['Platform Admin'],
+      summary: 'Límites y módulos que da un plan',
+      params: z.object({ id: z.string() })
+    }
+  }, async (request) => {
+    const useCase = new PlanEntitlementsUseCase(app.db, app.entitlements);
+    return await useCase.read(request.params.id);
+  });
+
+  typedApp.put('/platform/plans/:id/entitlements', {
+    schema: {
+      tags: ['Platform Admin'],
+      summary: 'Definir los límites y módulos de un plan',
+      params: z.object({ id: z.string() }),
+      body: planEntitlementsBodySchema
+    }
+  }, async (request) => {
+    const useCase = new PlanEntitlementsUseCase(app.db, app.entitlements);
+    await useCase.write(request.params.id, request.body, request.auth!.userId, request.auth!.email);
     await invalidateDashboardCache(app.redis);
     return { success: true };
   });

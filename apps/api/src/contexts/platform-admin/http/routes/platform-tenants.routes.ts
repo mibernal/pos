@@ -9,6 +9,9 @@ import { ImpersonateTenantUseCase } from '../../application/tenants/impersonate-
 import { CreateTenantUseCase } from '../../application/tenants/create-tenant.use-case.js';
 import { UpdateTenantUseCase } from '../../application/tenants/update-tenant.use-case.js';
 import { ChangeTenantPlanUseCase } from '../../application/tenants/change-tenant-plan.use-case.js';
+import { PreviewPlanChangeUseCase } from '../../application/tenants/preview-plan-change.use-case.js';
+import { EntitlementGuard } from '../../../../shared/infra/entitlements/entitlement-guard.js';
+import { AppError } from '../../../../shared/infra/errors/app-error.js';
 import { UpdateTenantModulesUseCase } from '../../application/tenants/update-tenant-modules.use-case.js';
 import { UpdateTenantModulesSchema } from '@pos-dian/shared';
 import { invalidateDashboardCache } from '../../../../shared/infra/cache/invalidate-dashboard-cache.js';
@@ -81,7 +84,9 @@ const updateTenantBodySchema = z.object({
 });
 
 const changePlanBodySchema = z.object({
-  new_plan: z.string()
+  new_plan: z.string(),
+  /** Aceptar el cambio aunque deje al comercio por encima de alguna cuota del plan nuevo. */
+  force: z.boolean().default(false)
 });
 
 export const platformTenantsRoutes: FastifyPluginAsync = async (app) => {
@@ -185,10 +190,63 @@ export const platformTenantsRoutes: FastifyPluginAsync = async (app) => {
       body: changePlanBodySchema
     }
   }, async (request) => {
+    // Bajar de plan con más usuarios de los que el plan nuevo admite dejaba al comercio
+    // permanentemente fuera de cuota, sin que nadie se enterara hasta que el cliente
+    // llamaba. Ahora se comprueba antes y hay que decir explícitamente que se acepta.
+    const preview = await new PreviewPlanChangeUseCase(app.db, app.entitlements).execute(
+      request.params.id,
+      request.body.new_plan
+    );
+
+    if (preview.limits_over_quota.length > 0 && !request.body.force) {
+      throw new AppError(
+        409,
+        'PLAN_DOWNGRADE_OVER_QUOTA',
+        `Con el plan ${preview.target_plan_id} este comercio quedaría por encima de su cuota en: ` +
+          preview.limits_over_quota.map((l) => `${l.label} (${l.used} de ${l.new_limit})`).join(', ') +
+          '. Reenvía con force para aceptarlo de todos modos.',
+        { limits_over_quota: preview.limits_over_quota, modules_lost: preview.modules_lost }
+      );
+    }
+
     const useCase = new ChangeTenantPlanUseCase(app.db, app.entitlements);
     await useCase.execute(request.params.id, request.body.new_plan, request.auth!.userId, request.auth!.email);
     await invalidateDashboardCache(app.redis);
-    return { success: true };
+    return { success: true, preview };
+  });
+
+  typedApp.post('/platform/tenants/:id/plan/preview', {
+    schema: {
+      tags: ['Platform Admin'],
+      summary: 'Qué cambiaría al mover este comercio de plan, sin cambiar nada',
+      params: z.object({ id: z.string() }),
+      body: z.object({ new_plan: z.string() })
+    }
+  }, async (request) => {
+    const useCase = new PreviewPlanChangeUseCase(app.db, app.entitlements);
+    return await useCase.execute(request.params.id, request.body.new_plan);
+  });
+
+  typedApp.get('/platform/tenants/:id/usage', {
+    schema: {
+      tags: ['Platform Admin'],
+      summary: 'Uso actual del comercio contra los límites de su plan',
+      params: z.object({ id: z.string() })
+    }
+  }, async (request) => {
+    const guard = new EntitlementGuard(app.entitlements);
+    const [usage, entitlements] = await Promise.all([
+      guard.usage(app.db, request.params.id),
+      app.entitlements.resolve(request.params.id)
+    ]);
+
+    return {
+      plan_id: entitlements.planId,
+      subscription_status: entitlements.subscriptionStatus,
+      service_level: entitlements.serviceLevel,
+      modules: entitlements.modules,
+      usage
+    };
   });
 
   typedApp.patch('/platform/tenants/:id/modules', {
