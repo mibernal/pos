@@ -74,9 +74,33 @@ reconocimiento gratuito para quien encuentre el puerto.
    firma los webhooks, y va en un campo aparte del panel. Si pones la privada, todas las
    firmas fallan y ningún pago se aplica.
 4. Registra la URL del webhook: `https://TU-DOMINIO/api/v1/webhooks/payments/wompi`.
+5. Copia la **llave privada** (`prv_test_...` / `prv_prod_...`) → `WOMPI_PRIVATE_KEY`.
+   Es la tercera llave del panel y la única que autoriza a mover dinero: con ella se cobra
+   sobre una tarjeta guardada sin el titular delante. **Nunca sale al frontend** —el
+   navegador solo recibe la pública— y no se comparte con nadie que no despliegue el
+   backend.
+6. `WOMPI_API_URL`: `https://sandbox.wompi.co/v1` mientras ensayas,
+   `https://production.wompi.co/v1` cuando salgas. La variable existe precisamente para que
+   el ensayo con el reloj adelantado no toque dinero real.
 
-Wompi Web Checkout es un pago único: no tokeniza la tarjeta. El cobro recurrente
-automático es la fase 8 y necesita el producto de suscripciones de la pasarela.
+**Por qué Wompi es la pasarela del cobro recurrente.** De las tres, es la que expone
+*fuentes de pago* (`payment_sources`) reutilizables en Colombia: el navegador cambia la
+tarjeta por un token de un solo uso contra `/tokens/cards` con la llave pública, el servidor
+lo convierte en una fuente de pago con la privada, y a partir de ahí cobra cada periodo sin
+que el comercio tenga que hacer nada. El número de la tarjeta no toca nuestra
+infraestructura en ningún momento.
+
+MercadoPago y Stripe siguen sirviendo para el pago manual por checkout: el comercio entra y
+paga cada periodo. Es peor experiencia, pero es honesto —lo que no se puede hacer es
+prometer cobro automático sobre una pasarela que no lo soporta, porque el comercio deja de
+vigilar su factura y la suscripción se le cae.
+
+**Para ensayar la cobranza sin pasarela**, pon `BILLING_RECURRING_GATEWAY=MOCK`: el
+resultado del cobro lo decide el token de la tarjeta (uno que contenga `DECLINE` se rechaza
+siempre), así que la secuencia completa —tres reintentos, gracia, degradación y suspensión—
+se puede recorrer en segundos adelantando el reloj desde
+`POST /platform/billing/run-engine` con `as_of`. Ese parámetro está prohibido en producción:
+adelantar el reloj allí cobraría periodos que todavía no han transcurrido.
 
 ### MercadoPago — alternativa de cobro
 

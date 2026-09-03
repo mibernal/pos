@@ -8,6 +8,7 @@ import { AdvancedTenantsTable } from './components/AdvancedTenantsTable';
 import { CreateTenantModal } from './components/CreateTenantModal';
 import { TenantDetailDrawer } from './components/TenantDetailDrawer';
 import { PlansManagementTab } from './components/PlansManagementTab';
+import { RevenueWidget } from './components/RevenueWidget';
 import { Banner } from '../../components/ui';
 
 interface PlatformScreenProps {
@@ -23,7 +24,7 @@ import {
 import { PlatformHealthResponse } from './components/PlatformHealthWidget';
 
 export function PlatformScreen({ api }: PlatformScreenProps) {
-  const [activeTab, setActiveTab] = useState<'OVERVIEW' | 'TENANTS' | 'PLANS'>('OVERVIEW');
+  const [activeTab, setActiveTab] = useState<'OVERVIEW' | 'REVENUE' | 'TENANTS' | 'PLANS'>('OVERVIEW');
   const [tenants, setTenants] = useState<PlatformTenantSearchResult[]>([]);
   const [loading, setLoading] = useState(true);
   const [dashboardMetrics, setDashboardMetrics] = useState<PlatformDashboardMetrics | null>(null);
@@ -80,17 +81,17 @@ export function PlatformScreen({ api }: PlatformScreenProps) {
         <p className="text-muted-foreground text-base">Operación ejecutiva y gestión de organizaciones.</p>
         
         <div className="flex gap-4 mt-6 border-b border-border overflow-x-auto pb-px">
-          {['OVERVIEW', 'TENANTS', 'PLANS'].map((tab) => (
+          {['OVERVIEW', 'REVENUE', 'TENANTS', 'PLANS'].map((tab) => (
             <button
               key={tab}
-              onClick={() => setActiveTab(tab as 'OVERVIEW' | 'TENANTS' | 'PLANS')}
+              onClick={() => setActiveTab(tab as 'OVERVIEW' | 'REVENUE' | 'TENANTS' | 'PLANS')}
               className={`pb-3 px-1 text-sm font-semibold transition-colors border-b-2 whitespace-nowrap ${
                 activeTab === tab 
                   ? 'border-primary text-primary' 
                   : 'border-transparent text-muted-foreground hover:text-foreground hover:border-muted'
               }`}
             >
-              {tab === 'OVERVIEW' ? 'Resumen Ejecutivo' : tab === 'TENANTS' ? 'Directorio de Tenants' : 'Planes de Suscripción'}
+              {tab === 'OVERVIEW' ? 'Resumen Ejecutivo' : tab === 'REVENUE' ? 'Ingresos' : tab === 'TENANTS' ? 'Directorio de Tenants' : 'Planes de Suscripción'}
             </button>
           ))}
         </div>
@@ -122,6 +123,8 @@ export function PlatformScreen({ api }: PlatformScreenProps) {
               <PlatformHealthWidget health={healthData} />
             </div>
           )}
+
+          {activeTab === 'REVENUE' && <RevenueWidget api={api} />}
 
           {activeTab === 'TENANTS' && (
             <AdvancedTenantsTable 

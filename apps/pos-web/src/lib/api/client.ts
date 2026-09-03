@@ -1,4 +1,7 @@
 import type {
+  BillingPortal,
+  PaymentMethod,
+  RevenueMetrics,
   TenantProfile as SharedTenantProfile,
   UpdateTenantBusinessProfileBody as SharedUpdateTenantBusinessProfileBody,
   AuthUser as SharedAuthUser,
@@ -797,7 +800,42 @@ export function createApiClient({ baseUrl, getSession, setSession, onReauthRequi
       requestJson<{ checkoutUrl: string; transactionId: string }>('/billing/checkout', {
         method: 'POST',
         body: JSON.stringify(payload)
-      })
+      }),
+
+    // PORTAL DE FACTURACIÓN
+    getBillingPortal: () => requestJson<BillingPortal>('/billing/portal'),
+    getBillingGatewayConfig: () => requestJson<BillingGatewayConfig>('/billing/gateway-config'),
+    registerPaymentMethod: (payload: {
+      gateway: 'WOMPI' | 'MOCK';
+      card_token: string;
+      acceptance_token: string;
+      make_default?: boolean;
+    }) =>
+      requestJson<{ payment_method: PaymentMethod }>('/billing/payment-methods', {
+        method: 'POST',
+        body: JSON.stringify(payload)
+      }),
+    removePaymentMethod: (id: string) =>
+      requestJson<void>(`/billing/payment-methods/${id}`, { method: 'DELETE' }),
+    payNow: () => requestJson<{ outcome: string; detail?: string }>('/billing/pay-now', { method: 'POST' }),
+    redeemCoupon: (code: string) =>
+      requestJson<{ code: string; periods: number | null }>('/billing/coupons/redeem', {
+        method: 'POST',
+        body: JSON.stringify({ code })
+      }),
+    /** La factura se abre en una pestaña; el navegador la guarda como PDF si hace falta. */
+    invoiceUrl: (id: string) => `${baseUrl}/billing/invoices/${id}`,
+
+    // INGRESOS (plataforma)
+    getRevenueMetrics: () => requestJson<{ metrics: RevenueMetrics }>('/platform/revenue')
   };
 }
 export type ApiClient = ReturnType<typeof createApiClient>;
+
+export interface BillingGatewayConfig {
+  gateway: string;
+  public_key: string | null;
+  tokenization_url: string | null;
+  acceptance_url: string | null;
+  configured: boolean;
+}

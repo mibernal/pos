@@ -130,8 +130,10 @@ const SECTIONS = [
       'Sin ellas el checkout responde, pero ningún cobro se procesa.'
     ],
     vars: [
-      { key: 'WOMPI_PUBLIC_KEY', secret: true, example: '', doc: 'Wompi → Desarrolladores → Llaves. Empieza por pub_test_ o pub_prod_.' },
+      { key: 'WOMPI_PUBLIC_KEY', secret: true, example: '', doc: 'Wompi → Desarrolladores → Llaves. Empieza por pub_test_ o pub_prod_. Es la única que ve el navegador.' },
       { key: 'WOMPI_EVENTS_KEY', secret: true, example: '', doc: 'Wompi → llave de EVENTOS (firma los webhooks). Distinta de la privada.' },
+      { key: 'WOMPI_PRIVATE_KEY', secret: true, example: '', doc: 'Wompi → llave PRIVADA (prv_...). Autoriza el cobro recurrente server-to-server. Nunca sale al frontend.' },
+      { key: 'WOMPI_API_URL', example: 'https://sandbox.wompi.co/v1', doc: 'https://sandbox.wompi.co/v1 en pruebas, https://production.wompi.co/v1 en producción.' },
       { key: 'MERCADOPAGO_ACCESS_TOKEN', secret: true, example: '', doc: 'MercadoPago → Tus integraciones → Credenciales.' },
       { key: 'MERCADOPAGO_WEBHOOK_SECRET', secret: true, example: '', doc: 'MercadoPago → Webhooks → clave secreta de la notificación.' },
       { key: 'STRIPE_SECRET_KEY', secret: true, example: '', doc: 'Stripe → Developers → API keys → Secret key (sk_...).' },
@@ -143,8 +145,14 @@ const SECTIONS = [
     vars: [
       { key: 'BILLING_TRIAL_DAYS', example: '14', doc: 'Días de prueba al registrarse.' },
       { key: 'BILLING_GRACE_PERIOD_DAYS', example: '7', doc: 'Días en mora antes de suspender. Durante la gracia la caja sigue funcionando.' },
-      { key: 'BILLING_MAX_RETRIES', example: '3', doc: 'Reintentos de cobro antes de darlo por fallido.' },
-      { key: 'BILLING_SUSPENSION_AFTER_DAYS', example: '30', doc: 'Días tras los cuales una suscripción impaga se suspende.' }
+      { key: 'BILLING_MAX_RETRIES', example: '3', doc: 'Reintentos tras el primer cobro fallido. Con 3: cobro, 24 h, 72 h y una semana.' },
+      { key: 'BILLING_SUSPENSION_AFTER_DAYS', example: '30', doc: 'Días tras los cuales una suscripción impaga se suspende.' },
+      { key: 'BILLING_RECURRING_GATEWAY', example: 'WOMPI', doc: 'WOMPI | MOCK. Solo Wompi guarda medios de pago reutilizables; las demás quedan como pago manual.' },
+      { key: 'BILLING_TAX_RATE', example: '0.19', doc: 'IVA sobre la suscripción, desglosado en la factura.' },
+      { key: 'BILLING_INVOICE_PREFIX', example: 'POS', doc: 'Prefijo del consecutivo de facturas del SaaS (POS-000123).' },
+      { key: 'BILLING_INVOICE_DUE_DAYS', example: '3', doc: 'Días de plazo de la factura antes de considerarla vencida.' },
+      { key: 'BILLING_YEARLY_DISCOUNT_PERCENT', example: '15', doc: 'Descuento por defecto al derivar el plan anual de uno mensual.' },
+      { key: 'BILLING_PORTAL_URL', example: 'http://localhost:5173/billing', doc: 'A dónde llevan los correos de cobranza. Sin esto avisan de qué pasó pero no de dónde arreglarlo.' }
     ]
   },
   {

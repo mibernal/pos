@@ -20,6 +20,7 @@ Punto de partida: auditoría sobre `main` del 25 de agosto de 2026. El sistema e
 | 5 | Escala horizontal | ⏳ Diferible hasta ~20 clientes |
 | 6 | Cerrar las fugas silenciosas (producto) | ✅ Completada — 30 ago 2026 |
 | 7 | Que el plan gobierne el producto | ✅ Completada — 30 ago 2026 |
+| 8 | Cobro recurrente que ocurre solo | ✅ Completada — 3 sep 2026 |
 
 ---
 
@@ -348,8 +349,9 @@ reenviar con `force`. Antes era un `UPDATE plan_id` y el comercio quedaba perman
 encima de su límite sin que nadie se enterara hasta que llamaba.
 
 El prorrateo convierte el valor no consumido en días del plan nuevo y **no emite un cargo**:
-no hay cobro recurrente todavía (fase 8) y emitirlo sería inventar un movimiento que nadie
-concilia. El `charge_cents` que devuelve es lo que habrá que cobrar cuando exista.
+cuando se escribió esto no había cobro recurrente y emitirlo habría sido inventar un
+movimiento que nadie concilia. El `charge_cents` que devuelve es lo que la fase 8 ya sabe
+cobrar.
 
 **Criterio de salida — cumplido.** Crear un plan con sus módulos y límites, asignarlo y ver
 el cambio sin que nadie cierre sesión ni se toque una migración. Bajar de plan avisa
@@ -365,11 +367,143 @@ los límites, que ya expone `GET /platform/tenants/:id/usage`.
 
 ---
 
+## Fase 8 — Cobro recurrente que ocurre solo ✅
+
+**El problema.** El motor de renovación existía desde el principio y no cobraba nada. Los
+cobros estaban comentados en el propio archivo:
+
+```ts
+if (sub.auto_renew && sub.payment_method_token) {
+  // Intentar cobrar
+  // MVP mock:
+  // await chargeMethod(...)
+}
+```
+
+Y `processTrialExpirations` llevaba un `// TODO: Si auto_renew es true, intentar cobrar el
+primer mes`. El scheduler corría todos los días, contaba suscripciones vencidas, escribía la
+cuenta en el log y no le cobraba a nadie. Un SaaS al que hay que perseguir el cobro a mano no
+escala más allá de los clientes que quepan en una hoja de cálculo.
+
+### El bloqueo que no bloqueaba
+
+Las tres funciones del motor reclamaban trabajo con este patrón:
+
+```ts
+const pendientes = await db.transaction().execute(async (trx) =>
+  trx.selectFrom('tenant_subscriptions')...forUpdate().skipLocked().execute()
+);                                    // ← la transacción hace COMMIT aquí
+for (const sub of pendientes) { ... } // ← y aquí ya no queda ningún lock
+```
+
+`FOR UPDATE SKIP LOCKED` reserva filas **mientras la transacción sigue abierta**. Al cerrarla
+para salir del `execute`, los locks se sueltan y dos instancias del worker reclaman
+exactamente las mismas suscripciones. Con los cobros comentados no se notaba. Con cobros de
+verdad es cobrarle dos veces al mismo comercio, que es la clase de error del que uno se
+entera por Twitter. `SU-01`
+
+Ahora el reclamo es una lectura sin locks —solo sirve para saber a quién mirar— y la
+exclusión vive dentro del cobro, en dos transacciones que toman `pg_advisory_xact_lock` sobre
+la suscripción:
+
+1. **Reservar** — dentro del lock: se confirma que sigue tocando cobrar, se emite o se
+   recupera la factura del periodo, se incrementa el intento y se deja una transacción
+   `PENDING`.
+2. **Aplicar** — dentro del lock otra vez: se asienta el resultado.
+
+La llamada a la pasarela va **entre** las dos, sin transacción abierta. Es deliberado:
+mantener una transacción —y un lock— abiertos durante una llamada HTTP que puede colgarse es
+cómo se agota un pool de conexiones un día de mucho tráfico. Lo que cubre ese hueco es la
+fila `PENDING` que deja la primera fase, que cualquier otro proceso ve al tomar el lock. Hay
+una prueba que lanza dos cobros simultáneos sobre la misma suscripción y comprueba que solo
+uno cobra.
+
+### Lo que hacía falta en el esquema
+
+Cobrar de verdad necesitaba cuatro cosas que no existían (migraciones 097 y 098):
+
+- **`tenant_payment_methods`** — el medio de pago sobrevive al checkout. Antes había una
+  columna `payment_method_token` suelta que no decía de qué pasarela era, cuándo vence ni si
+  sigue sirviendo. El número de la tarjeta no pasa por el servidor: lo tokeniza el navegador
+  con la llave pública y lo que se guarda es la fuente de pago de Wompi.
+- **`subscription_invoices`** — con consecutivo propio, IVA desglosado, líneas e histórico
+  descargable. Es tabla y no `SEQUENCE` a propósito: una secuencia de Postgres no retrocede
+  y deja hueco en cada transacción abortada, y un consecutivo de facturación con huecos es lo
+  primero que pregunta un auditor. `SU-06`
+- **`dunning_events`** — el rastro de la cobranza. Responde «¿por qué está suspendido este
+  comercio?» sin leer logs, y su índice único `(subscription_id, step, period_key, attempt)`
+  hace que el aviso de los siete días se mande **una sola vez** aunque el scheduler corra
+  cuatro veces al día.
+- **`billing_coupons`** y sus canjes, para conceder un descuento sin desplegar.
+
+Las 13 suscripciones activas que ya existían recibieron su `next_billing_at` en la propia
+migración: el cobro recurrente empieza a aplicar sobre la cartera existente sin que nadie
+toque una fila a mano.
+
+### La secuencia de cobranza, escrita
+
+Aviso a 7 días → aviso a 3 días → cobro → tres reintentos a 24 h, 72 h y una semana →
+periodo de gracia → degradación → suspensión. Cada paso deja su evento y manda su correo.
+
+El backoff crece a propósito: un rechazo por fondos insuficientes se resuelve cuando entra la
+nómina, no en la hora siguiente. Reintentar cada hora solo consigue que el banco marque la
+tarjeta y que el comercio reciba seis correos.
+
+La degradación es la de la fase 7 y no se tocó: `PAST_DUE` apaga informes y configuración y
+**deja la caja funcionando**. Apagarle el punto de venta a un comercio en mora no acelera el
+pago, le hace perder el día y nos convierte a nosotros en el problema.
+
+### Wompi como pasarela del cobro automático
+
+De las tres integradas, es la que expone fuentes de pago reutilizables en Colombia.
+MercadoPago y Stripe siguen sirviendo para el pago manual por checkout. Prometer cobro
+automático sobre una pasarela que no lo soporta sería peor que no ofrecerlo: el comercio deja
+de vigilar su factura y la suscripción se le cae.
+
+La pasarela de mentira decide el resultado por el token de la tarjeta —uno que contenga
+`DECLINE` se rechaza siempre— así que la secuencia entera se ensaya en segundos con el reloj
+adelantado, sin depender de la caja de arena de nadie.
+
+### El portal del comercio
+
+Hasta ahora la única pantalla de cobro era el checkout: se pagaba y no se volvía a ver nada.
+`GET /billing/portal` devuelve en una petición el plan, el consumo contra los límites, el
+medio de pago, las facturas y el rastro de la cobranza —que también cierra lo que quedaba
+pendiente de la fase 7—. Hay un botón de «cóbrame ahora» para quien arregla la tarjeta a las
+nueve de la mañana y no quiere esperar tres días al reintento programado, y la factura se
+abre imprimible en HTML: se guarda como PDF desde el navegador y no arrastra una dependencia
+de composición al servidor para un documento de doce líneas.
+
+El panel de plataforma gana `Ingresos`: MRR, ARR, ingreso por cuenta, churn a 30 días y —lo
+que antes no se podía medir— **lo efectivamente cobrado frente a lo facturado**. La
+diferencia entre esas dos cifras es la que dice si la cobranza funciona.
+
+### Dos defectos que encontraron las pruebas, no la lectura
+
+- Una suscripción sin medio de pago quedaba en mora **sin factura**. Se le decía al comercio
+  «no pudimos cobrarte» sin decirle cuánto debe ni dónde pagarlo. Ahora la factura se emite
+  igual: el periodo transcurre y se debe, se pueda cobrar o no.
+- Un fallo al invalidar la caché tumbaba el cobro entero. El dinero ya se había movido:
+  propagar ese error dejaba la factura sin asentar. La caché caduca sola en cinco minutos; el
+  cobro se asienta igual.
+
+**Criterio de salida — cumplido.** Una suscripción llega a su vencimiento y se cobra sola. Un
+cobro rechazado recorre los reintentos, avisa, degrada y suspende sin intervención. Las nueve
+pruebas nuevas lo recorren entero con el reloj adelantado y **con la conexión de la app**,
+que usa el rol restringido sin BYPASSRLS: con la conexión administrativa pasarían en verde y
+el motor no cobraría nada el día del despliegue.
+
+**Lo que queda fuera:** el ensayo contra el ambiente de pruebas de Wompi con llaves reales.
+El código está y la variable `WOMPI_API_URL` existe para apuntar al sandbox; falta hacerlo con
+una cuenta.
+
+---
+
 ## Fase 5 — Escala horizontal ⏳
 
 Estimado: ~1 semana. Diferible hasta ~20 clientes. **Mientras tanto, debe estar escrito y aceptado que el sistema corre en instancia única.**
 
-- `pg_advisory_xact_lock` por scheduler, o migrar los schedulers a repeatable jobs de BullMQ con `jobId` fijo. Con dos réplicas hoy, las renovaciones se cobran dos veces.
+- `pg_advisory_xact_lock` por scheduler, o migrar los schedulers a repeatable jobs de BullMQ con `jobId` fijo. El cobro de suscripciones ya está protegido por su propio lock desde la fase 8; los demás schedulers —rollups, recheck de la DIAN, limpieza— siguen duplicando trabajo con dos réplicas.
 - `@socket.io/redis-adapter` para que mesas y KDS sobrevivan a más de una réplica.
 - `FOR UPDATE SKIP LOCKED` en el claim del outbox.
 

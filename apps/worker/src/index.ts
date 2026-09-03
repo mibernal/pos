@@ -20,7 +20,7 @@ import { rollupDailySales } from './scheduler/rollup-daily-sales.scheduler.js';
 import { rollupInventoryValuation } from './scheduler/rollup-inventory-valuation.scheduler.js';
 import { rollupBillingUsage } from './scheduler/rollup-billing-usage.scheduler.js';
 import { runHousekeepingJobs } from './scheduler/cleanup-housekeeping.scheduler.js';
-import { runSubscriptionRenewals } from './scheduler/renewal-engine.scheduler.js';
+import { runSubscriptionRenewals, closeRenewalEngineRedis } from './scheduler/renewal-engine.scheduler.js';
 import { logWorkerError, logWorkerInfo } from './infra/logging/worker-log.js';
 
 const dbPool = createDbPool();
@@ -339,6 +339,7 @@ const shutdown = async () => {
   clearInterval(billingRollupTimer);
   clearInterval(housekeepingTimer); // C8: cancelar housekeeping
   clearInterval(renewalTimer); // C9: cancelar renovación
+  await closeRenewalEngineRedis();
   await Promise.all([worker.close(), bulkImportWorker.close(), queue.close(), queueEvents.close(), dbPool.end()]);
   process.exit(0);
 };

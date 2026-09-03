@@ -1,12 +1,13 @@
 import { useState, useEffect } from 'react';
 import { Button, Card, Banner } from '../../components/ui';
+import { AccountPanel } from './components/AccountPanel';
 
 interface BillingScreenProps {
   api: ReturnType<typeof import('../../lib/api/client').createApiClient>;
   session: import('../../lib/api/client').AuthSession;
 }
 
-export function BillingScreen({ api }: BillingScreenProps) {
+function PlansTab({ api }: BillingScreenProps) {
   const [plans, setPlans] = useState<import('../../lib/api/client').BillingPlan[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -57,7 +58,7 @@ export function BillingScreen({ api }: BillingScreenProps) {
   const recommendedPlanName = 'PRO';
 
   return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12 lg:py-16 animate-in fade-in slide-in-from-bottom-4 duration-500">
+    <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
       
       {/* Header Section */}
       <header className="text-center max-w-3xl mx-auto mb-16">
@@ -175,6 +176,50 @@ export function BillingScreen({ api }: BillingScreenProps) {
           );
         })}
       </div>
+    </div>
+  );
+}
+
+/**
+ * Facturación, en dos pestañas.
+ *
+ * «Mi cuenta» es la que el comercio abre el 99 % de las veces —para ver qué le van a
+ * cobrar, cambiar la tarjeta o bajar una factura— así que es la que se abre primero.
+ * «Planes» era lo único que había hasta ahora: una página de precios sin estado de cuenta,
+ * útil el día que contratas y ningún otro.
+ */
+export function BillingScreen({ api, session }: BillingScreenProps) {
+  const [pestana, setPestana] = useState<'CUENTA' | 'PLANES'>('CUENTA');
+
+  return (
+    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 lg:py-12">
+      <header className="mb-8">
+        <h1 className="text-3xl font-extrabold text-foreground tracking-tight mb-1">Facturación</h1>
+        <p className="text-muted-foreground">Tu suscripción, tu medio de pago y tus facturas.</p>
+
+        <div className="flex gap-4 mt-6 border-b border-border">
+          {(
+            [
+              ['CUENTA', 'Mi cuenta'],
+              ['PLANES', 'Planes y precios']
+            ] as const
+          ).map(([id, etiqueta]) => (
+            <button
+              key={id}
+              onClick={() => setPestana(id)}
+              className={`pb-3 px-1 text-sm font-semibold transition-colors border-b-2 whitespace-nowrap ${
+                pestana === id
+                  ? 'border-primary text-primary'
+                  : 'border-transparent text-muted-foreground hover:text-foreground hover:border-muted'
+              }`}
+            >
+              {etiqueta}
+            </button>
+          ))}
+        </div>
+      </header>
+
+      {pestana === 'CUENTA' ? <AccountPanel api={api} /> : <PlansTab api={api} session={session} />}
     </div>
   );
 }
