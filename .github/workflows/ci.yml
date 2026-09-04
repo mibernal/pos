@@ -88,6 +88,21 @@ jobs:
           sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
           ./infra/scripts/create-api-role.sh pos_api
 
+      # ─────────────────────────────────────────────────────────────────────
+      # El contrato y los tipos del frontend salen del código, no de la mano.
+      #
+      # `openapi.json` lo produce la API a partir de los esquemas Zod de cada ruta, y de ahí
+      # sale `schema.d.ts`. Si alguien añade un endpoint y no regenera, el frontend seguiría
+      # con tipos escritos a mano contra una forma que ya cambió — que es exactamente lo que
+      # esta fase viene a cerrar. El `git diff` lo dice aquí, no en producción.
+      # ─────────────────────────────────────────────────────────────────────
+      - name: El contrato y los tipos generados están al día
+        run: |
+          pnpm --filter @pos-dian/api openapi:dump
+          pnpm --filter @pos-dian/pos-web api-types
+          git diff --exit-code -- openapi.json apps/pos-web/src/lib/api/schema.d.ts \
+            || (echo "::error::El contrato cambió y no se regeneró. Corre: pnpm --filter @pos-dian/api openapi:dump && pnpm --filter @pos-dian/pos-web api-types" && exit 1)
+
       - name: Test
         run: pnpm test
 

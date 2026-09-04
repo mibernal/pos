@@ -1,9 +1,10 @@
 import swagger from '@fastify/swagger';
 import swaggerUI from '@fastify/swagger-ui';
+import fp from 'fastify-plugin';
 import { jsonSchemaTransform } from 'fastify-type-provider-zod';
 import type { FastifyInstance } from 'fastify';
 
-export async function registerSwagger(app: FastifyInstance): Promise<void> {
+async function registerSwaggerImpl(app: FastifyInstance): Promise<void> {
   if (process.env.NODE_ENV === 'production') {
     app.log.info('Swagger is disabled in production.');
     return;
@@ -43,3 +44,20 @@ export async function registerSwagger(app: FastifyInstance): Promise<void> {
     routePrefix: '/docs'
   });
 }
+
+/**
+ * Va envuelto en `fastify-plugin` — y sin eso no documentaba nada.
+ *
+ * Un plugin de Fastify sin envolver crea su propio contexto: `@fastify/swagger` recolecta
+ * las rutas del contexto donde vive, y todas las de esta aplicación se registran después y
+ * fuera de él. El resultado era un contrato con `info`, `components` y **cero rutas**: la
+ * página de `/docs` existía y no documentaba ni un endpoint, mientras el proyecto se
+ * apuntaba tener «OpenAPI publicado».
+ *
+ * Lo encontró el volcado del contrato para generar el cliente del frontend: no se puede
+ * generar nada a partir de un contrato vacío.
+ */
+export const registerSwagger = fp(registerSwaggerImpl, {
+  name: 'swagger',
+  fastify: '5.x'
+});

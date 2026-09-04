@@ -19,7 +19,8 @@
     "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "lint": "eslint src --ext .ts",
-    "test": "NODE_ENV=test JWT_SECRET=test-secret-that-is-at-least-thirty-two-chars-long vitest run"
+    "test": "NODE_ENV=test JWT_SECRET=test-secret-that-is-at-least-thirty-two-chars-long vitest run",
+    "openapi:dump": "node --import tsx scripts/dump-openapi.ts ../../openapi.json"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.750.0",

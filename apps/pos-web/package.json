@@ -13,7 +13,8 @@
     "lint": "eslint src --ext .ts,.tsx",
     "test": "NODE_ENV=test vitest run",
     "test:e2e": "playwright test",
-    "test:e2e:install": "playwright install --with-deps chromium"
+    "test:e2e:install": "playwright install --with-deps chromium",
+    "api-types": "openapi-typescript ../../openapi.json -o src/lib/api/schema.d.ts"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.3.4",
@@ -53,6 +54,7 @@
     "eslint-plugin-react-hooks": "^5.1.0",
     "fake-indexeddb": "^6.0.0",
     "jsdom": "^26.0.0",
+    "openapi-typescript": "^7.13.0",
     "postcss": "^8.4.38",
     "tailwindcss": "^3.4.3",
     "tailwindcss-animate": "^1.0.7",
