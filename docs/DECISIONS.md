@@ -335,3 +335,27 @@ Se documentan porque la ausencia de política es una decisión, no un olvido:
 - En `apps/worker/src/jobs/outbox-sale-created.processor.ts`, la consulta y la inserción sobre `audit_logs` omiten el cast `::uuid` sobre `entity_id` y aprovechan el índice compuesto `(tenant_id, entity_type, entity_id)`.
 - Si los efectos secundarios asíncronos (actualización de comandas en cocina o registro de auditoría) arrojan una excepción, se captura y se registra con `logWorkerError({ event: 'sale_side_effects_failed' })`, pero **no se re-lanza el error**; el job continúa hacia el paso 2 (emisión DIAN).
 - **Motivo:** `audit_logs.entity_id` es de tipo `TEXT` (diseño polimórfico). En PostgreSQL no existe el operador `text = uuid`, por lo que forzar `$1::uuid` provocaba un fallo inmediato en tiempo de ejecución (`operator does not exist: text = uuid`) en cada venta procesada. Al relanzar el error, BullMQ abortaba el job antes del paso 2 y entraba en un bucle de reintentos infinitos, bloqueando por completo la emisión de facturas electrónicas a la DIAN por un fallo en una tarea secundaria.
+
+## D-064 — Un plato con receta no se descuenta a sí mismo
+- `expandDemand` convierte lo vendido en lo consumido antes de tocar los balances: si el producto tiene receta activa, bajan sus ingredientes con operación `RECIPE`; si no, baja él con `SALE`.
+- La expansión vive en el API (`contexts/inventory/application/recipe-expansion.ts`) aunque quien descarga sea el worker, porque el informe de desviación usa exactamente el mismo cálculo. Con dos implementaciones, ese informe mediría la diferencia entre dos programas en vez de entre la receta y la realidad.
+- **Motivo:** un plato no se almacena, se prepara. Descontar «hamburguesa» además de pan y carne sería contar el mismo inventario dos veces, y descontar solo «hamburguesa» —lo que ocurría— deja que el aceite y la carne se consuman sin que el sistema se entere.
+- La guarda de idempotencia del worker busca `SALE` **o** `RECIPE`: una venta de platos con receta no deja ningún movimiento `SALE`, así que buscar solo ese habría hecho que el reintento del job descargara el inventario dos veces.
+
+## D-065 — El corte del turno de mesero se deduce del tiempo, y se congela al cerrar
+- No hay columna de turno en `sales`. El corte son las ventas de ese mesero entre la apertura y el cierre.
+- La deducción es exacta porque un índice único parcial impide dos turnos abiertos del mismo mesero.
+- **Motivo:** tocar el camino de creación de la venta —el más delicado del sistema— para guardar algo que se puede deducir habría sido un mal cambio.
+- Al cerrar, el corte se guarda en `summary_json` y deja de recalcularse: anular una venta después no puede reescribir el papel que el mesero se llevó a casa.
+
+## D-066 — El token del QR de mesa vive en una tabla sin RLS
+- `qr_table_tokens` no lleva política de aislamiento, y por eso no lleva nada más que identificadores.
+- **Motivo:** es lo único que trae la petición del comensal, y hay que resolver de qué comercio es **antes** de poder fijar el contexto de tenant. En `tables`, que tiene RLS forzado, esa consulta devuelve cero filas siempre.
+- Se descartó meter el `tenant_id` dentro del token y fijar con él el contexto: dejar que una petición anónima elija el comercio bajo el que corre una transacción no es una frase que deba existir en este código, por muy validado que venga después.
+- El token es aleatorio de 32 bytes y rotable. Emitir uno nuevo invalida el anterior: es lo que hay que hacer cuando un código acaba fotografiado donde no debía.
+- Los precios del pedido los pone el servidor. Si vinieran del móvil del cliente, la carta sería una sugerencia.
+
+## D-067 — Las marcas de cocina no se pisan
+- `kitchen_tickets` tiene `started_at`, `ready_at` y `delivered_at`, y cada transición escribe la suya solo la primera vez.
+- **Motivo:** `updated_at` se pisa en cada cambio, así que medía cosas distintas según el estado en que hubiera quedado el ticket. Un informe construido sobre una columna que significa cosas distintas según la fila no es un informe lento: miente.
+- No se rellenaron hacia atrás: de un ticket viejo no se sabe cuándo estuvo listo. Arrancar sin historia es mejor que arrancar con una media falsa.
