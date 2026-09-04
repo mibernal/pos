@@ -214,15 +214,10 @@ jobs:
           echo $! > /tmp/api.pid
           until curl -sf http://127.0.0.1:3000/api/v1/health > /dev/null; do sleep 1; done
 
-      # TODO(fase 11): quitar `continue-on-error` cuando los tres specs pasen en verde.
-      #
-      # El andamiaje está montado y los specs escritos, pero todavía no se han visto pasar
-      # de principio a fin: contra el build de producción la aplicación se queda en
-      # «Validando sesión…» y eso hay que mirarlo con un navegador delante. Se deja
-      # ejecutándose y sin bloquear, porque un job que no corre no avisa de nada y uno que
-      # bloquea por un andamiaje a medias frena trabajo que no tiene la culpa.
+      # Bloquea a propósito. Si esto se pone en rojo es que la caja dejó de cobrar, de
+      # guardar la venta con la línea caída o de devolver al cajero donde estaba: no hay
+      # cambio que merezca entrar por delante de eso.
       - name: e2e del camino del dinero
-        continue-on-error: true
         run: pnpm --filter @pos-dian/pos-web test:e2e
 
       - name: Guardar el informe cuando algo falla

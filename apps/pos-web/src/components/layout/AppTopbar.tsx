@@ -112,6 +112,9 @@ export function AppTopbar({
                 style={{ padding: '0.5rem 0.75rem', fontSize: '0.8125rem' }}
                 onClick={onSyncPendingSales}
                 disabled={syncingPendingSales || pendingSalesCount === 0}
+                // Un botón cuyo contenido es solo un emoji no tiene nombre accesible: un
+                // lector de pantalla anunciaba «botón» a secas.
+                aria-label={syncingPendingSales ? 'Sincronizando ventas pendientes' : 'Sincronizar ventas pendientes'}
               >
                 {syncingPendingSales ? '...' : '🔄'}
               </button>

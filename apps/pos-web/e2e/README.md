@@ -5,14 +5,21 @@ no puede fallar: cobrar.
 
 ## Estado
 
-**El andamiaje está montado y los tres specs escritos; todavía no se han visto pasar de
-principio a fin.** Contra el build de producción servido por `vite preview`, la aplicación se
-queda en «Validando sesión…» —la hidratación de sesión no termina— y eso hay que mirarlo con
-un navegador delante. En el servidor de desarrollo no ocurre, así que puede ser un fallo real
-de la aplicación en producción y no del andamiaje: merece ser lo primero que se mire.
+Los tres specs pasan, y el job de CI bloquea si dejan de hacerlo.
 
-El job de CI corre estos specs con `continue-on-error` hasta que estén en verde. Quitarlo es
-parte de terminar la tarea.
+Costó llegar aquí, y lo que costó merece quedar escrito, porque no era la prueba: era la
+aplicación. La primera vez que se corrieron, todo se quedaba en «Validando sesión…» para
+siempre. La causa estaba tres capas más abajo: Redis aceptaba la conexión y no respondía —un
+contenedor en pausa detrás del reenvío de puertos de Docker— y como el limitador de intentos
+vive en Redis y corre antes que nada en `/auth/login` y `/auth/refresh`, la API se quedaba
+esperando un comando que nunca volvía. Sin timeout, sin error, sin log, y con un `/health`
+que tampoco podía delatarlo porque se colgaba en el mismo `ping`.
+
+Se arregló en tres capas —timeout de comando en el cliente de Redis, degradación del
+limitador a un contador en memoria, y plazo en la llamada del navegador— y de eso quedan
+pruebas propias en `apps/api/src/shared/infra/security/redis-mudo.test.ts` y en
+`test/api-client.test.ts`. Que un e2e del camino del dinero encontrara esto la primera vez
+que se ejecutó es más o menos toda la justificación que necesita existir.
 
 ## Qué hace falta para correrlos
 

@@ -196,6 +196,14 @@ export interface RecipeSummary {
   margin_percent: number | null;
 }
 
+/**
+ * Cuánto se espera a `/auth/refresh` antes de dar la sesión por no validable.
+ *
+ * Quince segundos: de sobra para una conexión móvil mala —es una petición diminuta— y muy
+ * por debajo de lo que un cajero aguanta mirando una pantalla que no avanza.
+ */
+export const REFRESH_TIMEOUT_MS = 15_000;
+
 export function createApiClient({ baseUrl, getSession, setSession, onReauthRequired, onQuotaExceeded }: CreateApiClientOptions) {
   let refreshPromise: Promise<AuthSession | null> | null = null;
 
@@ -211,11 +219,22 @@ export function createApiClient({ baseUrl, getSession, setSession, onReauthRequi
           headers['x-impersonation-id'] = impersonationId;
         }
 
+        /**
+         * Con plazo, porque de esta llamada depende que la aplicación arranque.
+         *
+         * Es lo primero que se pide al abrir el POS, y hasta que contesta la pantalla dice
+         * «Validando sesión…». Si el servidor acepta la conexión y no responde —pasó: un
+         * Redis mudo dejaba `/auth/refresh` colgado sin timeout ni error—, `fetch` espera
+         * indefinidamente y la caja se queda ahí para siempre, sin siquiera poder llegar al
+         * formulario de acceso. Vencido el plazo se trata como lo que es a efectos
+         * prácticos, un fallo de red: se muestra el login y el cajero puede volver a entrar.
+         */
         const response = await fetch(`${baseUrl}/auth/refresh`, {
           method: 'POST',
           credentials: 'include',
           headers,
-          body: '{}'
+          body: '{}',
+          signal: AbortSignal.timeout(REFRESH_TIMEOUT_MS)
         });
         if (!response.ok) {
           return null;

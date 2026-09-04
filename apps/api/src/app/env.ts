@@ -5,6 +5,20 @@ const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   PORT: z.coerce.number().int().positive().default(3000),
   REDIS_URL: z.string().url().default('redis://localhost:6379'),
+  /**
+   * Cuánto se espera una respuesta de Redis antes de darla por perdida.
+   *
+   * Sin esto, un Redis que acepta la conexión pero no contesta —un contenedor pausado, un
+   * balanceador que sostiene el socket, una conmutación a punto de terminar— deja la
+   * petición colgada para siempre: ioredis escribe el comando en un socket abierto y espera
+   * sin límite. Un timeout convierte ese silencio en un error, que es algo que el código sí
+   * sabe manejar.
+   *
+   * Dos segundos: dos órdenes de magnitud por encima de la latencia normal (menos de un
+   * milisegundo en la misma máquina, pocos entre nodos) y muy por debajo de lo que un
+   * cajero está dispuesto a esperar frente a un cliente.
+   */
+  REDIS_COMMAND_TIMEOUT_MS: z.coerce.number().int().positive().max(60_000).default(2_000),
   CORS_ALLOWED_ORIGINS: z.string().optional(),
   DATABASE_URL: z
     .string()

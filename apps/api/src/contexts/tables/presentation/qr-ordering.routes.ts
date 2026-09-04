@@ -11,6 +11,7 @@ import { modulesForTenantInTransaction } from '../../../shared/infra/entitlement
 import {
   assertAndRecordIpRateLimit,
   assertAndRecordIpRateLimitSync,
+  RATE_LIMIT_EXCEEDED,
   buildIpRateLimitKey
 } from '../../../shared/infra/security/login-rate-limit.js';
 import { TableOrdersRepository } from '../infra/table-orders.repository.js';
@@ -92,10 +93,10 @@ export async function qrOrderingRoutes(app: FastifyInstance) {
   async function limitar(ip: string, accion: string, max: number, ventanaMs: number) {
     const clave = buildIpRateLimitKey(accion, ip);
     try {
-      if (app.redis) await assertAndRecordIpRateLimit(app.redis, clave, max, ventanaMs);
+      if (app.redis) await assertAndRecordIpRateLimit(app.redis, clave, max, ventanaMs, app.log);
       else assertAndRecordIpRateLimitSync(clave, max, ventanaMs);
     } catch (err) {
-      if (err instanceof Error && err.message === 'RATE_LIMIT_EXCEEDED') {
+      if (err instanceof Error && err.message === RATE_LIMIT_EXCEEDED) {
         throw new AppError(429, 'RATE_LIMIT_EXCEEDED', 'Demasiadas peticiones. Espera un momento.');
       }
       throw err;

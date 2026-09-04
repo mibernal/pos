@@ -24,9 +24,8 @@ async function main() {
   /**
    * Se pide por HTTP y no con `app.swagger()`.
    *
-   * El plugin de Swagger se registra sin `fastify-plugin`, así que decora la instancia hija
-   * y no la raíz: `app.swagger` no existe aquí. Pedirlo por su propia ruta es además lo que
-   * hace cualquier generador, así que este volcado ve exactamente lo mismo que vería él.
+   * Es lo que hace cualquier generador, así que este volcado ve exactamente el mismo
+   * documento que vería él —incluidas las rutas que el plugin haya dejado fuera.
    */
   const respuesta = await app.inject({ method: 'GET', url: '/docs/json' });
   if (respuesta.statusCode !== 200) {
@@ -39,7 +38,17 @@ async function main() {
   writeFileSync(destino, JSON.stringify(spec, null, 2) + '\n', 'utf8');
   console.log(`[openapi] ${Object.keys((spec as { paths?: object }).paths ?? {}).length} rutas -> ${destino}`);
 
-  await app.close();
+  /**
+   * El contrato ya está escrito; despedirse es cortesía.
+   *
+   * Cerrar la aplicación intenta cerrar también sus dependencias, y una que no conteste
+   * —Redis apagado, por ejemplo— hacía que este script devolviera error habiendo generado
+   * bien el archivo. En CI eso es un rojo que no significa nada, y peor: que enseña a
+   * ignorar el rojo.
+   */
+  await app.close().catch((error) => {
+    console.warn('[openapi] el contrato quedó escrito, pero el cierre falló:', error);
+  });
   process.exit(0);
 }
 

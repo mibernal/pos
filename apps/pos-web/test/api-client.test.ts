@@ -189,3 +189,38 @@ describe('api-client DIAN/product contract', () => {
     expect(setSession).toHaveBeenCalledWith(null);
   });
 });
+
+/**
+ * La validación de sesión tiene plazo.
+ *
+ * Es la primera petición al abrir el POS y, mientras no conteste, la pantalla dice
+ * «Validando sesión…». Un servidor que acepta la conexión y no responde —ocurrió: un Redis
+ * mudo dejaba `/auth/refresh` colgado en la API— dejaba la caja ahí para siempre, sin
+ * poder siquiera llegar al formulario de acceso. Vencido el plazo se trata como un fallo
+ * de red, que es lo que `SessionProvider` ya sabe resolver enseñando el login.
+ */
+describe('validación de sesión al arrancar', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('le pone plazo a /auth/refresh', async () => {
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValue(jsonResponse({ accessToken: 'nuevo', user: baseSession.user }));
+
+    await buildClient().refresh();
+
+    const [, init] = fetchMock.mock.calls[0]!;
+    expect((init as RequestInit).signal).toBeInstanceOf(AbortSignal);
+  });
+
+  it('un servidor que no contesta se resuelve como fallo de red, no como espera eterna', async () => {
+    // Es como aborta `AbortSignal.timeout`: rechazando la promesa de `fetch`.
+    vi.spyOn(globalThis, 'fetch').mockRejectedValue(
+      Object.assign(new Error('The operation was aborted due to timeout'), { name: 'TimeoutError' })
+    );
+
+    await expect(buildClient().refresh()).rejects.toMatchObject({ isNetworkError: true });
+  });
+});

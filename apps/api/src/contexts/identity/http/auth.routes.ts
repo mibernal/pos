@@ -12,7 +12,9 @@ import {
   buildLoginRateLimitKey,
   assertAndRecordIpRateLimit,
   assertAndRecordIpRateLimitSync,
-  buildIpRateLimitKey
+  buildIpRateLimitKey,
+  LOGIN_RATE_LIMIT_EXCEEDED,
+  RATE_LIMIT_EXCEEDED
 } from '../../../shared/infra/security/login-rate-limit.js';
 import { getPermissionsForRole } from '../../../shared/infra/security/permissions.js';
 import { executeAsTenant } from '../../../shared/infra/db/rls.js';
@@ -183,9 +185,15 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
       const rateLimitKey = buildLoginRateLimitKey(request.ip, email, tenantId);
 
       try {
-        await assertAndRecordLoginAttempt(app.redis, rateLimitKey);
-      } catch {
-        throw new AppError(429, 'AUTH_RATE_LIMITED', 'Demasiados intentos de inicio de sesión. Intenta de nuevo más tarde.');
+        await assertAndRecordLoginAttempt(app.redis, rateLimitKey, app.log);
+      } catch (err) {
+        // Solo el límite de verdad da 429. El `catch` a secas que había aquí convertía
+        // cualquier fallo de Redis en «demasiados intentos»: un mensaje falso, y del que
+        // además no se salía esperando, porque no había ningún contador que expirara.
+        if (err instanceof Error && err.message === LOGIN_RATE_LIMIT_EXCEEDED) {
+          throw new AppError(429, 'AUTH_RATE_LIMITED', 'Demasiados intentos de inicio de sesión. Intenta de nuevo más tarde.');
+        }
+        throw err;
       }
 
       let candidatesQuery = app.db
@@ -259,7 +267,7 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
         throw new AppError(401, 'AUTH_INVALID_CREDENTIALS', 'Credenciales inválidas');
       }
 
-      await clearLoginRateLimit(app.redis, rateLimitKey);
+      await clearLoginRateLimit(app.redis, rateLimitKey, app.log);
 
       if (validCandidates.length > 1) {
         const platformOwner = validCandidates.find(c => c.role === 'PLATFORM_OWNER');
@@ -490,12 +498,12 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
       
       try {
         if (app.redis) {
-          await assertAndRecordIpRateLimit(app.redis, key, 30, 60000);
+          await assertAndRecordIpRateLimit(app.redis, key, 30, 60000, app.log);
         } else {
           assertAndRecordIpRateLimitSync(key, 30, 60000);
         }
       } catch (err) {
-        if (err instanceof Error && err.message === 'RATE_LIMIT_EXCEEDED') {
+        if (err instanceof Error && err.message === RATE_LIMIT_EXCEEDED) {
           return reply.status(429).send({ message: 'Too many requests' });
         }
         throw err;

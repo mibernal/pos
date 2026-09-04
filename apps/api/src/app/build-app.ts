@@ -120,7 +120,20 @@ function buildRedisClient(): Redis {
   return new Redis(env.REDIS_URL, {
     maxRetriesPerRequest: 3,
     enableReadyCheck: false,
-    lazyConnect: true
+    lazyConnect: true,
+    /**
+     * Sin estos dos, un Redis mudo cuelga la API entera.
+     *
+     * `maxRetriesPerRequest` solo cuenta reintentos entre reconexiones, y no hay
+     * reconexión si el socket sigue abierto: un Redis que acepta la conexión y no
+     * responde —Docker en pausa, un balanceador sosteniendo el socket, un nodo colgado—
+     * deja cada comando esperando indefinidamente. Y como el limitador de intentos vive
+     * en Redis y corre antes que nada en `/auth/login` y `/auth/refresh`, «Redis mudo»
+     * significaba «nadie puede entrar al POS», sin error, sin log y sin `/health` que lo
+     * delatara: el propio health check se quedaba esperando el `ping`.
+     */
+    commandTimeout: env.REDIS_COMMAND_TIMEOUT_MS,
+    connectTimeout: env.REDIS_COMMAND_TIMEOUT_MS
   });
 }
 
