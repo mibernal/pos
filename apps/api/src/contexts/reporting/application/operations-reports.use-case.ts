@@ -86,7 +86,7 @@ export class OperationsReportsUseCase {
       .selectFrom('kitchen_tickets as kt')
       .innerJoin('kitchen_ticket_items as kti', 'kti.kitchen_ticket_id', 'kt.id')
       .innerJoin('products as p', 'p.id', 'kti.product_id')
-      .select((eb) => [
+      .select([
         'p.preparation_station as station',
         'kt.id as ticket_id',
         sql<number>`extract(epoch from (kt.ready_at - kt.created_at)) / 60`.as('minutes')
