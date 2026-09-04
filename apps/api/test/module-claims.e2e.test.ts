@@ -73,6 +73,14 @@ describe('Los módulos resueltos llegan completos a la sesión', () => {
 
     const missing = ASSIGNABLE_MODULES.filter((m) => session.user[claimFor(m)] !== true);
     expect(missing).toEqual([]);
+
+    /**
+     * Y la lista, que es lo que el frontend consume desde la fase 11: antes reconstruía el
+     * conjunto con veintiuna líneas propias sobre estos mismos banderines, y esa era la
+     * cuarta copia del mapa. Aquí se comprueba que la lista y los banderines dicen lo mismo,
+     * que es lo único que hace falta para que no puedan separarse.
+     */
+    expect([...(session.user.modules as AssignableModule[])].sort()).toEqual([...ASSIGNABLE_MODULES].sort());
   });
 
   it('revocar un módulo lo apaga en el token sin tocar la columna', async () => {
@@ -101,6 +109,13 @@ describe('Los módulos resueltos llegan completos a la sesión', () => {
     expect(session.user.enableTables).toBe(true);
     expect(session.user.enableTips).toBe(true);
     expect(session.user.enableWaiters).toBe(false);
+    // La lista dice lo mismo que los banderines. No se compara exacta porque el plan de la
+    // fixture (STARTER) trae `inventory` por su cuenta, que es justamente lo que se quiere:
+    // la lista es lo resuelto, no lo concedido a mano.
+    const modulos = session.user.modules as AssignableModule[];
+    expect(modulos).toContain('tables');
+    expect(modulos).toContain('tips');
+    expect(modulos).not.toContain('waiters');
   });
 
   it('el login y /auth/me dicen lo mismo', async () => {
@@ -127,5 +142,6 @@ describe('Los módulos resueltos llegan completos a la sesión', () => {
     );
 
     expect(disagreements).toEqual([]);
+    expect(meUser.modules).toEqual(session.user.modules);
   });
 });

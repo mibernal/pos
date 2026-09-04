@@ -1,7 +1,13 @@
 import { randomBytes, createHash } from 'node:crypto';
 import { AppError } from '../../../shared/infra/errors/app-error.js';
 import { LIVE_SUBSCRIPTION_STATUSES } from '../../billing/application/subscription.service.js';
-import { ASSIGNABLE_MODULES, MODULE_COLUMN, type AssignableModule } from '@pos-dian/shared';
+import {
+  ASSIGNABLE_MODULES,
+  MODULE_COLUMN,
+  moduleFlags,
+  modulesFromRow,
+  type AssignableModule
+} from '@pos-dian/shared';
 
 /**
  * Escribe sobre la fila del usuario los módulos que resolvió el plan.
@@ -74,27 +80,18 @@ export function buildUserDto(user: any, branchIds: string[], permissions: string
     tenantPlan: user.tenant_plan,
     taxMode: user.tax_mode,
     businessType: user.business_type ?? null,
-    enableRestaurant: user.enable_restaurant ?? false,
-    enableKds: user.enable_kds ?? false,
-    enableInventory: user.enable_inventory ?? false,
-    enableFiscal: user.enable_fiscal ?? false,
-    enableLoyalty: user.enable_loyalty ?? false,
-    enableAdvancedReports: user.enable_advanced_reports ?? false,
-    enableTables: user.enable_tables ?? false,
-    enableDelivery: user.enable_delivery ?? false,
-    enableWaiters: user.enable_waiters ?? false,
-    enableSplitBill: user.enable_split_bill ?? false,
-    enableTips: user.enable_tips ?? false,
-    enableKitchen: user.enable_kitchen ?? false,
-    enableKitchenDisplay: user.enable_kitchen_display ?? false,
-    enableKitchenTickets: user.enable_kitchen_tickets ?? false,
-    enableKitchenPrinting: user.enable_kitchen_printing ?? false,
-    enableOrderRounds: user.enable_order_rounds ?? false,
-    enableProductModifiers: user.enable_product_modifiers ?? false,
-    enableReservations: user.enable_reservations ?? false,
-    enableWaiterShifts: user.enable_waiter_shifts ?? false,
-    enableQrMenu: user.enable_qr_menu ?? false,
-    enableGuestsCount: user.enable_guests_count ?? true,
+    /**
+     * Los módulos, una sola vez.
+     *
+     * Antes esto eran veintiún `enableX: user.enable_x ?? false` aquí, otros veintiuno en
+     * los claims del token, y veintiuno más reconstruyéndolos en el frontend. Tres listas
+     * que había que acordarse de tocar juntas. Ahora las tres salen de `ASSIGNABLE_MODULES`.
+     *
+     * `modules` es lo que el frontend consume; los banderines siguen porque hay pantallas
+     * que los leen sueltos.
+     */
+    modules: modulesFromRow(user),
+    ...moduleFlags(modulesFromRow(user)),
     role: user.role,
     email: user.email,
     name: user.name,
@@ -124,27 +121,8 @@ export async function buildAuthResponse(
     email: user.email,
     name: user.name,
     businessType: user.business_type ?? null,
-    enableRestaurant: user.enable_restaurant ?? false,
-    enableKds: user.enable_kds ?? false,
-    enableInventory: user.enable_inventory ?? false,
-    enableFiscal: user.enable_fiscal ?? false,
-    enableLoyalty: user.enable_loyalty ?? false,
-    enableAdvancedReports: user.enable_advanced_reports ?? false,
-    enableTables: user.enable_tables ?? false,
-    enableDelivery: user.enable_delivery ?? false,
-    enableWaiters: user.enable_waiters ?? false,
-    enableSplitBill: user.enable_split_bill ?? false,
-    enableTips: user.enable_tips ?? false,
-    enableKitchen: user.enable_kitchen ?? false,
-    enableKitchenDisplay: user.enable_kitchen_display ?? false,
-    enableKitchenTickets: user.enable_kitchen_tickets ?? false,
-    enableKitchenPrinting: user.enable_kitchen_printing ?? false,
-    enableOrderRounds: user.enable_order_rounds ?? false,
-    enableProductModifiers: user.enable_product_modifiers ?? false,
-    enableReservations: user.enable_reservations ?? false,
-    enableWaiterShifts: user.enable_waiter_shifts ?? false,
-    enableQrMenu: user.enable_qr_menu ?? false,
-    enableGuestsCount: user.enable_guests_count ?? true,
+    modules: modulesFromRow(user),
+    ...moduleFlags(modulesFromRow(user)),
     branchIds,
     permissions,
     isPlatformRole,
