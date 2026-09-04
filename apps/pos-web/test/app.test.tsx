@@ -1,12 +1,33 @@
 import React from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import App from '../src/app/App';
+import { MemoryRouter } from 'react-router-dom';
+import { AppProviders } from '../src/app/App';
+import { AppRoutes } from '../src/app/AppRoutes';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { addPendingSale, clearPendingSales } from '../src/lib/offline-queue';
 import { writeAuthSession, writeAuthUser, writePosContext } from '../src/lib/session';
 import { usePosStore } from '../src/hooks/usePosStore';
 import { buildAuthUser } from './helpers/session-fixture';
+
+/**
+ * Monta la aplicación entera con un enrutador de memoria.
+ *
+ * En jsdom `history.pushState` no mueve `window.location`, así que `BrowserRouter` no navega
+ * y todas las pruebas se quedarían en la primera pantalla. `MemoryRouter` lleva su propia
+ * historia y sí navega; el árbol montado es el mismo que en producción.
+ */
+function renderApp(initialEntries: string[] = ['/']) {
+  return render(
+    <QueryClientProvider client={new QueryClient()}>
+      <AppProviders>
+        <MemoryRouter initialEntries={initialEntries}>
+          <AppRoutes />
+        </MemoryRouter>
+      </AppProviders>
+    </QueryClientProvider>
+  );
+}
 
 function normalizeText(value: string | null | undefined) {
   return (value ?? '').replace(/\s+/g, ' ').trim();
@@ -519,7 +540,7 @@ describe('App', () => {
   // «Validando sesión...» hasta que esa promesa se resuelve. Todas las aserciones sobre
   // la pantalla inicial tienen que esperar a que termine la hidratación.
   it('renders POS title', async () => {
-    render(<QueryClientProvider client={new QueryClient()}><App /></QueryClientProvider>);
+    renderApp();
     expect(await screen.findByRole('heading', { name: 'Inicia sesión' })).toBeInTheDocument();
     expect(screen.getByLabelText('Correo Electrónico')).toBeInTheDocument();
   });
@@ -527,7 +548,7 @@ describe('App', () => {
   it('tras un login válido llega al paso de apertura de caja', async () => {
     mockLoginFlowFetch();
 
-    render(<QueryClientProvider client={new QueryClient()}><App /></QueryClientProvider>);
+    renderApp();
     await screen.findByLabelText('Correo Electrónico');
 
     fireEvent.change(screen.getByLabelText('Correo Electrónico'), {
@@ -555,7 +576,7 @@ describe('App', () => {
       })
     );
 
-    render(<QueryClientProvider client={new QueryClient()}><App /></QueryClientProvider>);
+    renderApp();
 
     expect(await screen.findByLabelText('Correo Electrónico')).toBeInTheDocument();
     expect(screen.getByText(/tu sesión expiró/i)).toBeInTheDocument();
@@ -565,7 +586,7 @@ describe('App', () => {
     seedSession('ADMIN');
     mockAuthenticatedAppFetch('ADMIN');
 
-    render(<QueryClientProvider client={new QueryClient()}><App /></QueryClientProvider>);
+    renderApp();
 
     await enterPosShell();
     const openConfigButton = await screen.findByTitle('Configuración DIAN');
@@ -586,7 +607,7 @@ describe('App', () => {
     seedSession('ADMIN');
     mockAuthenticatedAppFetch('ADMIN');
 
-    render(<QueryClientProvider client={new QueryClient()}><App /></QueryClientProvider>);
+    renderApp();
 
     await enterPosShell();
     const productsTab = await screen.findByRole('button', { name: 'Productos' });
@@ -595,11 +616,12 @@ describe('App', () => {
     expect(await screen.findByRole('heading', { name: 'Catálogo de Productos' })).toBeInTheDocument();
   });
 
+
   it('hides admin actions for cashier users', async () => {
     seedSession('CASHIER');
     mockAuthenticatedAppFetch('CASHIER');
 
-    render(<QueryClientProvider client={new QueryClient()}><App /></QueryClientProvider>);
+    renderApp();
 
     expect(screen.queryByRole('button', { name: 'Configuración DIAN' })).not.toBeInTheDocument();
 
@@ -644,7 +666,7 @@ describe('App', () => {
       }
     });
 
-    render(<QueryClientProvider client={new QueryClient()}><App /></QueryClientProvider>);
+    renderApp();
 
     await enterPosShell();
     // El catálogo abre en la rejilla de categorías; hay que pedir el listado completo
@@ -699,7 +721,7 @@ describe('App', () => {
       }
     });
 
-    render(<QueryClientProvider client={new QueryClient()}><App /></QueryClientProvider>);
+    renderApp();
     await enterPosShell();
 
     await waitFor(() => {
@@ -720,4 +742,40 @@ describe('App', () => {
     ).toBeInTheDocument();
     expectPendingCount(0);
   });
+
+  /**
+   * El criterio de salida de la fase 11: recargar cualquier pantalla la devuelve donde
+   * estaba. Antes la pantalla activa era un `useState` del armazón, así que recargar te
+   * dejaba siempre en el POS y no había forma de enviarle a nadie un enlace a una pantalla.
+   */
+  it('entrar directo por la URL abre esa pantalla, no la de siempre', async () => {
+    seedSession('ADMIN');
+    mockAuthenticatedAppFetch('ADMIN');
+
+    renderApp(['/products']);
+
+    const continueButton = await screen.findByRole('button', { name: /Continuar al Punto de Venta/i });
+    fireEvent.click(continueButton);
+
+    expect(await screen.findByRole('heading', { name: 'Catálogo de Productos' })).toBeInTheDocument();
+  });
+
+  /**
+   * La guarda vive en la definición de la ruta, así que también protege la entrada por URL.
+   * Que una pantalla no salga en el menú no servía de nada si se podía alcanzar escribiendo
+   * su dirección.
+   */
+  it('una pantalla que el plan no incluye no se abre ni escribiendo su dirección', async () => {
+    seedSession('ADMIN');
+    mockAuthenticatedAppFetch('ADMIN');
+
+    // La sesión sembrada trae mesas pero no el módulo de recetas.
+    renderApp(['/recipes']);
+
+    const continueButton = await screen.findByRole('button', { name: /Continuar al Punto de Venta/i });
+    fireEvent.click(continueButton);
+
+    expect(await screen.findByText(/no está en tu plan/i)).toBeInTheDocument();
+  });
+
 });

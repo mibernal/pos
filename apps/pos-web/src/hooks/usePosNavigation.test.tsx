@@ -1,5 +1,7 @@
+import { createElement, type ReactNode } from 'react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderHook } from '@testing-library/react';
+import { MemoryRouter } from 'react-router-dom';
 import { usePosNavigation } from './usePosNavigation';
 import * as useBusinessModulesModule from './useBusinessModules';
 import type { BusinessModule } from '@pos-dian/shared';
@@ -8,6 +10,15 @@ import type { BusinessModule } from '@pos-dian/shared';
 vi.mock('./useBusinessModules', () => ({
   useBusinessModules: vi.fn()
 }));
+
+/**
+ * El hook ya no guarda la pantalla activa: la lee de la URL. Necesita un enrutador, y en
+ * jsdom tiene que ser el de memoria porque `history.pushState` no mueve `window.location`.
+ */
+function conRouter(ruta = '/') {
+  return ({ children }: { children: ReactNode }) =>
+    createElement(MemoryRouter, { initialEntries: [ruta] }, children);
+}
 
 describe('usePosNavigation', () => {
   beforeEach(() => {
@@ -27,7 +38,7 @@ describe('usePosNavigation', () => {
     };
 
     // Act
-    const { result } = renderHook(() => usePosNavigation(mockUser));
+    const { result } = renderHook(() => usePosNavigation(mockUser), { wrapper: conRouter() });
 
     // Assert
     const routeIds = result.current.routeDefinitions.map(r => r.id);
@@ -48,7 +59,7 @@ describe('usePosNavigation', () => {
     };
 
     // Act
-    const { result } = renderHook(() => usePosNavigation(mockUser));
+    const { result } = renderHook(() => usePosNavigation(mockUser), { wrapper: conRouter() });
 
     // Assert
     const routeIds = result.current.routeDefinitions.map(r => r.id);
@@ -67,7 +78,7 @@ describe('usePosNavigation', () => {
       permissions: ['platform:tenants:create']
     };
 
-    const { result } = renderHook(() => usePosNavigation(mockUser));
+    const { result } = renderHook(() => usePosNavigation(mockUser), { wrapper: conRouter() });
     
     const routeIds = result.current.routeDefinitions.map(r => r.id);
     expect(routeIds).toContain('platform');
