@@ -165,6 +165,31 @@ export interface WaitersTable {
   updated_at: Generated<Date>;
 }
 
+export interface WaiterShiftsTable {
+  id: string;
+  tenant_id: string;
+  branch_id: string;
+  waiter_id: string;
+  /** Turno de caja en el que ocurre; nulo si el mesero entra antes de que la caja abra. */
+  cash_session_id: string | null;
+  opened_at: Generated<Date>;
+  closed_at: Date | null;
+  opened_by_user_id: string | null;
+  closed_by_user_id: string | null;
+  /** Corte congelado al cerrar: reabrir un turno viejo devuelve lo que dijo entonces. */
+  summary_json: NullableJsonColumn;
+  notes: string | null;
+  created_at: Generated<Date>;
+}
+
+export interface WaiterShiftTablesTable {
+  id: string;
+  tenant_id: string;
+  shift_id: string;
+  table_id: string;
+  created_at: Generated<Date>;
+}
+
 export interface UsersTable {
   id: string;
   tenant_id: string | null;
@@ -1370,6 +1395,8 @@ export interface Database {
   tenant_dian_settings: TenantDianSettingsTable;
   dian_resolutions: DianResolutionsTable;
   waiters: WaitersTable;
+  waiter_shifts: WaiterShiftsTable;
+  waiter_shift_tables: WaiterShiftTablesTable;
   tenant_module_audit_logs: TenantModuleAuditLogsTable;
   product_modifier_groups: ProductModifierGroupsTable;
   product_modifier_options: ProductModifierOptionsTable;

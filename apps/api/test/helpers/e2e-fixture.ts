@@ -301,6 +301,7 @@ export async function cleanupE2eFixture(
     await trx.deleteFrom('users').where('tenant_id', '=', fixture.tenantId).execute();
     await trx.deleteFrom('terminals').where('tenant_id', '=', fixture.tenantId).execute();
     await trx.deleteFrom('branches').where('tenant_id', '=', fixture.tenantId).execute();
+    await trx.deleteFrom('tenant_limit_overrides').where('tenant_id', '=', fixture.tenantId).execute();
     await trx.deleteFrom('tenant_subscriptions').where('tenant_id', '=', fixture.tenantId).execute();
     await trx.deleteFrom('tenants').where('id', '=', fixture.tenantId).execute();
   });
@@ -343,6 +344,38 @@ export function bearerHeaders(token: string): Record<string, string> {
  * `tenants` ya no habilita nada: el resolutor no la mira. Una prueba que quiera un módulo
  * lo pide como excepción, que es exactamente el camino que usa el panel de plataforma.
  */
+/**
+ * Sube un cupo del plan para el comercio de prueba.
+ *
+ * Va de la mano de `grantModules`: activar el módulo y no subir el cupo deja al comercio con
+ * la función a la vista y un límite de cero. Es exactamente lo que pasaba con los meseros,
+ * donde STARTER trae `waiters = 0` y nadie comprobaba el límite.
+ */
+export async function grantLimits(
+  tenantId: string,
+  limits: Partial<Record<import('@pos-dian/shared').EntitlementKey, number>>
+): Promise<void> {
+  const filas = Object.entries(limits).map(([entitlement_key, limit_value]) => ({
+    tenant_id: tenantId,
+    entitlement_key,
+    limit_value: limit_value as number,
+    reason: 'Fixture de pruebas e2e',
+    expires_at: null
+  }));
+
+  if (filas.length === 0) return;
+
+  await adminDb()
+    .insertInto('tenant_limit_overrides')
+    .values(filas)
+    .onConflict((oc) =>
+      oc.columns(['tenant_id', 'entitlement_key']).doUpdateSet((eb) => ({
+        limit_value: eb.ref('excluded.limit_value')
+      }))
+    )
+    .execute();
+}
+
 export async function grantModules(
   tenantId: string,
   modules: ReadonlyArray<import('@pos-dian/shared').AssignableModule>

@@ -5,6 +5,7 @@ import { randomUUID } from 'crypto';
 import { executeAsTenant } from '../../../shared/infra/db/rls.js';
 import { hashPassword, verifyPassword } from '../../identity/auth/password.js';
 import { AppError } from '../../../shared/infra/errors/app-error.js';
+import type { EntitlementGuard } from '../../../shared/infra/entitlements/entitlement-guard.js';
 
 /**
  * Columnas que salen hacia fuera. Nunca `pin_hash`: el `selectAll()` anterior era lo que
@@ -34,7 +35,41 @@ interface WaiterRow {
 }
 
 export class WaitersRepository {
-  constructor(private db: Kysely<Database>) {}
+  constructor(
+    private db: Kysely<Database>,
+    /**
+     * La cuota de meseros del plan existía en el catálogo desde la fase 7 —clave, contador y
+     * etiqueta— y no la comprobaba nadie: se podía dar de alta la plantilla entera con el
+     * plan más barato. El guard tiene que correr **dentro** de la transacción que inserta,
+     * porque el lock que serializa el conteo se suelta al terminarla.
+     */
+    private entitlementGuard: EntitlementGuard
+  ) {}
+
+  /**
+   * La cuenta a la que se liga la ficha tiene que ser de este comercio.
+   *
+   * La clave foránea solo comprueba que el usuario exista, y las comprobaciones de clave
+   * foránea no pasan por RLS: sin esto se podía ligar un mesero a un usuario de otro
+   * comercio, y ese nombre acabaría apareciendo en el informe de meseros del ajeno.
+   */
+  private static async assertUserBelongsToTenant(
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    trx: any,
+    tenantId: string,
+    userId: string
+  ): Promise<void> {
+    const usuario = await trx
+      .selectFrom('users')
+      .select('id')
+      .where('id', '=', userId)
+      .where('tenant_id', '=', tenantId)
+      .executeTakeFirst();
+
+    if (!usuario) {
+      throw new AppError(404, 'USER_NOT_FOUND', 'Esa cuenta no existe o no es de este comercio.');
+    }
+  }
 
   async listWaiters(tenantId: string, branchId: string): Promise<Waiter[]> {
     return await executeAsTenant(this.db, tenantId, async (trx) => {
@@ -81,6 +116,14 @@ export class WaitersRepository {
         throw new AppError(404, 'BRANCH_NOT_FOUND', 'La sucursal no existe o no pertenece a este comercio');
       }
 
+      // La validación va antes que la cuota: un dato mal puesto merece su propio error, y no
+      // el genérico de «no te caben más meseros».
+      if (payload.user_id) {
+        await WaitersRepository.assertUserBelongsToTenant(trx, tenantId, payload.user_id);
+      }
+
+      await this.entitlementGuard.assertCanCreate(trx, tenantId, 'waiters');
+
       const pinHash = payload.pin ? await this.hashUniquePin(trx, tenantId, branchId, payload.pin, null) : null;
 
       const record = await trx
@@ -118,7 +161,12 @@ export class WaitersRepository {
 
       if (payload.name !== undefined) query = query.set('name', payload.name);
       if (payload.is_active !== undefined) query = query.set('is_active', payload.is_active);
-      if (payload.user_id !== undefined) query = query.set('user_id', payload.user_id);
+      if (payload.user_id !== undefined) {
+        if (payload.user_id) {
+          await WaitersRepository.assertUserBelongsToTenant(trx, tenantId, payload.user_id);
+        }
+        query = query.set('user_id', payload.user_id);
+      }
 
       let hasPin = current.pin_hash !== null;
 

@@ -25,6 +25,51 @@ import type { CreateSaleBodyInput } from './schemas.js';
 import { allocateTip } from '@pos-dian/shared';
 import { modulesForTenantInTransaction } from '../../../shared/infra/entitlements/modules-in-transaction.js';
 
+/**
+ * Una sola vía de atribución del mesero.
+ *
+ * Dos cosas que no ocurrían. La primera: `waiterId` llegaba del cliente y se escribía tal
+ * cual, sin comprobar nada. La clave foránea solo exige que el mesero exista y no pasa por
+ * RLS, así que una venta podía quedar atribuida al mesero de otro comercio.
+ *
+ * La segunda: un mesero que entra con su propia cuenta y cobra su mesa dejaba la venta sin
+ * mesero, porque la pantalla solo manda `waiterId` cuando alguien lo elige a mano en el
+ * selector. Su ficha de personal existe y está ligada a su cuenta; usarla es exactamente
+ * para lo que está esa ligadura.
+ */
+async function resolveWaiterId(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  trx: any,
+  input: { tenantId: string; branchId: string; requestedWaiterId: string | null; userId: string }
+): Promise<string | null> {
+  if (input.requestedWaiterId) {
+    const mesero = await trx
+      .selectFrom('waiters')
+      .select('id')
+      .where('tenant_id', '=', input.tenantId)
+      .where('branch_id', '=', input.branchId)
+      .where('id', '=', input.requestedWaiterId)
+      .executeTakeFirst();
+
+    if (!mesero) {
+      throw new AppError(404, 'WAITER_NOT_FOUND', 'Ese mesero no existe en esta sucursal.');
+    }
+
+    return mesero.id;
+  }
+
+  const propio = await trx
+    .selectFrom('waiters')
+    .select('id')
+    .where('tenant_id', '=', input.tenantId)
+    .where('branch_id', '=', input.branchId)
+    .where('user_id', '=', input.userId)
+    .where('is_active', '=', true)
+    .executeTakeFirst();
+
+  return propio?.id ?? null;
+}
+
 interface CreateSaleServiceInput {
   db: Kysely<Database>;
   logger: FastifyBaseLogger;
@@ -498,6 +543,13 @@ export async function createSaleService(input: CreateSaleServiceInput) {
           }
         }
 
+        const waiterId = await resolveWaiterId(trx, {
+          tenantId: tenantId!,
+          branchId: payload.branch_id,
+          requestedWaiterId: payload.waiterId ?? null,
+          userId
+        });
+
         const nextSaleNumber = await getNextSaleNumberForBranchInTransaction(trx, {
           tenantId,
           branchId: payload.branch_id
@@ -520,7 +572,7 @@ export async function createSaleService(input: CreateSaleServiceInput) {
             branch_id: payload.branch_id,
             cash_session_id: payload.cash_session_id,
             table_order_id: payload.table_order_id ?? null,
-            waiter_id: payload.waiterId ?? null,
+            waiter_id: waiterId,
             sale_number: nextSaleNumber,
             status: 'COMPLETED',
             subtotal_cents: finalSubtotalCents,

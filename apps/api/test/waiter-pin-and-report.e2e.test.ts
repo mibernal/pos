@@ -8,6 +8,7 @@ import {
   bearerHeaders,
   cleanupE2eFixture,
   ensureE2eSchema,
+  grantLimits,
   grantModules,
   loginE2eUser,
   seedE2eFixture,
@@ -29,6 +30,9 @@ const fixtures: E2eFixture[] = [];
 
 async function enableWaiters(tenantId: string) {
   await grantModules(tenantId, ['restaurant', 'tables', 'waiters']);
+  // El módulo sin el cupo deja la función a la vista con un límite de cero: STARTER trae
+  // `waiters = 0` y desde la fase 10 ese límite se comprueba de verdad.
+  await grantLimits(tenantId, { waiters: 10 });
 }
 
 async function adminToken(fixture: E2eFixture) {

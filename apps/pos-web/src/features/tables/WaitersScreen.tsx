@@ -4,11 +4,15 @@ import { WaiterModal } from './components/WaiterModal';
 import { Button } from '../../components/ui/Button';
 import type { Waiter } from '@pos-dian/shared';
 import { usePosStore } from '../../hooks/usePosStore';
+import { WaiterShiftsPanel } from './components/WaiterShiftsPanel';
+import { ModuleGuard } from '../modules';
 
 export function WaitersScreen() {
   const branchId = usePosStore((state) => state.posContext?.branchId);
+  const cashSessionId = usePosStore((state) => state.posContext?.cashSessionId);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingWaiter, setEditingWaiter] = useState<Waiter | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   const { data: waiters, isLoading, error } = useGetWaiters(branchId ?? '');
   const { mutateAsync: createWaiter, isPending: isCreating } = useCreateWaiter();
@@ -26,6 +30,7 @@ export function WaitersScreen() {
 
   const handleSave = async (data: { name: string; pin?: string | null; is_active: boolean }) => {
     try {
+      setSaveError(null);
       if (editingWaiter) {
         await updateWaiter({ branchId: branchId ?? '', id: editingWaiter.id, payload: data });
       } else {
@@ -33,8 +38,9 @@ export function WaitersScreen() {
       }
       setIsModalOpen(false);
     } catch (err) {
-      console.error('Error saving waiter:', err);
-      // Opcional: mostrar un toast de error
+      // El servidor explica por qué —la cuota del plan, un PIN repetido, una cuenta de otro
+      // comercio— y esa explicación es justo lo que el encargado necesita leer.
+      setSaveError(err instanceof Error ? err.message : String(err));
     }
   };
 
@@ -67,6 +73,16 @@ export function WaitersScreen() {
           + Nuevo Mesero
         </Button>
       </div>
+
+      {saveError && (
+        <div className="bg-red-50 text-red-700 border border-red-200 rounded-xl px-4 py-3 text-sm">
+          {saveError}
+        </div>
+      )}
+
+      <ModuleGuard module="waiter_shifts" fallback={null}>
+        <WaiterShiftsPanel branchId={branchId} cashSessionId={cashSessionId ?? null} />
+      </ModuleGuard>
 
       <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden flex-1">
         {waiters && waiters.length > 0 ? (
