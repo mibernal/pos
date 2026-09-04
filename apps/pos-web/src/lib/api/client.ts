@@ -2,6 +2,10 @@ import type {
   BillingPortal,
   ConsumptionDeviationRow,
   CreditAccount,
+  MenuEngineeringRow,
+  PrepTimeRow,
+  SalesByHourRow,
+  TableTurnoverRow,
   Recipe,
   UpsertRecipeInput,
   CustomerStatement,
@@ -878,6 +882,16 @@ export function createApiClient({ baseUrl, getSession, setSession, onReauthRequi
     upsertRecipe: (productId: string, payload: UpsertRecipeInput) =>
       requestJson<Recipe>(`/recipes/${productId}`, { method: 'PUT', body: JSON.stringify(payload) }),
     deleteRecipe: (recipeId: string) => requestJson<void>(`/recipes/${recipeId}`, { method: 'DELETE' }),
+    // INFORMES DE OPERACIÓN
+    getTableTurnover: (params: { branch_id: string; from: string; to: string }) =>
+      requestJson<TableTurnoverRow[]>(`/reports/operations/table-turnover?${new URLSearchParams(params).toString()}`),
+    getPrepTime: (params: { branch_id: string; from: string; to: string }) =>
+      requestJson<PrepTimeRow[]>(`/reports/operations/prep-time?${new URLSearchParams(params).toString()}`),
+    getSalesByHour: (params: { branch_id: string; from: string; to: string }) =>
+      requestJson<SalesByHourRow[]>(`/reports/operations/sales-by-hour?${new URLSearchParams(params).toString()}`),
+    getMenuEngineering: (params: { branch_id: string; from: string; to: string }) =>
+      requestJson<MenuEngineeringRow[]>(`/reports/operations/menu-engineering?${new URLSearchParams(params).toString()}`),
+
     getConsumptionDeviation: (params: { from: string; to: string; branch_id?: string }) =>
       requestJson<ConsumptionDeviationRow[]>(
         `/recipes/reports/consumption-deviation?${new URLSearchParams(

@@ -134,6 +134,12 @@ export interface KitchenTicketsTable {
   course: Generated<number>;
   status: Generated<string>;
   printed_at: Date | null;
+  /** Cuándo la cocina lo empezó. Las tres marcas no se pisan entre sí, `updated_at` sí. */
+  started_at: Date | null;
+  /** Cuándo lo dio por listo: el tiempo de preparación es `ready_at - created_at`. */
+  ready_at: Date | null;
+  /** Cuándo salió al comedor. Lo que pasa entre listo y entregado es problema del salón. */
+  delivered_at: Date | null;
   created_at: Generated<Date>;
   updated_at: Generated<Date>;
 }

@@ -7,6 +7,7 @@ import type { SalesReportResponse, WaitersReportResponse } from '../../lib/api';
 import type { TicketTemplateConfig } from '../../lib/ticket-template';
 import { printZReportTicket } from '../../lib/ticket-printer';
 import { LiveMetricsTab } from './LiveMetricsTab';
+import { OperationsTab } from './OperationsTab';
 
 type DateFilter = 'TODAY' | 'WEEK' | 'MONTH' | 'CUSTOM';
 
@@ -39,7 +40,30 @@ export function ReportsScreen({
 
   const [shiftsData, setShiftsData] = useState<Awaited<ReturnType<PosApiClient['getShiftsReport']>> | null>(null);
   const [waitersData, setWaitersData] = useState<WaitersReportResponse | null>(null);
-  const [activeTab, setActiveTab] = useState<'LIVE' | 'METRICS' | 'SHIFTS' | 'WAITERS'>('LIVE');
+  const [activeTab, setActiveTab] = useState<'LIVE' | 'METRICS' | 'SHIFTS' | 'WAITERS' | 'OPERATIONS'>('LIVE');
+
+  /**
+   * El mismo periodo del selector, en fechas locales.
+   *
+   * Los informes de operación agrupan por día y por hora del negocio, así que reciben
+   * `AAAA-MM-DD` y no un instante UTC: un turno de noche que cruza la medianoche en Bogotá
+   * cae en otro día si se convierte a UTC primero.
+   */
+  const rangoOperacion = (() => {
+    const local = (fecha: Date) =>
+      `${fecha.getFullYear()}-${String(fecha.getMonth() + 1).padStart(2, '0')}-${String(fecha.getDate()).padStart(2, '0')}`;
+
+    const hoy = new Date();
+    if (filter === 'CUSTOM') {
+      return { from: customFrom || local(hoy), to: customTo || local(hoy) };
+    }
+
+    const inicio = new Date(hoy.getFullYear(), hoy.getMonth(), hoy.getDate());
+    if (filter === 'WEEK') inicio.setDate(hoy.getDate() - 7);
+    if (filter === 'MONTH') inicio.setDate(1);
+
+    return { from: local(inicio), to: local(hoy) };
+  })();
 
   const fetchReport = useCallback(async () => {
     setLoading(true);
@@ -140,6 +164,16 @@ export function ReportsScreen({
           >
             <span className="mr-2">🍽️</span> Rendimiento Meseros
           </button>
+          <button
+            className={`px-4 py-2 rounded-lg text-sm font-semibold transition-all duration-200 ${
+              activeTab === 'OPERATIONS'
+                ? 'bg-background text-foreground shadow-sm'
+                : 'text-muted-foreground hover:text-foreground hover:bg-background/50'
+            }`}
+            onClick={() => setActiveTab('OPERATIONS')}
+          >
+            <span className="mr-2">⏱️</span> Operación
+          </button>
         </div>
 
         {activeTab !== 'LIVE' && (
@@ -198,6 +232,10 @@ export function ReportsScreen({
 
         {/* Live View */}
         {activeTab === 'LIVE' && <LiveMetricsTab api={api} branchId={branchId} />}
+
+        {activeTab === 'OPERATIONS' && (
+          <OperationsTab api={api} branchId={branchId} from={rangoOperacion.from} to={rangoOperacion.to} />
+        )}
 
         {/* Metrics View */}
         {activeTab === 'METRICS' && reportData && !loading && (

@@ -35,6 +35,7 @@ import { recipesRoutes } from '../contexts/inventory/http/recipes.routes.js';
 import { scannerRoutes } from '../contexts/inventory/http/scanner.routes.js';
 import { alertsRoutes } from '../contexts/alerts/http/alerts.routes.js';
 import { reportsRoutes } from '../contexts/reporting/http/reports.routes.js';
+import { operationsReportsRoutes } from '../contexts/reporting/http/operations-reports.routes.js';
 import { dashboardRoutes } from '../contexts/reporting/http/dashboard.routes.js';
 import { globalDashboardRoutes } from '../contexts/reporting/http/global-dashboard.routes.js';
 import { journalRoutes } from '../contexts/sales/http/journal.routes.js';
@@ -353,6 +354,7 @@ export async function buildApp() {
   await app.register(scannerRoutes, { prefix: '/api/v1' });
   await app.register(alertsRoutes, { prefix: '/api/v1' });
   await app.register(reportsRoutes, { prefix: '/api/v1' });
+  await app.register(operationsReportsRoutes, { prefix: '/api/v1' });
   await app.register(dashboardRoutes, { prefix: '/api/v1' });
   await app.register(globalDashboardRoutes, { prefix: '/api/v1' });
   await app.register(auditRoutes, { prefix: '/api/v1' });

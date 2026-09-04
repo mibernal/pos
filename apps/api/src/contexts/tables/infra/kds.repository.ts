@@ -101,12 +101,29 @@ export class KdsRepository {
 
   async updateTicketStatus(tenantId: string, ticketId: string, status: string): Promise<void> {
     await executeAsTenant(this.db, tenantId, async (trx) => {
-      await trx
+      const ahora = new Date();
+
+      /**
+       * Cada estado deja su propia marca, y solo la primera vez.
+       *
+       * Volver a poner READY un ticket que ya lo estaba —el pase que se pulsa dos veces—
+       * no puede reescribir la hora en que la cocina lo terminó: eso convertiría el tiempo
+       * de preparación en el tiempo hasta el último clic.
+       */
+      const marca =
+        status === 'PREPARING' ? 'started_at' : status === 'READY' ? 'ready_at' : status === 'DELIVERED' ? 'delivered_at' : null;
+
+      let query = trx
         .updateTable('kitchen_tickets')
-        .set({ status, updated_at: new Date() })
+        .set({ status, updated_at: ahora })
         .where('tenant_id', '=', tenantId)
-        .where('id', '=', ticketId)
-        .execute();
+        .where('id', '=', ticketId);
+
+      if (marca) {
+        query = query.set((eb) => ({ [marca]: eb.fn.coalesce(eb.ref(marca), eb.val(ahora)) }));
+      }
+
+      await query.execute();
     });
   }
 }
