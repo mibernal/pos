@@ -21,6 +21,7 @@ Punto de partida: auditoría sobre `main` del 25 de agosto de 2026. El sistema e
 | 6 | Cerrar las fugas silenciosas (producto) | ✅ Completada — 30 ago 2026 |
 | 7 | Que el plan gobierne el producto | ✅ Completada — 30 ago 2026 |
 | 8 | Cobro recurrente que ocurre solo | ✅ Completada — 3 sep 2026 |
+| 9 | La caja completa | ✅ Completada — 4 sep 2026 |
 
 ---
 
@@ -540,6 +541,110 @@ el scheduler conviene decidir una de estas tres:
 
 La primera es la que menos ruido genera. Lo que no conviene es encender el motor sin elegir:
 doce comercios degradados el mismo día son doce llamadas a soporte.
+
+---
+
+## Fase 9 — La caja completa ✅
+
+**El problema no eran los medios de pago que faltaban.** Era que los pagos no eran filas.
+Vivían dentro de `sales.payment_json`, un blob sin forma fija, y de ahí salían tres cosas
+que no se hablaban entre ellas:
+
+- `cash-sessions-service.ts` tenía una lista de **quince rutas posibles** dentro del JSON
+  —`cash_cents`, `cash.amount_cents`, `amounts.cashAmountCents`, `breakdown.cash_cents`…—
+  para adivinar cuánto efectivo había entrado, y si no encontraba ninguna miraba si la
+  palabra del método era «cash» y daba por efectivo el total entero de la venta. Esa lista
+  era el fósil de un formato que cambió varias veces sin migrar lo anterior. Adivinar el
+  dinero de un arqueo es la peor forma de calcularlo: cuando acierta nadie lo comprueba, y
+  cuando falla el cajero se come la diferencia.
+- El cierre de caja construía el desglose con un objeto literal de tres claves y un
+  `if (methodRevenues[method] !== undefined)`: cualquier medio que no fuera efectivo,
+  tarjeta o transferencia **se descartaba en silencio**.
+- El informe de ingresos repetía esa suma por su cuenta, en otro archivo, trayendo a memoria
+  el `payment_json` de todas las ventas del rango.
+
+Con `sale_payments` (migración 099, con backfill del histórico) el arqueo y el Z son un
+`GROUP BY`, y el desglose lo arma una sola función compartida entre backend y frontend.
+
+### El medio de pago pasa a ser un comportamiento
+
+No un nombre. Tres grupos, según lo que le hacen al dinero:
+
+| Grupo | Medios | Qué le hace al turno |
+|---|---|---|
+| En el cajón | efectivo | Suma al efectivo esperado |
+| Cobrado electrónicamente | tarjeta, transferencia, billeteras QR | Entra dinero, pero no al cajón |
+| Sin entrada de dinero | fiado, bono, puntos, vales | La venta se cierra y no entra dinero hoy |
+
+El tercero es el que no existía y el que más descuadra cajas: un fiado sumado a lo recaudado
+hace que el turno cuadre sobre dinero que nadie recibió. Ahora el Z dice qué vendiste, qué
+cobraste y qué te deben, que son tres números distintos.
+
+El catálogo por comercio hace que añadir «Nequi» sea una fila y no un despliegue. Lo que no
+es configurable es el comportamiento: declarar efectivo sobre el código de una billetera se
+rechaza, porque metería en el arqueo dinero que nunca estuvo ahí.
+
+**Recibido y vuelto** (`CA-02`): se guardan ambos, y el cajón se calcula con el importe
+aplicado a la venta, no con lo entregado —el vuelto sale del mismo cajón, así que sumarlo
+sería contarlo dos veces—.
+
+### El fiado, como cuenta por cobrar
+
+Cupo por cliente, abonos imputados del documento más antiguo al más nuevo, y estado de
+cuenta. En una tienda de barrio esto no es una función avanzada: es la forma normal de
+vender a la clientela conocida.
+
+**El detalle que decide si la caja cuadra:** un abono en efectivo pone plata en el cajón sin
+que haya ninguna venta. Los abonos guardan su turno y llegan al arqueo; sin eso, el turno
+cerraría con sobrante justo los días en que la gente viene a pagar lo que debe. En el Z
+salen como línea propia para que «¿cuánto vendí hoy?» siga teniendo respuesta.
+
+El saldo se deriva de los documentos pendientes, nunca se guarda como contador —un contador
+desincronizado miente con confianza, y aquí mentiría sobre cuánto le debe una persona a
+otra—. El cupo se comprueba con `pg_advisory_xact_lock` por cliente dentro de la transacción
+que fía: sin él, dos ventas simultáneas leen el mismo saldo y un cliente de 50.000 de tope
+acaba debiendo 60.000.
+
+### La propina se liquida
+
+`tip_cents` existía desde la migración 063 y su único lector era un `SUM` del informe de
+meseros. La propina en efectivo **está** en el cajón y el arqueo la cuenta bien; el problema
+es que cuando el mesero se lleva lo suyo sale dinero que nadie registraba, y aparecía un
+faltante exacto del tamaño de las propinas cada noche. Ahora la liquidación genera su
+movimiento de caja.
+
+La propina cobrada con tarjeta es otra cosa: no está en el cajón, la recibió el comercio y se
+la debe al mesero. Pagarlas igual sacaría del cajón un dinero que nunca entró en él.
+
+En una venta mixta se reparte en proporción a lo pagado por cada medio. Es una convención
+—el cliente no dijo con qué medio la dejaba— pero es la única que reparte sin inventar y,
+sobre todo, es una sola, escrita en un sitio.
+
+### Conciliación de tarjeta
+
+`CA-05` queda a medias **a propósito**. La integración directa con Redeban o Credibanco
+necesita una cuenta y credenciales del comercio, así que no está. Lo que sí está es el cierre
+de lote: se captura el total que imprime el datáfono y el sistema dice al momento si coincide
+con lo que registró y en qué se diferencia, con los códigos de aprobación para buscar el que
+sobra. Es la mayor parte del valor sin depender de un tercero; cuando exista el conector, lo
+único que cambia es de dónde salen esas cifras.
+
+### Tres defectos que encontraron las pruebas
+
+- **Un comercio que se registra solo por la web nacía sin catálogo de medios.** Podía cobrar
+  con los tres por defecto, pero no tenía nada que activar en su configuración.
+- **La creación de ventas comprobaba el módulo de propinas contra `tenants.enable_tips`.**
+  Desde la fase 7 esas columnas son una vista de compatibilidad que solo mantiene al día el
+  alta por panel, así que un comercio con propinas concedidas por override recibía «Las
+  propinas no están habilitadas» al intentar cobrar una. De paso salieron dos selects
+  muertos: `enable_delivery` y `enable_product_modifiers` se traían sin que nadie los leyera.
+- **La división de cuenta por montos nunca llegó al cobro.** El hook la soportaba desde la
+  fase 1 y el modal no le pasaba la prop; era un `TODO` documentado. `CA-04`
+
+**Criterio de salida — cumplido.** Un turno que mezcla efectivo con vuelto, Nequi, un fiado y
+propina repartida cierra con diferencia cero, y cada medio aparece desglosado en el Z. Ese Z
+se congela al cerrar: reimprimirlo tres meses después devuelve lo que dijo entonces, aunque
+desde entonces se hayan anulado ventas o renombrado medios.
 
 ---
 

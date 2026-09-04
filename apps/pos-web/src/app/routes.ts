@@ -106,6 +106,11 @@ export const APP_ROUTE_DEFINITIONS: readonly EnhancedRouteDefinition[] = [
     requiredModule: 'reservations'
   },
   {
+    id: 'payment-methods',
+    label: 'Medios de pago',
+    requiredPermissions: ['settings:manage']
+  },
+  {
     id: 'qr-menu',
     label: 'Menú Digital (QR)',
     requiredPermissions: ['tenant:settings:manage'],

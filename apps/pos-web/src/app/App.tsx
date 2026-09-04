@@ -19,6 +19,7 @@ import { PublicMenuScreen } from '../features/public-menu/PublicMenuScreen';
 
 // Lazy Loaded Screens
 const CustomersScreen = lazy(() => import('../features/customers').then(m => ({ default: m.CustomersScreen })));
+const PaymentMethodsPanel = lazy(() => import('../features/settings/components/PaymentMethodsPanel').then(m => ({ default: m.PaymentMethodsPanel })));
 const HistoryScreen = lazy(() => import('../features/history').then(m => ({ default: m.HistoryScreen })));
 const InventoryScreen = lazy(() => import('../features/inventory').then(m => ({ default: m.InventoryScreen })));
 const BulkImportScreen = lazy(() => import('../features/inventory/BulkImportScreen').then(m => ({ default: m.BulkImportScreen })));
@@ -192,10 +193,24 @@ function AppShell() {
                 <PromotionsScreen api={api} />
               </PermissionGuard>
             );
+          } else if (activeRoute === 'payment-methods') {
+            currentScreen = (
+              <PermissionGuard allowedPermissions={['settings:manage']} requireAll={false}>
+                <div className="max-w-5xl mx-auto p-4 md:p-8">
+                  <header className="mb-6">
+                    <h1 className="text-2xl font-extrabold text-foreground tracking-tight">Medios de pago</h1>
+                    <p className="text-muted-foreground">
+                      Qué puede cobrar tu caja y cómo entra cada cosa al cierre del turno.
+                    </p>
+                  </header>
+                  <PaymentMethodsPanel api={api} />
+                </div>
+              </PermissionGuard>
+            );
           } else if (activeRoute === 'customers' && posContext) {
             currentScreen = (
               <PermissionGuard allowedPermissions={['customers:view']} requireAll={false}>
-                <CustomersScreen api={api} />
+                <CustomersScreen api={api} branchId={posContext.branchId} cashSessionId={posContext.cashSessionId ?? null} />
               </PermissionGuard>
             );
           } else if (activeRoute === 'inventory' && posContext) {

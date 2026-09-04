@@ -240,7 +240,12 @@ describe('PosScreen', () => {
             price_cents: 1500
           }
         ],
-        payments: [{ method: 'CASH', amount_cents: 1500 }]
+        /**
+         * Lo aplicado a la venta son 1.500 y lo entregado 2.000: el vuelto es la resta.
+         * Antes el frontend descontaba el cambio y tiraba lo entregado, así que el arqueo
+         * no podía distinguir el pago justo del pago con vuelto.
+         */
+        payments: [{ method: 'CASH', amount_cents: 1500, tendered_cents: 2000 }]
       })
     );
 

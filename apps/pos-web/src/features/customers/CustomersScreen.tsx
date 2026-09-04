@@ -1,12 +1,23 @@
 import { useCallback, useEffect, useState, type ChangeEvent, type FormEvent } from 'react';
+import { ReceivablesPanel } from './components/ReceivablesPanel';
 import type { Customer } from '../../lib/api';
 import { Banner, Modal, ShellMessage } from '../../components/ui';
 
 interface CustomersScreenProps {
   api: ReturnType<typeof import('../../lib/api').createApiClient>;
+  /** Necesarios para recibir abonos: un abono en efectivo entra al turno de caja. */
+  branchId?: string;
+  cashSessionId?: string | null;
 }
 
-export function CustomersScreen({ api }: CustomersScreenProps) {
+/**
+ * Clientes y cartera, en dos pestañas.
+ *
+ * La cartera vive aquí y no en un menú aparte porque es la misma persona: quien pregunta
+ * «¿cuánto debe doña Rosa?» está mirando su ficha de cliente, no un informe financiero.
+ */
+export function CustomersScreen({ api, branchId, cashSessionId }: CustomersScreenProps) {
+  const [pestana, setPestana] = useState<'DIRECTORIO' | 'CARTERA'>('DIRECTORIO');
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -101,8 +112,47 @@ export function CustomersScreen({ api }: CustomersScreenProps) {
     return <ShellMessage title="Cargando directorio de clientes..." subtitle="Conectando con DIAN" />;
   }
 
+  const pestanas = (
+    <div className="flex gap-4 border-b border-border px-4">
+      {(
+        [
+          ['DIRECTORIO', 'Directorio'],
+          ['CARTERA', 'Cartera']
+        ] as const
+      ).map(([id, etiqueta]) => (
+        <button
+          key={id}
+          onClick={() => setPestana(id)}
+          className={`pb-3 px-1 text-sm font-semibold transition-colors border-b-2 whitespace-nowrap ${
+            pestana === id
+              ? 'border-primary text-primary'
+              : 'border-transparent text-muted-foreground hover:text-foreground hover:border-muted'
+          }`}
+        >
+          {etiqueta}
+        </button>
+      ))}
+    </div>
+  );
+
+  if (pestana === 'CARTERA') {
+    return (
+      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+        {pestanas}
+        <div className="p-4">
+          {branchId ? (
+            <ReceivablesPanel api={api} branchId={branchId} cashSessionId={cashSessionId} />
+          ) : (
+            <p className="text-sm text-muted-foreground">Selecciona una sucursal para ver la cartera.</p>
+          )}
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '1.5rem', padding: '1rem', minHeight: '0' }}>
+      {pestanas}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         <div>
           <h2 style={{ fontSize: '1.5rem', fontWeight: 600, margin: 0 }}>Directorio de Clientes</h2>

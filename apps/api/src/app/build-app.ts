@@ -42,6 +42,7 @@ import { terminalsRoutes } from '../contexts/sales/http/terminals.routes.js';
 import { paymentMethodsRoutes } from '../contexts/sales/http/payment-methods.routes.js';
 import { receivablesRoutes } from '../contexts/sales/http/receivables.routes.js';
 import { tipsRoutes } from '../contexts/sales/http/tips.routes.js';
+import { cardBatchesRoutes } from '../contexts/sales/http/card-batches.routes.js';
 import { billingRoutes } from '../contexts/billing/http/billing.routes.js';
 import { billingPortalRoutes } from '../contexts/billing/http/billing-portal.routes.js';
 import { webhooksRoutes } from '../contexts/billing/http/webhooks.routes.js';
@@ -343,6 +344,7 @@ export async function buildApp() {
   await app.register(paymentMethodsRoutes, { prefix: '/api/v1' });
   await app.register(receivablesRoutes, { prefix: '/api/v1' });
   await app.register(tipsRoutes, { prefix: '/api/v1' });
+  await app.register(cardBatchesRoutes, { prefix: '/api/v1' });
   await app.register(customersRoutes, { prefix: '/api/v1' });
   await app.register(inventoryRoutes, { prefix: '/api/v1' });
   await app.register(scannerRoutes, { prefix: '/api/v1' });

@@ -1,5 +1,13 @@
 import type {
   BillingPortal,
+  CreditAccount,
+  CustomerStatement,
+  PaymentMethodCatalogEntry,
+  RegisterReceivablePaymentInput,
+  TipSettings,
+  TipSummary,
+  UpsertCreditAccountInput,
+  UpsertPaymentMethodInput,
   PaymentMethod,
   RevenueMetrics,
   TenantProfile as SharedTenantProfile,
@@ -827,7 +835,75 @@ export function createApiClient({ baseUrl, getSession, setSession, onReauthRequi
     invoiceUrl: (id: string) => `${baseUrl}/billing/invoices/${id}`,
 
     // INGRESOS (plataforma)
-    getRevenueMetrics: () => requestJson<{ metrics: RevenueMetrics }>('/platform/revenue')
+    getRevenueMetrics: () => requestJson<{ metrics: RevenueMetrics }>('/platform/revenue'),
+
+    // MEDIOS DE PAGO
+    getPaymentMethods: () =>
+      requestJson<{ payment_methods: PaymentMethodCatalogEntry[]; kinds: unknown[] }>('/payment-methods'),
+    upsertPaymentMethod: (code: string, payload: Omit<UpsertPaymentMethodInput, 'code'>) =>
+      requestJson<{ payment_method: PaymentMethodCatalogEntry }>(`/payment-methods/${code}`, {
+        method: 'PUT',
+        body: JSON.stringify(payload)
+      }),
+    deactivatePaymentMethod: (code: string) =>
+      requestJson<void>(`/payment-methods/${code}`, { method: 'DELETE' }),
+
+    // CUENTAS POR COBRAR
+    getReceivables: () =>
+      requestJson<{
+        customers: Array<{
+          customer_id: string;
+          customer_name: string;
+          balance_cents: number;
+          documents: number;
+          oldest_due_at: string | null;
+          overdue: boolean;
+        }>;
+        total_cents: number;
+      }>('/receivables'),
+    getCustomerStatement: (customerId: string) =>
+      requestJson<CustomerStatement>(`/customers/${customerId}/statement`),
+    setCustomerCredit: (customerId: string, payload: UpsertCreditAccountInput) =>
+      requestJson<{ account: CreditAccount }>(`/customers/${customerId}/credit`, {
+        method: 'PUT',
+        body: JSON.stringify(payload)
+      }),
+    registerReceivablePayment: (customerId: string, payload: RegisterReceivablePaymentInput) =>
+      requestJson<{ payment_id: string; account: CreditAccount }>(`/customers/${customerId}/payments`, {
+        method: 'POST',
+        body: JSON.stringify(payload)
+      }),
+
+    // PROPINAS
+    getTipSettings: () => requestJson<TipSettings>('/settings/tips'),
+    saveTipSettings: (payload: TipSettings) =>
+      requestJson<TipSettings>('/settings/tips', { method: 'PUT', body: JSON.stringify(payload) }),
+    getShiftTips: (cashSessionId: string) => requestJson<TipSummary>(`/cash-sessions/${cashSessionId}/tips`),
+    settleShiftTips: (cashSessionId: string, payload: { pay_cash_now: boolean; notes?: string }) =>
+      requestJson<{ settlement_id: string; cash_movement_id: string | null; summary: TipSummary }>(
+        `/cash-sessions/${cashSessionId}/tips/settle`,
+        { method: 'POST', body: JSON.stringify(payload) }
+      ),
+
+    // CIERRE DE LOTE DE TARJETA
+    previewCardBatch: (branchId: string, batchDate: string) =>
+      requestJson<{
+        system_total_cents: number;
+        system_count: number;
+        transactions: Array<{ approval_code: string | null; amount_cents: number; sale_number: number; at: string }>;
+      }>(`/card-batches/preview?branch_id=${branchId}&batch_date=${batchDate}`),
+    reconcileCardBatch: (payload: {
+      branch_id: string;
+      acquirer: string;
+      batch_date: string;
+      declared_total_cents: number;
+      declared_count: number;
+      notes?: string;
+    }) =>
+      requestJson<{ id: string; system_total_cents: number; diff_cents: number; status: string }>('/card-batches', {
+        method: 'POST',
+        body: JSON.stringify(payload)
+      })
   };
 }
 export type ApiClient = ReturnType<typeof createApiClient>;

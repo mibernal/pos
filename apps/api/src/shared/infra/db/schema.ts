@@ -434,6 +434,24 @@ export interface SalePaymentsTable {
   created_at: Generated<Date>;
 }
 
+export interface CardBatchesTable {
+  id: string;
+  tenant_id: string;
+  branch_id: string;
+  terminal_id: string | null;
+  acquirer: string;
+  batch_date: Date;
+  declared_total_cents: number;
+  declared_count: number;
+  system_total_cents: number;
+  system_count: number;
+  diff_cents: number;
+  status: string;
+  reconciled_by_user_id: string;
+  notes: string | null;
+  created_at: Generated<Date>;
+}
+
 export interface TenantTipSettingsTable {
   tenant_id: string;
   policy: Generated<string>;
@@ -1260,6 +1278,7 @@ export interface Database {
   tenant_tip_settings: TenantTipSettingsTable;
   tip_settlements: TipSettlementsTable;
   tip_settlement_items: TipSettlementItemsTable;
+  card_batches: CardBatchesTable;
   sale_items: SaleItemsTable;
   sale_returns: SaleReturnsTable;
   return_items: ReturnItemsTable;
