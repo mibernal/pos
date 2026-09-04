@@ -428,8 +428,47 @@ export interface SalePaymentsTable {
   tendered_cents: number | null;
   change_cents: number | null;
   reference: string | null;
+  /** Parte de la propina de la venta que llegó por este medio. Reparto proporcional. */
+  tip_cents: Generated<number>;
   metadata_json: NullableJsonColumn;
   created_at: Generated<Date>;
+}
+
+export interface TenantTipSettingsTable {
+  tenant_id: string;
+  policy: Generated<string>;
+  auto_settle_on_close: Generated<boolean>;
+  created_at: Generated<Date>;
+  updated_at: Generated<Date>;
+}
+
+export interface TipSettlementsTable {
+  id: string;
+  tenant_id: string;
+  branch_id: string;
+  cash_session_id: string;
+  policy: string;
+  total_cents: number;
+  /** Lo que estaba en el cajón y sale de él al pagarlo. */
+  cash_cents: number;
+  /** Lo cobrado con tarjeta o billetera: el comercio lo tiene y se lo debe al mesero. */
+  electronic_cents: number;
+  settled_by_user_id: string;
+  cash_movement_id: string | null;
+  notes: string | null;
+  created_at: Generated<Date>;
+}
+
+export interface TipSettlementItemsTable {
+  id: string;
+  tenant_id: string;
+  settlement_id: string;
+  waiter_id: string | null;
+  waiter_name: string;
+  sales_count: Generated<number>;
+  earned_cents: number;
+  cash_cents: number;
+  electronic_cents: number;
 }
 
 export interface SaleItemsTable {
@@ -1218,6 +1257,9 @@ export interface Database {
   customer_receivables: CustomerReceivablesTable;
   customer_payments: CustomerPaymentsTable;
   customer_payment_allocations: CustomerPaymentAllocationsTable;
+  tenant_tip_settings: TenantTipSettingsTable;
+  tip_settlements: TipSettlementsTable;
+  tip_settlement_items: TipSettlementItemsTable;
   sale_items: SaleItemsTable;
   sale_returns: SaleReturnsTable;
   return_items: ReturnItemsTable;

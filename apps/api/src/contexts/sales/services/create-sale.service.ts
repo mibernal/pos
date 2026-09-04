@@ -22,6 +22,8 @@ import { TracerHelper } from '../../../shared/infra/tracing/Tracer.js';
 import { SemanticAttributes } from '../../../shared/infra/tracing/SemanticAttributes.js';
 import type { FastifyBaseLogger } from 'fastify';
 import type { CreateSaleBodyInput } from './schemas.js';
+import { allocateTip } from '@pos-dian/shared';
+import { modulesForTenantInTransaction } from '../../../shared/infra/entitlements/modules-in-transaction.js';
 
 interface CreateSaleServiceInput {
   db: Kysely<Database>;
@@ -173,20 +175,25 @@ export async function createSaleService(input: CreateSaleServiceInput) {
 
         const tenant = await trx
           .selectFrom('tenants')
-          .select([
-            'id', 
-            'tax_mode', 
-            'allow_negative_stock', 
-            'enable_tips as module_tips',
-            'enable_delivery as module_delivery',
-            'enable_product_modifiers as module_modifiers'
-          ])
+          .select(['id', 'tax_mode', 'allow_negative_stock'])
           .where('id', '=', tenantId)
           .executeTakeFirst();
 
         if (!tenant) {
           throw new AppError(404, 'TENANT_NOT_FOUND', 'Tenant no encontrado');
         }
+
+        /**
+         * Los módulos salen del plan y sus excepciones, no de las columnas `enable_*`.
+         *
+         * Esta consulta traía `enable_tips`, `enable_delivery` y `enable_product_modifiers`
+         * de `tenants` —las dos últimas ni siquiera se leían—. Desde la fase 7 esas columnas
+         * son una vista de compatibilidad que solo mantiene al día el alta por panel, así
+         * que un módulo concedido por override no llegaba hasta aquí: un comercio con
+         * propinas habilitadas recibía «Las propinas no están habilitadas para este
+         * comercio» al intentar cobrar una.
+         */
+        const tenantModules = await modulesForTenantInTransaction(trx, tenantId);
 
         const uniqueProductIds = [...new Set(payload.items.map((item) => item.product_id))];
         const products = await trx
@@ -371,7 +378,7 @@ export async function createSaleService(input: CreateSaleServiceInput) {
         }
 
         const tipCents = payload.tip_cents ?? 0;
-        if (tipCents > 0 && !tenant.module_tips) {
+        if (tipCents > 0 && !tenantModules.has('tips')) {
           throw new AppError(400, 'TIPS_NOT_ENABLED', 'Las propinas no están habilitadas para este comercio');
         }
         const totalCents = subtotalCents - payload.discount_cents + tipCents;
@@ -531,6 +538,11 @@ export async function createSaleService(input: CreateSaleServiceInput) {
           .returning([...saleColumnList])
           .executeTakeFirstOrThrow();
 
+        const tipAllocation = allocateTip(
+          normalizedPayments.payments.map((payment) => payment.amount_cents),
+          tipCents
+        );
+
         /**
          * Los pagos, como filas. `payment_json` sigue guardándose —es lo que envió el
          * cliente y sirve de respaldo— pero deja de ser la fuente de verdad: el arqueo y el
@@ -539,7 +551,7 @@ export async function createSaleService(input: CreateSaleServiceInput) {
         await trx
           .insertInto('sale_payments')
           .values(
-            normalizedPayments.payments.map((payment) => ({
+            normalizedPayments.payments.map((payment, index) => ({
               id: randomUUID(),
               tenant_id: tenantId!,
               branch_id: payload.branch_id,
@@ -551,6 +563,10 @@ export async function createSaleService(input: CreateSaleServiceInput) {
               tendered_cents: payment.tendered_cents ?? null,
               change_cents: payment.change_cents ?? null,
               reference: payment.reference ?? null,
+              // Qué parte de la propina llegó por este medio. Sin esto no se puede saber
+              // cuánta propina está en el cajón, y pagarla toda en efectivo sacaría de allí
+              // dinero que entró por tarjeta.
+              tip_cents: tipAllocation[index] ?? 0,
               metadata_json: null
             }))
           )

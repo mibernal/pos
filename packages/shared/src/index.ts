@@ -9,6 +9,7 @@ export * from './schemas/billing.js';
 export * from './schemas/product.js';
 export * from './schemas/payments.js';
 export * from './schemas/receivables.js';
+export * from './schemas/tips.js';
 export * from './schemas/sale.js';
 export * from './schemas/dian-provider.js';
 export * from './schemas/tables.js';
