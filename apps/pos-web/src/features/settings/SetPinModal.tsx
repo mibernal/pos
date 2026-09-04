@@ -1,14 +1,15 @@
 import React, { useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import { Modal, Button, Input, Label, Banner } from '../../components/ui';
+import { useApi } from '../auth';
 
 interface SetPinModalProps {
-  api: any;
   isOpen: boolean;
   onClose: () => void;
 }
 
-export function SetPinModal({ api, isOpen, onClose }: SetPinModalProps) {
+export function SetPinModal({ isOpen, onClose }: SetPinModalProps) {
+  const api = useApi();
   const [pin, setPin] = useState('');
   const [confirmPin, setConfirmPin] = useState('');
   const [error, setError] = useState<string | null>(null);

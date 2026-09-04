@@ -121,7 +121,6 @@ describe('PosScreen', () => {
 
     renderWithProviders(
       <PosScreen
-        api={api}
         branchId="branch-1"
         cashSessionId="cash-session-1"
         branchName="Sucursal Centro"
@@ -136,7 +135,8 @@ describe('PosScreen', () => {
         }}
         tenantTaxMode="IVA"
         onSaleQueued={vi.fn()}
-      />
+      />,
+      { api }
     );
 
     expect(await screen.findByRole('button', { name: /Cafe Americano/i })).toBeInTheDocument();
@@ -186,7 +186,6 @@ describe('PosScreen', () => {
 
     renderWithProviders(
       <PosScreen
-        api={api}
         branchId="branch-1"
         cashSessionId="cash-session-1"
         branchName="Sucursal Centro"
@@ -201,7 +200,8 @@ describe('PosScreen', () => {
         }}
         tenantTaxMode="IVA"
         onSaleQueued={vi.fn()}
-      />
+      />,
+      { api }
     );
 
     expect(await screen.findByRole('button', { name: /Cafe Americano/i })).toBeInTheDocument();
@@ -269,7 +269,6 @@ describe('PosScreen', () => {
 
     renderWithProviders(
       <PosScreen
-        api={api}
         branchId="branch-1"
         cashSessionId="cash-session-1"
         branchName="Sucursal Centro"
@@ -284,7 +283,8 @@ describe('PosScreen', () => {
         }}
         tenantTaxMode="IVA"
         onSaleQueued={vi.fn()}
-      />
+      />,
+      { api }
     );
 
     expect(await screen.findByRole('button', { name: /Cafe Americano/i })).toBeInTheDocument();

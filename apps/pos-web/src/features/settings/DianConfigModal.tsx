@@ -1,24 +1,23 @@
 import { useEffect, useState } from 'react';
 import { Banner, Modal } from '../../components/ui';
 import type { AdminTenantProfile, TenantTaxMode } from '../../lib/api';
-import type { PosApiClient } from '../../types';
 import { useSession } from '../auth';
+import { useApi } from '../auth';
 
 function taxModeLabel(taxMode: TenantTaxMode): string {
   return taxMode === 'INC_RESTAURANT' ? 'Incluye INC' : 'Incluye IVA';
 }
 
 export function DianConfigModal({
-  api,
   isOpen,
   onClose,
   onSaved
 }: {
-  api: PosApiClient;
   isOpen: boolean;
   onClose: () => void;
   onSaved: (taxMode: TenantTaxMode) => void;
 }) {
+  const api = useApi();
   const { role, tenantId } = useSession();
   const [profile, setProfile] = useState<AdminTenantProfile | null>(null);
   const [draftTaxMode, setDraftTaxMode] = useState<TenantTaxMode>('IVA');

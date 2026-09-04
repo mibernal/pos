@@ -8,6 +8,7 @@ import type { TicketTemplateConfig } from '../../lib/ticket-template';
 import { printZReportTicket } from '../../lib/ticket-printer';
 import { LiveMetricsTab } from './LiveMetricsTab';
 import { OperationsTab } from './OperationsTab';
+import { useApi } from '../auth';
 
 type DateFilter = 'TODAY' | 'WEEK' | 'MONTH' | 'CUSTOM';
 
@@ -20,16 +21,15 @@ function toEndOfDayIso(value: string): string {
 }
 
 export function ReportsScreen({
-  api,
   branchId,
   branchName,
   ticketTemplate
 }: {
-  api: PosApiClient;
   branchId: string;
   branchName: string;
   ticketTemplate: TicketTemplateConfig;
 }) {
+  const api = useApi();
   const [filter, setFilter] = useState<DateFilter>('TODAY');
   const [customFrom, setCustomFrom] = useState('');
   const [customTo, setCustomTo] = useState('');
@@ -231,10 +231,10 @@ export function ReportsScreen({
         {loading && activeTab !== 'LIVE' && <Banner tone="info" className="mb-6">Generando reporte...</Banner>}
 
         {/* Live View */}
-        {activeTab === 'LIVE' && <LiveMetricsTab api={api} branchId={branchId} />}
+        {activeTab === 'LIVE' && <LiveMetricsTab branchId={branchId} />}
 
         {activeTab === 'OPERATIONS' && (
-          <OperationsTab api={api} branchId={branchId} from={rangoOperacion.from} to={rangoOperacion.to} />
+          <OperationsTab branchId={branchId} from={rangoOperacion.from} to={rangoOperacion.to} />
         )}
 
         {/* Metrics View */}

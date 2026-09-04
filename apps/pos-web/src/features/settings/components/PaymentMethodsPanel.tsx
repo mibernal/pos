@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Button, Card, Banner } from '../../../components/ui';
-import type { ApiClient } from '../../../lib/api/client';
 import {
   PAYMENT_KINDS,
   PAYMENT_KIND_BEHAVIOR,
@@ -8,6 +7,7 @@ import {
   type PaymentKind,
   type PaymentMethodCatalogEntry
 } from '@pos-dian/shared';
+import { useApi } from '../../auth';
 
 /**
  * Medios de pago del comercio.
@@ -16,7 +16,8 @@ import {
  * cajón, si trae dinero hoy— viene del tipo y no se puede tocar: un comercio puede llamar a
  * su medio como quiera, pero no declarar que un fiado entra en efectivo.
  */
-export function PaymentMethodsPanel({ api }: { api: ApiClient }) {
+export function PaymentMethodsPanel() {
+  const api = useApi();
   const [methods, setMethods] = useState<PaymentMethodCatalogEntry[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);

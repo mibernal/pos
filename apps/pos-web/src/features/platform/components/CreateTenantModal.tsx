@@ -2,14 +2,15 @@ import { useState, useEffect } from 'react';
 import { Button, Input, Label, BusinessTypeSelector } from '../../../components/ui';
 
 import { BillingPlan } from '../../../lib/api/client';
+import { useApi } from '../../auth';
 
 interface CreateTenantModalProps {
-  api: ReturnType<typeof import('../../../lib/api/client').createApiClient>;
   onClose: () => void;
   onSuccess: () => void;
 }
 
-export function CreateTenantModal({ api, onClose, onSuccess }: CreateTenantModalProps) {
+export function CreateTenantModal({ onClose, onSuccess }: CreateTenantModalProps) {
+  const api = useApi();
   const [loading, setLoading] = useState(false);
   const [plans, setPlans] = useState<BillingPlan[]>([]);
   const [formData, setFormData] = useState({

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import QRCode from 'qrcode';
 import { Banner, Button, Card } from '../../../components/ui';
-import type { ApiClient } from '../../../lib/api/client';
+import { useApi } from '../../auth';
 
 /**
  * Códigos QR por mesa.
@@ -17,7 +17,8 @@ interface Mesa {
   name: string;
 }
 
-export function TableQrPanel({ api, tables }: { api: ApiClient; tables: Mesa[] }) {
+export function TableQrPanel({ tables }: { tables: Mesa[] }) {
+  const api = useApi();
   const [seleccionada, setSeleccionada] = useState<string>('');
   const [token, setToken] = useState<string | null>(null);
   const [nombre, setNombre] = useState<string>('');

@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react';
 import { Banner } from '../../components/ui';
 import { formatMoneyFromCents } from '../../lib/format';
-import type { PosApiClient } from '../../types';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { useSession } from '../auth';
+import { useApi } from '../auth';
 
 interface DashboardStats {
   total_revenue_cents: number;
@@ -13,12 +13,11 @@ interface DashboardStats {
 }
 
 export function LiveMetricsTab({
-  api,
   branchId
 }: {
-  api: PosApiClient;
   branchId: string;
 }) {
+  const api = useApi();
   const { session } = useSession();
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [error, setError] = useState<string | null>(null);

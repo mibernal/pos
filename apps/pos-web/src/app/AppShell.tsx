@@ -65,7 +65,6 @@ export function AppShell() {
 
   const shell: ShellContext = useMemo(
     () => ({
-      api,
       session: session!,
       posContext,
       ticketTemplate,
@@ -80,7 +79,6 @@ export function AppShell() {
       navigateTo: navigate
     }),
     [
-      api,
       session,
       posContext,
       ticketTemplate,
@@ -108,7 +106,6 @@ export function AppShell() {
     >
       {!posContext && !session?.user.isPlatformRole ? (
         <BranchSetupScreen
-          api={api}
           session={session!}
           onReady={(context) => {
             commitPosContext(context);
@@ -180,7 +177,6 @@ export function AppShell() {
           </ErrorBoundary>
 
           <TicketTemplateModal
-            api={api}
             isOpen={isTicketTemplateModalOpen}
             onClose={() => setIsTicketTemplateModalOpen(false)}
             onSave={saveTicketTemplate}
@@ -190,17 +186,15 @@ export function AppShell() {
           />
 
           <DianConfigModal
-            api={api}
             isOpen={isDianConfigModalOpen}
             onClose={() => setIsDianConfigModalOpen(false)}
             onSaved={setTenantTaxMode}
           />
 
-          <SetPinModal api={api} isOpen={isSetPinModalOpen} onClose={() => setIsSetPinModalOpen(false)} />
+          <SetPinModal isOpen={isSetPinModalOpen} onClose={() => setIsSetPinModalOpen(false)} />
 
           {posContext && (
             <CloseCashSessionModal
-              api={api}
               isOpen={isCloseSessionModalOpen}
               sessionId={posContext.cashSessionId}
               ticketTemplate={ticketTemplate}
@@ -215,7 +209,6 @@ export function AppShell() {
           )}
           {posContext && (
             <CashMovementModal
-              api={api}
               isOpen={isCashMovementModalOpen}
               sessionId={posContext.cashSessionId}
               onClose={() => setIsCashMovementModalOpen(false)}

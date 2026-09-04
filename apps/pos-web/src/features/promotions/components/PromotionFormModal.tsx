@@ -1,11 +1,10 @@
 import { useState, useEffect } from 'react';
 import { Modal, Banner } from '../../../components/ui';
-import type { PosApiClient } from '../../../types';
 import type { Promotion, CreatePromotion, ProductItem } from '../../../lib/api';
 import { formatMoneyFromCents } from '../../../lib/format';
+import { useApi } from '../../auth';
 
 interface Props {
-  api: PosApiClient;
   isOpen: boolean;
   onClose: () => void;
   onSuccess: () => void;
@@ -13,7 +12,8 @@ interface Props {
   products: ProductItem[];
 }
 
-export function PromotionFormModal({ api, isOpen, onClose, onSuccess, promotion, products }: Props) {
+export function PromotionFormModal({ isOpen, onClose, onSuccess, promotion, products }: Props) {
+  const api = useApi();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 

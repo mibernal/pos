@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
 import { Button, Banner } from '../../../components/ui';
-import type { ApiClient, BillingGatewayConfig } from '../../../lib/api/client';
+import type { BillingGatewayConfig } from '../../../lib/api/client';
 import type { PaymentMethod } from '@pos-dian/shared';
+import { useApi } from '../../auth';
 
 /**
  * Registro del medio de pago.
@@ -12,15 +13,13 @@ import type { PaymentMethod } from '@pos-dian/shared';
  * y también la razón por la que los campos de abajo no viven en ningún estado que se envíe
  * a ninguna parte.
  */
-export function PaymentMethodForm({
-  api,
-  metodo,
+export function PaymentMethodForm({ metodo,
   onCambio
 }: {
-  api: ApiClient;
   metodo: PaymentMethod | null;
   onCambio: () => Promise<void> | void;
 }) {
+  const api = useApi();
   const [config, setConfig] = useState<BillingGatewayConfig | null>(null);
   const [editando, setEditando] = useState(false);
   const [guardando, setGuardando] = useState(false);

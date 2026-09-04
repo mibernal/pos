@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useSession } from '../features/auth';
-import type { PosApiClient } from '../types';
+import { useApi } from '../features/auth';
 
 export interface Alert {
   id: string;
@@ -12,7 +12,8 @@ export interface Alert {
   created_at: string;
 }
 
-export function useAlerts(api: PosApiClient) {
+export function useAlerts() {
+  const api = useApi();
   const { session } = useSession();
   const [alerts, setAlerts] = useState<Alert[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);

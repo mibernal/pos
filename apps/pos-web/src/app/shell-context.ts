@@ -1,6 +1,6 @@
 import { useOutletContext } from 'react-router-dom';
 import type { TenantTaxMode } from '@pos-dian/shared';
-import type { AppRoute, PosApiClient } from '../types';
+import type { AppRoute } from '../types';
 import type { TicketTemplateConfig } from '../lib/ticket-template';
 import type { AuthSession } from '../lib/api';
 import type { PosContext } from '../lib/session';
@@ -15,7 +15,6 @@ import type { PendingSaleRecord } from '../lib/offline-queue';
  * el contexto del `Outlet` y cada ruta toma lo que necesita.
  */
 export interface ShellContext {
-  api: PosApiClient;
   session: AuthSession;
   posContext: PosContext | null;
   ticketTemplate: TicketTemplateConfig;

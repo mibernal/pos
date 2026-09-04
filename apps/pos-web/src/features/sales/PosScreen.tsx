@@ -5,7 +5,7 @@ import { extractTicketPayments, printSaleTicket, printSaleTicketESCPOS, printKit
 import type { PendingSaleRecord } from '../../lib/offline-queue';
 import type { TenantTaxMode, ProductItem } from '../../lib/api';
 import type { TicketTemplateConfig } from '../../lib/ticket-template';
-import type { PosApiClient, AppRoute, CartItem } from '../../types';
+import type { AppRoute, CartItem } from '../../types';
 import { CheckoutModal, CartPanel, ProductGrid, CategoryGrid, VariantSelectorModal, ModifierSelectorModal, SplitBillModal, SplitBillByProductsModal, WaiterSelector, GuestsInput } from './components';
 import { inferTaxModeFromSale } from './utils';
 import { useState } from 'react';
@@ -22,7 +22,6 @@ import { useGetTableOrder, useSaveTableOrder, useClearTableOrder, useSendTableOr
 import { TransferTableModal } from '../tables/components/TransferTableModal';
 
 export function PosScreen({
-  api,
   branchId,
   cashSessionId,
   branchName,
@@ -38,7 +37,6 @@ export function PosScreen({
   onSyncPendingSales,
   onNavigate
 }: {
-  api: PosApiClient;
   branchId: string;
   cashSessionId: string;
   branchName: string;
@@ -77,7 +75,7 @@ export function PosScreen({
     availableCategories,
     selectedCategory,
     setSelectedCategory
-  } = useProductCatalog({ api, branchId });
+  } = useProductCatalog({ branchId });
 
   const { hasModule } = useBusinessModules();
 
@@ -236,7 +234,6 @@ export function PosScreen({
     lastPrintedSaleSnapshot,
     processSale
   } = useCheckout({
-    api,
     branchId,
     cashSessionId,
     onSaleSuccess: async () => {

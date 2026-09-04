@@ -1,17 +1,16 @@
 import { useState } from 'react';
 import { Banner } from '../../components/ui';
 import { formatMoneyFromCents } from '../../lib/format';
-import type { PosApiClient } from '../../types';
+import { useApi } from '../auth';
 
 export function CashControlScreen({
-  api,
   branchId: _branchId,
   cashSessionId
 }: {
-  api: PosApiClient;
   branchId: string;
   cashSessionId: string;
 }) {
+  const api = useApi();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);

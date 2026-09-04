@@ -2,7 +2,6 @@ import { useEffect } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { ApiClient } from '../../../lib/api';
 import { Modal } from '../../../components/ui/Modal';
 import { Input, Button } from '../../../components/ui';
 import { useCreateReservation, useUpdateReservation } from '../api/reservations.api';
@@ -21,16 +20,15 @@ const formSchema = z.object({
 type FormData = z.infer<typeof formSchema>;
 
 interface Props {
-  api: ApiClient;
   branchId: string;
   isOpen: boolean;
   onClose: () => void;
   reservation?: Reservation | null;
 }
 
-export function ReservationModal({ api, branchId, isOpen, onClose, reservation }: Props) {
-  const { mutateAsync: createReservation, isPending: isCreating } = useCreateReservation(api, branchId);
-  const { mutateAsync: updateReservation, isPending: isUpdating } = useUpdateReservation(api, branchId);
+export function ReservationModal({ branchId, isOpen, onClose, reservation }: Props) {
+  const { mutateAsync: createReservation, isPending: isCreating } = useCreateReservation(branchId);
+  const { mutateAsync: updateReservation, isPending: isUpdating } = useUpdateReservation(branchId);
 
   const { register, handleSubmit, reset, formState: { errors } } = useForm<FormData>({
     resolver: zodResolver(formSchema as any),

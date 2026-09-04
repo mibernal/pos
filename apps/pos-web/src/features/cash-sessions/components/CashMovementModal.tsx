@@ -1,20 +1,19 @@
 import { useState } from 'react';
 import { Banner, Modal } from '../../../components/ui';
-import type { PosApiClient } from '../../../types';
+import { useApi } from '../../auth';
 
 export function CashMovementModal({
-  api,
   isOpen,
   sessionId,
   onClose,
   onSuccess
 }: {
-  api: PosApiClient;
   isOpen: boolean;
   sessionId: string;
   onClose: () => void;
   onSuccess: () => void;
 }) {
+  const api = useApi();
   const [type, setType] = useState<'IN' | 'OUT'>('OUT');
   const [amountPesos, setAmountPesos] = useState('');
   const [reason, setReason] = useState('');

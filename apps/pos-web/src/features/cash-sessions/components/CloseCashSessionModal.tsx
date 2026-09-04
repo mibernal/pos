@@ -3,11 +3,10 @@ import { Banner, Modal } from '../../../components/ui';
 import { formatMoneyFromCents } from '../../../lib/format';
 import { printZReportTicket } from '../../../lib/ticket-printer';
 import type { TicketTemplateConfig } from '../../../lib/ticket-template';
-import type { PosApiClient } from '../../../types';
 import { useSession } from '../../auth';
+import { useApi } from '../../auth';
 
 export function CloseCashSessionModal({
-  api,
   isOpen,
   sessionId,
   ticketTemplate,
@@ -15,7 +14,6 @@ export function CloseCashSessionModal({
   onClose,
   onSuccess
 }: {
-  api: PosApiClient;
   isOpen: boolean;
   sessionId: string;
   ticketTemplate: TicketTemplateConfig;
@@ -23,6 +21,7 @@ export function CloseCashSessionModal({
   onClose: () => void;
   onSuccess: () => void;
 }) {
+  const api = useApi();
   const [closingCashRealPesos, setClosingCashRealPesos] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);

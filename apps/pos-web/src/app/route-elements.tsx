@@ -52,7 +52,6 @@ export function PosRoute() {
 
   return (
     <PosScreen
-      api={shell.api}
       branchId={pos.branchId}
       cashSessionId={pos.cashSessionId}
       branchName={pos.branchName ?? pos.branchId}
@@ -80,7 +79,6 @@ export function HistoryRoute() {
 
   return (
     <HistoryScreen
-      api={shell.api}
       branchId={pos.branchId}
       branchName={pos.branchName ?? pos.branchId}
       branchAddress={pos.branchAddress}
@@ -93,7 +91,7 @@ export function HistoryRoute() {
 export function CashControlRoute() {
   const listo = useRequiredPos();
   if (!listo) return <Navigate to="/" replace />;
-  return <CashControlScreen api={listo.shell.api} branchId={listo.pos.branchId} cashSessionId={listo.pos.cashSessionId} />;
+  return <CashControlScreen branchId={listo.pos.branchId} cashSessionId={listo.pos.cashSessionId} />;
 }
 
 export function TablesRoute() {
@@ -110,7 +108,7 @@ export function KdsRoute() {
 export function ReservationsRoute() {
   const listo = useRequiredPos();
   if (!listo) return <Navigate to="/" replace />;
-  return <ReservationsScreen api={listo.shell.api} branchId={listo.pos.branchId} />;
+  return <ReservationsScreen branchId={listo.pos.branchId} />;
 }
 
 export function DeliveryRoute() {
@@ -120,15 +118,14 @@ export function DeliveryRoute() {
 export function ProductsRoute() {
   const listo = useRequiredPos();
   if (!listo) return <Navigate to="/" replace />;
-  return <ProductsScreen api={listo.shell.api} branchId={listo.pos.branchId} />;
+  return <ProductsScreen branchId={listo.pos.branchId} />;
 }
 
 export function PromotionsRoute() {
-  return <PromotionsScreen api={useShell().api} />;
+  return <PromotionsScreen />;
 }
 
 export function PaymentMethodsRoute() {
-  const shell = useShell();
   return (
     <div className="max-w-5xl mx-auto p-4 md:p-8">
       <header className="mb-6">
@@ -137,7 +134,7 @@ export function PaymentMethodsRoute() {
           Qué puede cobrar tu caja y cómo entra cada cosa al cierre del turno.
         </p>
       </header>
-      <PaymentMethodsPanel api={shell.api} />
+      <PaymentMethodsPanel />
     </div>
   );
 }
@@ -147,7 +144,6 @@ export function CustomersRoute() {
   if (!listo) return <Navigate to="/" replace />;
   return (
     <CustomersScreen
-      api={listo.shell.api}
       branchId={listo.pos.branchId}
       cashSessionId={listo.pos.cashSessionId ?? null}
     />
@@ -157,13 +153,13 @@ export function CustomersRoute() {
 export function InventoryRoute() {
   const listo = useRequiredPos();
   if (!listo) return <Navigate to="/" replace />;
-  return <InventoryScreen api={listo.shell.api} branchId={listo.pos.branchId} />;
+  return <InventoryScreen branchId={listo.pos.branchId} />;
 }
 
 export function RecipesRoute() {
   const listo = useRequiredPos();
   if (!listo) return <Navigate to="/" replace />;
-  return <RecipesScreen api={listo.shell.api} branchId={listo.pos.branchId} />;
+  return <RecipesScreen branchId={listo.pos.branchId} />;
 }
 
 export function BulkImportRoute() {
@@ -176,7 +172,6 @@ export function ReportsRoute() {
   const { shell, pos } = listo;
   return (
     <ReportsScreen
-      api={shell.api}
       branchId={pos.branchId}
       branchName={pos.branchName ?? pos.branchId}
       ticketTemplate={shell.ticketTemplate}
@@ -185,7 +180,7 @@ export function ReportsRoute() {
 }
 
 export function BranchesRoute() {
-  return <BranchesScreen api={useShell().api} />;
+  return <BranchesScreen />;
 }
 
 export function WaitersRoute() {
@@ -193,18 +188,17 @@ export function WaitersRoute() {
 }
 
 export function UsersRoute() {
-  return <UsersScreen api={useShell().api} />;
+  return <UsersScreen />;
 }
 
 export function BillingRoute() {
-  const shell = useShell();
-  return <BillingScreen api={shell.api} session={shell.session} />;
+  return <BillingScreen />;
 }
 
 export function QrMenuRoute() {
-  return <QRMenuScreen api={useShell().api} />;
+  return <QRMenuScreen />;
 }
 
 export function PlatformRoute() {
-  return <PlatformScreen api={useShell().api} />;
+  return <PlatformScreen />;
 }

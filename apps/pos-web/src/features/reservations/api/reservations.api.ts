@@ -1,8 +1,9 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { ApiClient } from '../../../lib/api';
 import type { Reservation, CreateReservationPayload, UpdateReservationPayload, UpdateReservationStatusPayload } from '@pos-dian/shared';
+import { useApi } from '../../auth';
 
-export const useReservations = (api: ApiClient, branchId: string, dateFrom?: string, dateTo?: string) => {
+export const useReservations = (branchId: string, dateFrom?: string, dateTo?: string) => {
+  const api = useApi();
   return useQuery({
     queryKey: ['reservations', branchId, dateFrom, dateTo],
     queryFn: async (): Promise<Reservation[]> => {
@@ -13,7 +14,8 @@ export const useReservations = (api: ApiClient, branchId: string, dateFrom?: str
   });
 };
 
-export const useCreateReservation = (api: ApiClient, branchId: string) => {
+export const useCreateReservation = (branchId: string) => {
+  const api = useApi();
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (payload: CreateReservationPayload): Promise<Reservation> => {
@@ -25,7 +27,8 @@ export const useCreateReservation = (api: ApiClient, branchId: string) => {
   });
 };
 
-export const useUpdateReservation = (api: ApiClient, branchId: string) => {
+export const useUpdateReservation = (branchId: string) => {
+  const api = useApi();
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async ({ id, payload }: { id: string; payload: UpdateReservationPayload }): Promise<Reservation> => {
@@ -37,7 +40,8 @@ export const useUpdateReservation = (api: ApiClient, branchId: string) => {
   });
 };
 
-export const useUpdateReservationStatus = (api: ApiClient, branchId: string) => {
+export const useUpdateReservationStatus = (branchId: string) => {
+  const api = useApi();
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async ({ id, status }: { id: string; status: UpdateReservationStatusPayload['status'] }): Promise<Reservation> => {

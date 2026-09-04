@@ -1,23 +1,21 @@
 import { useState } from 'react';
 import { Banner, Modal } from '../../../components/ui';
 import { formatMoneyFromCents } from '../../../lib/format';
-import type { PosApiClient } from '../../../types';
 import type { SaleDetailResponse } from '../../../lib/api';
 import type { CreateReturnRequest } from '@pos-dian/shared';
+import { useApi } from '../../auth';
 
-export function ReturnSaleModal({
-  api,
-  saleDetail,
+export function ReturnSaleModal({ saleDetail,
   isOpen,
   onClose,
   onSuccess
 }: {
-  api: PosApiClient;
   saleDetail: SaleDetailResponse | null;
   isOpen: boolean;
   onClose: () => void;
   onSuccess: () => void;
 }) {
+  const api = useApi();
   const [returnQtys, setReturnQtys] = useState<Record<string, number>>({});
   const [reason, setReason] = useState('');
   const [loading, setLoading] = useState(false);

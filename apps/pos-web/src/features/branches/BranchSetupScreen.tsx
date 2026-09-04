@@ -5,7 +5,7 @@ import { formatMoneyFromCents } from '../../lib/format';
 import type { BranchItem, TerminalItem, AuthSession } from '../../lib/api';
 import type { PosContext } from '../../lib/session';
 import { useSession } from '../auth';
-import type { PosApiClient } from '../../types';
+import { useApi } from '../auth';
 
 interface TerminalCardProps {
   name: string;
@@ -70,14 +70,13 @@ function TerminalCard({ name, status, lastActivity, currentUser, onClick, select
 }
 
 export function BranchSetupScreen({
-  api,
   session,
   onReady
 }: {
-  api: PosApiClient;
   session: AuthSession | null;
   onReady: (context: PosContext) => void;
 }) {
+  const api = useApi();
   const { logout } = useSession();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -106,7 +105,6 @@ export function BranchSetupScreen({
   );
 
   const { checkingSession, currentSession, sessionError, setCurrentSession } = useBranchCashSession({
-    api,
     selectedTerminalId
   });
 

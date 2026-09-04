@@ -1,13 +1,11 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
-import type { PosApiClient } from '../../types';
 import { Banner, Modal, ShellMessage } from '../../components/ui';
 import type { BranchItem } from '../../lib/api/client';
+import { useApi } from '../auth';
 
-interface BranchesScreenProps {
-  api: PosApiClient;
-}
 
-export function BranchesScreen({ api }: BranchesScreenProps) {
+export function BranchesScreen() {
+  const api = useApi();
   const [branches, setBranches] = useState<BranchItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);

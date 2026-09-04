@@ -2,9 +2,9 @@ import { useCallback, useEffect, useState, type ChangeEvent, type FormEvent } fr
 import { ReceivablesPanel } from './components/ReceivablesPanel';
 import type { Customer } from '../../lib/api';
 import { Banner, Modal, ShellMessage } from '../../components/ui';
+import { useApi } from '../auth';
 
 interface CustomersScreenProps {
-  api: ReturnType<typeof import('../../lib/api').createApiClient>;
   /** Necesarios para recibir abonos: un abono en efectivo entra al turno de caja. */
   branchId?: string;
   cashSessionId?: string | null;
@@ -16,7 +16,8 @@ interface CustomersScreenProps {
  * La cartera vive aquí y no en un menú aparte porque es la misma persona: quien pregunta
  * «¿cuánto debe doña Rosa?» está mirando su ficha de cliente, no un informe financiero.
  */
-export function CustomersScreen({ api, branchId, cashSessionId }: CustomersScreenProps) {
+export function CustomersScreen({ branchId, cashSessionId }: CustomersScreenProps) {
+  const api = useApi();
   const [pestana, setPestana] = useState<'DIRECTORIO' | 'CARTERA'>('DIRECTORIO');
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -141,7 +142,7 @@ export function CustomersScreen({ api, branchId, cashSessionId }: CustomersScree
         {pestanas}
         <div className="p-4">
           {branchId ? (
-            <ReceivablesPanel api={api} branchId={branchId} cashSessionId={cashSessionId} />
+            <ReceivablesPanel branchId={branchId} cashSessionId={cashSessionId} />
           ) : (
             <p className="text-sm text-muted-foreground">Selecciona una sucursal para ver la cartera.</p>
           )}

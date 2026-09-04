@@ -2,7 +2,6 @@ import { useCallback, useEffect, useState, type FormEvent, useRef } from 'react'
 import { Banner, PlaceholderImage } from '../../components/ui';
 import { formatMoneyFromCents, pesosToCents, centsToPesos } from '../../lib/format';
 import type { ProductItem } from '../../lib/api';
-import type { PosApiClient } from '../../types';
 import type { ProductImageItem } from '../../lib/api/client';
 import { PermissionGuard, useSession } from '../auth';
 import {
@@ -10,14 +9,14 @@ import {
   PRODUCT_TAX_CATEGORY_OPTIONS,
   type ProductTaxCategoryOption
 } from './constants';
+import { useApi } from '../auth';
 
 export function ProductsScreen({
-  api,
   branchId
 }: {
-  api: PosApiClient;
   branchId: string;
 }) {
+  const api = useApi();
   const { role } = useSession();
   const [query, setQuery] = useState('');
   const [loading, setLoading] = useState(false);

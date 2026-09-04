@@ -4,6 +4,7 @@ import { queryKeys } from '../../../shared/query-keys';
 import { Button, Input, Label } from '../../../components/ui';
 import { X, CheckCircle, AlertTriangle, AlertCircle, Eye, LogIn, Edit, Trash2, Plus } from 'lucide-react';
 import { BusinessTypeSelector } from '../../../components/ui';
+import { useApi } from '../../auth';
 
 import {
   PlatformTenantSearchResult,
@@ -12,14 +13,14 @@ import {
 } from '../../../lib/api/client';
 
 interface TenantDetailDrawerProps {
-  api: ReturnType<typeof import('../../../lib/api/client').createApiClient>;
   tenant: PlatformTenantSearchResult | null;
   isOpen: boolean;
   onClose: () => void;
   onSuccess: () => void;
 }
 
-export function TenantDetailDrawer({ api, tenant, isOpen, onClose, onSuccess }: TenantDetailDrawerProps) {
+export function TenantDetailDrawer({ tenant, isOpen, onClose, onSuccess }: TenantDetailDrawerProps) {
+  const api = useApi();
   const [activeTab, setActiveTab] = useState<'DETAILS' | 'USERS' | 'CONFIG' | 'ACTIONS'>('DETAILS');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);

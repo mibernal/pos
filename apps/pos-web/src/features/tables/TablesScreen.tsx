@@ -32,7 +32,7 @@ export const TablesScreen: React.FC<{ onNavigate?: (route: AppRoute) => void }> 
   const now = new Date();
   const dateFrom = startOfDay(now).toISOString();
   const dateTo = endOfDay(now).toISOString();
-  const { data: reservations } = useReservations(api, currentBranchId || '', dateFrom, dateTo);
+  const { data: reservations } = useReservations(currentBranchId || '', dateFrom, dateTo);
   
   const [waiterModalTableId, setWaiterModalTableId] = useState<string | null>(null);
   const [openTableModalId, setOpenTableModalId] = useState<string | null>(null);

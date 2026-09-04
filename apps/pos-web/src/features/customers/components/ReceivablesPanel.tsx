@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { Button, Card, Banner } from '../../../components/ui';
 import type { ApiClient } from '../../../lib/api/client';
 import { RECEIVABLE_STATUS_LABELS, type CustomerStatement } from '@pos-dian/shared';
+import { useApi } from '../../auth';
 
 /**
  * Cartera del comercio: quién debe, cuánto y desde cuándo.
@@ -20,15 +21,13 @@ function fecha(iso: string | null): string {
   return iso ? new Date(iso).toLocaleDateString('es-CO') : '—';
 }
 
-export function ReceivablesPanel({
-  api,
-  branchId,
+export function ReceivablesPanel({ branchId,
   cashSessionId
 }: {
-  api: ApiClient;
   branchId: string;
   cashSessionId?: string | null;
 }) {
+  const api = useApi();
   const [cartera, setCartera] = useState<Awaited<ReturnType<ApiClient['getReceivables']>> | null>(null);
   const [statement, setStatement] = useState<CustomerStatement | null>(null);
   const [error, setError] = useState<string | null>(null);

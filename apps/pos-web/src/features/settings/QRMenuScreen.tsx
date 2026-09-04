@@ -2,9 +2,8 @@ import { PageHeader } from '../../components/ui';
 import { usePosStore } from '../../hooks/usePosStore';
 import { useGetRooms } from '../tables/api/tables.api';
 import { TableQrPanel } from './components/TableQrPanel';
-import type { ApiClient } from '../../lib/api/client';
 
-export function QRMenuScreen({ api }: { api: ApiClient }) {
+export function QRMenuScreen() {
   const posContext = usePosStore(state => state.posContext);
   const { data: rooms } = useGetRooms(posContext?.branchId);
   const mesas = (rooms ?? []).flatMap((room) => room.tables.map((mesa) => ({ id: mesa.id, name: mesa.name })));
@@ -64,7 +63,7 @@ export function QRMenuScreen({ api }: { api: ApiClient }) {
         subtitle="El QR de la sucursal es para mirar la carta. El de cada mesa, además, deja pedir."
       />
 
-      <TableQrPanel api={api} tables={mesas} />
+      <TableQrPanel tables={mesas} />
 
       <div style={{ 
         display: 'flex', 

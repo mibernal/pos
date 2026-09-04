@@ -1,7 +1,8 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import type { PosApiClient } from '../../types';
+import { useApi } from '../auth';
 
-export function AuditCenterScreen({ api }: { api: PosApiClient }) {
+export function AuditCenterScreen() {
+  const api = useApi();
   const [logs, setLogs] = useState<any[]>([]); // eslint-disable-line @typescript-eslint/no-explicit-any
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);

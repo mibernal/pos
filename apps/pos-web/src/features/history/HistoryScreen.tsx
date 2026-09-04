@@ -4,11 +4,11 @@ import { formatMoneyFromCents, statusClassName, dianStatusLabel, toDateInputValu
 import { extractTicketPayments, printSaleTicket } from '../../lib/ticket-printer';
 import type { SaleDetailResponse, SalesListItem, TenantTaxMode } from '../../lib/api';
 import type { TicketTemplateConfig } from '../../lib/ticket-template';
-import type { PosApiClient } from '../../types';
 import { PermissionGuard, useSession } from '../auth';
 import { inferTaxModeFromSale } from '../sales';
 import { ReturnSaleModal } from './components/ReturnSaleModal';
 import { PAYMENT_KIND_BEHAVIOR, type PaymentKind } from '@pos-dian/shared';
+import { useApi } from '../auth';
 
 /**
  * La etiqueta de cada medio sale de la tabla compartida, no de una cadena de `if` con los
@@ -41,20 +41,19 @@ function formatSaleDateTime(value: string): { date: string; time: string } {
 }
 
 export function HistoryScreen({
-  api,
   branchId,
   branchName,
   branchAddress,
   ticketTemplate,
   tenantTaxMode
 }: {
-  api: PosApiClient;
   branchId: string;
   branchName: string;
   branchAddress?: string;
   ticketTemplate: TicketTemplateConfig;
   tenantTaxMode?: TenantTaxMode | null;
 }) {
+  const api = useApi();
   const { role, user } = useSession();
   const [fromDate, setFromDate] = useState(() => {
     const from = new Date();
@@ -567,7 +566,6 @@ export function HistoryScreen({
       ) : null}
 
       <ReturnSaleModal
-        api={api}
         saleDetail={selectedSaleDetail}
         isOpen={isReturnModalOpen}
         onClose={() => setIsReturnModalOpen(false)}

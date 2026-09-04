@@ -3,13 +3,14 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { queryKeys } from '../../shared/query-keys';
 import { Banner, ShellMessage, PlaceholderImage } from '../../components/ui';
 import { PermissionGuard, useSession } from '../auth';
+import { useApi } from '../auth';
 
 interface InventoryScreenProps {
-  api: ReturnType<typeof import('../../lib/api').createApiClient>;
   branchId: string;
 }
 
-export function InventoryScreen({ api, branchId }: InventoryScreenProps) {
+export function InventoryScreen({ branchId }: InventoryScreenProps) {
+  const api = useApi();
   const { role, tenantId } = useSession();
   const isPlatformOwner = role === 'PLATFORM_OWNER';
   const isTenantAdmin = role === 'ADMIN' || role === 'TENANT_OWNER';

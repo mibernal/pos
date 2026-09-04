@@ -11,9 +11,6 @@ import { PlansManagementTab } from './components/PlansManagementTab';
 import { RevenueWidget } from './components/RevenueWidget';
 import { Banner } from '../../components/ui';
 
-interface PlatformScreenProps {
-  api: ReturnType<typeof import('../../lib/api/client').createApiClient>;
-}
 
 import {
   PlatformDashboardMetrics,
@@ -22,8 +19,10 @@ import {
   PlatformTenantSearchResult
 } from '../../lib/api/client';
 import { PlatformHealthResponse } from './components/PlatformHealthWidget';
+import { useApi } from '../auth';
 
-export function PlatformScreen({ api }: PlatformScreenProps) {
+export function PlatformScreen() {
+  const api = useApi();
   const [activeTab, setActiveTab] = useState<'OVERVIEW' | 'REVENUE' | 'TENANTS' | 'PLANS'>('OVERVIEW');
   const [tenants, setTenants] = useState<PlatformTenantSearchResult[]>([]);
   const [loading, setLoading] = useState(true);
@@ -124,7 +123,7 @@ export function PlatformScreen({ api }: PlatformScreenProps) {
             </div>
           )}
 
-          {activeTab === 'REVENUE' && <RevenueWidget api={api} />}
+          {activeTab === 'REVENUE' && <RevenueWidget />}
 
           {activeTab === 'TENANTS' && (
             <AdvancedTenantsTable 
@@ -138,19 +137,17 @@ export function PlatformScreen({ api }: PlatformScreenProps) {
           )}
 
           {activeTab === 'PLANS' && (
-            <PlansManagementTab api={api} />
+            <PlansManagementTab />
           )}
 
           {isCreateModalOpen && (
             <CreateTenantModal 
-              api={api}
               onClose={() => setIsCreateModalOpen(false)}
               onSuccess={() => { setIsCreateModalOpen(false); loadData(); }}
             />
           )}
 
           <TenantDetailDrawer
-            api={api}
             tenant={selectedTenant}
             isOpen={!!selectedTenant}
             onClose={() => setSelectedTenant(null)}

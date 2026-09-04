@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Card, Banner } from '../../../components/ui';
-import type { ApiClient } from '../../../lib/api/client';
 import type { RevenueMetrics } from '@pos-dian/shared';
+import { useApi } from '../../auth';
 
 /**
  * Panel de ingresos.
@@ -44,7 +44,8 @@ function Cifra({
   );
 }
 
-export function RevenueWidget({ api }: { api: ApiClient }) {
+export function RevenueWidget() {
+  const api = useApi();
   const [metrics, setMetrics] = useState<RevenueMetrics | null>(null);
   const [error, setError] = useState<string | null>(null);
 

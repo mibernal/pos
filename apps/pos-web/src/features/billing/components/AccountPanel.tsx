@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Button, Card, Banner } from '../../../components/ui';
-import type { ApiClient } from '../../../lib/api/client';
 import type { BillingPortal } from '@pos-dian/shared';
 import { INVOICE_STATUS_LABELS, DUNNING_STEP_LABELS, UNLIMITED } from '@pos-dian/shared';
 import { PaymentMethodForm } from './PaymentMethodForm';
+import { useApi } from '../../auth';
 
 /**
  * El estado de cuenta del comercio.
@@ -34,7 +34,8 @@ const ESTADO_SUSCRIPCION: Record<string, { texto: string; clase: string }> = {
   CANCELLED: { texto: 'Cancelada', clase: 'bg-gray-200 text-gray-700' }
 };
 
-export function AccountPanel({ api }: { api: ApiClient }) {
+export function AccountPanel() {
+  const api = useApi();
   const [portal, setPortal] = useState<BillingPortal | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -219,7 +220,7 @@ export function AccountPanel({ api }: { api: ApiClient }) {
       {/* Medio de pago */}
       <Card className="p-6">
         <h3 className="text-lg font-bold text-foreground mb-4">Medio de pago</h3>
-        <PaymentMethodForm api={api} metodo={metodo} onCambio={cargar} />
+        <PaymentMethodForm metodo={metodo} onCambio={cargar} />
       </Card>
 
       {/* Cupón */}

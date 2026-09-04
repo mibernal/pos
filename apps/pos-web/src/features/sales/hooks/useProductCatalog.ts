@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ApiClientError, type Customer, type ProductItem } from '../../../lib/api';
-import type { PosApiClient } from '../../../types';
+import { useApi } from '../../auth';
 import {
   getCachedProducts,
   getCachedCustomers,
@@ -10,11 +10,11 @@ import {
 } from '../../../lib/catalog-cache';
 
 export interface UseProductCatalogOptions {
-  api: PosApiClient;
   branchId: string;
 }
 
-export function useProductCatalog({ api, branchId }: UseProductCatalogOptions) {
+export function useProductCatalog({ branchId }: UseProductCatalogOptions) {
+  const api = useApi();
   const [query, setQuery] = useState('');
   const [cachedProducts, setCachedProducts] = useState<ProductItem[]>([]);
   const [productsLoading, setProductsLoading] = useState(false);

@@ -1,12 +1,11 @@
 import { useEffect, useState } from 'react';
 import { updateTenantBusinessProfileBodySchema } from '@pos-dian/shared';
 import { Banner, Modal, BusinessTypeSelector } from '../../components/ui';
-import type { PosApiClient } from '../../types';
 import type { AuthSession } from '../../lib/api/client';
 import type { TicketTemplateConfig } from '../../lib/ticket-template';
+import { useApi } from '../auth';
 
 export function TicketTemplateModal({
-  api,
   isOpen,
   onClose,
   onSave,
@@ -14,7 +13,6 @@ export function TicketTemplateModal({
   session,
   refreshSession
 }: {
-  api: PosApiClient;
   isOpen: boolean;
   onClose: () => void;
   onSave: (template: TicketTemplateConfig) => void;
@@ -22,6 +20,7 @@ export function TicketTemplateModal({
   session: AuthSession;
   refreshSession?: () => Promise<void>;
 }) {
+  const api = useApi();
   const [draft, setDraft] = useState<TicketTemplateConfig & { businessType?: string, customBusinessType?: string }>(template);
   const [modules, setModules] = useState({
     enable_tables: session.user.enableTables || false,

@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Banner, Button, Card } from '../../components/ui';
-import type { ApiClient, RecipeSummary } from '../../lib/api/client';
+import type { RecipeSummary } from '../../lib/api/client';
 import type { ConsumptionDeviationRow, ProductItem, Recipe } from '@pos-dian/shared';
+import { useApi } from '../auth';
 
 /**
  * Recetas y escandallo.
@@ -31,7 +32,7 @@ interface ComponenteEditable {
   waste_percent: string;
 }
 
-export function RecipesScreen({ api, branchId }: { api: ApiClient; branchId?: string }) {
+export function RecipesScreen({ branchId }: { branchId?: string }) {
   const [pestana, setPestana] = useState<'escandallo' | 'desviacion'>('escandallo');
 
   return (
@@ -59,15 +60,16 @@ export function RecipesScreen({ api, branchId }: { api: ApiClient; branchId?: st
       </div>
 
       {pestana === 'escandallo' ? (
-        <EscandalloPanel api={api} />
+        <EscandalloPanel />
       ) : (
-        <DesviacionPanel api={api} branchId={branchId} />
+        <DesviacionPanel branchId={branchId} />
       )}
     </div>
   );
 }
 
-function EscandalloPanel({ api }: { api: ApiClient }) {
+function EscandalloPanel() {
+  const api = useApi();
   const [recetas, setRecetas] = useState<RecipeSummary[]>([]);
   const [productos, setProductos] = useState<ProductItem[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -111,7 +113,6 @@ function EscandalloPanel({ api }: { api: ApiClient }) {
 
       {editando ? (
         <EditorReceta
-          api={api}
           productos={productos}
           productId={editando.productId}
           receta={editando.receta}
@@ -206,7 +207,6 @@ function EscandalloPanel({ api }: { api: ApiClient }) {
 }
 
 function EditorReceta({
-  api,
   productos,
   productId,
   receta,
@@ -215,7 +215,6 @@ function EditorReceta({
   onEliminado,
   onError
 }: {
-  api: ApiClient;
   productos: ProductItem[];
   productId: string;
   receta: Recipe | null;
@@ -224,6 +223,7 @@ function EditorReceta({
   onEliminado: () => Promise<void>;
   onError: (mensaje: string) => void;
 }) {
+  const api = useApi();
   const [rendimiento, setRendimiento] = useState(String(receta?.yield_qty ?? 1));
   const [activa, setActiva] = useState(receta?.active ?? true);
   const [guardando, setGuardando] = useState(false);
@@ -433,7 +433,8 @@ function EditorReceta({
   );
 }
 
-function DesviacionPanel({ api, branchId }: { api: ApiClient; branchId?: string }) {
+function DesviacionPanel({ branchId }: { branchId?: string }) {
+  const api = useApi();
   const [desde, setDesde] = useState(hoyLocal(-30));
   const [hasta, setHasta] = useState(hoyLocal());
   const [filas, setFilas] = useState<ConsumptionDeviationRow[]>([]);

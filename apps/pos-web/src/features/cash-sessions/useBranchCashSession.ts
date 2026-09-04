@@ -1,14 +1,12 @@
 import { useEffect, useState } from 'react';
 import type { CashSession } from '../../lib/api';
-import type { PosApiClient } from '../../types';
+import { useApi } from '../auth';
 
-export function useBranchCashSession({
-  api,
-  selectedTerminalId
+export function useBranchCashSession({ selectedTerminalId
 }: {
-  api: PosApiClient;
   selectedTerminalId: string;
 }) {
+  const api = useApi();
   const [currentSession, setCurrentSession] = useState<CashSession | null>(null);
   const [checkingSession, setCheckingSession] = useState(false);
   const [sessionError, setSessionError] = useState<string | null>(null);

@@ -6,14 +6,13 @@ import { Banner, Modal, ShellMessage } from '../../components/ui';
 import type { UserRole } from '../../lib/api/client';
 import { useSession } from '../auth';
 import { useModules } from '../modules/FeatureModuleProvider';
+import { useApi } from '../auth';
 
-interface UsersScreenProps {
-  api: PosApiClient;
-}
 
 type UserItem = { id: string; tenantId: string; email: string; name: string; role: UserRole; active: boolean; createdAt: string; branchIds?: string[] };
 
-export function UsersScreen({ api }: UsersScreenProps) {
+export function UsersScreen() {
+  const api = useApi();
   const { session, tenantId } = useSession();
   const currentRole = session?.user.role;
   const canCreateAdmin = currentRole === 'PLATFORM_OWNER' || currentRole === 'TENANT_OWNER';

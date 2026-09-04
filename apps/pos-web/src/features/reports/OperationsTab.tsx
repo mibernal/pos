@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Banner } from '../../components/ui';
 import { MENU_CLASS_LABELS, type MenuEngineeringRow, type PrepTimeRow, type SalesByHourRow, type TableTurnoverRow } from '@pos-dian/shared';
-import type { PosApiClient } from '../../types';
+import { useApi } from '../auth';
 
 /**
  * Operación del restaurante.
@@ -26,16 +26,15 @@ const CLASE_COLOR: Record<string, string> = {
 };
 
 export function OperationsTab({
-  api,
   branchId,
   from,
   to
 }: {
-  api: PosApiClient;
   branchId: string;
   from: string;
   to: string;
 }) {
+  const api = useApi();
   const [mesas, setMesas] = useState<TableTurnoverRow[]>([]);
   const [cocina, setCocina] = useState<PrepTimeRow[]>([]);
   const [franjas, setFranjas] = useState<SalesByHourRow[]>([]);

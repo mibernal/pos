@@ -1,15 +1,13 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Banner, ShellMessage } from '../../components/ui';
-import type { PosApiClient } from '../../types';
 import type { Promotion, ProductItem } from '../../lib/api';
 import { formatMoneyFromCents } from '../../lib/format';
 import { PromotionFormModal } from './components/PromotionFormModal';
+import { useApi } from '../auth';
 
-interface Props {
-  api: PosApiClient;
-}
 
-export function PromotionsScreen({ api }: Props) {
+export function PromotionsScreen() {
+  const api = useApi();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [promotions, setPromotions] = useState<Promotion[]>([]);
@@ -166,7 +164,6 @@ export function PromotionsScreen({ api }: Props) {
 
       {isModalOpen && (
         <PromotionFormModal
-          api={api}
           isOpen={isModalOpen}
           promotion={editingPromotion}
           products={products}

@@ -1,13 +1,11 @@
 import { useState, useEffect } from 'react';
 import { Button, Card, Banner } from '../../components/ui';
 import { AccountPanel } from './components/AccountPanel';
+import { useApi } from '../auth';
 
-interface BillingScreenProps {
-  api: ReturnType<typeof import('../../lib/api/client').createApiClient>;
-  session: import('../../lib/api/client').AuthSession;
-}
 
-function PlansTab({ api }: BillingScreenProps) {
+function PlansTab() {
+  const api = useApi();
   const [plans, setPlans] = useState<import('../../lib/api/client').BillingPlan[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -188,7 +186,7 @@ function PlansTab({ api }: BillingScreenProps) {
  * «Planes» era lo único que había hasta ahora: una página de precios sin estado de cuenta,
  * útil el día que contratas y ningún otro.
  */
-export function BillingScreen({ api, session }: BillingScreenProps) {
+export function BillingScreen() {
   const [pestana, setPestana] = useState<'CUENTA' | 'PLANES'>('CUENTA');
 
   return (
@@ -219,7 +217,7 @@ export function BillingScreen({ api, session }: BillingScreenProps) {
         </div>
       </header>
 
-      {pestana === 'CUENTA' ? <AccountPanel api={api} /> : <PlansTab api={api} session={session} />}
+      {pestana === 'CUENTA' ? <AccountPanel /> : <PlansTab />}
     </div>
   );
 }
