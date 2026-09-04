@@ -306,6 +306,7 @@ open http://localhost:3000/docs
 | Provider HTTP falla por status inválido | Contrato de respuesta del PAC no mapeado | Revisar mapeo en `dian-http.provider.ts` |
 | Cola offline no persiste en iOS | Safari purgó IndexedDB por falta de espacio | Verificar en consola: `navigator.storage.persist()` debe retornar `true` |
 | Error `ERR_MODULE_NOT_FOUND` al migrar | Dependencias OpenTelemetry no instaladas | `pnpm install` en el root del monorepo |
+| `operator does not exist: text = uuid` en worker | Comparación con cast `::uuid` sobre `audit_logs.entity_id` (que es `TEXT`) | Corregido en D-063: consultar `entity_id` como texto plano sin `::uuid` |
 
 ---
 

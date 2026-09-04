@@ -290,6 +290,11 @@ export async function cleanupE2eFixture(
     await trx.deleteFrom('inventory_transactions').where('tenant_id', '=', fixture.tenantId).execute();
     await trx.deleteFrom('inventory_balances').where('tenant_id', '=', fixture.tenantId).execute();
     await trx.deleteFrom('promotions').where('tenant_id', '=', fixture.tenantId).execute();
+    // Antes que los productos: `recipe_components.ingredient_product_id` es RESTRICT a
+    // propósito —no se borra un producto que alguna receta usa— y eso también bloquea el
+    // borrado del tenant de prueba.
+    await trx.deleteFrom('recipe_components').where('tenant_id', '=', fixture.tenantId).execute();
+    await trx.deleteFrom('product_recipes').where('tenant_id', '=', fixture.tenantId).execute();
     await trx.deleteFrom('product_variants').where('tenant_id', '=', fixture.tenantId).execute();
     await trx.deleteFrom('products').where('tenant_id', '=', fixture.tenantId).execute();
     await trx.deleteFrom('user_branches').where('tenant_id', '=', fixture.tenantId).execute();

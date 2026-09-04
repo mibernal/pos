@@ -848,6 +848,22 @@ export function createApiClient({ baseUrl, getSession, setSession, onReauthRequi
     deactivatePaymentMethod: (code: string) =>
       requestJson<void>(`/payment-methods/${code}`, { method: 'DELETE' }),
 
+    // RECETAS Y ESCANDALLO
+    getRecipes: () => requestJson<RecipeSummary[]>('/recipes'),
+    getRecipe: (productId: string, variantId?: string | null) =>
+      requestJson<Recipe | null>(
+        `/recipes/${productId}${variantId ? `?variant_id=${variantId}` : ''}`
+      ),
+    upsertRecipe: (productId: string, payload: UpsertRecipeInput) =>
+      requestJson<Recipe>(`/recipes/${productId}`, { method: 'PUT', body: JSON.stringify(payload) }),
+    deleteRecipe: (recipeId: string) => requestJson<void>(`/recipes/${recipeId}`, { method: 'DELETE' }),
+    getConsumptionDeviation: (params: { from: string; to: string; branch_id?: string }) =>
+      requestJson<ConsumptionDeviationRow[]>(
+        `/recipes/reports/consumption-deviation?${new URLSearchParams(
+          params.branch_id ? { ...params, branch_id: params.branch_id } : { from: params.from, to: params.to }
+        ).toString()}`
+      ),
+
     // CUENTAS POR COBRAR
     getReceivables: () =>
       requestJson<{

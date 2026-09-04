@@ -11,7 +11,7 @@ export type SaleStatus = 'COMPLETED' | 'VOID';
 export type DianDocumentStatus = 'PENDING' | 'SENT' | 'ACCEPTED' | 'REJECTED';
 export type DianDocumentType = 'INVOICE' | 'CREDIT_NOTE' | 'SUPPORT_DOC';
 export type OutboxStatus = 'PENDING' | 'SENT' | 'FAILED';
-export type InventoryOperation = 'SALE' | 'SALE_VOID' | 'SALE_RETURN' | 'MANUAL_ENTRY' | 'MANUAL_EXIT' | 'PURCHASE' | 'PO_RECEIPT' | 'TRANSFER_OUT' | 'TRANSFER_IN' | 'ADJUSTMENT_IN' | 'ADJUSTMENT_OUT' | 'CYCLE_COUNT';
+export type InventoryOperation = 'SALE' | 'SALE_VOID' | 'SALE_RETURN' | 'MANUAL_ENTRY' | 'MANUAL_EXIT' | 'PURCHASE' | 'PO_RECEIPT' | 'TRANSFER_OUT' | 'TRANSFER_IN' | 'ADJUSTMENT_IN' | 'ADJUSTMENT_OUT' | 'CYCLE_COUNT' | 'RECIPE';
 export type CashSessionStatus = 'OPEN' | 'CLOSED' | 'RECONCILED';
 export type PoStatus = 'DRAFT' | 'SENT' | 'PARTIAL' | 'COMPLETED' | 'CANCELED';
 export type ReceiptStatus = 'DRAFT' | 'COMPLETED' | 'CANCELED';
@@ -637,6 +637,32 @@ export interface InventoryTransactionsTable {
   balance_after: string | null;
   notes: string | null;
   created_by_user_id: string;
+  created_at: Generated<Date>;
+}
+
+export interface ProductRecipesTable {
+  id: string;
+  tenant_id: string;
+  product_id: string;
+  variant_id: string | null;
+  /** Cuántas unidades produce la receta: una salsa se prepara por litros y se usa por cucharadas. */
+  yield_qty: Generated<string>;
+  active: Generated<boolean>;
+  notes: string | null;
+  created_at: Generated<Date>;
+  updated_at: Generated<Date>;
+}
+
+export interface RecipeComponentsTable {
+  id: string;
+  tenant_id: string;
+  recipe_id: string;
+  ingredient_product_id: string;
+  ingredient_variant_id: string | null;
+  /** Consumo de la receta entera, no de una unidad: se divide por el rendimiento. */
+  qty: string;
+  /** Merma en porcentaje: la cebolla pierde piel, la carne pierde agua. */
+  waste_percent: Generated<string>;
   created_at: Generated<Date>;
 }
 
@@ -1279,6 +1305,8 @@ export interface Database {
   tip_settlements: TipSettlementsTable;
   tip_settlement_items: TipSettlementItemsTable;
   card_batches: CardBatchesTable;
+  product_recipes: ProductRecipesTable;
+  recipe_components: RecipeComponentsTable;
   sale_items: SaleItemsTable;
   sale_returns: SaleReturnsTable;
   return_items: ReturnItemsTable;

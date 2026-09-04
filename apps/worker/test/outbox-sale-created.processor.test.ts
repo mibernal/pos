@@ -59,9 +59,18 @@ function createPoolMock(
       const fromTest = await implementation(queryText, params).catch(() => null);
       return (fromTest ?? { rows: [{ id: 'inventory-tx-existente' }] }) as QueryResultLike;
     }
-    // Efectos secundarios (cocina / auditoría): irrelevantes para la emisión.
-    if (queryText.includes('kitchen_tickets') || queryText.includes('FROM audit_logs')) {
-      return { rows: [] } as QueryResultLike;
+    // Efectos secundarios (cocina / auditoría): irrelevantes para la emisión, salvo para la
+    // prueba que verifica cómo se escriben. Se le pasan primero: si el doble los respondiera
+    // por su cuenta, esa prueba no vería nunca las consultas sobre las que afirma.
+    if (queryText.includes('kitchen_tickets') || queryText.includes('audit_logs')) {
+      const fromTest = await implementation(queryText, params).catch(() => null);
+      return (fromTest ?? { rows: [] }) as QueryResultLike;
+    }
+    // Sin recetas: el producto se descarga a sí mismo, que es el caso de estas pruebas.
+    // La expansión por receta se prueba contra Postgres real en `recipes.e2e.test.ts`.
+    if (queryText.includes('FROM product_recipes')) {
+      const fromTest = await implementation(queryText, params).catch(() => null);
+      return (fromTest ?? { rows: [] }) as QueryResultLike;
     }
     if (queryText.includes('tenant_dian_settings')) {
       return { rows: [{ provider_name: 'MOCK', credentials: {}, test_mode: true }] } as QueryResultLike;
@@ -200,6 +209,177 @@ describe('outbox sale created processor', () => {
         })
       ])
     );
+  });
+
+  it('descarga los ingredientes de la receta y no el plato', async () => {
+    // El caso que justifica toda la fase: en un restaurante, vender una hamburguesa tiene
+    // que bajar pan y carne. Antes bajaba «hamburguesa» —un producto que nadie compra ni
+    // almacena— y los ingredientes se consumían sin que el sistema se enterara.
+    const PLATO = '66666666-6666-4666-a666-666666666666';
+    const PAN = '88888888-8888-4888-a888-888888888888';
+    const CARNE = '99999999-9999-4999-a999-999999999999';
+
+    const executed: Array<{ text: string; params?: unknown[] }> = [];
+
+    const pool = createPoolMock(async (queryText, params) => {
+      executed.push({ text: queryText, params });
+
+      if (queryText.includes('UPDATE outbox_events') && queryText.includes('SET next_retry_at')) {
+        return {
+          rows: [
+            {
+              id: '44444444-4444-4444-a444-444444444444',
+              tenant_id: '11111111-1111-4111-a111-111111111111',
+              aggregate_id: '22222222-2222-4222-a222-222222222222',
+              status: 'PENDING',
+              attempts: 0,
+              payload_json: {
+                idempotency_key: '55555555-5555-4555-a555-555555555555',
+                sale_id: '22222222-2222-4222-a222-222222222222',
+                tenant_id: '11111111-1111-4111-a111-111111111111',
+                branch_id: '33333333-3333-4333-a333-333333333333',
+                sale_number: 7
+              }
+            }
+          ]
+        };
+      }
+
+      // Inventario todavía sin descargar: se ejerce el camino completo.
+      if (queryText.includes('FROM inventory_transactions')) {
+        return { rows: [] };
+      }
+
+      // Un pan y 150 g de carne con 10 % de merma por unidad de plato.
+      if (queryText.includes('FROM product_recipes')) {
+        return {
+          rows: [
+            {
+              recipe_id: 'receta-1',
+              product_id: PLATO,
+              variant_id: null,
+              yield_qty: '1.000',
+              ingredient_product_id: PAN,
+              ingredient_variant_id: null,
+              qty: '1.0000',
+              waste_percent: '0.00'
+            },
+            {
+              recipe_id: 'receta-1',
+              product_id: PLATO,
+              variant_id: null,
+              yield_qty: '1.000',
+              ingredient_product_id: CARNE,
+              ingredient_variant_id: null,
+              qty: '0.1500',
+              waste_percent: '10.00'
+            }
+          ]
+        };
+      }
+
+      if (queryText.includes('FROM sale_items') && !queryText.includes('INNER JOIN products p')) {
+        return { rows: [{ id: 'sale-item-1', product_id: PLATO, variant_id: null, qty: 2 }] };
+      }
+
+      if (queryText.includes('INSERT INTO inventory_balances')) {
+        return { rows: [{ on_hand_qty: 50 }] };
+      }
+
+      if (queryText.includes('FROM sales s') && queryText.includes('INNER JOIN tenants t')) {
+        return {
+          rows: [
+            {
+              sale_id: '22222222-2222-4222-a222-222222222222',
+              sale_number: '7',
+              created_at: new Date('2026-08-27T12:00:00.000Z'),
+              subtotal_cents: 30000,
+              discount_cents: 0,
+              total_cents: 30000,
+              tax_total_cents: 0,
+              tax_lines_json: [],
+              payment_json: { mode: 'CASH', total_cents: 30000, payments: [{ method: 'CASH', amount_cents: 30000 }] },
+              void_reason: null,
+              tax_mode: 'IVA',
+              tenant_id: '11111111-1111-4111-a111-111111111111',
+              tenant_name: 'Tenant 1',
+              tenant_nit: '900000001',
+              tenant_business_name: 'Tenant 1 SAS',
+              branch_id: '33333333-3333-4333-a333-333333333333',
+              branch_name: 'Sucursal Centro',
+              branch_address: 'Calle 1'
+            }
+          ]
+        };
+      }
+
+      if (queryText.includes('FROM sale_items si') && queryText.includes('INNER JOIN products p')) {
+        return {
+          rows: [
+            {
+              id: 'sale-item-1',
+              product_id: PLATO,
+              qty: '2.000',
+              price_cents: 15000,
+              line_total_cents: 30000,
+              product_name: 'Hamburguesa clásica',
+              barcode: null,
+              tax_category: 'IVA_19'
+            }
+          ]
+        };
+      }
+
+      if (queryText.includes('FROM sales')) {
+        return { rows: [{ created_by_user_id: '77777777-7777-4777-a777-777777777777', status: 'COMPLETED' }] };
+      }
+
+      if (queryText.includes('FROM inventory_ledger')) return { rows: [] };
+      if (queryText.includes('FROM products')) return { rows: [{ name: 'Insumo', min_stock_alert_qty: null }] };
+      if (queryText.includes('INSERT INTO inventory_transactions')) return { rows: [] };
+      if (queryText.includes('INSERT INTO inventory_ledger')) return { rows: [] };
+      if (queryText.includes('INSERT INTO outbox_events')) return { rows: [] };
+
+      if (queryText.includes('SELECT id, status, cude') && queryText.includes('FROM dian_documents')) {
+        return { rows: [{ id: 'doc-1', status: 'PENDING', cude: null }] };
+      }
+
+      if (queryText.includes('UPDATE dian_documents')) return { rows: [] };
+      if (queryText.includes('UPDATE outbox_events') && queryText.includes("SET status = 'SENT'")) {
+        return { rows: [] };
+      }
+
+      throw new Error(`Query no esperada: ${queryText}`);
+    });
+
+    useProvider({
+      emitSale: vi.fn(async () => ({ status: 'ACCEPTED' as const, cude: 'CUDE-RECETA', raw: {} }))
+    });
+
+    const processor = buildOutboxSaleCreatedProcessor({ pool });
+    await processor(createJob('44444444-4444-4444-a444-444444444444'));
+
+    const movimientos = executed
+      .filter((q) => q.text.includes('INSERT INTO inventory_transactions'))
+      .map((q) => ({ productId: q.params?.[2], qtyChange: q.params?.[5], operation: q.params?.[9] }));
+
+    // El plato no se descuenta a sí mismo: no se almacena, se prepara.
+    expect(movimientos.some((m) => m.productId === PLATO)).toBe(false);
+
+    expect(movimientos).toEqual(
+      expect.arrayContaining([
+        { productId: PAN, qtyChange: -2, operation: 'RECIPE' },
+        // 2 × 0,15 × 1,10 = 0,33
+        { productId: CARNE, qtyChange: -0.33, operation: 'RECIPE' }
+      ])
+    );
+
+    // El kardex distingue el pan que bajó por venderse pan del que bajó por hamburguesas.
+    const kardex = executed.filter((q) => q.text.includes('INSERT INTO inventory_ledger'));
+    expect(kardex).toHaveLength(2);
+    for (const fila of kardex) {
+      expect(fila.params?.[10]).toBe('RECIPE_DISCHARGE');
+    }
   });
 
   it('publica la alerta de bajo stock sin poner en riesgo el descargo ni la emisión', async () => {
@@ -1049,6 +1229,217 @@ describe('outbox sale created processor', () => {
           attempt: 1,
           provider_result: 'ERROR',
           dian_transition: 'PENDING->PENDING'
+        })
+      ])
+    );
+  });
+
+  it('ejecuta side effects de auditoría con entity_id como string sin fallar con operator does not exist: text = uuid', async () => {
+    const executedQueries: { text: string; params?: unknown[] }[] = [];
+
+    const provider: DianProvider = {
+      emitSale: vi.fn(async () => ({
+        status: 'ACCEPTED' as const,
+        cude: 'CUDE-TEST-AUDIT',
+        raw: {}
+      }))
+    };
+    useProvider(provider);
+
+    const pool = createPoolMock(async (queryText, params) => {
+      executedQueries.push({ text: queryText, params });
+
+      if (queryText.includes('UPDATE outbox_events') && queryText.includes('SET next_retry_at')) {
+        return {
+          rows: [
+            {
+              id: '44444444-4444-4444-a444-444444444444',
+              tenant_id: '11111111-1111-4111-a111-111111111111',
+              aggregate_id: '22222222-2222-4222-a222-222222222222',
+              status: 'PENDING',
+              attempts: 0,
+              payload_json: {
+                idempotency_key: '55555555-5555-4555-a555-555555555555',
+                sale_id: '22222222-2222-4222-a222-222222222222',
+                tenant_id: '11111111-1111-4111-a111-111111111111',
+                branch_id: '33333333-3333-4333-a333-333333333333',
+                audit_payload: {
+                  client_uuid: '55555555-5555-4555-a555-555555555555',
+                  items_count: 1,
+                  subtotal_cents: 4500,
+                  discount_cents: 0,
+                  tax_total_cents: 718,
+                  payment_mode: 'CASH',
+                  snapshot_discrepancy: false
+                }
+              }
+            }
+          ]
+        };
+      }
+
+      if (queryText.includes('SELECT id FROM audit_logs')) {
+        return { rows: [] };
+      }
+      if (queryText.includes('SELECT created_by_user_id FROM sales')) {
+        return { rows: [{ created_by_user_id: 'user-audit-123' }] };
+      }
+      if (queryText.includes('INSERT INTO audit_logs')) {
+        return { rows: [] };
+      }
+      if (queryText.includes('SELECT id, status, cude') && queryText.includes('FROM dian_documents')) {
+        return { rows: [{ id: 'doc-audit', status: 'PENDING', cude: null }] };
+      }
+      if (queryText.includes('FROM sales s') && queryText.includes('INNER JOIN tenants t')) {
+        return {
+          rows: [
+            {
+              sale_id: '22222222-2222-4222-a222-222222222222',
+              sale_number: '301',
+              created_at: new Date('2026-03-07T12:30:00.000Z'),
+              subtotal_cents: 10000,
+              discount_cents: 0,
+              total_cents: 10000,
+              tax_total_cents: 0,
+              tax_lines_json: [],
+              payment_json: { mode: 'CASH', total_cents: 10000, payments: [{ method: 'CASH', amount_cents: 10000 }] },
+              tax_mode: 'IVA',
+              tenant_id: '11111111-1111-4111-a111-111111111111',
+              tenant_name: 'Tenant Audit',
+              tenant_nit: '900000301',
+              tenant_business_name: 'Tenant Audit SAS',
+              branch_id: '33333333-3333-4333-a333-333333333333',
+              branch_name: 'Sucursal Audit',
+              branch_address: 'Calle 10 # 20-30'
+            }
+          ]
+        };
+      }
+      if (queryText.includes('FROM sale_items si')) {
+        return { rows: [] };
+      }
+      if (queryText.includes('UPDATE dian_documents')) return { rows: [] };
+      if (queryText.includes('UPDATE outbox_events') && queryText.includes("SET status = 'SENT'")) {
+        return { rows: [] };
+      }
+
+      throw new Error(`Query no esperada: ${queryText}`);
+    });
+
+    const processor = buildOutboxSaleCreatedProcessor({ pool });
+    await processor(createJob('44444444-4444-4444-a444-444444444444'));
+
+    expect(provider.emitSale).toHaveBeenCalledOnce();
+
+    const auditSelect = executedQueries.find((q) => q.text.includes('SELECT id FROM audit_logs'));
+    expect(auditSelect).toBeDefined();
+    // La columna entity_id en audit_logs es TEXT; no debe llevar cast ::uuid en la comparación
+    expect(auditSelect!.text).not.toContain('entity_id = $1::uuid');
+    expect(auditSelect!.text).not.toContain('entity_id = $2::uuid');
+
+    const auditInsert = executedQueries.find((q) => q.text.includes('INSERT INTO audit_logs'));
+    expect(auditInsert).toBeDefined();
+    // entity_id se inserta como parámetro sin ::uuid
+    expect(auditInsert!.text).not.toContain('$4::uuid');
+  });
+
+  it('no aborta la emisión DIAN si los efectos secundarios (cocina/auditoría) lanzan un error', async () => {
+    const provider: DianProvider = {
+      emitSale: vi.fn(async () => ({
+        status: 'ACCEPTED' as const,
+        cude: 'CUDE-SIDE-EFFECTS-TEST',
+        raw: {}
+      }))
+    };
+    useProvider(provider);
+
+    const pool = createPoolMock(async (queryText) => {
+      if (queryText.includes('UPDATE outbox_events') && queryText.includes('SET next_retry_at')) {
+        return {
+          rows: [
+            {
+              id: '44444444-4444-4444-a444-444444444444',
+              tenant_id: '11111111-1111-4111-a111-111111111111',
+              aggregate_id: '22222222-2222-4222-a222-222222222222',
+              status: 'PENDING',
+              attempts: 0,
+              payload_json: {
+                idempotency_key: '55555555-5555-4555-a555-555555555555',
+                sale_id: '22222222-2222-4222-a222-222222222222',
+                tenant_id: '11111111-1111-4111-a111-111111111111',
+                branch_id: '33333333-3333-4333-a333-333333333333',
+                audit_payload: {
+                  client_uuid: '55555555-5555-4555-a555-555555555555',
+                  items_count: 1,
+                  subtotal_cents: 4500,
+                  discount_cents: 0,
+                  tax_total_cents: 718,
+                  payment_mode: 'CASH',
+                  error_trigger: true
+                }
+              }
+            }
+          ]
+        };
+      }
+
+      // Simulamos un fallo inesperado en audit_logs
+      if (queryText.includes('SELECT id FROM audit_logs')) {
+        throw new Error('error simulado en audit_logs');
+      }
+
+      if (queryText.includes('SELECT id, status, cude') && queryText.includes('FROM dian_documents')) {
+        return { rows: [{ id: 'doc-side-effects', status: 'PENDING', cude: null }] };
+      }
+      if (queryText.includes('FROM sales s') && queryText.includes('INNER JOIN tenants t')) {
+        return {
+          rows: [
+            {
+              sale_id: '22222222-2222-4222-a222-222222222222',
+              sale_number: '302',
+              created_at: new Date('2026-03-07T12:30:00.000Z'),
+              subtotal_cents: 10000,
+              discount_cents: 0,
+              total_cents: 10000,
+              tax_total_cents: 0,
+              tax_lines_json: [],
+              payment_json: { mode: 'CASH', total_cents: 10000, payments: [{ method: 'CASH', amount_cents: 10000 }] },
+              tax_mode: 'IVA',
+              tenant_id: '11111111-1111-4111-a111-111111111111',
+              tenant_name: 'Tenant Side Effects',
+              tenant_nit: '900000302',
+              tenant_business_name: 'Tenant Side Effects SAS',
+              branch_id: '33333333-3333-4333-a333-333333333333',
+              branch_name: 'Sucursal Side Effects',
+              branch_address: 'Calle 10 # 20-30'
+            }
+          ]
+        };
+      }
+      if (queryText.includes('FROM sale_items si')) {
+        return { rows: [] };
+      }
+      if (queryText.includes('UPDATE dian_documents')) return { rows: [] };
+      if (queryText.includes('UPDATE outbox_events') && queryText.includes("SET status = 'SENT'")) {
+        return { rows: [] };
+      }
+
+      throw new Error(`Query no esperada: ${queryText}`);
+    });
+
+    const processor = buildOutboxSaleCreatedProcessor({ pool });
+    // No debe rechazar la promesa / lanzar excepción
+    await expect(processor(createJob('44444444-4444-4444-a444-444444444444'))).resolves.not.toThrow();
+
+    // La emisión DIAN se ejecutó exitosamente a pesar del fallo en side effects
+    expect(provider.emitSale).toHaveBeenCalledOnce();
+
+    // El error de side effects quedó registrado
+    expect(parseStructuredLogs(consoleErrorSpy)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          event: 'sale_side_effects_failed',
+          message: 'Failed to execute side effects (kitchen/audit)'
         })
       ])
     );

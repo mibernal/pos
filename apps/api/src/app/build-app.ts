@@ -31,6 +31,7 @@ import { promotionsRoutes } from '../contexts/inventory/http/promotions.routes.j
 import { cashSessionsRoutes } from '../contexts/sales/http/cash-sessions.routes.js';
 import { customersRoutes } from '../contexts/sales/http/customers.routes.js';
 import { inventoryRoutes } from '../contexts/inventory/http/inventory.routes.js';
+import { recipesRoutes } from '../contexts/inventory/http/recipes.routes.js';
 import { scannerRoutes } from '../contexts/inventory/http/scanner.routes.js';
 import { alertsRoutes } from '../contexts/alerts/http/alerts.routes.js';
 import { reportsRoutes } from '../contexts/reporting/http/reports.routes.js';
@@ -347,6 +348,7 @@ export async function buildApp() {
   await app.register(cardBatchesRoutes, { prefix: '/api/v1' });
   await app.register(customersRoutes, { prefix: '/api/v1' });
   await app.register(inventoryRoutes, { prefix: '/api/v1' });
+  await app.register(recipesRoutes, { prefix: '/api/v1' });
   await app.register(scannerRoutes, { prefix: '/api/v1' });
   await app.register(alertsRoutes, { prefix: '/api/v1' });
   await app.register(reportsRoutes, { prefix: '/api/v1' });
