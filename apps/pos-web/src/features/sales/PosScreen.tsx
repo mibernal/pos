@@ -15,6 +15,7 @@ import { useBusinessModules } from '../../hooks/useBusinessModules';
 import { ModuleGuard } from '../modules';
 import { useProductCatalog } from './hooks/useProductCatalog';
 import { useCart } from './hooks/useCart';
+import { useTableOrderSync } from './hooks/useTableOrderSync';
 import { useCheckout } from './hooks/useCheckout';
 import { usePosKeyboardShortcuts } from './hooks/usePosKeyboardShortcuts';
 import { useTablesStore } from '../tables/store/useTablesStore';
@@ -126,77 +127,19 @@ export function PosScreen({
     updateItemCourse
   } = useCart();
 
-  const [tableSyncedId, setTableSyncedId] = useState<string | null>(null);
-
-  useEffect(() => {
-    // Reset sync state if we leave the table
-    if (!activeTable) {
-      if (tableSyncedId !== null) setTableSyncedId(null);
-      return;
-    }
-
-    if (activeTable && activeTable.currentOrderId && tableOrderData) {
-      if (tableSyncedId !== activeTable.id) {
-        const items: typeof cartItems = tableOrderData.items.map(i => ({
-          productId: i.productId,
-          variantId: i.variantId,
-          name: i.productId, // Fallback to ID until catalog loads
-          category: '',
-          barcode: null,
-          priceCents: i.priceCents,
-          imageUrl: null,
-          qty: i.qty,
-          notes: i.notes || undefined,
-          course: i.course
-        }));
-        // Map names from catalog if already available
-        items.forEach(i => {
-          const p = cachedProducts.find(cp => cp.id === i.productId);
-          if (p) {
-            i.name = p.name;
-            i.category = p.category;
-            i.barcode = p.barcode;
-            i.imageUrl = p.imageUrl;
-            if (i.variantId) {
-              const v = p.variants?.find(v => v.id === i.variantId);
-              if (v) i.variantName = v.name;
-            }
-          }
-        });
-        setCartItems(items);
-        setWaiterId(tableOrderData.order.waiterId || null);
-        setGuestsCount(tableOrderData.order.guestsCount || 1);
-        setTableSyncedId(activeTable.id);
-      }
-    }
-  }, [activeTable, tableOrderData, tableSyncedId, setCartItems, cachedProducts]);
-
-  // Patch missing product names when cachedProducts loads (e.g. if loaded after table sync)
-  useEffect(() => {
-    if (cachedProducts.length > 0 && cartItems.length > 0) {
-      let changed = false;
-      const patchedItems = cartItems.map(item => {
-        if (item.name === item.productId || !item.name) {
-          const p = cachedProducts.find(cp => cp.id === item.productId);
-          if (p) {
-            changed = true;
-            return {
-              ...item,
-              name: p.name,
-              category: p.category,
-              barcode: p.barcode,
-              imageUrl: p.imageUrl,
-              variantName: item.variantId ? (p.variants?.find(v => v.id === item.variantId)?.name || item.variantName) : item.variantName
-            };
-          }
-        }
-        return item;
-      });
-      if (changed) {
-        setCartItems(patchedItems);
-      }
-    }
-  }, [cachedProducts, cartItems, setCartItems]);
+  /**
+   * La cuenta de la mesa entra al carrito una sola vez, y los nombres se rellenan cuando el
+   * catálogo llega. Estaban aquí como dos efectos de setenta líneas; ver `useTableOrderSync`.
+   */
+  useTableOrderSync({
+    activeTable,
+    tableOrderData,
+    cachedProducts,
+    cartItems,
+    setCartItems,
+    onWaiterLoaded: setWaiterId,
+    onGuestsLoaded: setGuestsCount
+  });
 
   const canOpenCheckout = cartItems.length > 0 && totalCents > 0;
   const hasPendingSales = pendingSales.length > 0;
