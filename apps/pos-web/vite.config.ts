@@ -38,6 +38,19 @@ export default defineConfig({
       '@pos-dian/shared/': resolve(__dirname, '../../packages/shared/src/')
     }
   },
+  /**
+   * `vite preview` sirve el build de producción, y es contra eso que corre el e2e del camino
+   * del dinero. Necesita el mismo proxy que el servidor de desarrollo: sin él, la PWA
+   * hablaría con otro origen y haría falta abrir CORS solo para las pruebas — que es tanto
+   * como probar una configuración que nadie despliega.
+   */
+  preview: {
+    port: Number(process.env.E2E_WEB_PORT ?? 4173),
+    proxy: {
+      '/api': { target: 'http://127.0.0.1:3000', changeOrigin: true },
+      '/socket.io': { target: 'http://127.0.0.1:3000', ws: true, changeOrigin: true }
+    }
+  },
   server: {
     port: 5173,
     host: '0.0.0.0',

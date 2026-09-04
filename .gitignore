@@ -16,3 +16,7 @@ apps/pos-web/dev-dist
 
 # Carpeta de descarte: Claude no puede borrar archivos en este montaje
 _to_delete/
+
+# Playwright: informes y artefactos de ejecución
+apps/pos-web/playwright-report/
+apps/pos-web/test-results/

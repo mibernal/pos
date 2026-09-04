@@ -4,6 +4,12 @@ import { resolve } from 'node:path';
 export default defineConfig({
   test: {
     environment: 'jsdom',
+    /**
+     * `e2e/` es de Playwright, no de Vitest: sus specs importan `@playwright/test` y aquí
+     * no hay navegador que los ejecute. Sin esta exclusión, Vitest los recoge y falla al
+     * cargarlos.
+     */
+    exclude: ['node_modules/**', 'dist/**', 'e2e/**'],
     setupFiles: ['./test/setup.ts'],
     globals: true,
     // Montar el árbol completo de la app y esperar la hidratación de sesión
