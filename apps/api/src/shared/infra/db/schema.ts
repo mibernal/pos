@@ -1171,6 +1171,20 @@ export interface IdempotencyRecordsTable {
   expires_at: Date;
 }
 
+/**
+ * Token del QR de una mesa.
+ *
+ * Vive aparte de `tables` porque `tables` tiene RLS forzado y esto hay que leerlo **antes**
+ * de saber de qué comercio es. Sin RLS a propósito, y por eso sin nada más que identificadores.
+ */
+export interface QrTableTokensTable {
+  token: string;
+  tenant_id: string;
+  branch_id: string;
+  table_id: string;
+  created_at: Generated<Date>;
+}
+
 export interface RoomsTable {
   id: string;
   tenant_id: string;
@@ -1211,6 +1225,8 @@ export interface TableOrdersTable {
   customer_id: string | null;
   guests_count: number | null;
   order_type: Generated<string>;
+  /** «La cuenta, por favor» desde el móvil del comensal. */
+  bill_requested_at: Date | null;
   created_at: Generated<Date>;
   updated_at: Generated<Date>;
 }
@@ -1231,6 +1247,8 @@ export interface TableOrderItemsTable {
   price_cents: number;
   line_total_cents: number;
   notes: string | null;
+  /** `POS` o `QR`: quién metió el plato en la cuenta. */
+  source: Generated<string>;
   sent_to_kitchen_at: Date | null;
   created_at: Generated<Date>;
 }
@@ -1403,6 +1421,7 @@ export interface Database {
   waiters: WaitersTable;
   waiter_shifts: WaiterShiftsTable;
   waiter_shift_tables: WaiterShiftTablesTable;
+  qr_table_tokens: QrTableTokensTable;
   tenant_module_audit_logs: TenantModuleAuditLogsTable;
   product_modifier_groups: ProductModifierGroupsTable;
   product_modifier_options: ProductModifierOptionsTable;

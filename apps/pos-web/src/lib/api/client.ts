@@ -882,6 +882,12 @@ export function createApiClient({ baseUrl, getSession, setSession, onReauthRequi
     upsertRecipe: (productId: string, payload: UpsertRecipeInput) =>
       requestJson<Recipe>(`/recipes/${productId}`, { method: 'PUT', body: JSON.stringify(payload) }),
     deleteRecipe: (recipeId: string) => requestJson<void>(`/recipes/${recipeId}`, { method: 'DELETE' }),
+    // QR DE MESA
+    issueTableQrToken: (tableId: string) =>
+      requestJson<{ id: string; name: string; qr_token: string }>(`/tables/${tableId}/qr-token`, {
+        method: 'POST'
+      }),
+
     // INFORMES DE OPERACIÓN
     getTableTurnover: (params: { branch_id: string; from: string; to: string }) =>
       requestJson<TableTurnoverRow[]>(`/reports/operations/table-turnover?${new URLSearchParams(params).toString()}`),

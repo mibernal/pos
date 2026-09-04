@@ -1,8 +1,13 @@
 import { PageHeader } from '../../components/ui';
 import { usePosStore } from '../../hooks/usePosStore';
+import { useGetRooms } from '../tables/api/tables.api';
+import { TableQrPanel } from './components/TableQrPanel';
+import type { ApiClient } from '../../lib/api/client';
 
-export function QRMenuScreen() {
+export function QRMenuScreen({ api }: { api: ApiClient }) {
   const posContext = usePosStore(state => state.posContext);
+  const { data: rooms } = useGetRooms(posContext?.branchId);
+  const mesas = (rooms ?? []).flatMap((room) => room.tables.map((mesa) => ({ id: mesa.id, name: mesa.name })));
 
   if (!posContext?.branchId) {
     return <div className="p-8 text-center text-gray-500">Selecciona una sucursal primero.</div>;
@@ -56,8 +61,10 @@ export function QRMenuScreen() {
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
       <PageHeader
         title="Menú Digital (QR)"
-        subtitle="Genera y descarga el código QR para que tus clientes vean el menú desde su celular."
+        subtitle="El QR de la sucursal es para mirar la carta. El de cada mesa, además, deja pedir."
       />
+
+      <TableQrPanel api={api} tables={mesas} />
 
       <div style={{ 
         display: 'flex', 

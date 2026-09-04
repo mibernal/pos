@@ -52,6 +52,7 @@ import { tablesRoutes } from '../contexts/tables/presentation/tables.routes.js';
 import { reservationsRoutes } from '../contexts/tables/presentation/reservations.routes.js';
 import { waitersRoutes } from '../contexts/tables/presentation/waiters.routes.js';
 import { waiterShiftsRoutes } from '../contexts/tables/presentation/waiter-shifts.routes.js';
+import { qrOrderingRoutes, qrTokensRoutes } from '../contexts/tables/presentation/qr-ordering.routes.js';
 import { kdsRoutes } from '../contexts/tables/presentation/kds.routes.js';
 import { kdsSyncRoutes } from '../contexts/kds/http/kds-sync.routes.js';
 import { deliveriesRoutes } from '../contexts/deliveries/http/deliveries.routes.js';
@@ -367,6 +368,8 @@ export async function buildApp() {
   await app.register(reservationsRoutes, { prefix: '/api/v1' });
   await app.register(waitersRoutes, { prefix: '/api/v1' });
   await app.register(waiterShiftsRoutes, { prefix: '/api/v1' });
+  await app.register(qrOrderingRoutes, { prefix: '/api/v1' });
+  await app.register(qrTokensRoutes, { prefix: '/api/v1' });
   await app.register(kdsRoutes, { prefix: '/api/v1' });
   await app.register(kdsSyncRoutes, { prefix: '/api/v1' });
   await app.register(deliveriesRoutes, { prefix: '/api/v1' });

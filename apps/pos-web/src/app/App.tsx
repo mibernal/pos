@@ -16,6 +16,7 @@ import { BillingScreen } from '../features/billing/BillingScreen';
 import { UpgradePlanModal } from '../features/billing/components/UpgradePlanModal';
 import { FeatureModuleProvider, ModuleGuard } from '../features/modules';
 import { PublicMenuScreen } from '../features/public-menu/PublicMenuScreen';
+import { QrTableScreen } from '../features/public-menu/QrTableScreen';
 
 // Lazy Loaded Screens
 const CustomersScreen = lazy(() => import('../features/customers').then(m => ({ default: m.CustomersScreen })));
@@ -271,7 +272,7 @@ function AppShell() {
             currentScreen = (
               <PermissionGuard allowedPermissions={['tenant:settings:manage']}>
                 <ModuleGuard module="qr_menu">
-                  <QRMenuScreen />
+                  <QRMenuScreen api={api} />
                 </ModuleGuard>
               </PermissionGuard>
             );
@@ -388,6 +389,16 @@ function AppShell() {
 }
 export default function App() {
   const path = window.location.pathname;
+  /**
+   * `/mesa/<token>` es la pantalla del comensal: carta de su sucursal y pedido a su mesa. El
+   * `/menu/<branchId>` de siempre sigue existiendo para la carta de solo mirar.
+   */
+  if (path.startsWith('/mesa/')) {
+    const token = path.split('/')[2];
+    if (token) {
+      return <QrTableScreen token={token} />;
+    }
+  }
   if (path.startsWith('/menu/')) {
     const branchId = path.split('/')[2];
     if (branchId) {
