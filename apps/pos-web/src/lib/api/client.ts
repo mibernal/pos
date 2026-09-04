@@ -1,6 +1,9 @@
 import type {
   BillingPortal,
+  ConsumptionDeviationRow,
   CreditAccount,
+  Recipe,
+  UpsertRecipeInput,
   CustomerStatement,
   PaymentMethodCatalogEntry,
   RegisterReceivablePaymentInput,
@@ -169,6 +172,24 @@ function toQueryString(params: Record<string, string | number | undefined> = {})
     search.set(key, String(value));
   }
   return search.toString();
+}
+
+/**
+ * Fila del listado de recetas: lo que se ve sin abrir el escandallo. El detalle —los
+ * componentes con su merma— llega con `getRecipe`.
+ */
+export interface RecipeSummary {
+  id: string;
+  product_id: string;
+  product_name: string;
+  variant_id: string | null;
+  variant_name: string | null;
+  yield_qty: number;
+  active: boolean;
+  component_count: number;
+  price_cents: number;
+  theoretical_cost_cents: number;
+  margin_percent: number | null;
 }
 
 export function createApiClient({ baseUrl, getSession, setSession, onReauthRequired, onQuotaExceeded }: CreateApiClientOptions) {

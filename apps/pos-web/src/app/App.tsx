@@ -22,6 +22,7 @@ const CustomersScreen = lazy(() => import('../features/customers').then(m => ({ 
 const PaymentMethodsPanel = lazy(() => import('../features/settings/components/PaymentMethodsPanel').then(m => ({ default: m.PaymentMethodsPanel })));
 const HistoryScreen = lazy(() => import('../features/history').then(m => ({ default: m.HistoryScreen })));
 const InventoryScreen = lazy(() => import('../features/inventory').then(m => ({ default: m.InventoryScreen })));
+const RecipesScreen = lazy(() => import('../features/inventory').then(m => ({ default: m.RecipesScreen })));
 const BulkImportScreen = lazy(() => import('../features/inventory/BulkImportScreen').then(m => ({ default: m.BulkImportScreen })));
 const ProductsScreen = lazy(() => import('../features/products').then(m => ({ default: m.ProductsScreen })));
 const PromotionsScreen = lazy(() => import('../features/promotions/PromotionsScreen').then(m => ({ default: m.PromotionsScreen })));
@@ -217,6 +218,14 @@ function AppShell() {
             currentScreen = (
               <PermissionGuard allowedPermissions={['inventory:view', 'inventory:adjust', 'inventory:transfer', 'inventory:receive']} requireAll={false}>
                 <InventoryScreen api={api} branchId={posContext.branchId} />
+              </PermissionGuard>
+            );
+          } else if (activeRoute === 'recipes' && posContext) {
+            currentScreen = (
+              <PermissionGuard allowedPermissions={['inventory:view']} requireAll={false}>
+                <ModuleGuard module="inventory">
+                  <RecipesScreen api={api} branchId={posContext.branchId} />
+                </ModuleGuard>
               </PermissionGuard>
             );
           } else if (activeRoute === 'bulk-import' && posContext) {

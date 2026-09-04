@@ -106,6 +106,12 @@ export const APP_ROUTE_DEFINITIONS: readonly EnhancedRouteDefinition[] = [
     requiredModule: 'reservations'
   },
   {
+    id: 'recipes',
+    label: 'Recetas',
+    requiredPermissions: ['inventory:view'],
+    requiredModule: 'inventory'
+  },
+  {
     id: 'payment-methods',
     label: 'Medios de pago',
     requiredPermissions: ['settings:manage']
