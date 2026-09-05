@@ -8,7 +8,9 @@ import type { TicketTemplateConfig } from '../../lib/ticket-template';
 import { printZReportTicket } from '../../lib/ticket-printer';
 import { LiveMetricsTab } from './LiveMetricsTab';
 import { OperationsTab } from './OperationsTab';
-import { useApi } from '../auth';
+import { useApi, useSession } from '../auth';
+import { useQuery } from '@tanstack/react-query';
+import { reportKeys } from '../../shared/query-keys';
 
 type DateFilter = 'TODAY' | 'WEEK' | 'MONTH' | 'CUSTOM';
 
@@ -30,16 +32,11 @@ export function ReportsScreen({
   ticketTemplate: TicketTemplateConfig;
 }) {
   const api = useApi();
+  const { tenantId } = useSession();
   const [filter, setFilter] = useState<DateFilter>('TODAY');
   const [customFrom, setCustomFrom] = useState('');
   const [customTo, setCustomTo] = useState('');
 
-  const [reportData, setReportData] = useState<SalesReportResponse | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const [shiftsData, setShiftsData] = useState<Awaited<ReturnType<PosApiClient['getShiftsReport']>> | null>(null);
-  const [waitersData, setWaitersData] = useState<WaitersReportResponse | null>(null);
   const [activeTab, setActiveTab] = useState<'LIVE' | 'METRICS' | 'SHIFTS' | 'WAITERS' | 'OPERATIONS'>('LIVE');
 
   /**
@@ -65,52 +62,78 @@ export function ReportsScreen({
     return { from: local(inicio), to: local(hoy) };
   })();
 
-  const fetchReport = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      let from: string | undefined;
-      let to: string | undefined;
+  const rangoDe = useCallback((f: DateFilter, desde: string, hasta: string) => {
+    const now = new Date();
 
-      const now = new Date();
-
-      if (filter === 'TODAY') {
-        const start = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-        from = start.toISOString();
-      } else if (filter === 'WEEK') {
-        const start = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-        start.setDate(now.getDate() - 7);
-        from = start.toISOString();
-      } else if (filter === 'MONTH') {
-        const start = new Date(now.getFullYear(), now.getMonth(), 1);
-        from = start.toISOString();
-      } else if (filter === 'CUSTOM') {
-        from = customFrom ? toStartOfDayIso(customFrom) : undefined;
-        to = customTo ? toEndOfDayIso(customTo) : undefined;
-      }
-
-      if (activeTab === 'METRICS') {
-        const res = await api.getSalesReport({ branchId, from, to });
-        setReportData(res);
-      } else if (activeTab === 'SHIFTS') {
-        const res = await api.getShiftsReport({ branchId, from, to });
-        setShiftsData(res);
-      } else if (activeTab === 'WAITERS') {
-        const res = await api.getWaitersReport({ branchId, from, to });
-        setWaitersData(res);
-      }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Error al cargar reporte');
-    } finally {
-      setLoading(false);
+    if (f === 'TODAY') {
+      return { from: new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString(), to: undefined };
     }
-  }, [api, branchId, filter, customFrom, customTo, activeTab]);
+    if (f === 'WEEK') {
+      const start = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      start.setDate(now.getDate() - 7);
+      return { from: start.toISOString(), to: undefined };
+    }
+    if (f === 'MONTH') {
+      return { from: new Date(now.getFullYear(), now.getMonth(), 1).toISOString(), to: undefined };
+    }
+    return {
+      from: desde ? toStartOfDayIso(desde) : undefined,
+      to: hasta ? toEndOfDayIso(hasta) : undefined
+    };
+  }, []);
+
+  /**
+   * El rango que se está consultando, que no es el mismo que el del selector.
+   *
+   * Con un periodo predefinido coinciden. Con uno a medida no: las dos casillas de fecha
+   * pasan por estados intermedios sin sentido mientras se escriben —un día 3 antes de
+   * teclear el 0 de un 30—, y consultar cada pulsación sería pedirle al servidor informes
+   * que nadie pidió. Por eso el rango a medida solo entra aquí al pulsar «Aplicar».
+   */
+  const [rango, setRango] = useState(() => rangoDe('TODAY', '', ''));
 
   useEffect(() => {
     if (filter !== 'CUSTOM') {
-      void fetchReport();
+      setRango(rangoDe(filter, customFrom, customTo));
     }
-  }, [fetchReport, filter, activeTab]);
+  }, [customFrom, customTo, filter, rangoDe]);
+
+  const aplicar = useCallback(() => {
+    setRango(rangoDe(filter, customFrom, customTo));
+  }, [customFrom, customTo, filter, rangoDe]);
+
+  const filtros = { branchId, ...rango };
+
+  const metricas = useQuery({
+    queryKey: reportKeys.sales(tenantId, filtros),
+    queryFn: () => api.getSalesReport(filtros),
+    enabled: activeTab === 'METRICS'
+  });
+
+  const turnos = useQuery({
+    queryKey: reportKeys.sales(tenantId, { ...filtros, informe: 'turnos' }),
+    queryFn: () => api.getShiftsReport(filtros),
+    enabled: activeTab === 'SHIFTS'
+  });
+
+  const meseros = useQuery({
+    queryKey: reportKeys.waiters(tenantId, filtros),
+    queryFn: () => api.getWaitersReport(filtros),
+    enabled: activeTab === 'WAITERS'
+  });
+
+  const consultaActiva =
+    activeTab === 'METRICS' ? metricas : activeTab === 'SHIFTS' ? turnos : activeTab === 'WAITERS' ? meseros : null;
+
+  const reportData: SalesReportResponse | null = metricas.data ?? null;
+  const shiftsData: Awaited<ReturnType<PosApiClient['getShiftsReport']>> | null = turnos.data ?? null;
+  const waitersData: WaitersReportResponse | null = meseros.data ?? null;
+  const loading = consultaActiva?.isFetching ?? false;
+  const error = consultaActiva?.error
+    ? consultaActiva.error instanceof Error
+      ? consultaActiva.error.message
+      : 'Error al cargar reporte'
+    : null;
 
   return (
     <div className="flex flex-col h-full bg-muted/20 overflow-y-auto animate-in fade-in duration-300">
@@ -215,7 +238,7 @@ export function ReportsScreen({
                   </div>
                   <button
                     type="button"
-                    onClick={() => void fetchReport()}
+                    onClick={aplicar}
                     disabled={loading}
                     className="h-10 px-4 inline-flex items-center justify-center rounded-md text-sm font-medium bg-primary text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-50 disabled:pointer-events-none"
                   >

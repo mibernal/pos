@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { Banner } from '../../components/ui';
 import { MENU_CLASS_LABELS, type MenuEngineeringRow, type PrepTimeRow, type SalesByHourRow, type TableTurnoverRow } from '@pos-dian/shared';
-import { useApi } from '../auth';
+import { useApi, useSession } from '../auth';
+import { reportKeys } from '../../shared/query-keys';
 
 /**
  * Operación del restaurante.
@@ -35,41 +36,43 @@ export function OperationsTab({
   to: string;
 }) {
   const api = useApi();
-  const [mesas, setMesas] = useState<TableTurnoverRow[]>([]);
-  const [cocina, setCocina] = useState<PrepTimeRow[]>([]);
-  const [franjas, setFranjas] = useState<SalesByHourRow[]>([]);
-  const [carta, setCarta] = useState<MenuEngineeringRow[]>([]);
-  const [cargando, setCargando] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const { tenantId } = useSession();
 
-  const cargar = useCallback(async () => {
-    if (!branchId || !from || !to) return;
-    setCargando(true);
-    setError(null);
-    try {
-      const [t, p, s, m] = await Promise.all([
+  /**
+   * Los cuatro informes van juntos en una sola consulta.
+   *
+   * Se piden en paralelo y se muestran a la vez: son cuatro caras de la misma pregunta, y
+   * enseñar el giro de mesas mientras la carta sigue cargando invita a comparar cifras de
+   * periodos distintos. Con una sola entrada en la caché, o están los cuatro o no está
+   * ninguno.
+   */
+  const consulta = useQuery({
+    queryKey: reportKeys.operations(tenantId, { branchId, from, to }),
+    queryFn: async () => {
+      const [mesas, cocina, franjas, carta] = await Promise.all([
         api.getTableTurnover({ branch_id: branchId, from, to }),
         api.getPrepTime({ branch_id: branchId, from, to }),
         api.getSalesByHour({ branch_id: branchId, from, to }),
         api.getMenuEngineering({ branch_id: branchId, from, to })
       ]);
-      setMesas(t);
-      setCocina(p);
-      setFranjas(s);
-      setCarta(m);
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setCargando(false);
-    }
-  }, [api, branchId, from, to]);
+      return { mesas, cocina, franjas, carta };
+    },
+    enabled: Boolean(branchId && from && to)
+  });
 
-  useEffect(() => {
-    void cargar();
-  }, [cargar]);
+  if (consulta.error) {
+    return (
+      <Banner tone="error">
+        {consulta.error instanceof Error ? consulta.error.message : String(consulta.error)}
+      </Banner>
+    );
+  }
+  if (consulta.isPending) return <div className="h-64 bg-muted/50 rounded-2xl animate-pulse" />;
 
-  if (error) return <Banner tone="error">{error}</Banner>;
-  if (cargando) return <div className="h-64 bg-muted/50 rounded-2xl animate-pulse" />;
+  const mesas: TableTurnoverRow[] = consulta.data.mesas;
+  const cocina: PrepTimeRow[] = consulta.data.cocina;
+  const franjas: SalesByHourRow[] = consulta.data.franjas;
+  const carta: MenuEngineeringRow[] = consulta.data.carta;
 
   const maximo = Math.max(1, ...franjas.map((franja) => franja.total_cents));
 

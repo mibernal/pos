@@ -48,8 +48,8 @@ export function AppShell() {
     syncingPendingSales
   } = usePendingSalesSync({ api, posContext, session });
 
-  const { ticketTemplate, saveTicketTemplate } = useTicketTemplate({ api, posContext, session });
-  const { tenantTaxMode, setTenantTaxMode } = useTenantTaxMode({ api, session });
+  const { ticketTemplate, saveTicketTemplate } = useTicketTemplate({ posContext, session });
+  const { tenantTaxMode, setTenantTaxMode } = useTenantTaxMode({ session });
 
   const [isTicketTemplateModalOpen, setIsTicketTemplateModalOpen] = useState(false);
   const [isSetPinModalOpen, setIsSetPinModalOpen] = useState(false);

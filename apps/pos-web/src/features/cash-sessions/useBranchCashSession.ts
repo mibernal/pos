@@ -1,59 +1,51 @@
-import { useEffect, useState } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useCallback } from 'react';
 import type { CashSession } from '../../lib/api';
 import { useApi } from '../auth';
+import { cashKeys } from '../../shared/query-keys';
 
+/**
+ * La sesión de caja abierta de una terminal.
+ *
+ * `setCurrentSession` se conserva porque quien abre o cierra la caja ya tiene la sesión
+ * resultante en la mano y no tiene sentido volver a pedirla: escribe la caché y sigue.
+ * Es lo mismo que hacía el `useState` de antes, salvo que ahora el dato vive en un solo
+ * sitio y cualquier otra pantalla que pregunte por esta terminal ve lo mismo.
+ */
 export function useBranchCashSession({ selectedTerminalId
 }: {
   selectedTerminalId: string;
 }) {
   const api = useApi();
-  const [currentSession, setCurrentSession] = useState<CashSession | null>(null);
-  const [checkingSession, setCheckingSession] = useState(false);
-  const [sessionError, setSessionError] = useState<string | null>(null);
+  const queryClient = useQueryClient();
 
-  useEffect(() => {
-    if (!selectedTerminalId || selectedTerminalId === 'undefined' || selectedTerminalId === 'null') {
-      setCurrentSession(null);
-      setSessionError(null);
-      return;
-    }
+  // El identificador llega como texto desde la URL y el almacenamiento local, así que
+  // puede traer literalmente 'undefined' o 'null'. Pedirle eso al API es un 400 seguro.
+  const terminalValida =
+    Boolean(selectedTerminalId) && selectedTerminalId !== 'undefined' && selectedTerminalId !== 'null';
 
-    let cancelled = false;
+  const consulta = useQuery({
+    queryKey: cashKeys.currentSession(selectedTerminalId),
+    queryFn: () => api.getCurrentCashSession(selectedTerminalId).then((r) => r.cash_session),
+    enabled: terminalValida
+  });
 
-    setCheckingSession(true);
-    setSessionError(null);
-
-    void api
-      .getCurrentCashSession(selectedTerminalId)
-      .then((response) => {
-        if (!cancelled) {
-          setCurrentSession(response.cash_session);
-        }
-      })
-      .catch((loadError) => {
-        if (!cancelled) {
-          setSessionError(
-            loadError instanceof Error
-              ? loadError.message
-              : 'No fue posible validar la sesión de caja actual'
-          );
-        }
-      })
-      .finally(() => {
-        if (!cancelled) {
-          setCheckingSession(false);
-        }
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [api, selectedTerminalId]);
+  const setCurrentSession = useCallback(
+    (session: CashSession | null) => {
+      queryClient.setQueryData(cashKeys.currentSession(selectedTerminalId), session);
+    },
+    [queryClient, selectedTerminalId]
+  );
 
   return {
-    checkingSession,
-    currentSession,
-    sessionError,
+    checkingSession: terminalValida && consulta.isPending,
+    currentSession: terminalValida ? consulta.data ?? null : null,
+    sessionError:
+      consulta.error instanceof Error
+        ? consulta.error.message
+        : consulta.error
+          ? 'No fue posible validar la sesión de caja actual'
+          : null,
     setCurrentSession
   };
 }
