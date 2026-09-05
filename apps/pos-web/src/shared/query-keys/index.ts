@@ -51,8 +51,12 @@ export const platformKeys = {
   activity: () => ['platform', 'activity'] as const,
   growth: () => ['platform', 'growth'] as const,
   health: () => ['platform', 'health'] as const,
-  tenants: (busqueda?: string) =>
-    (busqueda ? (['platform', 'tenants', busqueda] as const) : (['platform', 'tenants'] as const)),
+  // El directorio se filtra por texto y por estado a la vez, así que la clave acepta el
+  // objeto de filtros completo —como `reportKeys`— y no solo el término de búsqueda.
+  tenants: (filtros?: string | Readonly<Record<string, unknown>>) =>
+    (filtros
+      ? (['platform', 'tenants', typeof filtros === 'string' ? filtros : JSON.stringify(filtros)] as const)
+      : (['platform', 'tenants'] as const)),
   tenantUsage: (tenantId: string) => ['platform', 'tenant-usage', tenantId] as const,
   plans: () => ['platform', 'plans'] as const,
   planEntitlements: (planId: string) => ['platform', 'plan-entitlements', planId] as const,

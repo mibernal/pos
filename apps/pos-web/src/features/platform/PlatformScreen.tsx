@@ -1,4 +1,6 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
+import { useMutation, useQuery } from '@tanstack/react-query';
+import { platformKeys } from '../../shared/query-keys';
 import { ExecutiveMetricsWidget } from './components/ExecutiveMetricsWidget';
 import { GrowthChartsWidget } from './components/GrowthChartsWidget';
 import { PlatformAlertsWidget } from './components/PlatformAlertsWidget';
@@ -12,65 +14,82 @@ import { RevenueWidget } from './components/RevenueWidget';
 import { Banner } from '../../components/ui';
 
 
-import {
-  PlatformDashboardMetrics,
-  PlatformGrowthMetric,
-  PlatformActivityEvent,
-  PlatformTenantSearchResult
-} from '../../lib/api/client';
+import { PlatformTenantSearchResult } from '../../lib/api/client';
 import { PlatformHealthResponse } from './components/PlatformHealthWidget';
 import { useApi } from '../auth';
 
 export function PlatformScreen() {
   const api = useApi();
   const [activeTab, setActiveTab] = useState<'OVERVIEW' | 'REVENUE' | 'TENANTS' | 'PLANS'>('OVERVIEW');
-  const [tenants, setTenants] = useState<PlatformTenantSearchResult[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [dashboardMetrics, setDashboardMetrics] = useState<PlatformDashboardMetrics | null>(null);
-  const [growthData, setGrowthData] = useState<PlatformGrowthMetric[]>([]);
-  const [healthData, setHealthData] = useState<PlatformHealthResponse | null>(null);
-  const [recentActivity, setRecentActivity] = useState<PlatformActivityEvent[]>([]);
-  
+
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [selectedTenant, setSelectedTenant] = useState<PlatformTenantSearchResult | null>(null);
-  const [error, setError] = useState<string | null>(null);
 
   const [searchParams, setSearchParams] = useState({ query: '', status: 'ALL' });
 
-  useEffect(() => {
-    loadData();
-  }, [searchParams]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Los filtros viajan dentro de la clave: cambiarlos es otra consulta, y la anterior queda
+  // en caché para cuando el administrador vuelva a ella.
+  const consultaTenants = useQuery({
+    queryKey: platformKeys.tenants(searchParams),
+    queryFn: () => api.listTenants(searchParams)
+  });
 
-  async function loadData() {
-    try {
-      setLoading(true);
-      const [tenantsData, metricsData, growthDataReq, healthDataReq, activityDataReq] = await Promise.all([
-        api.listTenants(searchParams),
-        api.getPlatformDashboard(),
-        api.getPlatformGrowth(),
-        api.getPlatformHealth(),
-        api.getPlatformActivity()
-      ]);
-      setTenants(tenantsData.items || []);
-      setDashboardMetrics(metricsData.metrics);
-      setGrowthData(growthDataReq.history || []);
-      setHealthData(healthDataReq as unknown as PlatformHealthResponse);
-      setRecentActivity(activityDataReq.activity || []);
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setLoading(false);
-    }
-  }
+  const consultaDashboard = useQuery({
+    queryKey: platformKeys.dashboard(),
+    queryFn: () => api.getPlatformDashboard()
+  });
+
+  const consultaGrowth = useQuery({
+    queryKey: platformKeys.growth(),
+    queryFn: () => api.getPlatformGrowth()
+  });
+
+  const consultaHealth = useQuery({
+    queryKey: platformKeys.health(),
+    queryFn: () => api.getPlatformHealth()
+  });
+
+  const consultaActivity = useQuery({
+    queryKey: platformKeys.activity(),
+    queryFn: () => api.getPlatformActivity()
+  });
+
+  const tenants = consultaTenants.data?.items ?? [];
+  const dashboardMetrics = consultaDashboard.data?.metrics ?? null;
+  const growthData = consultaGrowth.data?.history ?? [];
+  const healthData = (consultaHealth.data as unknown as PlatformHealthResponse | undefined) ?? null;
+  const recentActivity = consultaActivity.data?.activity ?? [];
+
+  const loading =
+    consultaTenants.isPending ||
+    consultaDashboard.isPending ||
+    consultaGrowth.isPending ||
+    consultaHealth.isPending ||
+    consultaActivity.isPending;
+
+  // Las cinco cargas compartían un solo cartel cuando eran un `Promise.all`; se conserva
+  // mostrando el primer fallo que haya.
+  const fallo = [
+    consultaTenants.error,
+    consultaDashboard.error,
+    consultaGrowth.error,
+    consultaHealth.error,
+    consultaActivity.error
+  ].find(Boolean);
+  const error = fallo instanceof Error ? fallo.message : fallo ? String(fallo) : null;
 
   // Handle impersonate from table fast action
-  async function handleImpersonate(tenantId: string) {
-    try {
-      await api.impersonateTenant(tenantId, 'Impersonation via Superadmin Dashboard');
+  const suplantacion = useMutation({
+    mutationFn: (tenantId: string) => api.impersonateTenant(tenantId, 'Impersonation via Superadmin Dashboard'),
+    // No invalida nada: la redirección recarga la aplicación entera, y con ella la caché.
+    onSuccess: () => {
       window.location.href = '/';
-    } catch (err: unknown) {
-      alert(err instanceof Error ? err.message : String(err));
-    }
+    },
+    onError: (err: unknown) => alert(err instanceof Error ? err.message : String(err))
+  });
+
+  function handleImpersonate(tenantId: string) {
+    suplantacion.mutate(tenantId);
   }
 
   return (
@@ -143,15 +162,17 @@ export function PlatformScreen() {
           {isCreateModalOpen && (
             <CreateTenantModal 
               onClose={() => setIsCreateModalOpen(false)}
-              onSuccess={() => { setIsCreateModalOpen(false); loadData(); }}
+              onSuccess={() => { setIsCreateModalOpen(false); }}
             />
           )}
 
+          {/* El drawer invalida por su cuenta las claves que escribe; aquí solo se deja
+              abierto a propósito, para que el administrador vea el cambio aplicado. */}
           <TenantDetailDrawer
             tenant={selectedTenant}
             isOpen={!!selectedTenant}
             onClose={() => setSelectedTenant(null)}
-            onSuccess={() => { loadData(); }} // Don't close so they can see changes
+            onSuccess={() => {}}
           />
         </div>
       )}

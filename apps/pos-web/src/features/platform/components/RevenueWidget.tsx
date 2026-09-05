@@ -1,6 +1,6 @@
-import { useEffect, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { Card, Banner } from '../../../components/ui';
-import type { RevenueMetrics } from '@pos-dian/shared';
+import { platformKeys } from '../../../shared/query-keys';
 import { useApi } from '../../auth';
 
 /**
@@ -46,15 +46,14 @@ function Cifra({
 
 export function RevenueWidget() {
   const api = useApi();
-  const [metrics, setMetrics] = useState<RevenueMetrics | null>(null);
-  const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    api
-      .getRevenueMetrics()
-      .then((respuesta) => setMetrics(respuesta.metrics))
-      .catch((err: unknown) => setError(err instanceof Error ? err.message : String(err)));
-  }, [api]);
+  const consulta = useQuery({
+    queryKey: platformKeys.revenue(),
+    queryFn: () => api.getRevenueMetrics()
+  });
+
+  const metrics = consulta.data?.metrics ?? null;
+  const error = consulta.error instanceof Error ? consulta.error.message : null;
 
   if (error) return <Banner tone="error">{error}</Banner>;
 

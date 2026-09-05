@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { queryKeys } from '../../../shared/query-keys';
 import { Button, Input, Label } from '../../../components/ui';
 import { X, CheckCircle, AlertTriangle, AlertCircle, Eye, LogIn, Edit, Trash2, Plus } from 'lucide-react';
@@ -21,8 +21,8 @@ interface TenantDetailDrawerProps {
 
 export function TenantDetailDrawer({ tenant, isOpen, onClose, onSuccess }: TenantDetailDrawerProps) {
   const api = useApi();
+  const queryClient = useQueryClient();
   const [activeTab, setActiveTab] = useState<'DETAILS' | 'USERS' | 'CONFIG' | 'ACTIONS'>('DETAILS');
-  const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const { data: plansData } = useQuery({
@@ -31,7 +31,7 @@ export function TenantDetailDrawer({ tenant, isOpen, onClose, onSuccess }: Tenan
     enabled: isOpen
   });
 
-  const { data: usersData, refetch: refetchUsers } = useQuery({
+  const { data: usersData } = useQuery({
     queryKey: queryKeys.platform.tenantUsers(tenant?.id),
     queryFn: () => api.getPlatformTenantUsers(tenant!.id),
     enabled: isOpen && !!tenant && activeTab === 'USERS'
@@ -115,14 +115,28 @@ export function TenantDetailDrawer({ tenant, isOpen, onClose, onSuccess }: Tenan
 
   const [suspendReason, setSuspendReason] = useState('');
 
-  if (!isOpen || !tenant) return null;
+  // Las escrituras del drawer comparten un único cartel: se limpia al arrancar cada acción
+  // y se llena si esa acción falla, igual que cuando cada handler lo hacía a mano.
+  const reportarError = (err: unknown) => setError(err instanceof Error ? err.message : String(err));
 
-  const handleUpdate = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setLoading(true);
-    setError(null);
-    try {
-      await api.updatePlatformTenant(tenant.id, {
+  /**
+   * Cambiar de plan, suspender o reactivar no toca solo la ficha del comercio: mueve el
+   * número de suscripciones activas y el MRR, que es de lo que hablan el resumen ejecutivo
+   * y el panel de ingresos. Las tres claves se invalidan juntas o el administrador se queda
+   * mirando cifras que ya no son ciertas.
+   */
+  const refrescarPlataforma = () => {
+    queryClient.invalidateQueries({ queryKey: queryKeys.platform.tenants() });
+    queryClient.invalidateQueries({ queryKey: queryKeys.platform.dashboard() });
+    queryClient.invalidateQueries({ queryKey: queryKeys.platform.revenue() });
+  };
+
+  const invalidarUsuarios = () =>
+    queryClient.invalidateQueries({ queryKey: queryKeys.platform.tenantUsers(tenant?.id) });
+
+  const actualizacion = useMutation({
+    mutationFn: async () => {
+      await api.updatePlatformTenant(tenant!.id, {
         name: formData.name,
         business_name: formData.business_name,
         nit: formData.nit,
@@ -130,97 +144,121 @@ export function TenantDetailDrawer({ tenant, isOpen, onClose, onSuccess }: Tenan
       });
 
       // Update modules explicitly using the new TMM endpoint
-      await api.updatePlatformTenantModules(tenant.id, {
+      await api.updatePlatformTenantModules(tenant!.id, {
         modules: formData.modules,
         reason: 'Actualización de configuración desde Platform Admin'
       });
 
-      if (formData.plan !== tenant.plan_id) {
-        await api.changeTenantPlan(tenant.id, formData.plan);
+      if (formData.plan !== tenant!.plan_id) {
+        await api.changeTenantPlan(tenant!.id, formData.plan);
       }
+    },
+    onMutate: () => setError(null),
+    onError: reportarError,
+    onSuccess: () => {
+      refrescarPlataforma();
       onSuccess();
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setLoading(false);
     }
-  };
+  });
 
-  const handleSuspend = async () => {
-    if (!suspendReason.trim()) {
-      setError('Debes proveer un motivo de suspensión');
-      return;
-    }
-    setLoading(true);
-    setError(null);
-    try {
-      await api.suspendTenant(tenant.id, suspendReason);
+  const suspension = useMutation({
+    mutationFn: () => api.suspendTenant(tenant!.id, suspendReason),
+    onMutate: () => setError(null),
+    onError: reportarError,
+    onSuccess: () => {
+      refrescarPlataforma();
       onSuccess();
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setLoading(false);
     }
-  };
+  });
 
-  const handleReactivate = async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      await api.reactivateTenant(tenant.id);
+  const reactivacion = useMutation({
+    mutationFn: () => api.reactivateTenant(tenant!.id),
+    onMutate: () => setError(null),
+    onError: reportarError,
+    onSuccess: () => {
+      refrescarPlataforma();
       onSuccess();
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setLoading(false);
     }
-  };
+  });
 
-  const handleImpersonate = async () => {
-    try {
-      await api.impersonateTenant(tenant.id, 'Impersonation via Dashboard');
+  const suplantacion = useMutation({
+    mutationFn: () => api.impersonateTenant(tenant!.id, 'Impersonation via Dashboard'),
+    onMutate: () => setError(null),
+    onError: reportarError,
+    // No invalida nada: la redirección recarga la aplicación entera, y con ella la caché.
+    onSuccess: () => {
       window.location.href = '/';
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : String(err));
     }
-  };
+  });
 
-  const handleSaveUser = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setLoading(true);
-    setError(null);
-    try {
+  const guardadoUsuario = useMutation({
+    mutationFn: async () => {
       if (editingUser) {
-        await api.updatePlatformTenantUser(tenant.id, editingUser.id, {
+        await api.updatePlatformTenantUser(tenant!.id, editingUser.id, {
           name: userFormData.name,
           role: userFormData.role,
           active: userFormData.active
         });
       } else {
-        await api.createPlatformTenantUser(tenant.id, userFormData);
+        await api.createPlatformTenantUser(tenant!.id, userFormData);
       }
+    },
+    onMutate: () => setError(null),
+    onError: reportarError,
+    onSuccess: () => {
       setShowUserForm(false);
       setEditingUser(null);
-      refetchUsers();
-    } catch(err: unknown) {
-      setError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setLoading(false);
+      invalidarUsuarios();
     }
+  });
+
+  const borradoUsuario = useMutation({
+    mutationFn: (userId: string) => api.deletePlatformTenantUser(tenant!.id, userId),
+    onMutate: () => setError(null),
+    onError: reportarError,
+    onSuccess: () => invalidarUsuarios()
+  });
+
+  // La suplantación queda fuera a propósito: no bloqueaba los botones antes y termina en
+  // una recarga de página, no en un formulario que haya que volver a habilitar.
+  const loading =
+    actualizacion.isPending ||
+    suspension.isPending ||
+    reactivacion.isPending ||
+    guardadoUsuario.isPending ||
+    borradoUsuario.isPending;
+
+  if (!isOpen || !tenant) return null;
+
+  const handleUpdate = (e: React.FormEvent) => {
+    e.preventDefault();
+    actualizacion.mutate();
   };
 
-  const handleDeleteUser = async (userId: string) => {
-    if (!confirm('¿Estás seguro de eliminar este usuario?')) return;
-    setLoading(true);
-    setError(null);
-    try {
-      await api.deletePlatformTenantUser(tenant.id, userId);
-      refetchUsers();
-    } catch(err: unknown) {
-      setError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setLoading(false);
+  const handleSuspend = () => {
+    if (!suspendReason.trim()) {
+      setError('Debes proveer un motivo de suspensión');
+      return;
     }
+    suspension.mutate();
+  };
+
+  const handleReactivate = () => {
+    reactivacion.mutate();
+  };
+
+  const handleImpersonate = () => {
+    suplantacion.mutate();
+  };
+
+  const handleSaveUser = (e: React.FormEvent) => {
+    e.preventDefault();
+    guardadoUsuario.mutate();
+  };
+
+  const handleDeleteUser = (userId: string) => {
+    if (!confirm('¿Estás seguro de eliminar este usuario?')) return;
+    borradoUsuario.mutate(userId);
   };
 
   return (
