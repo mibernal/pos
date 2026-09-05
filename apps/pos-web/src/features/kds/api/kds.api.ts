@@ -1,6 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useSession } from '../../auth/context/SessionProvider';
 import type { KitchenTicketWithItems } from '@pos-dian/shared';
+import { kdsKeys } from '../../../shared/query-keys';
 
 const getActiveTickets = async (token: string, branchId: string): Promise<KitchenTicketWithItems[]> => {
   const response = await fetch(`${import.meta.env.VITE_API_URL}/branches/${branchId}/kds/tickets`, {
@@ -22,7 +23,7 @@ const updateTicketStatus = async (token: string, branchId: string, id: string, s
 export const useGetActiveTickets = (branchId: string) => {
   const { token } = useSession();
   return useQuery({
-    queryKey: ['kds-tickets', branchId],
+    queryKey: kdsKeys.tickets(branchId),
     queryFn: () => getActiveTickets(token!, branchId),
     enabled: !!token && !!branchId,
     refetchInterval: 10000, // Fallback de polling cada 10 segundos por si falla el WebSocket
@@ -37,7 +38,7 @@ export const useUpdateTicketStatus = () => {
     mutationFn: ({ branchId, id, status }: { branchId: string; id: string; status: string }) => 
       updateTicketStatus(token!, branchId, id, status),
     onSuccess: (_, variables) => {
-      queryClient.invalidateQueries({ queryKey: ['kds-tickets', variables.branchId] });
+      queryClient.invalidateQueries({ queryKey: kdsKeys.tickets(variables.branchId) });
     }
   });
 };

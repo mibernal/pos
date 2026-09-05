@@ -1,11 +1,12 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import type { Reservation, CreateReservationPayload, UpdateReservationPayload, UpdateReservationStatusPayload } from '@pos-dian/shared';
 import { useApi } from '../../auth';
+import { tableKeys } from '../../../shared/query-keys';
 
 export const useReservations = (branchId: string, dateFrom?: string, dateTo?: string) => {
   const api = useApi();
   return useQuery({
-    queryKey: ['reservations', branchId, dateFrom, dateTo],
+    queryKey: tableKeys.reservations(branchId, dateFrom, dateTo),
     queryFn: async (): Promise<Reservation[]> => {
       return api.listReservations(branchId, { dateFrom, dateTo });
     },
@@ -22,7 +23,7 @@ export const useCreateReservation = (branchId: string) => {
       return api.createReservation(branchId, payload);
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['reservations', branchId] });
+      queryClient.invalidateQueries({ queryKey: tableKeys.reservations(branchId) });
     },
   });
 };
@@ -35,7 +36,7 @@ export const useUpdateReservation = (branchId: string) => {
       return api.updateReservation(branchId, id, payload);
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['reservations', branchId] });
+      queryClient.invalidateQueries({ queryKey: tableKeys.reservations(branchId) });
     },
   });
 };
@@ -48,7 +49,7 @@ export const useUpdateReservationStatus = (branchId: string) => {
       return api.updateReservationStatus(branchId, id, status);
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['reservations', branchId] });
+      queryClient.invalidateQueries({ queryKey: tableKeys.reservations(branchId) });
     },
   });
 };

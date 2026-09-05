@@ -3,6 +3,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { API_BASE_URL } from '../../../lib/env';
 import { useSession } from '../../auth/context/SessionProvider.js';
 import { useModules } from '../../modules/FeatureModuleProvider.js';
+import { kdsKeys } from '../../../shared/query-keys';
 
 export function useKdsSync(branchId: string) {
   const queryClient = useQueryClient();
@@ -42,7 +43,7 @@ export function useKdsSync(branchId: string) {
 
       evtSource.addEventListener('KITCHEN_TICKETS_UPDATED', () => {
         // Al recibir actualización, invalidar la cache
-        queryClient.invalidateQueries({ queryKey: ['kds-tickets', branchId] });
+        queryClient.invalidateQueries({ queryKey: kdsKeys.tickets(branchId) });
       });
 
       evtSource.onerror = () => {

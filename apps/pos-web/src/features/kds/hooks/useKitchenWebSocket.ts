@@ -3,6 +3,7 @@ import { io, Socket } from 'socket.io-client';
 import { useQueryClient } from '@tanstack/react-query';
 import { useSession } from '../../auth';
 import { useModules } from '../../modules';
+import { kdsKeys } from '../../../shared/query-keys';
 
 export const useKitchenWebSocket = (branchId?: string) => {
   const [isConnected, setIsConnected] = useState(false);
@@ -37,7 +38,7 @@ export const useKitchenWebSocket = (branchId?: string) => {
 
     socket.on('KITCHEN_TICKETS_UPDATED', () => {
       console.log(`[WS] KITCHEN_TICKETS_UPDATED received - invalidating query`);
-      queryClient.invalidateQueries({ queryKey: ['kds-tickets', branchId] });
+      queryClient.invalidateQueries({ queryKey: kdsKeys.tickets(branchId) });
     });
 
     return () => {

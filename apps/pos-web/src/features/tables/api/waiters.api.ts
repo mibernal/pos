@@ -1,6 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useSession } from '../../auth/context/SessionProvider';
 import type { Waiter, CreateWaiterPayload, UpdateWaiterPayload } from '@pos-dian/shared';
+import { waiterKeys } from '../../../shared/query-keys';
 
 /**
  * Devuelve el mensaje que mandó el servidor, no uno inventado aquí.
@@ -51,7 +52,7 @@ const updateWaiter = async (token: string, branchId: string, id: string, payload
 export const useGetWaiters = (branchId: string) => {
   const { token } = useSession();
   return useQuery({
-    queryKey: ['waiters', branchId],
+    queryKey: waiterKeys.all(branchId),
     queryFn: () => getWaiters(token!, branchId),
     enabled: !!token && !!branchId,
   });
@@ -65,7 +66,7 @@ export const useCreateWaiter = () => {
     mutationFn: ({ branchId, payload }: { branchId: string; payload: CreateWaiterPayload }) => 
       createWaiter(token!, branchId, payload),
     onSuccess: (_, variables) => {
-      queryClient.invalidateQueries({ queryKey: ['waiters', variables.branchId] });
+      queryClient.invalidateQueries({ queryKey: waiterKeys.all(variables.branchId) });
     }
   });
 };
@@ -78,7 +79,7 @@ export const useUpdateWaiter = () => {
     mutationFn: ({ branchId, id, payload }: { branchId: string; id: string; payload: UpdateWaiterPayload }) => 
       updateWaiter(token!, branchId, id, payload),
     onSuccess: (_, variables) => {
-      queryClient.invalidateQueries({ queryKey: ['waiters', variables.branchId] });
+      queryClient.invalidateQueries({ queryKey: waiterKeys.all(variables.branchId) });
     }
   });
 };

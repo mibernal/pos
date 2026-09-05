@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { WaiterShift, WaiterShiftSummary } from '@pos-dian/shared';
 import { useSession } from '../../auth/context/SessionProvider';
+import { waiterKeys } from '../../../shared/query-keys';
 
 /** Devuelve el mensaje del servidor: «PIN incorrecto» tiene que llegar tal cual a la pantalla. */
 async function fallar(response: Response, porDefecto: string): Promise<never> {
@@ -22,7 +23,7 @@ export function useOpenWaiterShifts(branchId: string) {
   const { token } = useSession();
 
   return useQuery({
-    queryKey: ['waiter-shifts', branchId],
+    queryKey: waiterKeys.shifts(branchId),
     enabled: Boolean(token) && Boolean(branchId),
     queryFn: async (): Promise<WaiterShift[]> => {
       const response = await fetch(
@@ -56,7 +57,7 @@ export function useOpenWaiterShift() {
       return response.json();
     },
     onSuccess: (_, variables) => {
-      void queryClient.invalidateQueries({ queryKey: ['waiter-shifts', variables.branch_id] });
+      void queryClient.invalidateQueries({ queryKey: waiterKeys.shifts(variables.branch_id) });
     }
   });
 }
@@ -76,7 +77,7 @@ export function useCloseWaiterShift(branchId: string) {
       return response.json();
     },
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['waiter-shifts', branchId] });
+      void queryClient.invalidateQueries({ queryKey: waiterKeys.shifts(branchId) });
     }
   });
 }
@@ -85,7 +86,7 @@ export function useWaiterShiftSummary(shiftId: string | null) {
   const { token } = useSession();
 
   return useQuery({
-    queryKey: ['waiter-shift-summary', shiftId],
+    queryKey: waiterKeys.shiftSummary(shiftId),
     enabled: Boolean(token) && Boolean(shiftId),
     queryFn: async (): Promise<WaiterShiftSummary> => {
       const response = await fetch(`${import.meta.env.VITE_API_URL}/waiter-shifts/${shiftId}/summary`, {
