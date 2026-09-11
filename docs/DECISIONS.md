@@ -418,3 +418,11 @@ Se documentan porque la ausencia de política es una decisión, no un olvido:
 - El panel de producto de `ProductsScreen` lleva `inert` y `aria-hidden` mientras está cerrado.
 - **Motivo:** se aparta con `translate-x-full`, que lo mueve pero no lo quita. Sus campos seguían en el orden de tabulación y en el árbol de accesibilidad: con el teclado se recorría un formulario invisible —nombre, precio, IVA, «Crear Producto»— sin que nada apareciera en pantalla, y un lector de pantalla lo anunciaba entero.
 - En React 18 `inert` no es una propiedad conocida y el tipado de JSX la rechaza, así que se pasa como atributo suelto. Al subir a React 19 pasa a ser `inert={!showForm}`.
+
+## D-077 — `writeEvent` recibe el objeto, y el tipo lo obliga
+- `setupSseStream().writeEvent` se declara `(data: object)`; `dashboard.routes.ts` le pasa el objeto en vez de la cadena ya serializada.
+- **Motivo:** el panel en vivo enseñaba **«$ NaN»** en «Ventas de Hoy» y en «Valor del Inventario», y «Transacciones» salía en blanco. La ruta serializaba el payload y `writeEvent` lo serializaba otra vez: por el cable viajaba un JSON dentro de un JSON. El navegador desenvuelve una capa y se queda con un `string` donde espera el objeto, así que `stats.total_revenue_cents` era `undefined`, y `undefined / 100` es `NaN`.
+- Nada falló. La ruta devolvía 200 con un `data:` bien formado, el `JSON.parse` del cliente funcionaba, y `{stats && …}` daba verde porque una cadena no vacía es `truthy`. El `as DashboardStats` del cliente y el `any` del servidor se taparon el uno al otro: dos afirmaciones de tipo sobre datos que nadie comprobó, una a cada lado del cable.
+- Se descubrió mirando una captura del móvil, no ejecutando pruebas. Es el mismo defecto que D-071 visto desde el otro extremo: un `as` no valida, solo calla al compilador.
+- `object` en lugar de `any` convierte justo ese error en fallo de compilación. Los otros dos llamadores del flujo ya pasaban objetos, así que el tipo describe el contrato que de hecho existía.
+- `test/dashboard-stream.e2e.test.ts` lee la primera trama sobre un socket real y la desenvuelve **una** vez, que es lo que hace el navegador. Comprobado que falla al reintroducir el defecto: «expected 'string' to be 'object'».
