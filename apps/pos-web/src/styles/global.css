@@ -205,6 +205,27 @@ button:hover:not(:disabled) {
     transform: scale(0.96);
     transition: transform 80ms ease;
   }
+
+  /**
+   * Ningún control por debajo de 44 px en un equipo que se usa con el dedo.
+   *
+   * Es la medida que recomiendan tanto WCAG 2.5.5 como la guía de Apple, y aquí no es un
+   * tecnicismo: la barra superior lleva siete botones de un solo emoji —sincronizar, PIN,
+   * configuración, DIAN, movimientos— y el de sincronizar medía 42 px de ancho. Fallar ese
+   * toque en hora pico no es una molestia de diseño: es un cajero tocando dos veces con
+   * fila delante.
+   *
+   * Va bajo `hover: none` a propósito: con ratón, 42 px sobran y ensanchar los iconos solo
+   * gastaría espacio de barra.
+   */
+  button,
+  [role="button"],
+  a.button,
+  .ghost-button,
+  .icon-button {
+    min-height: 44px;
+    min-width: 44px;
+  }
 }
 
 button:active:not(:disabled) {
@@ -342,6 +363,22 @@ textarea:focus {
   min-height: 100vh;
   display: grid;
   grid-template-rows: auto 1fr;
+  /**
+   * La columna tiene que poder encogerse, y por defecto no puede.
+   *
+   * Un hijo de grid nace con `min-width: auto`, que significa «no me encojas por debajo
+   * del ancho mínimo de mi contenido». Como aquí no había columna declarada, la implícita
+   * se dimensionaba al contenido más ancho de la pantalla, y el armazón entero —barra
+   * superior incluida— crecía más que la ventana: 203 px de más en un móvil de 375,
+   * 118 px en una tablet de 768. El síntoma era una barra de desplazamiento horizontal en
+   * toda la aplicación, que en una tablet de salón significa arrastrar la interfaz de lado
+   * para encontrar el botón de cobrar.
+   *
+   * `minmax(0, 1fr)` dice explícitamente que el mínimo es cero. Con esto el desborde deja
+   * de ser posible por construcción, en vez de depender de que ninguna pantalla tenga
+   * contenido ancho.
+   */
+  grid-template-columns: minmax(0, 1fr);
   background-color: var(--color-slate-50);
 }
 
@@ -427,6 +464,21 @@ textarea:focus {
   display: flex;
   align-items: center;
   gap: 0.75rem;
+  /**
+   * El bloque de la derecha de la barra tiene que poder partirse.
+   *
+   * Lleva el nombre del usuario, su rol, el contador de ventas pendientes y siete botones
+   * de icono. En una sola línea mide unos 546 px: más que un teléfono entero. Sin permitir
+   * salto ni encogimiento, empujaba la barra —y con ella toda la aplicación— fuera de la
+   * ventana.
+   *
+   * `flex-wrap` lo deja caer a la línea siguiente en vez de empujar, y `min-width: 0`
+   * permite que sus hijos se encojan; sin lo segundo, el nombre largo de un usuario vuelve
+   * a estirarlo aunque pueda envolver.
+   */
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  min-width: 0;
 }
 
 .topbar-user > div {
@@ -455,6 +507,9 @@ textarea:focus {
 .view-container {
   padding: 1.5rem;
   min-height: 0;
+  /* Misma razón que la columna del armazón: sin esto, una pantalla con contenido ancho
+     empuja el ancho del contenedor en vez de desplazarse dentro de él. */
+  min-width: 0;
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
 }
