@@ -834,6 +834,51 @@ navegador. Por eso la garantía que queda es una medición y no una regla de est
 `e2e/responsive.spec.ts` recorre siete pantallas a 375, 768 y 1024 px y nombra al elemento
 culpable cuando falla (D-072).
 
+### La misma medición, hecha bien, destapó cuatro cosas más
+
+La prueba anterior no probaba nada y daba tranquilidad, que es lo peor que puede hacer una
+prueba: navegaba con `page.goto`, que recarga, y como el contexto de caja vive en memoria cada
+recarga volvía a «Selecciona una Sucursal». Siete pantallas medidas, una pantalla real.
+Reescrita para navegar **pulsando** y para mirar la caja de cada control contra la ventana —no
+el ancho del documento— a cinco anchos, encontró esto (D-073):
+
+**El historial recortaba «Devolver»** —lo reportado—. Un `display: flex` en línea pisaba
+`.row-actions` por especificidad: tres botones sin permiso para envolver dentro de un panel de
+340 px. El contenedor recorta, así que no había ni barra que lo delatara.
+
+**Tres ajustes de administración eran inalcanzables en móvil, en todas las pantallas.** Los
+siete botones de icono de la barra miden ~546 px en una línea, más que un teléfono entero: 🔑
+PIN de aprobación, ⚙️ configuración de negocio y 📄 DIAN quedaban fuera. Ahora las acciones se
+declaran como datos y se dibujan de dos maneras —iconos en la barra por encima de 1024 px,
+filas con su nombre dentro del cajón por debajo—, sin duplicar las condiciones de permiso
+(D-074).
+
+**En un teléfono no se veía ninguna venta, ni el catálogo.** Medido a 375 px: la lista del
+historial recibía **34 px** para 676 px de contenido, y el catálogo del POS 257 px para 681,
+los dos con `overflow: hidden`. Una pista `auto` se queda con el alto de su contenido y a la
+`1fr` le deja lo que sobre; cuando no sobra, cae a su mínimo. Un panel con alto impuesto y
+`overflow: hidden` no recorta: borra. Por debajo de 768 px las pantallas se apilan y se
+desplazan (D-075).
+
+**El panel de producto seguía en el orden de tabulación estando cerrado.** `translate-x-full`
+lo mueve, no lo quita: con el teclado se recorría un formulario invisible entero y un lector de
+pantalla lo anunciaba. Lleva `inert` mientras está cerrado (D-076).
+
+### Y una captura destapó un defecto que no era de CSS
+
+Reportes enseñaba **«$ NaN»** en «Ventas de Hoy» y en «Valor del Inventario». La ruta
+serializaba el payload y `writeEvent` lo serializaba otra vez: por el cable viajaba un JSON
+dentro de un JSON, el navegador desenvolvía una capa y se quedaba con un `string` donde
+esperaba el objeto. Nada falló —200, `data:` bien formado, `JSON.parse` correcto, y
+`{stats && …}` en verde porque una cadena no vacía es *truthy*—: el `as DashboardStats` del
+cliente y el `any` del servidor se taparon el uno al otro. `writeEvent` pasa a recibir
+`object`, que convierte ese error en fallo de compilación, y una prueba lee la trama sobre un
+socket real (D-077).
+
+Es el mismo defecto que D-071 visto desde el otro extremo, y la lección se repite: un `as` no
+valida, solo calla al compilador. Quedan sitios donde el frontend sigue afirmando formas que
+nadie comprueba.
+
 ### Criterio de salida — cumplido en dos de sus tres frases
 
 Recargar cualquier pantalla la devuelve donde estaba: sí. El e2e del camino del dinero corre en
@@ -871,6 +916,27 @@ le cobra después.
 `ScannerReconciliationScreen` es una maqueta: tiene `useQuery`, `useMutation` y el cliente del
 API **simulados dentro del propio archivo**, y ninguna ruta la pinta. O se termina o se borra;
 mientras siga ahí, parece una pantalla.
+
+**Lo que la revisión de responsive dejó a medias.** Los anchos ya no pierden controles y hay
+prueba que lo vigila, pero quedan tres cosas que se vieron y no se tocaron:
+
+- *Setenta y cinco filas flex escritas en línea.* `display: flex` como atributo `style` pisa la
+  hoja de estilos por especificidad, que es exactamente el mecanismo del defecto del historial.
+  Se arreglaron las que la prueba señaló; las demás siguen ahí, y la siguiente aparecerá igual
+  de callada. El arreglo de verdad es mover esas filas a clases con nombre.
+- *La barra superior ocupa 235 px en un portátil de 1440.* Dieciocho botones de navegación
+  envuelven en dos líneas y el bloque de usuario hace la tercera. Funciona y se ve todo, pero es
+  un cuarto de pantalla gastado en cromo antes de llegar al contenido. Es una decisión de
+  producto —agrupar rutas, o un menú—, no un defecto.
+- *Las tablas de Clientes e Inventario se desplazan de lado en el móvil.* Es un patrón legítimo
+  y la prueba lo permite a propósito, pero seis columnas arrastrables en un teléfono son peores
+  que unas fichas apiladas. Productos ya usa fichas y se lee bien; las otras dos no se
+  convirtieron.
+
+**Entorno de desarrollo.** `CORS_ALLOWED_ORIGINS` no incluía `http://localhost:4173`, el puerto
+del `vite preview` sobre el que corren las e2e. El síntoma no menciona CORS: el navegador se
+queda en «Selecciona una Sucursal» y la petición sencillamente no llega. Corregido en
+`.env.example`; quien tenga un `.env` de antes tiene que añadirlo a mano.
 
 **Producto que no existe todavía** (es la fase 12, y conviene no confundirlo con deuda):
 compras y proveedores —solo están las tablas—, fidelización —solo la bandera

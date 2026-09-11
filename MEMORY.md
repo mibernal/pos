@@ -88,7 +88,7 @@ Detalle en D-045…D-048 y en `docs/ROADMAP-PRODUCCION.md`.
 
 ## Ruta de producto — fases 6 a 11 (cerradas el 11 de septiembre de 2026)
 
-Continuación de `auditoria_producto_2026-08-28.md`. Relato completo en `docs/ROADMAP-PRODUCCION.md`; decisiones en D-063…D-072. Migraciones 091 a 110.
+Continuación de `auditoria_producto_2026-08-28.md`. Relato completo en `docs/ROADMAP-PRODUCCION.md`; decisiones en D-063…D-077. Migraciones 091 a 110.
 
 - **Fase 6 — fugas silenciosas.** Alta de comercios que devolvía 201 sin crear la suscripción, `QuotaGuard` que impedía montar el negocio durante el trial, `'CANCELED'` con una ele que dejaba las bajas fuera del churn, seis macro-módulos que valían siempre falso, webhooks que respondían 200 a todo (incluido el fallo propio, con lo que el cobro se perdía) y el PIN del mesero legible por cualquier empleado desde la pestaña de red.
 - **Fase 7 — el plan gobierna el producto.** Los entitlements pasan a ser datos (`plan_entitlements`, `plan_modules` y excepciones por comercio **con motivo y caducidad**). Los 21 booleanos de `tenants` quedan como vista de compatibilidad: **si algo lee esas columnas para decidir, está leyendo una caché, no la verdad.**
@@ -107,7 +107,34 @@ Continuación de `auditoria_producto_2026-08-28.md`. Relato completo en `docs/RO
 - **`ScannerReconciliationScreen` es una maqueta**: `useQuery`, `useMutation` y el cliente del API están simulados dentro del propio archivo y ninguna ruta la pinta. O se termina o se borra.
 - **No existen todavía** (es la fase 12): compras y proveedores —solo las tablas—, fidelización —solo la bandera `enable_loyalty`—, promociones v2 (combos, happy hour, por categoría), API pública con llaves por comercio y webhooks salientes, roles a medida, e integración de datáfono: `sendToPaymentTerminal` en `hardware.ts` es un simulador con `Math.random()`.
 
-Verificación al cierre: typecheck 6/6, **401 pruebas** (268 API + 1 omitida, 64 worker, 44 pos-web, 25 shared), lint sin errores y 6 specs de navegador en verde.
+### Repaso de responsive y UX (11 de septiembre, después de cerrar la fase 11)
+
+Decisiones D-073…D-077. Lo importante para quien venga después no son los arreglos, sino **por
+qué ninguna prueba los vio**:
+
+- La prueba de anchos navegaba con `page.goto`. Recarga, el contexto de caja vive en memoria, y
+  cada recarga volvía a «Selecciona una Sucursal»: medía siete veces la pantalla de apertura
+  creyendo medir siete pantallas. **Una prueba que no prueba y da verde es peor que no tenerla.**
+  Ahora navega pulsando, cobra una venta antes de mirar el historial (vacío cabe en cualquier
+  ancho) y mide la caja de cada control contra la ventana, no el ancho del documento.
+- **`overflow: hidden` sobre contenido más alto que su caja no recorta: borra.** En un teléfono
+  la lista de ventas recibía 34 px para 676 px de contenido y el catálogo del POS 257 para 681.
+  No se veía ni una venta ni un producto. Regla: si un panel tiene el alto impuesto, su
+  contenido se desplaza.
+- **`display: flex` en un atributo `style` pisa la hoja de estilos por especificidad.** Ese fue
+  el defecto del historial, y quedan ~75 filas escritas así: la próxima aparecerá igual de
+  callada.
+- **Un `as` no valida, solo calla al compilador.** Reportes enseñaba «$ NaN» porque la ruta
+  serializaba y `writeEvent` volvía a serializar; el `as DashboardStats` del cliente y el `any`
+  del servidor se taparon el uno al otro. Nada falló: 200, `data:` bien formado y `{stats && …}`
+  en verde porque una cadena no vacía es *truthy*.
+- **`CORS_ALLOWED_ORIGINS` tiene que incluir `http://localhost:4173`**, el `vite preview` sobre
+  el que corren las e2e. Si falta, el navegador se queda en «Selecciona una Sucursal» y el error
+  no menciona CORS por ningún lado.
+
+Verificación al cierre: typecheck 6/6, **402 pruebas** (269 API + 1 omitida, 64 worker, 44
+pos-web, 25 shared), lint sin errores, e2e de anchos en verde a 375 / 768 / 1024 / 1280 / 1440
+sobre seis pantallas, y revisión visual de las capturas (`apps/pos-web/e2e/capturas.mjs`).
 
 ## Actualizaciones Recientes (Junio 2026)
 
