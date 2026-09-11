@@ -2140,7 +2140,67 @@ export interface paths {
                     headers: {
                         [name: string]: unknown;
                     };
-                    content?: never;
+                    content: {
+                        "application/json": {
+                            items: {
+                                /** Format: uuid */
+                                id: string;
+                                /** Format: uuid */
+                                tenantId: string;
+                                branchId: string | (null);
+                                name: string;
+                                category: string;
+                                /** @enum {string} */
+                                taxCategory: "IVA_0" | "IVA_5" | "IVA_19" | "EXEMPT" | "EXCLUDED" | "INC_8";
+                                barcode: string | (null);
+                                price_cents: number;
+                                active: boolean;
+                                imageUrl?: string | (null);
+                                description?: string | (null);
+                                /** @default [] */
+                                variants: {
+                                    /** Format: uuid */
+                                    id: string;
+                                    name: string;
+                                    price_cents: number;
+                                    barcode: string | (null);
+                                }[];
+                                promotion?: {
+                                    /** @enum {string} */
+                                    type: "PERCENTAGE" | "FIXED_AMOUNT" | "BUY_X_GET_Y";
+                                    value_cents: number;
+                                    buy_qty: number | (null);
+                                    get_qty: number | (null);
+                                } | (null);
+                                /** @default [] */
+                                modifierGroups: {
+                                    /** Format: uuid */
+                                    id: string;
+                                    name: string;
+                                    /** @default 0 */
+                                    minSelections: number;
+                                    /** @default 1 */
+                                    maxSelections: number;
+                                    options: {
+                                        /** Format: uuid */
+                                        id: string;
+                                        name: string;
+                                        /** @default 0 */
+                                        priceCents: number;
+                                    }[];
+                                }[];
+                                /** Format: date-time */
+                                createdAt: string;
+                                /** Format: date-time */
+                                updatedAt: string;
+                            }[];
+                            page: {
+                                limit: number;
+                                count: number;
+                                hasMore: boolean;
+                            };
+                        };
+                    };
                 };
             };
         };
@@ -3085,7 +3145,71 @@ export interface paths {
                     headers: {
                         [name: string]: unknown;
                     };
-                    content?: never;
+                    content: {
+                        "application/json": {
+                            items: {
+                                /** Format: uuid */
+                                id: string;
+                                /** Format: uuid */
+                                tenant_id: string;
+                                customer_id: string | (null);
+                                /** Format: uuid */
+                                branch_id: string;
+                                /** Format: uuid */
+                                cash_session_id: string;
+                                table_order_id?: string | (null);
+                                waiterId?: string | (null);
+                                sale_number: number;
+                                /** @enum {string} */
+                                status: "COMPLETED" | "VOID";
+                                subtotal_cents: number;
+                                discount_cents: number;
+                                tip_cents: number;
+                                total_cents: number;
+                                tax_total_cents: number;
+                                tax_lines_json: {
+                                    line_index: number;
+                                    category: ("IVA_0" | "IVA_5" | "IVA_19" | "EXEMPT" | "EXCLUDED" | "INC_8") | "INC";
+                                    base_cents: number;
+                                    tax_cents: number;
+                                    rate: number;
+                                }[];
+                                payment_json: {
+                                    mode: ("CASH" | "CARD" | "TRANSFER" | "WALLET" | "GIFT_CARD" | "STORE_CREDIT" | "POINTS" | "VOUCHER") | "MIXED";
+                                    total_cents: number;
+                                    amounts: {
+                                        cash_cents: number;
+                                        card_cents: number;
+                                        transfer_cents: number;
+                                    };
+                                    payments: {
+                                        /** @enum {string} */
+                                        method: "CASH" | "CARD" | "TRANSFER" | "WALLET" | "GIFT_CARD" | "STORE_CREDIT" | "POINTS" | "VOUCHER";
+                                        method_code?: string;
+                                        label?: string;
+                                        amount_cents: number;
+                                        approval_code?: string;
+                                        reference?: string;
+                                        tendered_cents?: number;
+                                        change_cents?: number;
+                                    }[];
+                                };
+                                dian_status: ("PENDING" | "SENT" | "ACCEPTED" | "REJECTED") | (null);
+                                /** Format: uuid */
+                                created_by_user_id: string;
+                                void_reason: string | (null);
+                                voided_by_user_id: string | (null);
+                                voided_at: string | (null);
+                                /** Format: date-time */
+                                created_at: string;
+                            }[];
+                            page: {
+                                limit: number;
+                                count: number;
+                                hasMore: boolean;
+                            };
+                        };
+                    };
                 };
             };
         };
@@ -3128,10 +3252,12 @@ export interface paths {
                             /** @enum {string} */
                             method: "CASH" | "CARD" | "TRANSFER" | "WALLET" | "GIFT_CARD" | "STORE_CREDIT" | "POINTS" | "VOUCHER";
                             method_code?: string;
+                            label?: string;
                             amount_cents: number;
                             approval_code?: string;
                             reference?: string;
                             tendered_cents?: number;
+                            change_cents?: number;
                         } | {
                             /** @enum {string} */
                             method: "MIXED";
@@ -3139,10 +3265,12 @@ export interface paths {
                                 /** @enum {string} */
                                 method: "CASH" | "CARD" | "TRANSFER" | "WALLET" | "GIFT_CARD" | "STORE_CREDIT" | "POINTS" | "VOUCHER";
                                 method_code?: string;
+                                label?: string;
                                 amount_cents: number;
                                 approval_code?: string;
                                 reference?: string;
                                 tendered_cents?: number;
+                                change_cents?: number;
                             }[];
                         })[];
                         snapshot?: {
@@ -3161,7 +3289,152 @@ export interface paths {
                     headers: {
                         [name: string]: unknown;
                     };
-                    content?: never;
+                    content: {
+                        "application/json": {
+                            sale: {
+                                /** Format: uuid */
+                                id: string;
+                                /** Format: uuid */
+                                tenant_id: string;
+                                customer_id: string | (null);
+                                /** Format: uuid */
+                                branch_id: string;
+                                /** Format: uuid */
+                                cash_session_id: string;
+                                table_order_id?: string | (null);
+                                waiterId?: string | (null);
+                                sale_number: number;
+                                /** @enum {string} */
+                                status: "COMPLETED" | "VOID";
+                                subtotal_cents: number;
+                                discount_cents: number;
+                                tip_cents: number;
+                                total_cents: number;
+                                tax_total_cents: number;
+                                tax_lines_json: {
+                                    line_index: number;
+                                    category: ("IVA_0" | "IVA_5" | "IVA_19" | "EXEMPT" | "EXCLUDED" | "INC_8") | "INC";
+                                    base_cents: number;
+                                    tax_cents: number;
+                                    rate: number;
+                                }[];
+                                payment_json: {
+                                    mode: ("CASH" | "CARD" | "TRANSFER" | "WALLET" | "GIFT_CARD" | "STORE_CREDIT" | "POINTS" | "VOUCHER") | "MIXED";
+                                    total_cents: number;
+                                    amounts: {
+                                        cash_cents: number;
+                                        card_cents: number;
+                                        transfer_cents: number;
+                                    };
+                                    payments: {
+                                        /** @enum {string} */
+                                        method: "CASH" | "CARD" | "TRANSFER" | "WALLET" | "GIFT_CARD" | "STORE_CREDIT" | "POINTS" | "VOUCHER";
+                                        method_code?: string;
+                                        label?: string;
+                                        amount_cents: number;
+                                        approval_code?: string;
+                                        reference?: string;
+                                        tendered_cents?: number;
+                                        change_cents?: number;
+                                    }[];
+                                };
+                                dian_status: ("PENDING" | "SENT" | "ACCEPTED" | "REJECTED") | (null);
+                                /** Format: uuid */
+                                created_by_user_id: string;
+                                void_reason: string | (null);
+                                voided_by_user_id: string | (null);
+                                voided_at: string | (null);
+                                /** Format: date-time */
+                                created_at: string;
+                            };
+                            items: {
+                                /** Format: uuid */
+                                id: string;
+                                /** Format: uuid */
+                                product_id: string;
+                                variant_id?: string | (null);
+                                qty: number;
+                                price_cents: number;
+                                line_total_cents: number;
+                            }[];
+                        };
+                    };
+                };
+                /** @description Default Response */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            sale: {
+                                /** Format: uuid */
+                                id: string;
+                                /** Format: uuid */
+                                tenant_id: string;
+                                customer_id: string | (null);
+                                /** Format: uuid */
+                                branch_id: string;
+                                /** Format: uuid */
+                                cash_session_id: string;
+                                table_order_id?: string | (null);
+                                waiterId?: string | (null);
+                                sale_number: number;
+                                /** @enum {string} */
+                                status: "COMPLETED" | "VOID";
+                                subtotal_cents: number;
+                                discount_cents: number;
+                                tip_cents: number;
+                                total_cents: number;
+                                tax_total_cents: number;
+                                tax_lines_json: {
+                                    line_index: number;
+                                    category: ("IVA_0" | "IVA_5" | "IVA_19" | "EXEMPT" | "EXCLUDED" | "INC_8") | "INC";
+                                    base_cents: number;
+                                    tax_cents: number;
+                                    rate: number;
+                                }[];
+                                payment_json: {
+                                    mode: ("CASH" | "CARD" | "TRANSFER" | "WALLET" | "GIFT_CARD" | "STORE_CREDIT" | "POINTS" | "VOUCHER") | "MIXED";
+                                    total_cents: number;
+                                    amounts: {
+                                        cash_cents: number;
+                                        card_cents: number;
+                                        transfer_cents: number;
+                                    };
+                                    payments: {
+                                        /** @enum {string} */
+                                        method: "CASH" | "CARD" | "TRANSFER" | "WALLET" | "GIFT_CARD" | "STORE_CREDIT" | "POINTS" | "VOUCHER";
+                                        method_code?: string;
+                                        label?: string;
+                                        amount_cents: number;
+                                        approval_code?: string;
+                                        reference?: string;
+                                        tendered_cents?: number;
+                                        change_cents?: number;
+                                    }[];
+                                };
+                                dian_status: ("PENDING" | "SENT" | "ACCEPTED" | "REJECTED") | (null);
+                                /** Format: uuid */
+                                created_by_user_id: string;
+                                void_reason: string | (null);
+                                voided_by_user_id: string | (null);
+                                voided_at: string | (null);
+                                /** Format: date-time */
+                                created_at: string;
+                            };
+                            items: {
+                                /** Format: uuid */
+                                id: string;
+                                /** Format: uuid */
+                                product_id: string;
+                                variant_id?: string | (null);
+                                qty: number;
+                                price_cents: number;
+                                line_total_cents: number;
+                            }[];
+                        };
+                    };
                 };
             };
         };
@@ -3194,7 +3467,95 @@ export interface paths {
                     headers: {
                         [name: string]: unknown;
                     };
-                    content?: never;
+                    content: {
+                        "application/json": {
+                            sale: {
+                                /** Format: uuid */
+                                id: string;
+                                /** Format: uuid */
+                                tenant_id: string;
+                                customer_id: string | (null);
+                                /** Format: uuid */
+                                branch_id: string;
+                                /** Format: uuid */
+                                cash_session_id: string;
+                                table_order_id?: string | (null);
+                                waiterId?: string | (null);
+                                sale_number: number;
+                                /** @enum {string} */
+                                status: "COMPLETED" | "VOID";
+                                subtotal_cents: number;
+                                discount_cents: number;
+                                tip_cents: number;
+                                total_cents: number;
+                                tax_total_cents: number;
+                                tax_lines_json: {
+                                    line_index: number;
+                                    category: ("IVA_0" | "IVA_5" | "IVA_19" | "EXEMPT" | "EXCLUDED" | "INC_8") | "INC";
+                                    base_cents: number;
+                                    tax_cents: number;
+                                    rate: number;
+                                }[];
+                                payment_json: {
+                                    mode: ("CASH" | "CARD" | "TRANSFER" | "WALLET" | "GIFT_CARD" | "STORE_CREDIT" | "POINTS" | "VOUCHER") | "MIXED";
+                                    total_cents: number;
+                                    amounts: {
+                                        cash_cents: number;
+                                        card_cents: number;
+                                        transfer_cents: number;
+                                    };
+                                    payments: {
+                                        /** @enum {string} */
+                                        method: "CASH" | "CARD" | "TRANSFER" | "WALLET" | "GIFT_CARD" | "STORE_CREDIT" | "POINTS" | "VOUCHER";
+                                        method_code?: string;
+                                        label?: string;
+                                        amount_cents: number;
+                                        approval_code?: string;
+                                        reference?: string;
+                                        tendered_cents?: number;
+                                        change_cents?: number;
+                                    }[];
+                                };
+                                dian_status: ("PENDING" | "SENT" | "ACCEPTED" | "REJECTED") | (null);
+                                /** Format: uuid */
+                                created_by_user_id: string;
+                                void_reason: string | (null);
+                                voided_by_user_id: string | (null);
+                                voided_at: string | (null);
+                                /** Format: date-time */
+                                created_at: string;
+                            };
+                            items: {
+                                /** Format: uuid */
+                                id: string;
+                                /** Format: uuid */
+                                product_id: string;
+                                variant_id?: string | (null);
+                                qty: number;
+                                price_cents: number;
+                                line_total_cents: number;
+                                product_name: string;
+                                variant_name?: string | (null);
+                                imageUrl?: string | (null);
+                                description?: string | (null);
+                            }[];
+                            dian_document: {
+                                /** Format: uuid */
+                                id: string;
+                                provider: string;
+                                /** @enum {string} */
+                                status: "PENDING" | "SENT" | "ACCEPTED" | "REJECTED";
+                                cude: string | (null);
+                                /** @enum {string} */
+                                document_type?: "INVOICE" | "CREDIT_NOTE";
+                                parent_document_id?: string | (null);
+                                /** Format: date-time */
+                                created_at: string;
+                                /** Format: date-time */
+                                updated_at: string;
+                            } | (null);
+                        };
+                    };
                 };
             };
         };
@@ -3237,7 +3598,66 @@ export interface paths {
                     headers: {
                         [name: string]: unknown;
                     };
-                    content?: never;
+                    content: {
+                        "application/json": {
+                            sale: {
+                                /** Format: uuid */
+                                id: string;
+                                /** Format: uuid */
+                                tenant_id: string;
+                                customer_id: string | (null);
+                                /** Format: uuid */
+                                branch_id: string;
+                                /** Format: uuid */
+                                cash_session_id: string;
+                                table_order_id?: string | (null);
+                                waiterId?: string | (null);
+                                sale_number: number;
+                                /** @enum {string} */
+                                status: "COMPLETED" | "VOID";
+                                subtotal_cents: number;
+                                discount_cents: number;
+                                tip_cents: number;
+                                total_cents: number;
+                                tax_total_cents: number;
+                                tax_lines_json: {
+                                    line_index: number;
+                                    category: ("IVA_0" | "IVA_5" | "IVA_19" | "EXEMPT" | "EXCLUDED" | "INC_8") | "INC";
+                                    base_cents: number;
+                                    tax_cents: number;
+                                    rate: number;
+                                }[];
+                                payment_json: {
+                                    mode: ("CASH" | "CARD" | "TRANSFER" | "WALLET" | "GIFT_CARD" | "STORE_CREDIT" | "POINTS" | "VOUCHER") | "MIXED";
+                                    total_cents: number;
+                                    amounts: {
+                                        cash_cents: number;
+                                        card_cents: number;
+                                        transfer_cents: number;
+                                    };
+                                    payments: {
+                                        /** @enum {string} */
+                                        method: "CASH" | "CARD" | "TRANSFER" | "WALLET" | "GIFT_CARD" | "STORE_CREDIT" | "POINTS" | "VOUCHER";
+                                        method_code?: string;
+                                        label?: string;
+                                        amount_cents: number;
+                                        approval_code?: string;
+                                        reference?: string;
+                                        tendered_cents?: number;
+                                        change_cents?: number;
+                                    }[];
+                                };
+                                dian_status: ("PENDING" | "SENT" | "ACCEPTED" | "REJECTED") | (null);
+                                /** Format: uuid */
+                                created_by_user_id: string;
+                                void_reason: string | (null);
+                                voided_by_user_id: string | (null);
+                                voided_at: string | (null);
+                                /** Format: date-time */
+                                created_at: string;
+                            };
+                        };
+                    };
                 };
             };
         };
@@ -7829,10 +8249,12 @@ export interface paths {
                             /** @enum {string} */
                             method: "CASH" | "CARD" | "TRANSFER" | "WALLET" | "GIFT_CARD" | "STORE_CREDIT" | "POINTS" | "VOUCHER";
                             method_code?: string;
+                            label?: string;
                             amount_cents: number;
                             approval_code?: string;
                             reference?: string;
                             tendered_cents?: number;
+                            change_cents?: number;
                         } | {
                             /** @enum {string} */
                             method: "MIXED";
@@ -7840,10 +8262,12 @@ export interface paths {
                                 /** @enum {string} */
                                 method: "CASH" | "CARD" | "TRANSFER" | "WALLET" | "GIFT_CARD" | "STORE_CREDIT" | "POINTS" | "VOUCHER";
                                 method_code?: string;
+                                label?: string;
                                 amount_cents: number;
                                 approval_code?: string;
                                 reference?: string;
                                 tendered_cents?: number;
+                                change_cents?: number;
                             }[];
                         })[];
                     };

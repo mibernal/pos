@@ -25,6 +25,18 @@ export const simpleSalePaymentSchema = z.object({
    * que llegan de la cola offline sigan funcionando sin tocarlas.
    */
   method_code: z.string().trim().max(30).optional(),
+  /**
+   * El nombre del medio de pago tal como se le mostró al cajero («Efectivo», «Nequi»).
+   *
+   * Se declara porque `createSale` lleva tiempo guardándolo en `payment_json`, no porque
+   * nadie lo lea: hoy no lo consume ni el tiquete ni ninguna pantalla. Lo escribía sin que
+   * el contrato lo supiera, y como este esquema rechaza claves desconocidas, la primera
+   * vez que se enchufó de verdad a la ruta de ventas hizo fallar la creación de una venta.
+   *
+   * Declararlo, en vez de dejar de escribirlo, es lo único que también sirve para las
+   * ventas ya guardadas: hay miles de filas con este campo y tienen que seguir leyéndose.
+   */
+  label: z.string().trim().max(60).optional(),
   amount_cents: positiveCentsSchema,
   /** Se conserva por compatibilidad; `reference` es la forma general. */
   approval_code: z.string().trim().min(3).max(50).optional(),
@@ -38,7 +50,21 @@ export const simpleSalePaymentSchema = z.object({
    * venta— y no con lo entregado. Guardar ambos es lo que permite distinguir el pago justo
    * del pago con vuelto, que es lo que hoy no se puede.
    */
-  tendered_cents: centsSchema.optional()
+  tendered_cents: centsSchema.optional(),
+  /**
+   * El vuelto, ya calculado, tal como se guardó.
+   *
+   * El comentario de `tendered_cents` dice que el vuelto no se guarda porque es una
+   * consecuencia, y conceptualmente sigue siendo cierto: el efectivo del turno se calcula
+   * con `amount_cents`, nunca con esto. Pero `createSale` lo viene escribiendo igual, y
+   * este esquema rechaza claves desconocidas, así que en cuanto se enchufó de verdad a la
+   * ruta de ventas dejó de poderse cobrar con vuelto.
+   *
+   * Se declara en lugar de dejar de escribirlo por la misma razón que `label`: las ventas
+   * ya guardadas lo tienen y tienen que seguir leyéndose. Lo que describe el contrato es
+   * lo que la API devuelve, no lo que nos habría gustado que devolviera.
+   */
+  change_cents: centsSchema.optional()
 })
   .strict()
   .superRefine((payment, ctx) => {

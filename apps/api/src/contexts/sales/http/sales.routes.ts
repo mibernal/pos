@@ -13,7 +13,14 @@ import { CreateSaleCommand } from '../application/CreateSaleCommand.js';
 import { CreateSaleHandler } from '../application/CreateSaleHandler.js';
 import { voidSaleService } from '../services/void-sale.service.js';
 import { processPartialReturn } from '../services/create-return.service.js';
-import { CreateReturnRequestSchema } from '@pos-dian/shared';
+import {
+  CreateReturnRequestSchema,
+  createdSaleResponseSchema,
+  dianDocumentTypeSchema,
+  saleDetailResponseSchema,
+  salesListResponseSchema,
+  voidSaleResponseSchema
+} from '@pos-dian/shared';
 import { ensureUserCanAccessBranch } from '../../../shared/infra/security/permissions.js';
 
 
@@ -28,7 +35,17 @@ export const salesRoutes: FastifyPluginAsync = async (app) => {
       schema: {
         tags: ['sales'],
         security: [{ bearerAuth: [] }],
-        body: createSaleBodySchema
+        body: createSaleBodySchema,
+        /**
+         * Declarar la respuesta no es solo documentar.
+         *
+         * Fastify serializa a través de este esquema y recorta lo que no esté en él. Sin
+         * declararlo, lo que el handler seleccione de más sale por el cable, y de esta
+         * ruta sale el consecutivo de una venta: es el sitio donde menos gracia hace
+         * enterarse tarde. De paso, es lo que permite que el tipo del frontend salga del
+         * contrato en vez de escribirse a mano.
+         */
+        response: { 200: createdSaleResponseSchema, 201: createdSaleResponseSchema }
       }
     },
     async (request, reply) => {
@@ -91,7 +108,8 @@ export const salesRoutes: FastifyPluginAsync = async (app) => {
       schema: {
         tags: ['sales'],
         security: [{ bearerAuth: [] }],
-        querystring: salesListQuerySchema
+        querystring: salesListQuerySchema,
+        response: { 200: salesListResponseSchema }
       }
     },
     async (request) => {
@@ -156,7 +174,8 @@ export const salesRoutes: FastifyPluginAsync = async (app) => {
       schema: {
         tags: ['sales'],
         security: [{ bearerAuth: [] }],
-        params: saleIdParamsSchema
+        params: saleIdParamsSchema,
+        response: { 200: saleDetailResponseSchema }
       }
     },
     async (request) => {
@@ -237,7 +256,18 @@ export const salesRoutes: FastifyPluginAsync = async (app) => {
           id: item.id,
           product_id: item.product_id,
           variant_id: item.variant_id,
-          product_name: item.product_name,
+          /**
+           * El nombre viene de un `leftJoin`, así que puede ser nulo, y el contrato lo
+           * promete siempre presente. Quien imprime el tiquete se lo cree: un nulo ahí
+           * salía impreso como «null» en la línea de una venta ya cobrada.
+           *
+           * Hay un problema de fondo que esto NO arregla y conviene no perder de vista:
+           * `sale_items` no guarda el nombre del producto, solo su `product_id`. Eso
+           * significa que renombrar un producto hoy reescribe el nombre impreso en el
+           * tiquete de una venta del mes pasado. Para un documento fiscal eso no debería
+           * poder pasar; arreglarlo pide una columna nueva y una migración, no una línea.
+           */
+          product_name: item.product_name ?? 'Producto no disponible',
           variant_name: item.variant_name,
           imageUrl: item.product_image_url,
           description: item.product_description,
@@ -251,7 +281,11 @@ export const salesRoutes: FastifyPluginAsync = async (app) => {
             provider: dianDocument.provider,
             status: dianDocument.status,
             cude: dianDocument.cude,
-            document_type: dianDocument.document_type,
+            // La columna es `text` y el contrato promete un tipo de documento DIAN. La
+            // consulta ya filtra por 'INVOICE', así que en la práctica coinciden; se
+            // valida igualmente para que sea el contrato, y no una cláusula `where` a
+            // diez líneas de distancia, lo que sostiene la promesa.
+            document_type: dianDocumentTypeSchema.safeParse(dianDocument.document_type).data,
             parent_document_id: dianDocument.parent_document_id,
             created_at: dianDocument.created_at.toISOString(),
             updated_at: dianDocument.updated_at.toISOString()
@@ -270,7 +304,8 @@ export const salesRoutes: FastifyPluginAsync = async (app) => {
         tags: ['sales'],
         security: [{ bearerAuth: [] }],
         params: saleIdParamsSchema,
-        body: voidSaleBodySchema
+        body: voidSaleBodySchema,
+        response: { 200: voidSaleResponseSchema }
       }
     },
     async (request) => {
