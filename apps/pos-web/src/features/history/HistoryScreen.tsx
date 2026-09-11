@@ -338,7 +338,15 @@ export function HistoryScreen({
             <p>Auditoría completa de items, impuestos y estado legal</p>
           </div>
 
-          <div className="row-actions" style={{ marginTop: '1rem', display: 'flex', gap: '0.5rem' }}>
+          {/*
+            La disposición la decide `.row-actions`, no un `style` en línea.
+            Antes iba `display: flex` aquí, que pisa la hoja de estilos por especificidad:
+            tres botones en fila sin permiso para envolver, cada uno negándose a bajar de
+            su ancho de contenido. En el panel de detalle —340 px— el tercero se salía de
+            la ventana, y como el contenedor recorta, no había ni barra que lo delatara.
+            «Devolver» simplemente no existía para quien mirase la pantalla.
+          */}
+          <div className="row-actions" style={{ marginTop: '1rem' }}>
             <button 
               className="button button-sm ghost-button" 
               type="button" 
@@ -349,7 +357,10 @@ export function HistoryScreen({
               🖨️ Ticket
             </button>
             <PermissionGuard allowedPermissions={['sales:void', 'returns:create']}>
-              <div style={{ display: 'flex', gap: '0.5rem', flex: 2 }}>
+              {/* `contents` disuelve este envoltorio: los dos botones pasan a ser celdas
+                  de la rejilla de arriba, y envuelven con el resto en vez de competir
+                  entre ellos dentro de una caja que no cabe. */}
+              <div style={{ display: 'contents' }}>
                 <button
                   className="button button-sm"
                   type="button"

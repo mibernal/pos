@@ -20,3 +20,4 @@ _to_delete/
 # Playwright: informes y artefactos de ejecución
 apps/pos-web/playwright-report/
 apps/pos-web/test-results/
+.capturas/

@@ -388,6 +388,33 @@ Se documentan porque la ausencia de política es una decisión, no un olvido:
 ## D-072 — El armazón puede encogerse, y una prueba lo comprueba en un navegador
 - `.app-shell` declara `grid-template-columns: minmax(0, 1fr)`; los contenedores que envuelven contenido ancho llevan `min-width: 0`; los controles suben a 44 px bajo `hover: none`.
 - **Motivo:** un hijo de grid nace con `min-width: auto` —«no me encojas por debajo del ancho mínimo de mi contenido»—, así que la columna implícita se dimensionaba al contenido más ancho y arrastraba la barra superior fuera de la ventana: 203 px de más en un móvil de 375, 118 en una tablet de 768. En una tablet de salón eso significa arrastrar la interfaz de lado para encontrar el botón de cobrar.
-- No se veía leyendo el CSS. Se vio midiendo el documento en un navegador real, y por eso la garantía que queda es una medición, no una regla de estilo: `e2e/responsive.spec.ts` recorre siete pantallas a tres anchos y nombra al elemento culpable cuando falla.
+- No se veía leyendo el CSS. Se vio midiendo el documento en un navegador real, y por eso la garantía que queda es una medición, no una regla de estilo: `e2e/responsive.spec.ts` nombra al elemento culpable cuando falla. (Lo que esa prueba recorre y cómo lo mide cambió después; está en D-073.)
 - Se mide el documento, no cada componente: una tabla puede y debe desplazarse dentro de su propio contenedor.
 - Los 44 px van acotados a punteros gruesos porque con ratón sobran, y ensanchar los iconos solo gastaría barra.
+
+## D-073 — La prueba de anchos navega pulsando, y mide lo que se puede tocar
+- `e2e/responsive.spec.ts` entra, cobra una venta y recorre las pantallas **pulsando**, a cinco anchos. Mide dos cosas: lo que obliga a desplazarse de lado y lo que quedó fuera de la ventana.
+- **Motivo:** la versión anterior no probaba nada y daba tranquilidad, que es lo peor que puede hacer una prueba. Navegaba con `page.goto`, que recarga; el contexto de caja vive en memoria, así que cada recarga volvía a «Selecciona una Sucursal». Siete pantallas medidas, una pantalla real. Y solo miraba el desbordamiento del documento, cuando el defecto que buscábamos recortaba **dentro** de un panel con `overflow: hidden`, sin barra que lo delatara.
+- Un control que no se ve no produce desbordamiento: produce una función que el usuario jura que no existe. Por eso se mide la caja de cada control contra la ventana, no el ancho del documento.
+- La prueba perdona dos casos, y la diferencia importa: un control dentro de un contenedor con barra horizontal se alcanza arrastrando —las pestañas de Reportes y las tablas anchas lo usan a propósito—, y un panel marcado `inert` o `aria-hidden` es un cajón cerrado, no un control perdido. Lo que no esté en uno de esos dos casos cuenta como perdido, y así la prueba no empuja a «arreglar» diseños correctos.
+- El historial solo falla con datos: vacío cabe en cualquier ancho. Por eso cobra una venta antes de mirarlo.
+
+## D-074 — Las acciones de la barra se mudan al cajón, con su nombre escrito
+- `AppTopbar` declara sus acciones como datos y las dibuja de dos maneras: iconos en la barra por encima de 1024 px, filas con etiqueta dentro del cajón por debajo.
+- **Motivo:** eran siete botones de icono escritos a mano dentro del `<header>`, envueltos en cuatro condiciones de permiso. En una línea miden unos 546 px —más que un teléfono entero— y los últimos quedaban fuera de la ventana: 🔑 PIN de aprobación, ⚙️ configuración de negocio, 📄 DIAN. Tres ajustes de administración inalcanzables en móvil, en todas las pantallas.
+- Declararlas una vez y dibujarlas dos evita duplicar las condiciones de permiso, que es donde un descuido deja de ser un defecto de maquetación y pasa a ser un agujero.
+- Se mudan en el mismo umbral que la navegación, a propósito: por debajo de 1024 px ya hay un botón de menú, así que no se pierde nada. Repartirlas entre dos sitios según el ancho sería peor que moverlas enteras.
+- El bloque no lleva `style` en línea. Un `display: flex` escrito ahí ganaría por especificidad a la consulta de medios y el bloque seguiría dibujándose, encogido y fuera de la ventana — que es exactamente lo que hacía.
+
+## D-075 — Un panel con alto impuesto y `overflow: hidden` no recorta: borra
+- Por debajo de 768 px las pantallas de dos paneles se apilan y se desplazan (`height: auto`, `overflow: visible`), en vez de repartirse la ventana con `grid-template-rows: 1fr auto`.
+- **Motivo:** medido a 375 px, el historial daba **34 px** a la lista de ventas para 676 px de contenido. No es que costara encontrar una venta: no había ninguna a la vista, en la pantalla cuyo único trabajo es enseñarlas. El POS daba 257 px al catálogo para 681, así que en un teléfono solo se podía vender escaneando.
+- La causa es de rejilla, no de altura: una pista `auto` se queda con el alto de su contenido y a la `1fr` le deja lo que sobre. Cuando no sobra, la `1fr` cae a su mínimo. Con `overflow: hidden` encima, lo que no cabe no se recorta con barra — desaparece.
+- Regla que queda: si un panel tiene el alto impuesto, su contenido se desplaza. `overflow: hidden` sobre contenido más alto que su caja es pérdida de datos, no maquetación.
+- La lista de ventas conserva su propia ventana, acotada a `60vh`. Suelta mide 7.500 px con 41 ventas, y el detalle de la venta que acabas de tocar quedaría siete pantallas más abajo; tocar algo para que aparezca fuera de la vista es lo mismo que no verlo.
+- El total y el botón de cobrar se quedan pegados abajo (`sticky`). Es lo que el cajero necesita siempre a mano.
+
+## D-076 — Un panel corrido fuera de la pantalla sigue existiendo
+- El panel de producto de `ProductsScreen` lleva `inert` y `aria-hidden` mientras está cerrado.
+- **Motivo:** se aparta con `translate-x-full`, que lo mueve pero no lo quita. Sus campos seguían en el orden de tabulación y en el árbol de accesibilidad: con el teclado se recorría un formulario invisible —nombre, precio, IVA, «Crear Producto»— sin que nada apareciera en pantalla, y un lector de pantalla lo anunciaba entero.
+- En React 18 `inert` no es una propiedad conocida y el tipado de JSX la rechaza, así que se pasa como atributo suelto. Al subir a React 19 pasa a ser `inert={!showForm}`.

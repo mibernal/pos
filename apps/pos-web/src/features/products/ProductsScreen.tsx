@@ -416,7 +416,26 @@ export function ProductsScreen({
         />
       )}
 
-      <aside className={`fixed inset-y-0 right-0 z-50 w-full sm:w-[450px] bg-card border-l border-border shadow-2xl transform transition-transform duration-300 ease-in-out lg:relative lg:transform-none lg:w-[450px] flex flex-col h-full ${showForm ? 'translate-x-0' : 'translate-x-full lg:hidden'}`}>
+      {/**
+       * El panel cerrado se aparta con `translate-x-full`, pero sigue existiendo.
+       *
+       * Un panel corrido fuera de la pantalla no está oculto: sus campos siguen en el
+       * orden de tabulación y en el árbol de accesibilidad. Con el teclado se recorría un
+       * formulario invisible —nombre, precio, IVA, «Crear Producto»— sin que nada apareciera
+       * en pantalla, y un lector de pantalla lo anunciaba entero.
+       *
+       * `inert` lo saca de los dos: ni foco, ni lectura, ni clics. Se pone siempre que el
+       * panel está cerrado, que es justo cuando no debe usarse: en escritorio cerrado ya
+       * lleva `lg:hidden`, y abierto —en cualquier ancho— vuelve a ser un panel normal.
+       *
+       * En React 18 `inert` no es una propiedad conocida y el tipado de JSX la rechaza,
+       * así que se pasa como atributo suelto con cadena vacía, que es como lo lee el
+       * navegador. El día que se suba a React 19 esto pasa a ser `inert={!showForm}`.
+       */}
+      <aside
+        {...(showForm ? {} : ({ inert: '', 'aria-hidden': true } as Record<string, unknown>))}
+        className={`fixed inset-y-0 right-0 z-50 w-full sm:w-[450px] bg-card border-l border-border shadow-2xl transform transition-transform duration-300 ease-in-out lg:relative lg:transform-none lg:w-[450px] flex flex-col h-full ${showForm ? 'translate-x-0' : 'translate-x-full lg:hidden'}`}
+      >
         <header className="flex-shrink-0 px-6 py-4 border-b border-border bg-muted/30 flex items-center justify-between sticky top-0 z-10">
           <div>
             <h3 className="text-lg font-bold text-foreground">{editingId ? 'Editar Producto' : 'Nuevo Producto'}</h3>
