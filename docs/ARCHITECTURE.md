@@ -1,6 +1,6 @@
 # ARCHITECTURE
 
-> Última actualización: Junio 2026
+> Última actualización: Septiembre 2026 (cierre de la fase 11)
 
 ## Objetivo
 
@@ -14,7 +14,7 @@
 |---|---|---|
 | `apps/api` | Fastify · TypeScript · Kysely · Zod · OpenTelemetry | Auth, sucursales, caja, catálogo, ventas, configuración fiscal, billing, importaciones masivas, trazas OTLP y backoffice global SaaS |
 | `apps/worker` | BullMQ · TypeScript · PostgreSQL | Consumo del outbox, DIAN, importaciones masivas (Enterprise), Schedulers (Limpieza, Alertas, Rollups) |
-| `apps/pos-web` | React · Vite · Dexie.js · PWA (Workbox) | Shell POS offline-first, backoffice (Identity, Tenants), Control Center SuperAdmin, historial y configuración |
+| `apps/pos-web` | React · Vite · React Router · React Query · Dexie.js · PWA (Workbox) · Playwright | Shell POS offline-first con URL por pantalla, backoffice (Identity, Tenants), Control Center SuperAdmin, historial y configuración |
 | `packages/shared` | TypeScript · Zod | Contratos, tipos y esquemas compartidos entre API, worker y web |
 
 ---
@@ -27,6 +27,9 @@
 - **`sales` / `sale_items` / `sales_ledger`**: Venta operativa con protección por idempotencia (`client_uuid`).
 - **`deliveries` / `delivery_items` / `delivery_persons`**: Módulo de domicilios con seguimiento de estados (Pending, En Camino, etc.) y facturación asíncrona.
 - **`rooms` / `tables` / `table_orders` / `table_order_items`**: Módulo de gestión de mesas y pedidos presenciales (sincronizados con backend para control centralizado de cuentas).
+- **`product_recipes` / `recipe_components`**: Escandallo. De qué está hecho un plato, con recetas anidadas. Es lo que convierte lo vendido en lo consumido antes de tocar el inventario (D-064).
+- **`waiter_shifts`**: Turnos de mesero (apertura, cierre, mesas asignadas). El corte se deduce del tiempo y se congela en `summary_json` al cerrar; no hay columna de turno en `sales` (D-065).
+- **`qr_table_tokens`**: Credencial de la mesa para el pedido desde el menú QR. Sin RLS y sin más contenido que identificadores, porque resuelve a qué comercio pertenece la petición *antes* de que exista contexto de tenant (D-066).
 - **`payment_transactions`**: Transacciones de pago y webhooks de pasarelas (Wompi, MercadoPago).
 - **`bulk_import_jobs`**: Control de cargas masivas de catálogo procesadas en background.
 - **`idempotency_records`**: Tracking de peticiones seguras (ej. creación de ventas) con TTL de 24h.
@@ -170,6 +173,51 @@ Hasta la fase 4 este flujo terminaba en el paso 5: nada creaba la venta, así qu
 
 ---
 
+## Arquitectura de la aplicación web (`pos-web`)
+
+Hasta la fase 11 la aplicación no tenía enrutador —`App.tsx` resolvía la pantalla con un `if/else` de 381 líneas— y el backend se llamaba de dos maneras a la vez. Hoy la estructura son tres piezas y cada una tiene una sola forma de usarse.
+
+### Enrutado: la definición de la ruta es su guarda
+
+`AppShell` monta el armazón, `AppRoutes` declara las rutas con carga diferida por ruta, y `RouteGuard` decide quién entra. La URL de una pantalla es su identificador (`pathForRoute` es `/${id}`, sin tabla de traducción), de modo que **recargar cualquier pantalla la devuelve donde estaba** — en una tablet de salón, eso es la diferencia entre seguir con el pedido y perderlo.
+
+Lo importante es dónde vive la guarda: en `routes.ts`, junto a la definición, y de ahí la leen tanto el menú (`usePosNavigation`) como la entrada por URL. Antes estaba escrita dos veces y las dos copias habían divergido — el menú escondía el KDS a quien no tuviera `kitchen_display` mientras la pantalla solo exigía `kitchen`. `routeAccess` devuelve el motivo (`missing-module` / `missing-permission`) y no un booleano, porque a quien llega por un enlace guardado le falta o el permiso o el plan, y son cosas que se arreglan en sitios distintos.
+
+`PLATFORM_OWNER` solo ve la pantalla de plataforma y nadie más la ve. `ADMIN` y `TENANT_OWNER` ven todo lo de su comercio: los permisos por rol acotan al personal, no a quien contrata el servicio.
+
+### Estado del servidor: React Query, con las claves en un solo sitio
+
+El cliente del API dejó de pasarse como prop; se obtiene con `useApi()` y las 34 pantallas consultan con React Query. Después de escribir ya no se vuelve a llamar al cargador a mano: se invalida.
+
+Las claves de los dieciséis dominios salen de la fábrica `shared/query-keys`, con el ámbito primero (`tenant`, `branch`, `platform`, `public`). No es estética: permite invalidar una sucursal entera en una línea y evita que cambiar de comercio deje migas del anterior. Una clave es un contrato entre quien consulta y quien invalida, y escrita a mano en dos archivos distintos se puede escribir mal en uno solo sin que se note leyendo cualquiera de los dos — es lo que pasaba con la invalidación del KDS, que apuntaba a una clave que no consultaba nadie (D-069).
+
+### El contrato con la API
+
+La API publica su OpenAPI de verdad desde la fase 11 (`registerSwagger` va envuelto en `fastify-plugin`; sin eso `/docs` documentaba cero rutas). De ahí se generan `openapi.json` y `apps/pos-web/src/lib/api/schema.d.ts`, y CI falla si el contrato cambió y no se regeneraron:
+
+```bash
+pnpm --filter @pos-dian/api openapi:dump
+pnpm --filter @pos-dian/pos-web api-types
+```
+
+Las rutas declaran `response` en su esquema —cinco del camino del dinero por ahora, y una prueba con candado lleva la cuenta de las que faltan (D-070)—. Conviene saber que declararla no es documentar: Fastify serializa a través del esquema y recorta lo que no esté en él.
+
+**Lo que falta para cerrar el círculo:** `contract.ts` (los tipos generados) no lo importa todavía ningún archivo y `client.ts` mantiene 38 tipos escritos a mano, así que añadir un endpoint sigue costando tipos manuales. Trece archivos siguen llamando con `fetch` crudo: SSE y pantallas públicas, en dos estilos distintos.
+
+### Pruebas de navegador
+
+`apps/pos-web/e2e/` con Playwright, en CI y bloqueando el merge:
+
+- `camino-del-dinero.spec.ts`: cobrar, cortar la red, encolar la venta, reconectar, sincronizar y recargar la pantalla.
+- `responsive.spec.ts`: siete pantallas a 375, 768 y 1024 px, midiendo el documento.
+
+```bash
+pnpm --filter @pos-dian/pos-web test:e2e:install   # una vez
+pnpm --filter @pos-dian/pos-web test:e2e
+```
+
+---
+
 ## Arquitectura Offline-First (PWA)
 
 ### Capas de Persistencia
@@ -227,6 +275,12 @@ Breakpoints CSS en `global.css`:
 - `768px`: layout columna única con `grid-template-rows: 1fr auto`, scroll interno, sin scroll de página
 - `640px / 480px / 380px`: ajustes tipografía, grillas y espaciados
 
+**El armazón tiene que poder encogerse.** Los breakpoints estaban bien y la aplicación se salía de la pantalla igual: un hijo de grid nace con `min-width: auto` —«no me encojas por debajo del ancho mínimo de mi contenido»—, así que la columna implícita se dimensionaba al contenido más ancho y arrastraba la barra superior fuera de la ventana: 203 px de más en un móvil de 375, 118 en una tablet de 768. Por eso `.app-shell` declara `grid-template-columns: minmax(0, 1fr)`, los contenedores que envuelven contenido ancho llevan `min-width: 0` y `.topbar-user` envuelve.
+
+Los controles suben a **44 px bajo `hover: none`**, acotado a punteros gruesos: con ratón sobran y solo gastarían barra.
+
+Nada de esto se veía leyendo el CSS — se vio midiendo el documento en un navegador —, así que la garantía es una medición y no una regla de estilo: `e2e/responsive.spec.ts` recorre siete pantallas a 375, 768 y 1024 px y nombra al elemento culpable cuando falla. Se mide el documento, no cada componente: una tabla puede y debe desplazarse dentro de su propio contenedor (D-072).
+
 ---
 
 ## Integraciones de Hardware
@@ -234,6 +288,10 @@ Breakpoints CSS en `global.css`:
 ### Impresión de Tickets
 - **HTML dinámico:** Generación de ticket 58mm u 80mm en una ventana nueva. Selección guardada en configuración del tenant.
 - **ESC/POS directo:** Conexión por Web Serial API (`navigator.serial`) a impresoras térmicas sin diálogos del sistema. Ver `ticket-printer.ts`.
+
+### Datáfono
+- `sendToPaymentTerminal()` en `hardware.ts` **es un simulador**: aprueba el 90 % de las veces con `Math.random()` y devuelve un código de autorización inventado. No hay conector con ningún adquirente.
+- Lo que sí es real es el cierre de lote de la fase 9: se captura el total que imprime el datáfono y el sistema dice al momento si coincide con lo que registró y en qué se diferencia. Cuando exista el conector, lo único que cambia es de dónde salen esas cifras.
 
 ### Báscula Digital (Web Serial API)
 - Archivo: `apps/pos-web/src/lib/hardware.ts` → `readScaleWeight()`
@@ -393,7 +451,13 @@ Plan completo y razonado en `docs/ROADMAP-PRODUCCION.md`.
 | Cierre de ciclo para documentos en estado `SENT` (consulta + webhook + alerta) | ✅ Fase 4 |
 | Domicilio entregado → venta → documento fiscal | ✅ Fase 4 |
 | Provider DIAN real (PAC) **certificado** | ⏳ Depende del PAC — `docs/CERTIFICACION-PAC.md` |
-| Escalado horizontal (advisory locks, adaptador Redis de Socket.io, `SKIP LOCKED`) | ⏳ Fase 5 |
+| Escalado horizontal (advisory locks, adaptador Redis de Socket.io, `SKIP LOCKED`) | ⏳ Fase 5 — sin el adaptador, dos instancias desincronizan mesas y KDS |
+| Recetas y escandallo, turnos de mesero, informes de operación, pedido por menú QR | ✅ Fase 10 |
+| Enrutador con URL por pantalla, React Query en todas las pantallas, e2e del camino del dinero en CI | ✅ Fase 11 |
+| Cliente del API generado desde el contrato | ⏳ La cadena existe y CI la vigila; `client.ts` sigue con 38 tipos a mano |
+| Cobro desde el menú QR | ⏳ El comensal pide y pide la cuenta; el cobro es en caja |
+| Nombre del producto congelado en `sale_items` | ⏳ Hoy solo se guarda `product_id`: renombrar reescribe el tiquete de una venta vieja |
+| CORS sin cabecera `Origin`, y `ADMIN` / `TENANT_OWNER` fuera de la verificación de permisos | ⏳ Pendiente |
 | Despliegue HTTPS, multi-instancia | ⏳ Pendiente |
 | Políticas operativas: soporte, rotación de usuarios, ensayo real de restauración | ⏳ Pendiente |
 | Observabilidad centralizada (stack Grafana) | ✅ Implementado localmente |

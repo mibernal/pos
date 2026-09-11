@@ -1,6 +1,6 @@
 # Ruta a Producción
 
-Estado al **28 de agosto de 2026** (fases 0–4 cerradas en su parte de código). Este documento es el registro vivo del endurecimiento previo a producción: qué se cerró, con qué evidencia, y qué falta.
+Estado al **11 de septiembre de 2026**: cerradas las fases 0–4 en su parte de código y las 6–11 completas; la 5 sigue diferida y la 12 no ha empezado. Este documento es el registro vivo del endurecimiento previo a producción: qué se cerró, con qué evidencia, y qué falta.
 
 Punto de partida: auditoría sobre `main` del 25 de agosto de 2026. El sistema era funcionalmente rico y estaba operativamente roto — no compilaba, la base no se podía crear desde cero, y el CI llevaba meses sin ejecutar nada real. Nada de lo que sigue es opinión de diseño: son fallos que se reprodujeron y se corrigieron con una prueba que los cubre.
 
@@ -22,6 +22,9 @@ Punto de partida: auditoría sobre `main` del 25 de agosto de 2026. El sistema e
 | 7 | Que el plan gobierne el producto | ✅ Completada — 30 ago 2026 |
 | 8 | Cobro recurrente que ocurre solo | ✅ Completada — 3 sep 2026 |
 | 9 | La caja completa | ✅ Completada — 4 sep 2026 |
+| 10 | El restaurante, completo | ✅ Completada — 4 sep 2026 |
+| 11 | Un frontend en el que se pueda seguir construyendo | ✅ Completada — 11 sep 2026 · `FE-03` a medias, ver abajo |
+| 12 | Convertir el POS en plataforma | ⏳ Sin empezar — bloques independientes |
 
 ---
 
@@ -648,6 +651,236 @@ desde entonces se hayan anulado ventas o renombrado medios.
 
 ---
 
+## Fase 10 — El restaurante, completo ✅
+
+**El problema.** El módulo mejor construido del sistema —inventario con ledger inmutable y
+bloqueo pesimista— no le servía al vertical que mejor cubrimos. Vender una hamburguesa
+descontaba «hamburguesa»: un producto que nadie almacena, mientras el pan, la carne y el aceite
+se consumían sin que el sistema se enterara. Alrededor de eso, el mesero era dos cosas a la vez
+sin ser ninguna del todo, `enable_waiter_shifts` era un flag sin nada detrás, y el menú QR
+publicaba la carta para que el comensal la mirase.
+
+Migraciones 106 a 110. Decisiones en D-064…D-067.
+
+### Lo vendido se convierte en lo consumido
+
+`product_recipes` y `recipe_components` describen de qué está hecho un plato, con recetas
+anidadas —una salsa es un producto con receta propia que entra en otra—. Antes de tocar los
+balances, `expandDemand` traduce lo vendido a lo consumido: si el producto tiene receta activa
+bajan sus ingredientes con operación `RECIPE`; si no, baja él con `SALE` (D-064). De la misma
+expansión salen el coste teórico, el margen por plato y la desviación contra el conteo físico.
+
+La expansión vive en el API aunque quien descarga sea el worker, y a propósito: el informe de
+desviación usa exactamente el mismo cálculo, y con dos implementaciones ese informe mediría la
+diferencia entre dos programas en vez de entre la receta y la realidad.
+
+**El detalle que habría duplicado un descargo.** La guarda de idempotencia del worker buscaba
+un movimiento `SALE` para saber si ya había descargado. Una venta de platos con receta no deja
+ninguno —deja `RECIPE`—, así que el reintento del job habría vuelto a descontar el inventario
+entero.
+
+### El mesero, una identidad y un turno
+
+`waiter-shifts.service.ts` abre y cierra turno, asigna mesas al mesero del turno y verifica el
+PIN contra el Argon2 que la fase 6 ya había puesto en `pin_hash`. La ficha de personal sigue
+siendo la fila de `waiters` y la cuenta de acceso sigue siendo opcional (D-046): lo que se
+unificó es la atribución, que ahora tiene una sola vía.
+
+**El turno no se guarda en la venta.** No hay columna de turno en `sales`: el corte son las
+ventas de ese mesero entre la apertura y el cierre, y la deducción es exacta porque un índice
+único parcial impide dos turnos abiertos del mismo mesero. Al cerrar, el corte se congela en
+`summary_json` y deja de recalcularse — anular una venta tres días después no puede reescribir
+el papel que el mesero se llevó a casa (D-065).
+
+### Lo que mide el encargado
+
+Cuatro informes: rotación de mesa, tiempo de cocina, ventas por franja e ingeniería de carta.
+El segundo obligó a tocar el esquema. `kitchen_tickets` solo tenía `updated_at`, que se pisa en
+cada cambio y por tanto significa cosas distintas según el estado en que quedó cada ticket;
+ahora `started_at`, `ready_at` y `delivered_at` se escriben una sola vez cada una (D-067). No
+se rellenaron hacia atrás: de un ticket anterior no se sabe cuándo estuvo listo, y un informe
+que arranca sin historia es mejor que uno que arranca con una media inventada.
+
+### El comensal pide desde su mesa
+
+`POST /public/qr/:token/orders` crea el pedido sobre la misma infraestructura de mesas y KDS
+que usa el salón. El token de mesa es la credencial de escritura y vive en `qr_table_tokens`,
+una tabla sin RLS y sin más contenido que identificadores: de qué comercio es la petición hay
+que resolverlo **antes** de poder fijar el contexto de tenant, y en `tables`, con RLS forzado,
+esa consulta devuelve cero filas siempre (D-066). Se descartó meter el `tenant_id` dentro del
+token: dejar que una petición anónima elija bajo qué comercio corre una transacción no es una
+frase que deba existir en este código.
+
+Los precios los pone el servidor. Si vinieran del móvil del comensal, la carta sería una
+sugerencia.
+
+**Lo que no entró: el cobro.** El comensal pide y puede pedir la cuenta; el cobro sigue
+ocurriendo en la caja. Es media función de la que más piden, y está anotada como tal.
+
+**Criterio de salida — cumplido.** Una prueba recorre el servicio entero: el mesero entra con
+PIN y abre turno, toma el pedido, la cocina lo despacha, la cuenta se divide y se cobra, el
+inventario baja por ingrediente y no por plato, y el cierre del turno liquida las propinas.
+
+---
+
+## Fase 11 — Un frontend en el que se pueda seguir construyendo ✅
+
+**El problema.** `App.tsx` resolvía la pantalla con un `if/else` de 381 líneas. No había URL
+por pantalla: el botón atrás sacaba de la aplicación y recargar volvía al inicio, que en una
+tablet de salón significa perder el pedido en curso. El backend se llamaba de dos maneras —el
+cliente pasado como prop desde `App.tsx`, sin caché ni invalidación, y hooks de React Query—,
+con veinte llamadas manuales al cargador repartidas por las pantallas para refrescar después de
+escribir. Decisiones en D-068…D-072.
+
+### Cada pantalla tiene su URL
+
+`react-router-dom` estaba en `package.json` desde hacía meses sin que lo importara ningún
+archivo. Ahora el armazón son `AppShell`, `AppRoutes`, `RouteGuard` y `route-elements`: URL por
+pantalla, carga diferida por ruta y la guarda escrita **en la definición de la ruta**.
+
+Eso último no es organización, es una corrección. La guarda estaba escrita dos veces —una para
+decidir si la pantalla aparece en el menú, otra al renderizarla— y las dos copias habían
+divergido: el menú escondía el KDS a quien no tuviera `kitchen_display` mientras la pantalla
+solo exigía `kitchen`. Hoy las dos preguntas las responde la misma función, que además devuelve
+el motivo y no un booleano, porque a quien llega por un enlace guardado le falta o un permiso o
+el plan, y son cosas distintas que se arreglan en sitios distintos.
+
+### El cliente deja de ser un prop, y las claves viven en un solo sitio
+
+`useApi()` sustituye al prop, y las 34 pantallas consultan con React Query. Las veinte llamadas
+manuales al cargador después de escribir pasaron a ser invalidaciones.
+
+Las claves de los dieciséis dominios salen de `shared/query-keys`, con el ámbito primero
+(`tenant`, `branch`, `platform`, `public`) para poder invalidar una sucursal entera en una
+línea y para que cambiar de comercio no deje migas del anterior (D-069). Una clave es un
+contrato entre quien consulta y quien invalida, y escrita a mano en dos archivos se puede
+escribir mal en uno solo sin que se note leyendo cualquiera de los dos: enviar un curso a
+cocina invalidaba `['kitchen-tickets', branchId]`, una clave que no consulta nadie —el KDS lee
+`['kds-tickets']`—, así que el tablero solo se refrescaba si el socket llegaba a tiempo. Esa
+invalidación no hizo nada desde el día en que se escribió.
+
+### El contrato empieza a decir qué devuelve cada ruta
+
+El plan pedía generar el cliente desde el OpenAPI. Lo primero que apareció al intentarlo es que
+**no había OpenAPI**: `registerSwagger` no iba envuelto en `fastify-plugin`, así que decoraba
+una instancia hija y `/docs` llevaba tiempo documentando **cero rutas**. Es el mismo fallo que
+tuvo el manejador de errores (D-044), en otro plugin.
+
+Con el contrato publicándose de verdad: `openapi.json` y `apps/pos-web/src/lib/api/schema.d.ts`
+se generan y CI falla si el contrato cambió y no se regeneraron. De 193 operaciones, 31
+declaraban su respuesta; se enchufaron las cinco del camino del dinero y eso destapó siete
+divergencias reales entre lo que la API promete y lo que devuelve (abajo). Las 157 restantes
+están en una lista con candado —`contrato-respuestas.test.ts` falla si aparece una nueva y
+también si una apuntada se resolvió y nadie la tachó, porque una lista que no se vacía sola
+deja de contarse (D-070)—.
+
+Declarar la respuesta tampoco es documentar: Fastify serializa a través del esquema y recorta
+lo que no esté en él, así que sin declararla sale por el cable lo que el handler haya
+seleccionado de más —un `password_hash` arrastrado por un join, por ejemplo— y ninguna prueba
+se entera.
+
+### El camino del dinero, en un navegador
+
+Playwright en CI, bloqueando el merge: cobrar, cortar la red, encolar la venta, reconectar y
+sincronizar, y recargar la pantalla para comprobar que vuelve donde estaba. La impresión sigue
+sin cubrirse; es lo único de la lista del plan que el e2e no toca.
+
+### Un Redis mudo dejaba al comercio sin caja
+
+Lo más grave de la fase no estaba en la lista de la fase. Un Redis que **acepta la conexión y
+no responde** —un contenedor en pausa detrás del reenvío de puertos de Docker— colgaba
+`/auth/login`, `/auth/refresh` y el propio `/health` para siempre: el limitador de intentos
+corre antes que nada y la API se quedaba esperando un comando que nunca volvía. Sin error, sin
+log, y sin que el health check lo delatara porque se colgaba en el mismo `ping`. El POS entero
+caído en silencio porque un caché de límite de intentos parpadeó.
+
+Corregido en tres capas (D-068): `commandTimeout` y `connectTimeout` en el cliente —
+`maxRetriesPerRequest` no protege de esto, porque solo cuenta reintentos entre reconexiones y
+no hay reconexión si el socket sigue abierto—; el limitador se degrada a un contador en memoria
+y avisa por el log mientras dura, porque es una defensa y no una regla de negocio; y `/health`
+gana un límite por comprobación, ya que un health check que no responde es peor que no tenerlo:
+el balanceador espera y nunca llega a marcar la instancia como enferma, que es lo único para lo
+que existe.
+
+De paso se quitó el `catch` a secas del login, que convertía cualquier fallo de Redis en un 429
+«demasiados intentos» — un mensaje falso del que además no se salía esperando, porque no había
+ningún contador que expirar.
+
+### Lo que el contrato prometía y no cumplía
+
+- `tax_lines_json` y `payment_json` viajaban como `unknown` hasta el navegador, donde el
+  frontend los trataba como tipos garantizados que nadie garantizaba. Ahora se parsean con su
+  esquema al salir del mapeador de ventas. Las líneas de impuesto degradan a vacío; el medio de
+  pago **revienta**, porque no existe relleno honesto para «cómo se pagó» y cualquier valor por
+  defecto sería afirmar algo falso sobre dinero (D-071).
+- `product_name` podía ser nulo mientras el contrato lo prometía presente: el tiquete habría
+  impreso «null».
+- `createSale` escribía `label` y `change_cents`, dos campos que el esquema rechaza. Se
+  declararon en vez de dejar de escribirse: hay ventas guardadas que los tienen y tienen que
+  seguir leyéndose.
+
+### La aplicación se salía de la pantalla en la que se usa
+
+Fuera del plan. Un hijo de grid nace con `min-width: auto` —«no me encojas por debajo del ancho
+mínimo de mi contenido»—, de modo que la columna implícita del armazón se dimensionaba al
+contenido más ancho y arrastraba la barra superior fuera de la ventana: **203 px de más en un
+móvil de 375**, 118 en una tablet de 768. En una tablet de salón eso es arrastrar la interfaz
+de lado para encontrar el botón de cobrar.
+
+`.app-shell` declara ahora `grid-template-columns: minmax(0, 1fr)`, `.topbar-user` envuelve, y
+los controles suben a 44 px bajo `hover: none` —acotado a punteros gruesos, porque con ratón
+sobran y solo gastarían barra—. No se veía leyendo el CSS: se vio midiendo el documento en un
+navegador. Por eso la garantía que queda es una medición y no una regla de estilo:
+`e2e/responsive.spec.ts` recorre siete pantallas a 375, 768 y 1024 px y nombra al elemento
+culpable cuando falla (D-072).
+
+### Criterio de salida — cumplido en dos de sus tres frases
+
+Recargar cualquier pantalla la devuelve donde estaba: sí. El e2e del camino del dinero corre en
+cada pull request: sí. Añadir un endpoint no requiere escribir tipos a mano: **no**.
+`contract.ts` no lo importa ningún archivo y `client.ts` sigue con 38 tipos escritos a mano. La
+cadena de generación existe y CI la vigila; falta que alguien la consuma. Trece archivos del
+frontend siguen llamando con `fetch` crudo —SSE y pantallas públicas, en dos estilos distintos.
+
+---
+
+## Lo que queda abierto (11 de septiembre de 2026)
+
+Cerradas las fases 6 a 11, esto es lo que se sabe que falta. Está aquí y no en una lista de
+tareas porque cada punto se conoce por haberlo encontrado, no por haberlo previsto.
+
+**Seguridad y permisos.** CORS acepta las peticiones que llegan sin cabecera `Origin`. `ADMIN`
+y `TENANT_OWNER` se saltan la verificación de permisos —dentro de su comercio lo ven todo, lo
+que es una decisión de producto defendible, pero hoy es un `return` temprano y no una regla
+escrita en el catálogo de permisos.
+
+**Documento fiscal.** `sale_items` no guarda el nombre del producto vendido, solo su
+`product_id`. Renombrar un producto reescribe el nombre impreso en el tiquete de una venta de
+hace seis meses. Para algo que es un documento fiscal eso no debería poder pasar: pide columna
+nueva y migración, y el nombre debe quedar congelado en la línea, como ya lo están los importes.
+
+**Multi-instancia.** Sin `@socket.io/redis-adapter`, con más de una instancia de API las mesas
+y el KDS quedan desincronizados entre cajas. Es parte de la fase 5 y es la razón principal por
+la que el sistema sigue siendo de instancia única.
+
+**Facturación.** El prorrateo del cambio de plan se calcula en `/plan/preview` y
+`ChangeTenantPlanUseCase` no lo aplica: lo que el comercio ve antes de aceptar no es lo que se
+le cobra después.
+
+**Frontend.** Además de la cadena del contrato sin consumir y los trece `fetch` crudos,
+`ScannerReconciliationScreen` es una maqueta: tiene `useQuery`, `useMutation` y el cliente del
+API **simulados dentro del propio archivo**, y ninguna ruta la pinta. O se termina o se borra;
+mientras siga ahí, parece una pantalla.
+
+**Producto que no existe todavía** (es la fase 12, y conviene no confundirlo con deuda):
+compras y proveedores —solo están las tablas—, fidelización —solo la bandera
+`enable_loyalty`—, promociones v2 (combos, happy hour, por categoría), API pública con llaves
+por comercio y webhooks salientes, roles a medida, y la integración de datáfono: `hardware.ts`
+es un simulador con `Math.random()`, y la conciliación de lote de la fase 9 es la mayor parte
+del valor sin depender de un adquirente, pero no es el conector.
+
+---
+
 ## Fase 5 — Escala horizontal ⏳
 
 Estimado: ~1 semana. Diferible hasta ~20 clientes. **Mientras tanto, debe estar escrito y aceptado que el sistema corre en instancia única.**
@@ -721,6 +954,9 @@ Si alguno está sin marcar, la respuesta a "¿ya podemos salir?" es **no**, sin 
 - [x] La numeración fiscal viene de una resolución autorizada, es consecutiva y no se puede duplicar.
 - [x] Un documento que queda en `SENT` se resuelve o se alerta; no se queda colgado en silencio.
 - [x] Un domicilio entregado genera su documento fiscal.
+- [x] El camino del dinero —cobro, corte de red, cola offline, sincronización y recarga— se verifica en un navegador real en cada pull request.
+- [ ] `sale_items` guarda el nombre del producto vendido, de modo que renombrar un producto no reescriba un tiquete ya emitido.
+- [ ] CORS rechaza las peticiones sin cabecera `Origin`, y `ADMIN` / `TENANT_OWNER` pasan por la verificación de permisos como cualquier otro rol.
 - [ ] Un restore de backup probado end-to-end en el último mes.
 - [ ] Está escrito y aceptado que el sistema corre en instancia única hasta completar la fase 5.
 
@@ -739,4 +975,13 @@ pnpm lint && pnpm typecheck && pnpm build && pnpm test
 
 Resultado al cierre de la fase 4: **0 errores de lint** (144 advertencias, ver D-043), **0 errores de tipos**, build correcto, **91 migraciones desde cero** y **282 pruebas verdes** — 173 API contra PostgreSQL real, 60 worker, 31 pos-web, 18 shared.
 
-Detalle de las decisiones en `docs/DECISIONS.md` (D-036 … D-062). Procedimientos operativos en `docs/RUNBOOK.md`. Guía de certificación en `docs/CERTIFICACION-PAC.md`.
+Desde la fase 11, el navegador es parte de la verificación y no un extra:
+
+```bash
+pnpm --filter @pos-dian/pos-web test:e2e:install   # una vez
+pnpm --filter @pos-dian/pos-web test:e2e           # camino del dinero + responsive
+```
+
+Resultado al cierre de la fase 11 (11 de septiembre de 2026): **0 errores de lint**, **typecheck 6/6**, **110 migraciones desde cero**, **401 pruebas verdes** —268 API contra PostgreSQL real (1 omitida), 64 worker, 44 pos-web, 25 shared— y **6 specs de navegador** en verde. El e2e del camino del dinero y la guardia del contrato (`openapi.json` y `schema.d.ts` regenerados) bloquean el merge en CI.
+
+Detalle de las decisiones en `docs/DECISIONS.md` (D-036 … D-072). Procedimientos operativos en `docs/RUNBOOK.md`. Guía de certificación en `docs/CERTIFICACION-PAC.md`.

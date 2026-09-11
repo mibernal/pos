@@ -359,3 +359,35 @@ Se documentan porque la ausencia de política es una decisión, no un olvido:
 - `kitchen_tickets` tiene `started_at`, `ready_at` y `delivered_at`, y cada transición escribe la suya solo la primera vez.
 - **Motivo:** `updated_at` se pisa en cada cambio, así que medía cosas distintas según el estado en que hubiera quedado el ticket. Un informe construido sobre una columna que significa cosas distintas según la fila no es un informe lento: miente.
 - No se rellenaron hacia atrás: de un ticket viejo no se sabe cuándo estuvo listo. Arrancar sin historia es mejor que arrancar con una media falsa.
+
+## D-068 — Un Redis mudo no puede dejar al comercio sin caja
+- El cliente de Redis lleva `commandTimeout` y `connectTimeout`; el limitador de intentos se degrada a un contador en memoria cuando Redis no responde.
+- **Motivo:** pasó. Redis aceptaba la conexión y no contestaba —un contenedor en pausa detrás del reenvío de puertos de Docker— y como el limitador corre antes que nada en `/auth/login` y `/auth/refresh`, la API esperaba un comando que nunca volvía. Sin error, sin log, y con un `/health` que tampoco lo delataba porque se colgaba en el mismo `ping`. El POS entero caído, en silencio, porque un caché de rate limit parpadeó.
+- `maxRetriesPerRequest` no protege de esto: solo cuenta reintentos entre reconexiones, y no hay reconexión si el socket sigue abierto.
+- El limitador es una defensa, no una regla de negocio. Contar por proceso es peor que contar en compartido, pero infinitamente mejor que no dejar entrar a nadie. Se avisa por el log mientras dura.
+- El `catch` a secas del login se quitó: convertía cualquier fallo de Redis en un 429 «demasiados intentos», un mensaje falso del que además no se salía esperando, porque no había ningún contador que expirara.
+- `/health` gana un límite por comprobación. Un health check que no responde es peor que no tenerlo: el balanceador se queda esperando y nunca llega a marcar la instancia como enferma, que es lo único para lo que existe.
+
+## D-069 — Las claves de consulta del frontend salen de una fábrica, no de cada archivo
+- Los dieciséis dominios de React Query derivan sus claves de `shared/query-keys`, con la forma ámbito-primero (`tenant`, `branch`, `platform`, `public`).
+- **Motivo:** una clave es un contrato entre quien consulta y quien invalida. Escrita a mano en dos archivos distintos se puede escribir mal en uno solo, y eso no lo ve nadie leyendo cualquiera de los dos por separado. Pasaba: enviar un curso a cocina invalidaba `['kitchen-tickets', branchId]`, una clave que no consulta nadie —el KDS lee `['kds-tickets']`—, así que el tablero solo se refrescaba si el socket llegaba a tiempo.
+- El ámbito primero no es estética: permite invalidar una sucursal entera en una línea y que un cambio de comercio no deje migas del anterior.
+
+## D-070 — El contrato dice qué devuelve cada ruta, y eso lo verifica una prueba
+- Las rutas declaran `response` en su esquema; `contrato-respuestas.test.ts` lista las que todavía no y falla si aparece una nueva —o si una apuntada ya se resolvió y nadie la tachó.
+- **Motivo:** de 193 operaciones, 31 declaraban respuesta. El contrato documentaba lo que cada ruta recibe y callaba lo que devuelve, así que los tipos del frontend no podían salir de él y nadie comprobaba que el servidor respetara los que sí usaba. No los respetaba: enchufar cinco rutas destapó siete divergencias reales.
+- Declarar la respuesta no es documentar: Fastify serializa a través del esquema y recorta lo que no esté en él. Sin declararlo, lo que el handler seleccione de más sale por el cable —un `password_hash` arrastrado por un join, por ejemplo— y ninguna prueba se entera.
+- La lista de deuda falla en las dos direcciones a propósito. Una que no se vacía sola deja de contarse y se vuelve decorado.
+
+## D-071 — Los `jsonb` se validan donde entran al sistema de tipos
+- `tax_lines_json` y `payment_json` se parsean con su esquema al salir del mapeador de ventas, en vez de viajar como `unknown`.
+- **Motivo:** Kysely entrega una columna `jsonb` como `unknown`, y así viajaban hasta el navegador, donde el frontend las trataba como tipos garantizados que nadie garantizaba. Un `jsonb` con otra forma habría reventado en la pantalla de un cajero sin un solo aviso por el camino.
+- Las dos se tratan distinto, y la diferencia es deliberada. Las líneas de impuesto degradan a vacío: una venta sin desglose se ve rara y se corrige. El medio de pago **revienta**: no existe relleno honesto para «cómo se pagó», y cualquier valor por defecto sería afirmar algo falso sobre dinero. El precio de esa decisión —una fila corrupta tumba el listado entero— se acepta porque la alternativa es peor y además silenciosa.
+- `label` y `change_cents` se declararon en el esquema en vez de dejar de escribirse: hay ventas guardadas que los tienen y tienen que seguir leyéndose. El contrato describe lo que la API devuelve, no lo que nos habría gustado que devolviera.
+
+## D-072 — El armazón puede encogerse, y una prueba lo comprueba en un navegador
+- `.app-shell` declara `grid-template-columns: minmax(0, 1fr)`; los contenedores que envuelven contenido ancho llevan `min-width: 0`; los controles suben a 44 px bajo `hover: none`.
+- **Motivo:** un hijo de grid nace con `min-width: auto` —«no me encojas por debajo del ancho mínimo de mi contenido»—, así que la columna implícita se dimensionaba al contenido más ancho y arrastraba la barra superior fuera de la ventana: 203 px de más en un móvil de 375, 118 en una tablet de 768. En una tablet de salón eso significa arrastrar la interfaz de lado para encontrar el botón de cobrar.
+- No se veía leyendo el CSS. Se vio midiendo el documento en un navegador real, y por eso la garantía que queda es una medición, no una regla de estilo: `e2e/responsive.spec.ts` recorre siete pantallas a tres anchos y nombra al elemento culpable cuando falla.
+- Se mide el documento, no cada componente: una tabla puede y debe desplazarse dentro de su propio contenedor.
+- Los 44 px van acotados a punteros gruesos porque con ratón sobran, y ensanchar los iconos solo gastaría barra.

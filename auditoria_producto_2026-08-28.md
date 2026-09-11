@@ -119,6 +119,12 @@ deduplicación. La deuda está en cómo está montada la app de React.
 Seis fases que continúan la numeración del endurecimiento (0–5). Estimaciones en
 semanas-persona para quien conoce el código. Cada fase termina en un criterio verificable.
 
+**Estado al 11 de septiembre de 2026.** Cerradas las fases 6 y 7 (30 de agosto), 8 (3 de
+septiembre), 9 (4 de septiembre), 10 (4 de septiembre) y 11 (11 de septiembre). Queda la 12,
+que es un catálogo de bloques y no tiene fecha. Lo ejecutado se anota debajo de cada fase, con
+sus desviaciones; el relato completo está en `docs/ROADMAP-PRODUCCION.md` y las decisiones en
+`docs/DECISIONS.md`.
+
 ### Fase 6 — Cerrar las fugas silenciosas · 1,5–2 semanas
 
 Todo lo que hoy falla sin decirlo. Ninguna corrección necesita decisión de producto.
@@ -180,7 +186,7 @@ pruebas de la pasarela con el reloj adelantado.
 bono, un fiado y propina repartida cierra con diferencia cero, y cada medio aparece
 desglosado en el reporte Z.
 
-### Fase 10 — El restaurante, completo · 3–4 semanas
+### Fase 10 — El restaurante, completo · 3–4 semanas ✅
 
 - Unificar la identidad del mesero: ficha de personal opcionalmente ligada a una cuenta, una sola vía de atribución. `ME-03`
 - Turnos reales: apertura y cierre, rango de mesas, corte por turno, liquidación de propinas. `ME-05`
@@ -193,7 +199,37 @@ desglosado en el reporte Z.
 PIN, toma pedido, cocina despacha, la mesa se divide y se cobra, el inventario baja por
 ingrediente y el cierre liquida las propinas del turno.
 
-### Fase 11 — Un frontend en el que se pueda seguir construyendo · 2–3 semanas
+**Ejecutado — 4 de septiembre de 2026.** Migraciones 106 a 110. El relato está en
+`docs/ROADMAP-PRODUCCION.md` → fase 10 y las decisiones en D-064…D-067.
+
+Están las recetas y el escandallo (`product_recipes` / `recipe_components`): lo vendido se
+convierte en ingredientes consumidos —con recetas anidadas— antes de tocar los balances, y de
+ahí salen el coste teórico, el margen por plato y la desviación contra el conteo físico. Está
+la identidad única del mesero con turnos de verdad (`waiter-shifts.service.ts`: apertura y
+cierre, asignación de mesas, PIN con Argon2, corte al cerrar). Están los cuatro informes de
+operación —rotación de mesa, tiempo de cocina, ventas por franja e ingeniería de carta— y el
+pedido desde el menú QR.
+
+Cuatro diferencias con lo planeado, por orden de importancia:
+
+- **El menú QR toma pedidos, no cobra.** `POST /public/qr/:token/orders` crea el pedido y el
+  comensal puede pedir la cuenta; el cobro sigue ocurriendo en la caja. El token de mesa es la
+  credencial de escritura y vive en una tabla sin RLS, porque de qué comercio es la petición
+  hay que resolverlo *antes* de poder fijar el contexto de tenant (D-066). Los precios los pone
+  el servidor: si vinieran del móvil del comensal, la carta sería una sugerencia.
+- **El turno no se guarda en la venta.** No hay columna de turno en `sales`: el corte son las
+  ventas de ese mesero entre su apertura y su cierre, deducidas por tiempo, y al cerrar se
+  congelan en `summary_json` (D-065). Tocar el camino de creación de la venta —el más delicado
+  del sistema— para guardar algo deducible habría sido un mal cambio.
+- **El tiempo de cocina exigió columnas nuevas.** `kitchen_tickets` solo tenía `updated_at`, que
+  significa cosas distintas según el estado en que quedó el ticket; ahora cada transición
+  escribe la suya y solo la primera vez (D-067). No se rellenaron hacia atrás: de un ticket
+  viejo no se sabe cuándo estuvo listo, y arrancar sin historia es mejor que arrancar con una
+  media falsa.
+- **`ME-04` y `ME-06` ya venían hechos.** La sucursal se valida contra el comercio desde la fase
+  6, y la cuota de meseros es una de las siete dimensiones de `plan_entitlements` desde la 7.
+
+### Fase 11 — Un frontend en el que se pueda seguir construyendo · 2–3 semanas ✅
 
 Va después de la 10 a propósito: para entonces el alcance está claro y la refactorización
 no persigue un objetivo móvil.
@@ -208,6 +244,51 @@ no persigue un objetivo móvil.
 **Criterio de salida.** Recargar cualquier pantalla la devuelve donde estaba. El e2e del
 camino del dinero corre en cada pull request. Añadir un endpoint no requiere escribir tipos
 a mano.
+
+**Ejecutado — 11 de septiembre de 2026.** El relato está en `docs/ROADMAP-PRODUCCION.md` →
+fase 11 y las decisiones en D-068…D-072. El criterio de salida se cumple en dos de sus tres
+frases: recargar devuelve donde estaba y el e2e corre en cada pull request, pero **añadir un
+endpoint sigue exigiendo escribir tipos a mano**.
+
+- **`FE-01`, como estaba escrito.** Enrutador con `react-router-dom`, URL por pantalla, carga
+  diferida por ruta y la guarda en la propia definición (`AppShell`, `AppRoutes`, `RouteGuard`,
+  `route-elements`). La guarda estaba escrita dos veces —una para decidir si la pantalla sale en
+  el menú y otra al renderizarla— y las dos copias habían divergido: el menú escondía el KDS a
+  quien no tuviera `kitchen_display` mientras la pantalla solo exigía `kitchen`. Ahora el menú y
+  la URL leen la misma línea.
+- **`FE-02`, como estaba escrito.** El cliente del API dejó de ser un prop (`useApi()`) y las 34
+  pantallas consultan con React Query, con las claves en `shared/query-keys` — 16 dominios, con
+  el ámbito primero para poder invalidar una sucursal entera en una línea (D-069). Las veinte
+  llamadas manuales al cargador después de escribir se convirtieron en invalidaciones.
+- **`PL-07`, como estaba escrito.** `packages/shared/src/schemas/module-flags.ts` es el único
+  mapa de módulos.
+- **`FE-05`, con un hueco.** Playwright sobre el camino del dinero —cobrar, cortar la red,
+  encolar, sincronizar y recargar la pantalla— corriendo en CI y bloqueando el merge. **La
+  impresión no se cubrió**: es lo único de la lista que el e2e no toca.
+- **`FE-03` es la desviación de fondo.** Lo que se hizo fue lo previo, que no estaba en la
+  lista porque nadie lo sabía: el contrato no se publicaba. `registerSwagger` decoraba una
+  instancia hija por no ir envuelto en `fastify-plugin`, así que `/docs` llevaba tiempo
+  documentando **cero rutas**. Hoy el contrato se publica, `openapi.json` y `schema.d.ts` se
+  generan con guardia en CI, y cinco rutas del camino del dinero declaran qué devuelven —lo que
+  destapó cinco divergencias reales (ver abajo)—. Quedan 157 sin declarar, con una prueba que
+  falla en las dos direcciones para que la lista no se vuelva decorado (D-070). Pero
+  `contract.ts` no lo importa ningún archivo y `client.ts` sigue con 38 tipos a mano: **la
+  cadena existe, CI la vigila y nadie la consume todavía.**
+
+Fuera del plan se hizo el trabajo de responsive. El armazón se salía 203 px de un móvil de 375
+porque un hijo de grid nace con `min-width: auto`; se corrigió con `grid-template-columns:
+minmax(0, 1fr)` y controles de 44 px bajo `hover: none`, y la garantía es una medición en
+navegador —`e2e/responsive.spec.ts`, siete pantallas a 375, 768 y 1024 px— y no una regla de
+estilo (D-072).
+
+**Lo que destapó la fase, que es lo que más vale de ella.** Un Redis que acepta la conexión y
+no responde colgaba `/auth/login`, `/auth/refresh` y el propio `/health` para siempre, sin
+error y sin log: el POS entero caído en silencio porque un caché de límite de intentos parpadeó
+(D-068). `useFireKitchenCourse` invalidaba `['kitchen-tickets']` y el KDS lee `['kds-tickets']`:
+la invalidación no hacía nada desde que se escribió. `tax_lines_json` y `payment_json` viajaban
+como `unknown` hasta el navegador, `product_name` podía ser nulo mientras el contrato lo
+prometía presente —el tiquete habría impreso «null»— y `createSale` escribía dos campos que el
+esquema rechaza (D-071).
 
 ### Fase 12 — Convertir el POS en plataforma · continuo, tras la fase 8
 
