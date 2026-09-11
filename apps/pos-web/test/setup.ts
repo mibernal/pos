@@ -1,5 +1,18 @@
 import { vi } from 'vitest';
 import { configure } from '@testing-library/react';
+import { notifyManager } from '@tanstack/react-query';
+
+// React Query avisa a los componentes dentro de un `setTimeout(0)`, y `act()` solo vacía
+// microtareas: entre que una consulta resuelve y el componente se vuelve a pintar cabe
+// toda la línea siguiente de la prueba. Un `fireEvent.click` sobre un botón que aún está
+// deshabilitado porque «todavía no hay datos» se pierde sin ruido —React no despacha
+// eventos de ratón en controles deshabilitados—, y el fallo aparece varias aserciones
+// más tarde, disfrazado de «el modal nunca se abrió».
+//
+// Pasando el aviso a microtarea, el repintado entra en el mismo `act()` que la resolución
+// de la consulta. Es la configuración que TanStack recomienda para pruebas; no cambia el
+// comportamiento de la aplicación, que sigue con el planificador por defecto.
+notifyManager.setScheduler(queueMicrotask);
 
 // El árbol de la app es grande y la hidratación de sesión ocurre tras montar:
 // el umbral por defecto de 1 s de Testing Library convierte eso en fallos

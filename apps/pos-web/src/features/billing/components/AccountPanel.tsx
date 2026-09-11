@@ -1,9 +1,11 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useState } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Button, Card, Banner } from '../../../components/ui';
 import type { BillingPortal } from '@pos-dian/shared';
 import { INVOICE_STATUS_LABELS, DUNNING_STEP_LABELS, UNLIMITED } from '@pos-dian/shared';
 import { PaymentMethodForm } from './PaymentMethodForm';
-import { useApi } from '../../auth';
+import { useApi, useSession } from '../../auth';
+import { billingKeys } from '../../../shared/query-keys';
 
 /**
  * El estado de cuenta del comercio.
@@ -36,34 +38,28 @@ const ESTADO_SUSCRIPCION: Record<string, { texto: string; clase: string }> = {
 
 export function AccountPanel() {
   const api = useApi();
-  const [portal, setPortal] = useState<BillingPortal | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const { tenantId } = useSession();
+  const queryClient = useQueryClient();
   const [aviso, setAviso] = useState<string | null>(null);
-  const [cobrando, setCobrando] = useState(false);
   const [cupon, setCupon] = useState('');
 
-  const cargar = useCallback(async () => {
-    try {
-      setLoading(true);
-      setPortal(await api.getBillingPortal());
-      setError(null);
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setLoading(false);
-    }
-  }, [api]);
+  const consulta = useQuery({
+    queryKey: billingKeys.portal(tenantId),
+    queryFn: () => api.getBillingPortal()
+  });
 
-  useEffect(() => {
-    void cargar();
-  }, [cargar]);
+  /**
+   * Toda escritura de facturación deja viejo el estado de cuenta entero.
+   *
+   * Un cobro cambia la factura abierta y el historial de cobranza, un cupón cambia el
+   * próximo importe y una tarjeta nueva cambia con qué se va a cobrar: no hay escritura
+   * aquí que toque solo un trozo del portal, así que se invalida completo.
+   */
+  const invalidarPortal = () => queryClient.invalidateQueries({ queryKey: billingKeys.portal(tenantId) });
 
-  async function cobrarAhora() {
-    setCobrando(true);
-    setAviso(null);
-    try {
-      const resultado = await api.payNow();
+  const cobrar = useMutation({
+    mutationFn: () => api.payNow(),
+    onSuccess: (resultado) => {
       setAviso(
         resultado.outcome === 'charged'
           ? 'Listo, el cobro se aprobó y tu cuenta quedó al día.'
@@ -71,28 +67,39 @@ export function AccountPanel() {
             ? 'La pasarela está procesando el cobro. Te avisamos por correo en cuanto se confirme.'
             : `No se pudo cobrar: ${resultado.detail ?? 'la pasarela rechazó el cobro'}`
       );
-      await cargar();
-    } catch (err: unknown) {
+      void invalidarPortal();
+    },
+    onError: (err: unknown) => {
       setAviso(err instanceof Error ? err.message : String(err));
-    } finally {
-      setCobrando(false);
     }
-  }
+  });
 
-  async function aplicarCupon(evento: React.FormEvent) {
-    evento.preventDefault();
-    if (!cupon.trim()) return;
-    try {
-      await api.redeemCoupon(cupon.trim().toUpperCase());
+  const canjear = useMutation({
+    mutationFn: (codigo: string) => api.redeemCoupon(codigo),
+    onSuccess: () => {
       setCupon('');
       setAviso('Cupón aplicado. El descuento entra en tu próxima factura.');
-      await cargar();
-    } catch (err: unknown) {
+      void invalidarPortal();
+    },
+    onError: (err: unknown) => {
       setAviso(err instanceof Error ? err.message : String(err));
     }
+  });
+
+  const cobrando = cobrar.isPending;
+
+  function cobrarAhora() {
+    setAviso(null);
+    cobrar.mutate();
   }
 
-  if (loading && !portal) {
+  function aplicarCupon(evento: React.FormEvent) {
+    evento.preventDefault();
+    if (!cupon.trim()) return;
+    canjear.mutate(cupon.trim().toUpperCase());
+  }
+
+  if (consulta.isPending) {
     return (
       <div className="grid gap-6">
         <div className="h-40 bg-muted/50 rounded-2xl animate-pulse" />
@@ -100,6 +107,13 @@ export function AccountPanel() {
       </div>
     );
   }
+
+  const error = consulta.error
+    ? consulta.error instanceof Error
+      ? consulta.error.message
+      : String(consulta.error)
+    : null;
+  const portal: BillingPortal | undefined = consulta.data;
 
   if (error) return <Banner tone="error">{error}</Banner>;
   if (!portal) return null;
@@ -220,7 +234,7 @@ export function AccountPanel() {
       {/* Medio de pago */}
       <Card className="p-6">
         <h3 className="text-lg font-bold text-foreground mb-4">Medio de pago</h3>
-        <PaymentMethodForm metodo={metodo} onCambio={cargar} />
+        <PaymentMethodForm metodo={metodo} onCambio={invalidarPortal} />
       </Card>
 
       {/* Cupón */}

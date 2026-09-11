@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { useMutation } from '@tanstack/react-query';
 import QRCode from 'qrcode';
 import { Banner, Button, Card } from '../../../components/ui';
 import { useApi } from '../../auth';
@@ -22,9 +23,22 @@ export function TableQrPanel({ tables }: { tables: Mesa[] }) {
   const [seleccionada, setSeleccionada] = useState<string>('');
   const [token, setToken] = useState<string | null>(null);
   const [nombre, setNombre] = useState<string>('');
-  const [error, setError] = useState<string | null>(null);
-  const [generando, setGenerando] = useState(false);
   const lienzo = useRef<HTMLCanvasElement>(null);
+
+  const emitirToken = useMutation({
+    mutationFn: () => api.issueTableQrToken(seleccionada),
+    onSuccess: (respuesta) => {
+      // El token se queda donde estaba: en el estado de este componente, que es el único que
+      // lo necesita para dibujar el cuadrado. Fuera de aquí no viaja a ninguna parte.
+      setToken(respuesta.qr_token);
+      setNombre(respuesta.name);
+    }
+  });
+
+  const generando = emitirToken.isPending;
+  const error = emitirToken.error
+    ? (emitirToken.error instanceof Error ? emitirToken.error.message : String(emitirToken.error))
+    : null;
 
   const url = token ? `${window.location.origin}/mesa/${token}` : null;
 
@@ -37,19 +51,9 @@ export function TableQrPanel({ tables }: { tables: Mesa[] }) {
     void dibujar();
   }, [dibujar]);
 
-  async function generar() {
+  function generar() {
     if (!seleccionada) return;
-    setGenerando(true);
-    setError(null);
-    try {
-      const respuesta = await api.issueTableQrToken(seleccionada);
-      setToken(respuesta.qr_token);
-      setNombre(respuesta.name);
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setGenerando(false);
-    }
+    emitirToken.mutate();
   }
 
   function imprimir() {

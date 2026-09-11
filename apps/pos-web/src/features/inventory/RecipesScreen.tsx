@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Banner, Button, Card } from '../../components/ui';
-import type { RecipeSummary } from '../../lib/api/client';
-import type { ConsumptionDeviationRow, ProductItem, Recipe } from '@pos-dian/shared';
-import { useApi } from '../auth';
+import type { ProductItem, Recipe } from '@pos-dian/shared';
+import { useApi, useSession } from '../auth';
+import { inventoryKeys } from '../../shared/query-keys';
 
 /**
  * Recetas y escandallo.
@@ -18,6 +19,14 @@ function pesos(cents: number): string {
     currency: 'COP',
     maximumFractionDigits: 0
   }).format(cents / 100);
+}
+
+function mensajeDeError(causa: unknown): string | null {
+  if (!causa) {
+    return null;
+  }
+
+  return causa instanceof Error ? causa.message : String(causa);
 }
 
 function hoyLocal(desplazamientoDias = 0): string {
@@ -70,40 +79,47 @@ export function RecipesScreen({ branchId }: { branchId?: string }) {
 
 function EscandalloPanel() {
   const api = useApi();
-  const [recetas, setRecetas] = useState<RecipeSummary[]>([]);
-  const [productos, setProductos] = useState<ProductItem[]>([]);
-  const [error, setError] = useState<string | null>(null);
-  const [cargando, setCargando] = useState(true);
-  const [editando, setEditando] = useState<{ productId: string; receta: Recipe | null } | null>(null);
+  const { tenantId } = useSession();
+  const queryClient = useQueryClient();
+  const [editandoProductId, setEditandoProductId] = useState<string | null>(null);
+  const [errorEditor, setErrorEditor] = useState<string | null>(null);
 
-  const cargar = useCallback(async () => {
-    try {
-      setCargando(true);
-      const [lista, catalogo] = await Promise.all([api.getRecipes(), api.listProducts({ limit: 500 })]);
-      setRecetas(lista);
-      setProductos(catalogo.items);
-      setError(null);
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setCargando(false);
-    }
-  }, [api]);
+  const recetasConsulta = useQuery({
+    queryKey: inventoryKeys.recipes(tenantId),
+    queryFn: () => api.getRecipes()
+  });
 
-  useEffect(() => {
-    void cargar();
-  }, [cargar]);
+  const productosConsulta = useQuery({
+    queryKey: inventoryKeys.products(tenantId),
+    queryFn: () => api.listProducts({ limit: 500 })
+  });
 
-  async function abrir(productId: string) {
-    setError(null);
-    try {
-      setEditando({ productId, receta: await api.getRecipe(productId) });
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : String(err));
-    }
+  /**
+   * La receta abierta se pide aparte del listado: el resumen no trae los ingredientes y el
+   * editor los necesita todos. Solo hay algo que pedir cuando hay un plato abierto, y de eso
+   * se encarga `enabled`.
+   */
+  const recetaConsulta = useQuery({
+    queryKey: inventoryKeys.recipe(tenantId, editandoProductId ?? ''),
+    queryFn: () => api.getRecipe(editandoProductId ?? ''),
+    enabled: Boolean(editandoProductId)
+  });
+
+  const recetas = recetasConsulta.data ?? [];
+  const productos = productosConsulta.data?.items ?? [];
+
+  const error =
+    errorEditor ??
+    mensajeDeError(recetaConsulta.error) ??
+    mensajeDeError(recetasConsulta.error) ??
+    mensajeDeError(productosConsulta.error);
+
+  function abrir(productId: string) {
+    setErrorEditor(null);
+    setEditandoProductId(productId);
   }
 
-  if (cargando && recetas.length === 0) {
+  if (recetasConsulta.isPending || productosConsulta.isPending) {
     return <div className="h-64 bg-muted/50 rounded-2xl animate-pulse" />;
   }
 
@@ -111,24 +127,31 @@ function EscandalloPanel() {
     <div className="space-y-6">
       {error && <Banner tone="error">{error}</Banner>}
 
-      {editando ? (
+      {editandoProductId && recetaConsulta.isSuccess ? (
         <EditorReceta
           productos={productos}
-          productId={editando.productId}
-          receta={editando.receta}
-          onCerrar={() => setEditando(null)}
+          productId={editandoProductId}
+          receta={recetaConsulta.data ?? null}
+          onCerrar={() => setEditandoProductId(null)}
           onGuardado={async (guardada) => {
             // No se cierra: guardar es justamente cuando aparece el costo teórico y el
             // margen de verdad, que es lo que se estaba buscando al abrir la receta.
-            setEditando({ productId: guardada.product_id, receta: guardada });
-            await cargar();
+            setEditandoProductId(guardada.product_id);
+            await Promise.all([
+              queryClient.invalidateQueries({
+                queryKey: inventoryKeys.recipe(tenantId, guardada.product_id)
+              }),
+              queryClient.invalidateQueries({ queryKey: inventoryKeys.recipes(tenantId) })
+            ]);
           }}
           onEliminado={async () => {
-            setEditando(null);
-            await cargar();
+            setEditandoProductId(null);
+            await queryClient.invalidateQueries({ queryKey: inventoryKeys.recipes(tenantId) });
           }}
-          onError={setError}
+          onError={setErrorEditor}
         />
+      ) : editandoProductId && recetaConsulta.isPending ? (
+        <div className="h-64 bg-muted/50 rounded-2xl animate-pulse" />
       ) : (
         <Card className="p-4">
           <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
@@ -226,7 +249,6 @@ function EditorReceta({
   const api = useApi();
   const [rendimiento, setRendimiento] = useState(String(receta?.yield_qty ?? 1));
   const [activa, setActiva] = useState(receta?.active ?? true);
-  const [guardando, setGuardando] = useState(false);
   const [componentes, setComponentes] = useState<ComponenteEditable[]>(
     receta?.components.map((componente) => ({
       ingredient_product_id: componente.ingredient_product_id,
@@ -249,10 +271,9 @@ function EditorReceta({
    */
   const costoGuardado = receta?.theoretical_cost_cents ?? null;
 
-  async function guardar() {
-    setGuardando(true);
-    try {
-      const guardada = await api.upsertRecipe(productId, {
+  const guardarReceta = useMutation({
+    mutationFn: () =>
+      api.upsertRecipe(productId, {
         yield_qty: Number(rendimiento) || 1,
         active: activa,
         components: componentes
@@ -262,27 +283,18 @@ function EditorReceta({
             qty: Number(componente.qty) || 0,
             waste_percent: Number(componente.waste_percent) || 0
           }))
-      });
-      await onGuardado(guardada);
-    } catch (err: unknown) {
-      onError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setGuardando(false);
-    }
-  }
+      }),
+    onSuccess: (guardada) => onGuardado(guardada),
+    onError: (err: unknown) => onError(mensajeDeError(err) ?? '')
+  });
 
-  async function eliminar() {
-    if (!receta) return;
-    setGuardando(true);
-    try {
-      await api.deleteRecipe(receta.id);
-      await onEliminado();
-    } catch (err: unknown) {
-      onError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setGuardando(false);
-    }
-  }
+  const eliminarReceta = useMutation({
+    mutationFn: (recipeId: string) => api.deleteRecipe(recipeId),
+    onSuccess: () => onEliminado(),
+    onError: (err: unknown) => onError(mensajeDeError(err) ?? '')
+  });
+
+  const guardando = guardarReceta.isPending || eliminarReceta.isPending;
 
   const precio = receta?.price_cents ?? plato?.price_cents ?? 0;
 
@@ -294,14 +306,14 @@ function EditorReceta({
         </h2>
         <div className="flex gap-2">
           {receta && (
-            <Button variant="outline" onClick={() => void eliminar()} disabled={guardando}>
+            <Button variant="outline" onClick={() => eliminarReceta.mutate(receta.id)} disabled={guardando}>
               Eliminar
             </Button>
           )}
           <Button variant="outline" onClick={onCerrar} disabled={guardando}>
             Cancelar
           </Button>
-          <Button onClick={() => void guardar()} disabled={guardando}>
+          <Button onClick={() => guardarReceta.mutate()} disabled={guardando}>
             {guardando ? 'Guardando…' : 'Guardar receta'}
           </Button>
         </div>
@@ -435,27 +447,24 @@ function EditorReceta({
 
 function DesviacionPanel({ branchId }: { branchId?: string }) {
   const api = useApi();
+  const { tenantId } = useSession();
   const [desde, setDesde] = useState(hoyLocal(-30));
   const [hasta, setHasta] = useState(hoyLocal());
-  const [filas, setFilas] = useState<ConsumptionDeviationRow[]>([]);
-  const [cargando, setCargando] = useState(false);
-  const [error, setError] = useState<string | null>(null);
 
-  const consultar = useCallback(async () => {
-    setCargando(true);
-    setError(null);
-    try {
-      setFilas(await api.getConsumptionDeviation({ from: desde, to: hasta, branch_id: branchId }));
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setCargando(false);
-    }
-  }, [api, desde, hasta, branchId]);
+  /**
+   * La fábrica de claves no tiene una para la desviación de consumo, así que se deriva de la
+   * de recetas: es lo que el informe mide —cuánto producto explican las recetas y cuánto se
+   * fue de verdad—, y colgarla de ahí hace que tocar una receta refresque también el informe,
+   * que es justo lo que cambia con ella. El periodo va dentro: otro periodo es otra consulta.
+   */
+  const consulta = useQuery({
+    queryKey: [...inventoryKeys.recipes(tenantId), 'desviacion', desde, hasta, branchId ?? ''],
+    queryFn: () => api.getConsumptionDeviation({ from: desde, to: hasta, branch_id: branchId })
+  });
 
-  useEffect(() => {
-    void consultar();
-  }, [consultar]);
+  const filas = consulta.data ?? [];
+  const cargando = consulta.isFetching;
+  const error = mensajeDeError(consulta.error);
 
   const fugaTotal = filas.reduce(
     (total, fila) => total + (fila.deviation_cost_cents < 0 ? fila.deviation_cost_cents : 0),
@@ -486,7 +495,7 @@ function DesviacionPanel({ branchId }: { branchId?: string }) {
               onChange={(evento) => setHasta(evento.target.value)}
             />
           </label>
-          <Button onClick={() => void consultar()} disabled={cargando}>
+          <Button onClick={() => void consulta.refetch()} disabled={cargando}>
             {cargando ? 'Calculando…' : 'Actualizar'}
           </Button>
         </div>

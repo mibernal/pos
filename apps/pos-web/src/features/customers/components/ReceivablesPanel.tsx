@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useState } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Button, Card, Banner } from '../../../components/ui';
-import type { ApiClient } from '../../../lib/api/client';
-import { RECEIVABLE_STATUS_LABELS, type CustomerStatement } from '@pos-dian/shared';
-import { useApi } from '../../auth';
+import { RECEIVABLE_STATUS_LABELS } from '@pos-dian/shared';
+import { useApi, useSession } from '../../auth';
+import { customerKeys } from '../../../shared/query-keys';
 
 /**
  * Cartera del comercio: quién debe, cuánto y desde cuándo.
@@ -21,6 +22,14 @@ function fecha(iso: string | null): string {
   return iso ? new Date(iso).toLocaleDateString('es-CO') : '—';
 }
 
+function mensajeDeError(causa: unknown): string | null {
+  if (!causa) {
+    return null;
+  }
+
+  return causa instanceof Error ? causa.message : String(causa);
+}
+
 export function ReceivablesPanel({ branchId,
   cashSessionId
 }: {
@@ -28,57 +37,64 @@ export function ReceivablesPanel({ branchId,
   cashSessionId?: string | null;
 }) {
   const api = useApi();
-  const [cartera, setCartera] = useState<Awaited<ReturnType<ApiClient['getReceivables']>> | null>(null);
-  const [statement, setStatement] = useState<CustomerStatement | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const { tenantId } = useSession();
+  const queryClient = useQueryClient();
+  const [clienteAbierto, setClienteAbierto] = useState<string | null>(null);
   const [aviso, setAviso] = useState<string | null>(null);
   const [abono, setAbono] = useState('');
 
-  const cargar = useCallback(async () => {
-    try {
-      setCartera(await api.getReceivables());
-      setError(null);
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : String(err));
+  const consultaCartera = useQuery({
+    queryKey: customerKeys.receivables(tenantId),
+    queryFn: () => api.getReceivables()
+  });
+
+  const consultaEstado = useQuery({
+    queryKey: customerKeys.statement(tenantId, clienteAbierto ?? ''),
+    queryFn: () => api.getCustomerStatement(clienteAbierto!),
+    enabled: Boolean(clienteAbierto)
+  });
+
+  const registrarPago = useMutation({
+    mutationFn: ({ customerId, centavos }: { customerId: string; centavos: number }) =>
+      api.registerReceivablePayment(customerId, {
+        amount_cents: centavos,
+        method: 'CASH',
+        method_code: 'CASH',
+        branch_id: branchId,
+        ...(cashSessionId ? { cash_session_id: cashSessionId } : {})
+      }),
+    onSuccess: async (_resultado, { customerId }) => {
+      setAbono('');
+      setAviso('Abono registrado. Entra al turno de caja como efectivo.');
+      // El abono mueve dos cifras a la vez: el saldo de este cliente y el total de la
+      // cartera. Refrescar solo el extracto dejaría el encabezado cobrando de más.
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: customerKeys.receivables(tenantId) }),
+        queryClient.invalidateQueries({ queryKey: customerKeys.statement(tenantId, customerId) })
+      ]);
     }
-  }, [api]);
+  });
 
-  useEffect(() => {
-    void cargar();
-  }, [cargar]);
+  const cartera = consultaCartera.data ?? null;
+  const statement = consultaEstado.data ?? null;
+  const error =
+    mensajeDeError(registrarPago.error) ??
+    mensajeDeError(consultaEstado.error) ??
+    mensajeDeError(consultaCartera.error);
 
-  async function abrir(customerId: string) {
+  function abrir(customerId: string) {
     setAviso(null);
-    try {
-      setStatement(await api.getCustomerStatement(customerId));
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : String(err));
-    }
+    setClienteAbierto(customerId);
   }
 
-  async function registrarAbono(evento: React.FormEvent) {
+  function registrarAbono(evento: React.FormEvent) {
     evento.preventDefault();
     if (!statement) return;
 
     const centavos = Math.round(Number(abono.replace(/[^\d]/g, '')) * 100);
     if (!centavos) return;
 
-    try {
-      await api.registerReceivablePayment(statement.account.customer_id, {
-        amount_cents: centavos,
-        method: 'CASH',
-        method_code: 'CASH',
-        branch_id: branchId,
-        ...(cashSessionId ? { cash_session_id: cashSessionId } : {})
-      });
-
-      setAbono('');
-      setAviso('Abono registrado. Entra al turno de caja como efectivo.');
-      await abrir(statement.account.customer_id);
-      await cargar();
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : String(err));
-    }
+    registrarPago.mutate({ customerId: statement.account.customer_id, centavos });
   }
 
   if (!cartera) return <div className="h-48 bg-muted/50 rounded-2xl animate-pulse" />;

@@ -1,39 +1,52 @@
-import { useCallback, useEffect, useState, type FormEvent } from 'react';
+import { useState, type FormEvent } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Banner, Modal, ShellMessage } from '../../components/ui';
 import type { BranchItem } from '../../lib/api/client';
-import { useApi } from '../auth';
+import { useApi, useSession } from '../auth';
+import { userKeys } from '../../shared/query-keys';
 
 
 export function BranchesScreen() {
   const api = useApi();
-  const [branches, setBranches] = useState<BranchItem[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const { tenantId } = useSession();
+  const queryClient = useQueryClient();
+
+  const consulta = useQuery({
+    queryKey: userKeys.branches(tenantId),
+    queryFn: async () => (await api.listBranches()).items
+  });
+
+  const branches: BranchItem[] = consulta.data ?? [];
+  const isLoading = consulta.isPending;
 
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingBranch, setEditingBranch] = useState<BranchItem | null>(null);
-  const [isSaving, setIsSaving] = useState(false);
 
   // Form State
   const [name, setName] = useState('');
   const [address, setAddress] = useState('');
 
-  const loadBranches = useCallback(async () => {
-    setIsLoading(true);
-    setError(null);
-    try {
-      const data = await api.listBranches();
-      setBranches(data.items);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Error al cargar sucursales');
-    } finally {
-      setIsLoading(false);
+  const guardar = useMutation({
+    mutationFn: () =>
+      (editingBranch
+        ? api.updateBranch(editingBranch.id, { name, address })
+        : api.createBranch({ name, address })),
+    onSuccess: async () => {
+      setIsModalOpen(false);
+      // La lista de sucursales no vive solo en esta pantalla —el selector de sede y los
+      // informes leen la misma clave—, así que invalidarla es lo que pone al día a todos
+      // sin que nadie tenga que recargar.
+      await queryClient.invalidateQueries({ queryKey: userKeys.branches(tenantId) });
     }
-  }, [api]);
+  });
 
-  useEffect(() => {
-    void loadBranches();
-  }, [loadBranches]);
+  const isSaving = guardar.isPending;
+
+  const error = consulta.error
+    ? (consulta.error instanceof Error ? consulta.error.message : 'Error al cargar sucursales')
+    : guardar.error
+      ? (guardar.error instanceof Error ? guardar.error.message : 'Error al guardar sucursal')
+      : null;
 
   const openNewBranchModal = () => {
     setEditingBranch(null);
@@ -49,25 +62,10 @@ export function BranchesScreen() {
     setIsModalOpen(true);
   };
 
-  const handleSave = async (e: FormEvent) => {
+  const handleSave = (e: FormEvent) => {
     e.preventDefault();
     if (!name.trim() || !address.trim()) return;
-
-    setIsSaving(true);
-    setError(null);
-    try {
-      if (editingBranch) {
-        await api.updateBranch(editingBranch.id, { name, address });
-      } else {
-        await api.createBranch({ name, address });
-      }
-      setIsModalOpen(false);
-      await loadBranches();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Error al guardar sucursal');
-    } finally {
-      setIsSaving(false);
-    }
+    guardar.mutate();
   };
 
   if (isLoading) {

@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useState } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Button, Card, Banner } from '../../../components/ui';
 import {
   PAYMENT_KINDS,
@@ -7,7 +8,8 @@ import {
   type PaymentKind,
   type PaymentMethodCatalogEntry
 } from '@pos-dian/shared';
-import { useApi } from '../../auth';
+import { useApi, useSession } from '../../auth';
+import { settingsKeys } from '../../../shared/query-keys';
 
 /**
  * Medios de pago del comercio.
@@ -18,64 +20,63 @@ import { useApi } from '../../auth';
  */
 export function PaymentMethodsPanel() {
   const api = useApi();
-  const [methods, setMethods] = useState<PaymentMethodCatalogEntry[]>([]);
-  const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [creando, setCreando] = useState(false);
+  const { tenantId } = useSession();
+  const queryClient = useQueryClient();
   const [nuevo, setNuevo] = useState({ code: '', label: '', kind: 'WALLET' as PaymentKind });
 
-  const cargar = useCallback(async () => {
-    try {
-      setLoading(true);
-      setMethods((await api.getPaymentMethods()).payment_methods);
-      setError(null);
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setLoading(false);
-    }
-  }, [api]);
+  const consulta = useQuery({
+    queryKey: settingsKeys.paymentMethods(tenantId),
+    queryFn: async () => (await api.getPaymentMethods()).payment_methods
+  });
 
-  useEffect(() => {
-    void cargar();
-  }, [cargar]);
+  const methods: PaymentMethodCatalogEntry[] = consulta.data ?? [];
 
-  async function alternar(method: PaymentMethodCatalogEntry) {
-    try {
-      await api.upsertPaymentMethod(method.code, {
+  // Encender y apagar un medio es la misma escritura que crearlo: el servidor hace upsert,
+  // así que ambas comparten invalidación.
+  const invalidarMedios = () =>
+    queryClient.invalidateQueries({ queryKey: settingsKeys.paymentMethods(tenantId) });
+
+  const alternarMedio = useMutation({
+    mutationFn: (method: PaymentMethodCatalogEntry) =>
+      api.upsertPaymentMethod(method.code, {
         kind: method.kind,
         label: method.label,
         active: !method.active,
         requires_reference: method.requires_reference,
         sort_order: method.sort_order
-      });
-      await cargar();
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : String(err));
-    }
-  }
+      }),
+    onSuccess: invalidarMedios
+  });
 
-  async function crear(evento: React.FormEvent) {
-    evento.preventDefault();
-    setCreando(true);
-    setError(null);
-    try {
-      await api.upsertPaymentMethod(nuevo.code.toUpperCase(), {
+  const crearMedio = useMutation({
+    mutationFn: () =>
+      api.upsertPaymentMethod(nuevo.code.toUpperCase(), {
         kind: nuevo.kind,
         label: nuevo.label,
         active: true,
         sort_order: 200
-      });
+      }),
+    onSuccess: async () => {
       setNuevo({ code: '', label: '', kind: 'WALLET' });
-      await cargar();
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setCreando(false);
+      await invalidarMedios();
     }
+  });
+
+  const creando = crearMedio.isPending;
+
+  const fallo = consulta.error ?? alternarMedio.error ?? crearMedio.error;
+  const error = fallo ? (fallo instanceof Error ? fallo.message : String(fallo)) : null;
+
+  function alternar(method: PaymentMethodCatalogEntry) {
+    alternarMedio.mutate(method);
   }
 
-  if (loading && methods.length === 0) {
+  function crear(evento: React.FormEvent) {
+    evento.preventDefault();
+    crearMedio.mutate();
+  }
+
+  if (consulta.isPending) {
     return <div className="h-64 bg-muted/50 rounded-2xl animate-pulse" />;
   }
 

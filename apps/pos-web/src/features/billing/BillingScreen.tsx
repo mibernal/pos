@@ -1,45 +1,53 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Button, Card, Banner } from '../../components/ui';
 import { AccountPanel } from './components/AccountPanel';
-import { useApi } from '../auth';
+import { useApi, useSession } from '../auth';
+import { billingKeys } from '../../shared/query-keys';
 
 
 function PlansTab() {
   const api = useApi();
-  const [plans, setPlans] = useState<import('../../lib/api/client').BillingPlan[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const { tenantId } = useSession();
+  const queryClient = useQueryClient();
   const [gateway, setGateway] = useState<'STRIPE' | 'WOMPI' | 'MERCADOPAGO' | 'MOCK'>('STRIPE');
 
-  useEffect(() => {
-    loadPlans();
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  // El catálogo de planes es el mismo para todos los comercios: su clave no lleva `tenantId`.
+  const consulta = useQuery({
+    queryKey: billingKeys.plans(),
+    queryFn: () => api.getBillingPlans()
+  });
 
-  async function loadPlans() {
-    try {
-      setLoading(true);
-      const data = await api.getBillingPlans();
-      setPlans(data.plans || []);
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setLoading(false);
-    }
-  }
+  const plans = consulta.data?.plans ?? [];
+  const loading = consulta.isPending;
+  const error = consulta.error
+    ? consulta.error instanceof Error
+      ? consulta.error.message
+      : String(consulta.error)
+    : null;
 
-  async function handleSubscribe(planId: string) {
-    try {
-      const result = await api.createCheckoutSession({
+  const suscribir = useMutation({
+    mutationFn: (planId: string) =>
+      api.createCheckoutSession({
         planId,
         gateway,
         redirectUrl: window.location.href // Volver a esta misma página después del pago
-      });
+      }),
+    onSuccess: (result) => {
+      // Al volver del pago la suscripción ya es otra, así que el estado de cuenta que
+      // quedó en caché antes de salir no sirve para pintar la vuelta.
+      void queryClient.invalidateQueries({ queryKey: billingKeys.portal(tenantId) });
 
       // Redirigir al usuario al checkout de la pasarela
       window.location.href = result.checkoutUrl;
-    } catch (err: unknown) {
+    },
+    onError: (err: unknown) => {
       alert(err instanceof Error ? err.message : String(err));
     }
+  });
+
+  function handleSubscribe(planId: string) {
+    suscribir.mutate(planId);
   }
 
   if (loading) {

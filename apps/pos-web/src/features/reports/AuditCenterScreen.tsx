@@ -1,22 +1,41 @@
-import React, { useCallback, useEffect, useState } from 'react';
-import { useApi } from '../auth';
+import { useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { useApi, useSession } from '../auth';
+import { reportKeys } from '../../shared/query-keys';
+
+interface RegistroAuditoria {
+  id: string;
+  created_at: string;
+  user_name?: string | null;
+  branch_name?: string | null;
+  action: string;
+  entity_type: string;
+  entity_id: string;
+  ip_address?: string | null;
+  correlation_id?: string | null;
+  old_values?: Record<string, unknown> | null;
+  new_values?: Record<string, unknown> | null;
+  legacy_payload?: Record<string, unknown> | null;
+}
 
 export function AuditCenterScreen() {
   const api = useApi();
-  const [logs, setLogs] = useState<any[]>([]); // eslint-disable-line @typescript-eslint/no-explicit-any
-  const [total, setTotal] = useState(0);
-  const [loading, setLoading] = useState(true);
+  const { tenantId } = useSession();
   const [selectedCorrelation, setSelectedCorrelation] = useState<string | null>(null);
-  const [correlationLogs, setCorrelationLogs] = useState<any[]>([]); // eslint-disable-line @typescript-eslint/no-explicit-any
 
   // Filters
   const [branchId, setBranchId] = useState('');
   const [userId, setUserId] = useState('');
   const [action, setAction] = useState('');
 
-  const loadLogs = useCallback(async () => {
-    setLoading(true);
-    try {
+  /**
+   * Los filtros van dentro de la clave, no dentro de la función que consulta: cada
+   * combinación es su propia consulta y su propia entrada en la caché, así que volver a un
+   * filtro ya usado enseña lo de antes mientras el servidor confirma.
+   */
+  const consulta = useQuery({
+    queryKey: reportKeys.audit(tenantId, { branchId, userId, action }),
+    queryFn: async () => {
       const token = localStorage.getItem('access_token');
       const params = new URLSearchParams();
       if (branchId) params.set('branch_id', branchId);
@@ -26,36 +45,42 @@ export function AuditCenterScreen() {
       const res = await fetch(`${api.baseUrl}/admin/audit-logs?${params.toString()}`, {
         headers: { Authorization: `Bearer ${token}` }
       });
-      if (res.ok) {
-        const data = await res.json();
-        setLogs(data.items);
-        setTotal(data.total);
+      if (!res.ok) {
+        throw new Error(`No fue posible cargar la auditoría (${res.status})`);
       }
-    } catch (e) {
-      console.error(e);
-    } finally {
-      setLoading(false);
+
+      return (await res.json()) as { items: RegistroAuditoria[]; total: number };
     }
-  }, [api.baseUrl, branchId, userId, action]);
+  });
 
-  useEffect(() => {
-    loadLogs();
-  }, [loadLogs]);
-
-  const viewCorrelation = async (cid: string) => {
-    setSelectedCorrelation(cid);
-    try {
+  /**
+   * El detalle de una transacción es otra consulta y no un trozo de la anterior: el listado
+   * trae un evento por fila y aquí hacen falta todos los que comparten `correlation_id`.
+   */
+  const correlacionConsulta = useQuery({
+    queryKey: reportKeys.audit(tenantId, { correlationId: selectedCorrelation }),
+    queryFn: async () => {
       const token = localStorage.getItem('access_token');
-      const res = await fetch(`${api.baseUrl}/admin/audit-logs/${cid}`, {
+      const res = await fetch(`${api.baseUrl}/admin/audit-logs/${selectedCorrelation}`, {
         headers: { Authorization: `Bearer ${token}` }
       });
-      if (res.ok) {
-        const data = await res.json();
-        setCorrelationLogs(data.items);
+      if (!res.ok) {
+        throw new Error(`No fue posible cargar la transacción (${res.status})`);
       }
-    } catch (e) {
-      console.error(e);
-    }
+
+      const data = (await res.json()) as { items: RegistroAuditoria[] };
+      return data.items;
+    },
+    enabled: Boolean(selectedCorrelation)
+  });
+
+  const logs = consulta.data?.items ?? [];
+  const total = consulta.data?.total ?? 0;
+  const loading = consulta.isPending;
+  const correlationLogs = correlacionConsulta.data ?? [];
+
+  const viewCorrelation = (cid: string) => {
+    setSelectedCorrelation(cid);
   };
 
   return (
@@ -93,7 +118,7 @@ export function AuditCenterScreen() {
             <option value="DELETE">DELETE</option>
             <option value="VOID">VOID</option>
           </select>
-          <button onClick={loadLogs} className="px-4 py-2 bg-blue-600 text-white rounded-md">Refrescar</button>
+          <button onClick={() => void consulta.refetch()} className="px-4 py-2 bg-blue-600 text-white rounded-md">Refrescar</button>
         </div>
 
         {/* Timeline */}

@@ -1,8 +1,10 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Banner, Modal } from '../../components/ui';
-import type { AdminTenantProfile, TenantTaxMode } from '../../lib/api';
+import type { TenantTaxMode } from '../../lib/api';
 import { useSession } from '../auth';
 import { useApi } from '../auth';
+import { settingsKeys } from '../../shared/query-keys';
 
 function taxModeLabel(taxMode: TenantTaxMode): string {
   return taxMode === 'INC_RESTAURANT' ? 'Incluye INC' : 'Incluye IVA';
@@ -19,86 +21,67 @@ export function DianConfigModal({
 }) {
   const api = useApi();
   const { role, tenantId } = useSession();
-  const [profile, setProfile] = useState<AdminTenantProfile | null>(null);
-  const [draftTaxMode, setDraftTaxMode] = useState<TenantTaxMode>('IVA');
-  const [loading, setLoading] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [message, setMessage] = useState<string | null>(null);
+  const queryClient = useQueryClient();
+  const [elegido, setElegido] = useState<TenantTaxMode | null>(null);
 
-  useEffect(() => {
-    if (!isOpen || (role !== 'ADMIN' && role !== 'TENANT_OWNER')) {
-      return;
+  const puedeVerlo = role === 'ADMIN' || role === 'TENANT_OWNER';
+
+  // El perfil se pide al abrir, no al montar: el modal vive siempre en el armazón de la
+  // aplicación y pedirlo antes sería una petición por cada arranque que nadie mira.
+  const consulta = useQuery({
+    queryKey: settingsKeys.tenantProfile(tenantId),
+    queryFn: () => api.getCurrentTenantProfile(),
+    enabled: isOpen && puedeVerlo
+  });
+
+  const profile = consulta.data ?? null;
+  const draftTaxMode = elegido ?? profile?.taxMode ?? 'IVA';
+
+  const guardar = useMutation({
+    mutationFn: (taxMode: TenantTaxMode) => api.updateTenantTaxProfile(tenantId!, taxMode),
+    onSuccess: async (updated) => {
+      onSaved(updated.taxMode);
+      // El régimen es parte del perfil del comercio, y el perfil se lee también fuera de
+      // aquí —el encabezado del tiquete, por ejemplo—: invalidar la clave común es lo que
+      // pone al día a todos.
+      await queryClient.invalidateQueries({ queryKey: settingsKeys.tenantProfile(tenantId) });
     }
+  });
 
-    let cancelled = false;
+  const loading = consulta.isPending;
+  const saving = guardar.isPending;
+  const message = guardar.isSuccess ? 'Configuración DIAN actualizada.' : null;
+  const error = consulta.error
+    ? (consulta.error instanceof Error
+        ? consulta.error.message
+        : 'No fue posible cargar la configuración DIAN')
+    : guardar.error
+      ? (guardar.error instanceof Error
+          ? guardar.error.message
+          : 'No fue posible actualizar la configuración DIAN')
+      : null;
 
-    setLoading(true);
-    setError(null);
-    setMessage(null);
+  function cerrar() {
+    // Al cerrar se olvidan lo tecleado y el aviso de la última vez: quien vuelva a abrir
+    // tiene que ver lo que hay en el servidor, no lo que quedó de la visita anterior.
+    setElegido(null);
+    guardar.reset();
+    onClose();
+  }
 
-    void api
-      .getCurrentTenantProfile()
-      .then((currentProfile) => {
-        if (cancelled) {
-          return;
-        }
-
-        setProfile(currentProfile);
-        setDraftTaxMode(currentProfile.taxMode);
-      })
-      .catch((loadError) => {
-        if (!cancelled) {
-          setError(
-            loadError instanceof Error
-              ? loadError.message
-              : 'No fue posible cargar la configuración DIAN'
-          );
-        }
-      })
-      .finally(() => {
-        if (!cancelled) {
-          setLoading(false);
-        }
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [api, isOpen, role]);
-
-  if (!isOpen || (role !== 'ADMIN' && role !== 'TENANT_OWNER') || !tenantId) {
+  if (!isOpen || !puedeVerlo || !tenantId) {
     return null;
   }
 
-  async function handleSave() {
+  function handleSave() {
     if (!tenantId) {
       return;
     }
-
-    setSaving(true);
-    setError(null);
-    setMessage(null);
-
-    try {
-      const updated = await api.updateTenantTaxProfile(tenantId, draftTaxMode);
-      setProfile(updated);
-      setDraftTaxMode(updated.taxMode);
-      setMessage('Configuración DIAN actualizada.');
-      onSaved(updated.taxMode);
-    } catch (saveError) {
-      setError(
-        saveError instanceof Error
-          ? saveError.message
-          : 'No fue posible actualizar la configuración DIAN'
-      );
-    } finally {
-      setSaving(false);
-    }
+    guardar.mutate(draftTaxMode);
   }
 
   return (
-    <Modal ariaLabel="Configurar DIAN" onClose={onClose}>
+    <Modal ariaLabel="Configurar DIAN" onClose={cerrar}>
       <header className="section-heading" style={{ marginBottom: '1.5rem' }}>
         <div className="heading-copy">
           <h3>Configuración Legal y Tributaria</h3>
@@ -129,8 +112,8 @@ export function DianConfigModal({
             <label className="field" style={{ display: 'grid', gap: '0.5rem' }}>
               <span style={{ fontSize: '0.8125rem', fontWeight: 600, color: 'var(--color-slate-700)' }}>Régimen Tributario</span>
               <select
-                value={draftTaxMode ?? ''}
-                onChange={(event) => setDraftTaxMode(event.target.value as TenantTaxMode)}
+                value={draftTaxMode}
+                onChange={(event) => setElegido(event.target.value as TenantTaxMode)}
                 disabled={loading || saving}
                 style={{ padding: '0.75rem 1rem', borderRadius: 'var(--radius-lg)', border: '1px solid var(--color-slate-200)', fontSize: '0.875rem', background: '#ffffff' }}
               >
@@ -155,7 +138,7 @@ export function DianConfigModal({
               <button 
                 className="ghost-button" 
                 type="button" 
-                onClick={onClose}
+                onClick={cerrar}
                 style={{ flex: 1 }}
               >
                 Cerrar

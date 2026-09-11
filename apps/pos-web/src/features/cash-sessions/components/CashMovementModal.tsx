@@ -1,6 +1,9 @@
 import { useState } from 'react';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Banner, Modal } from '../../../components/ui';
 import { useApi } from '../../auth';
+import { usePosStore } from '../../../hooks/usePosStore';
+import { cashKeys } from '../../../shared/query-keys';
 
 export function CashMovementModal({
   isOpen,
@@ -14,39 +17,60 @@ export function CashMovementModal({
   onSuccess: () => void;
 }) {
   const api = useApi();
+  const queryClient = useQueryClient();
+
+  /**
+   * La terminal no llega por props —este modal solo recibe la sesión—, pero es ella la que
+   * manda en la clave de la sesión de caja. Sale del mismo contexto POS con el que el
+   * armazón decide pintar este modal, así que cuando se ve en pantalla siempre está.
+   */
+  const terminalId = usePosStore((estado) => estado.posContext?.terminalId ?? null);
+
   const [type, setType] = useState<'IN' | 'OUT'>('OUT');
   const [amountPesos, setAmountPesos] = useState('');
   const [reason, setReason] = useState('');
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  // Monto y motivo se validan antes de salir a la red: ese error no es el de la mutación.
+  const [errorValidacion, setErrorValidacion] = useState<string | null>(null);
+
+  const registrar = useMutation({
+    mutationFn: (amountCents: number) => api.addCashMovement(sessionId, type, amountCents, reason),
+    onSuccess: () => {
+      setAmountPesos('');
+      setReason('');
+      /**
+       * Un movimiento mueve el efectivo esperado de la sesión, así que lo que haya en caché
+       * ya no cuadra. Se invalida sin esperar: si la recarga se atascara, esperarla dejaría
+       * el modal abierto sobre un movimiento YA registrado, y el cajero volvería a
+       * registrarlo. Un apunte duplicado es peor que una cifra que tarda un segundo.
+       */
+      void queryClient.invalidateQueries({ queryKey: cashKeys.currentSession(terminalId) });
+      onSuccess();
+    }
+  });
+
+  const loading = registrar.isPending;
+  const error =
+    errorValidacion ??
+    (registrar.error
+      ? (registrar.error instanceof Error ? registrar.error.message : 'No fue posible registrar el movimiento')
+      : null);
 
   if (!isOpen) return null;
 
-  async function handleSubmit(e: React.FormEvent) {
+  function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     const amountCents = Math.round(Number(amountPesos) * 100);
     if (amountCents <= 0) {
-      setError('Ingresa un monto válido mayor a 0');
+      setErrorValidacion('Ingresa un monto válido mayor a 0');
       return;
     }
     if (reason.trim().length < 3) {
-      setError('El motivo debe tener al menos 3 caracteres');
+      setErrorValidacion('El motivo debe tener al menos 3 caracteres');
       return;
     }
 
-    setLoading(true);
-    setError(null);
-
-    try {
-      await api.addCashMovement(sessionId, type, amountCents, reason);
-      setAmountPesos('');
-      setReason('');
-      onSuccess();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'No fue posible registrar el movimiento');
-    } finally {
-      setLoading(false);
-    }
+    setErrorValidacion(null);
+    registrar.mutate(amountCents);
   }
 
   return (

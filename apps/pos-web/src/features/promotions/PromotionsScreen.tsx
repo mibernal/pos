@@ -1,50 +1,61 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Banner, ShellMessage } from '../../components/ui';
 import type { Promotion, ProductItem } from '../../lib/api';
 import { formatMoneyFromCents } from '../../lib/format';
 import { PromotionFormModal } from './components/PromotionFormModal';
-import { useApi } from '../auth';
+import { useApi, useSession } from '../auth';
+import { promotionKeys } from '../../shared/query-keys';
 
 
 export function PromotionsScreen() {
   const api = useApi();
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [promotions, setPromotions] = useState<Promotion[]>([]);
-  const [products, setProducts] = useState<ProductItem[]>([]);
+  const { tenantId } = useSession();
+  const queryClient = useQueryClient();
 
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingPromotion, setEditingPromotion] = useState<Promotion | null>(null);
 
-  const loadData = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
+  /**
+   * Promociones y catálogo viajan en la misma consulta.
+   *
+   * La tabla no sabe enseñar una promoción sin el nombre de su producto: separados en dos
+   * entradas de caché, la lista se pintaría llena de «Producto Desconocido» mientras el
+   * catálogo termina de llegar. Van juntos, como ya iban en el `Promise.all` original.
+   */
+  const consulta = useQuery({
+    queryKey: promotionKeys.all(tenantId),
+    queryFn: async () => {
       const [promosRes, prodsRes] = await Promise.all([
         api.listPromotions({}),
         api.listProducts({ limit: 500 }) // Adjust limit as needed
       ]);
-      setPromotions(promosRes.items);
-      setProducts(prodsRes.items);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Error al cargar datos');
-    } finally {
-      setLoading(false);
+      return { promotions: promosRes.items, products: prodsRes.items };
     }
-  }, [api]);
+  });
 
-  useEffect(() => {
-    void loadData();
-  }, [loadData]);
+  const promotions: Promotion[] = consulta.data?.promotions ?? [];
+  const products: ProductItem[] = consulta.data?.products ?? [];
+  const loading = consulta.isPending;
+  const error = consulta.error
+    ? consulta.error instanceof Error
+      ? consulta.error.message
+      : 'Error al cargar datos'
+    : null;
 
-  async function handleDelete(id: string) {
-    if (!confirm('¿Seguro que deseas desactivar esta promoción?')) return;
-    try {
-      await api.deletePromotion(id);
-      await loadData();
-    } catch (err) {
+  const desactivar = useMutation({
+    mutationFn: (id: string) => api.deletePromotion(id),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: promotionKeys.all(tenantId) });
+    },
+    onError: (err: unknown) => {
       alert(err instanceof Error ? err.message : 'Error al desactivar');
     }
+  });
+
+  function handleDelete(id: string) {
+    if (!confirm('¿Seguro que deseas desactivar esta promoción?')) return;
+    desactivar.mutate(id);
   }
 
   function getProductName(productId: string) {
@@ -58,7 +69,7 @@ export function PromotionsScreen() {
     return '-';
   }
 
-  if (loading && promotions.length === 0) {
+  if (loading) {
     return <ShellMessage title="Cargando promociones..." subtitle="Conectando al servidor" />;
   }
 
@@ -147,7 +158,7 @@ export function PromotionsScreen() {
                           <button
                             className="ghost-button"
                             style={{ padding: '4px 8px', fontSize: '0.85rem', color: '#b91c1c' }}
-                            onClick={() => void handleDelete(promo.id)}
+                            onClick={() => handleDelete(promo.id)}
                           >
                             Desactivar
                           </button>
@@ -168,10 +179,7 @@ export function PromotionsScreen() {
           promotion={editingPromotion}
           products={products}
           onClose={() => setIsModalOpen(false)}
-          onSuccess={() => {
-            setIsModalOpen(false);
-            void loadData();
-          }}
+          onSuccess={() => setIsModalOpen(false)}
         />
       )}
     </div>

@@ -1,8 +1,10 @@
 import { useEffect, useState } from 'react';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Button, Banner } from '../../../components/ui';
 import type { BillingGatewayConfig } from '../../../lib/api/client';
 import type { PaymentMethod } from '@pos-dian/shared';
-import { useApi } from '../../auth';
+import { useApi, useSession } from '../../auth';
+import { billingKeys } from '../../../shared/query-keys';
 
 /**
  * Registro del medio de pago.
@@ -20,9 +22,10 @@ export function PaymentMethodForm({ metodo,
   onCambio: () => Promise<void> | void;
 }) {
   const api = useApi();
+  const { tenantId } = useSession();
+  const queryClient = useQueryClient();
   const [config, setConfig] = useState<BillingGatewayConfig | null>(null);
   const [editando, setEditando] = useState(false);
-  const [guardando, setGuardando] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const [numero, setNumero] = useState('');
@@ -86,41 +89,59 @@ export function PaymentMethodForm({ metodo,
     return cuerpo.data.id as string;
   }
 
-  async function guardar(evento: React.FormEvent) {
-    evento.preventDefault();
-    setGuardando(true);
-    setError(null);
-
-    try {
+  /**
+   * Tokenizar entra dentro de la mutación, no antes.
+   *
+   * Los dos viajes a la pasarela y el registro contra nuestra API son un solo intento
+   * desde el punto de vista del cajero: partirlos dejaría el botón habilitado mientras la
+   * pasarela todavía está cambiando la tarjeta por un token, que es la parte lenta.
+   */
+  const registrar = useMutation({
+    mutationFn: async () => {
       const acceptanceToken = await obtenerAceptacion();
       const cardToken = await tokenizar();
 
-      await api.registerPaymentMethod({
+      return api.registerPaymentMethod({
         gateway: config?.gateway === 'MOCK' ? 'MOCK' : 'WOMPI',
         card_token: cardToken,
         acceptance_token: acceptanceToken,
         make_default: true
       });
-
+    },
+    onSuccess: async () => {
       limpiar();
       setEditando(false);
+      void queryClient.invalidateQueries({ queryKey: billingKeys.portal(tenantId) });
       await onCambio();
-    } catch (err: unknown) {
+    },
+    onError: (err: unknown) => {
       setError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setGuardando(false);
     }
+  });
+
+  const eliminar = useMutation({
+    mutationFn: (id: string) => api.removePaymentMethod(id),
+    onSuccess: async () => {
+      void queryClient.invalidateQueries({ queryKey: billingKeys.portal(tenantId) });
+      await onCambio();
+    },
+    onError: (err: unknown) => {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  });
+
+  const guardando = registrar.isPending;
+
+  function guardar(evento: React.FormEvent) {
+    evento.preventDefault();
+    setError(null);
+    registrar.mutate();
   }
 
-  async function quitar() {
+  function quitar() {
     if (!metodo) return;
     setError(null);
-    try {
-      await api.removePaymentMethod(metodo.id);
-      await onCambio();
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : String(err));
-    }
+    eliminar.mutate(metodo.id);
   }
 
   if (config && !config.configured) {

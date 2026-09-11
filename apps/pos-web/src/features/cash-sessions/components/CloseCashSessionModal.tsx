@@ -1,10 +1,13 @@
 import { useState } from 'react';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Banner, Modal } from '../../../components/ui';
 import { formatMoneyFromCents } from '../../../lib/format';
 import { printZReportTicket } from '../../../lib/ticket-printer';
 import type { TicketTemplateConfig } from '../../../lib/ticket-template';
 import { useSession } from '../../auth';
 import { useApi } from '../../auth';
+import { usePosStore } from '../../../hooks/usePosStore';
+import { cashKeys } from '../../../shared/query-keys';
 
 export function CloseCashSessionModal({
   isOpen,
@@ -22,9 +25,24 @@ export function CloseCashSessionModal({
   onSuccess: () => void;
 }) {
   const api = useApi();
+  const queryClient = useQueryClient();
+
+  /**
+   * La terminal no llega por props —este modal solo recibe la sesión—, pero es ella la que
+   * manda en la clave de la sesión de caja. Sale del mismo contexto POS con el que el
+   * armazón decide pintar este modal, así que cuando se ve en pantalla siempre está.
+   */
+  const terminalId = usePosStore((estado) => estado.posContext?.terminalId ?? null);
+
   const [closingCashRealPesos, setClosingCashRealPesos] = useState('');
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  // El monto se valida antes de salir a la red: ese error no es el de la mutación.
+  const [errorValidacion, setErrorValidacion] = useState<string | null>(null);
+
+  /**
+   * El resumen y la sesión cerrada se quedan en estado local: son el cierre que acaba de
+   * ocurrir aquí —de ellos sale el Ticket Z, que el cajero puede reimprimir mientras el
+   * modal siga abierto—, y no un dato del servidor que otra pantalla vaya a pedir.
+   */
   const [summary, setSummary] = useState<{
     completed_sales_count: number;
     completed_sales_total_cents: number;
@@ -39,29 +57,42 @@ export function CloseCashSessionModal({
   } | null>(null);
   const { role } = useSession();
 
+  const cerrar = useMutation({
+    mutationFn: (closingCashRealCents: number) => api.closeCashSession(sessionId, closingCashRealCents),
+    onSuccess: (result) => {
+      setSummary(result.summary as NonNullable<typeof summary>);
+      setCashSession(result.cash_session as NonNullable<typeof cashSession>);
+      /**
+       * El turno acaba de cerrarse: la sesión que cualquier pantalla de esta terminal tenga
+       * en caché ya no existe, y servirla otra vez haría creer que aún se puede cobrar. Se
+       * invalida sin esperar, porque el resumen del cierre ya está en pantalla y atar el
+       * Ticket Z a que termine una recarga sería atarlo a la red justo cuando ya no hace
+       * falta.
+       */
+      void queryClient.invalidateQueries({ queryKey: cashKeys.currentSession(terminalId) });
+    }
+  });
+
+  const loading = cerrar.isPending;
+  const error =
+    errorValidacion ??
+    (cerrar.error
+      ? (cerrar.error instanceof Error ? cerrar.error.message : 'No fue posible cerrar la caja')
+      : null);
+
   if (!isOpen) {
     return null;
   }
 
-  async function handleCloseSession() {
+  function handleCloseSession() {
     const rawVal = Number(closingCashRealPesos);
     if (isNaN(rawVal) || rawVal < 0) {
-      setError('Ingresa un monto válido');
+      setErrorValidacion('Ingresa un monto válido');
       return;
     }
 
-    setLoading(true);
-    setError(null);
-
-    try {
-      const result = await api.closeCashSession(sessionId, rawVal * 100);
-      setSummary(result.summary as NonNullable<typeof summary>);
-      setCashSession(result.cash_session as NonNullable<typeof cashSession>);
-      setLoading(false);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'No fue posible cerrar la caja');
-      setLoading(false);
-    }
+    setErrorValidacion(null);
+    cerrar.mutate(rawVal * 100);
   }
 
   function handleFinish() {

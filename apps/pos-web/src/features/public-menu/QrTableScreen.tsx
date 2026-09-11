@@ -1,5 +1,7 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useState } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { QrTableView } from '@pos-dian/shared';
+import { publicKeys } from '../../shared/query-keys';
 
 /**
  * Carta y pedido desde la mesa.
@@ -20,47 +22,31 @@ function pesos(cents: number): string {
 const BASE = `${import.meta.env.VITE_API_URL || ''}/api/v1/public/qr`;
 
 export function QrTableScreen({ token }: { token: string }) {
-  const [vista, setVista] = useState<QrTableView | null>(null);
+  const queryClient = useQueryClient();
   const [carrito, setCarrito] = useState<Record<string, number>>({});
-  const [estado, setEstado] = useState<'cargando' | 'listo' | 'no-existe' | 'error'>('cargando');
-  const [enviando, setEnviando] = useState(false);
   const [aviso, setAviso] = useState<string | null>(null);
 
-  const cargar = useCallback(async () => {
-    try {
+  // Sin sesión no hay comercio del que colgar la consulta: lo que identifica esta mesa —y
+  // por tanto su entrada en la caché— es el código que trae la URL.
+  const consulta = useQuery({
+    queryKey: publicKeys.qrTable(token),
+    queryFn: async (): Promise<QrTableView | null> => {
       const respuesta = await fetch(`${BASE}/${encodeURIComponent(token)}`);
-      if (respuesta.status === 404) {
-        setEstado('no-existe');
-        return;
-      }
+      // Un 404 no es una avería: es un código caducado o inventado. Se devuelve vacío para
+      // que no se reintente, y se pinta igual que el error —al comensal le da lo mismo.
+      if (respuesta.status === 404) return null;
       if (!respuesta.ok) throw new Error('No se pudo cargar la carta');
-      setVista(await respuesta.json());
-      setEstado('listo');
-    } catch {
-      setEstado('error');
+      return respuesta.json();
     }
-  }, [token]);
+  });
 
-  useEffect(() => {
-    void cargar();
-  }, [cargar]);
+  const vista = consulta.data ?? null;
 
-  const totalCarrito = vista
-    ? vista.menu
-        .flatMap((categoria) => categoria.products)
-        .reduce((total, producto) => total + (carrito[producto.id] ?? 0) * producto.price_cents, 0)
-    : 0;
+  const refrescarMesa = () =>
+    queryClient.invalidateQueries({ queryKey: publicKeys.qrTable(token) });
 
-  async function enviar() {
-    const items = Object.entries(carrito)
-      .filter(([, qty]) => qty > 0)
-      .map(([product_id, qty]) => ({ product_id, qty }));
-
-    if (items.length === 0) return;
-
-    setEnviando(true);
-    setAviso(null);
-    try {
+  const enviarPedido = useMutation({
+    mutationFn: async (items: { product_id: string; qty: number }[]) => {
       const respuesta = await fetch(`${BASE}/${encodeURIComponent(token)}/orders`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -70,33 +56,60 @@ export function QrTableScreen({ token }: { token: string }) {
         const cuerpo = await respuesta.json().catch(() => null);
         throw new Error(cuerpo?.error?.message ?? 'No se pudo enviar el pedido.');
       }
+    },
+    onSuccess: async () => {
       setCarrito({});
       setAviso('Pedido enviado a la cocina.');
-      await cargar();
-    } catch (err: unknown) {
+      await refrescarMesa();
+    },
+    onError: (err: unknown) => {
       setAviso(err instanceof Error ? err.message : 'No se pudo enviar el pedido.');
-    } finally {
-      setEnviando(false);
     }
-  }
+  });
 
-  async function pedirCuenta() {
-    setAviso(null);
-    try {
+  const pedirLaCuenta = useMutation({
+    mutationFn: async () => {
       const respuesta = await fetch(`${BASE}/${encodeURIComponent(token)}/bill`, { method: 'POST' });
       if (!respuesta.ok) throw new Error('No se pudo avisar.');
+    },
+    onSuccess: async () => {
       setAviso('Avisamos al salón. Ya vienen.');
-      await cargar();
-    } catch (err: unknown) {
+      await refrescarMesa();
+    },
+    onError: (err: unknown) => {
       setAviso(err instanceof Error ? err.message : 'No se pudo avisar.');
     }
+  });
+
+  const enviando = enviarPedido.isPending;
+
+  const totalCarrito = vista
+    ? vista.menu
+        .flatMap((categoria) => categoria.products)
+        .reduce((total, producto) => total + (carrito[producto.id] ?? 0) * producto.price_cents, 0)
+    : 0;
+
+  function enviar() {
+    const items = Object.entries(carrito)
+      .filter(([, qty]) => qty > 0)
+      .map(([product_id, qty]) => ({ product_id, qty }));
+
+    if (items.length === 0) return;
+
+    setAviso(null);
+    enviarPedido.mutate(items);
   }
 
-  if (estado === 'cargando') {
+  function pedirCuenta() {
+    setAviso(null);
+    pedirLaCuenta.mutate();
+  }
+
+  if (consulta.isPending) {
     return <div className="min-h-screen bg-slate-50 p-6 animate-pulse" />;
   }
 
-  if (estado === 'no-existe' || estado === 'error' || !vista) {
+  if (consulta.isError || !vista) {
     return (
       <div className="min-h-screen bg-slate-50 flex items-center justify-center p-6 text-center">
         <div>

@@ -1,8 +1,18 @@
-import { useCallback, useEffect, useState, type ChangeEvent, type FormEvent } from 'react';
+import { useState, type ChangeEvent, type FormEvent } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ReceivablesPanel } from './components/ReceivablesPanel';
 import type { Customer } from '../../lib/api';
 import { Banner, Modal, ShellMessage } from '../../components/ui';
-import { useApi } from '../auth';
+import { useApi, useSession } from '../auth';
+import { customerKeys } from '../../shared/query-keys';
+
+function mensajeDeError(causa: unknown, respaldo: string): string | null {
+  if (!causa) {
+    return null;
+  }
+
+  return causa instanceof Error ? causa.message : respaldo;
+}
 
 interface CustomersScreenProps {
   /** Necesarios para recibir abonos: un abono en efectivo entra al turno de caja. */
@@ -18,14 +28,12 @@ interface CustomersScreenProps {
  */
 export function CustomersScreen({ branchId, cashSessionId }: CustomersScreenProps) {
   const api = useApi();
+  const { tenantId } = useSession();
+  const queryClient = useQueryClient();
   const [pestana, setPestana] = useState<'DIRECTORIO' | 'CARTERA'>('DIRECTORIO');
-  const [customers, setCustomers] = useState<Customer[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
 
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingCustomer, setEditingCustomer] = useState<Customer | null>(null);
-  const [isSaving, setIsSaving] = useState(false);
 
   // Form State
   const [docType, setDocType] = useState<Customer['document_type']>('CC');
@@ -35,22 +43,39 @@ export function CustomersScreen({ branchId, cashSessionId }: CustomersScreenProp
   const [phone, setPhone] = useState('');
   const [address, setAddress] = useState('');
 
-  const loadCustomers = useCallback(async () => {
-    setIsLoading(true);
-    setError(null);
-    try {
-      const data = await api.listCustomers();
-      setCustomers(data);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Error al cargar clientes');
-    } finally {
-      setIsLoading(false);
-    }
-  }, [api]);
+  const consulta = useQuery({
+    queryKey: customerKeys.all(tenantId),
+    queryFn: () => api.listCustomers()
+  });
 
-  useEffect(() => {
-    void loadCustomers();
-  }, [loadCustomers]);
+  const guardarCliente = useMutation({
+    mutationFn: () => {
+      const datos = {
+        document_type: docType,
+        document_number: docNumber,
+        name,
+        email: email || null,
+        phone: phone || null,
+        address: address || null
+      };
+
+      return editingCustomer ? api.updateCustomer(editingCustomer.id, datos) : api.createCustomer(datos);
+    },
+    onSuccess: async () => {
+      setIsModalOpen(false);
+      await queryClient.invalidateQueries({ queryKey: customerKeys.all(tenantId) });
+    }
+  });
+
+  const customers = consulta.data ?? [];
+  const isLoading = consulta.isPending;
+  const isSaving = guardarCliente.isPending;
+
+  // Un solo banner para los dos fallos posibles. Manda el de guardar: es el que el usuario
+  // acaba de provocar, y taparlo con un error de carga de hace un rato despista.
+  const error =
+    mensajeDeError(guardarCliente.error, 'Error al guardar cliente') ??
+    mensajeDeError(consulta.error, 'Error al cargar clientes');
 
   const openNewCustomerModal = () => {
     setEditingCustomer(null);
@@ -74,39 +99,11 @@ export function CustomersScreen({ branchId, cashSessionId }: CustomersScreenProp
     setIsModalOpen(true);
   };
 
-  const handleSave = async (e: FormEvent) => {
+  const handleSave = (e: FormEvent) => {
     e.preventDefault();
     if (!name.trim() || !docNumber.trim()) return;
 
-    setIsSaving(true);
-    setError(null);
-    try {
-      if (editingCustomer) {
-        await api.updateCustomer(editingCustomer.id, {
-          document_type: docType,
-          document_number: docNumber,
-          name,
-          email: email || null,
-          phone: phone || null,
-          address: address || null
-        });
-      } else {
-        await api.createCustomer({
-          document_type: docType,
-          document_number: docNumber,
-          name,
-          email: email || null,
-          phone: phone || null,
-          address: address || null
-        });
-      }
-      setIsModalOpen(false);
-      await loadCustomers();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Error al guardar cliente');
-    } finally {
-      setIsSaving(false);
-    }
+    guardarCliente.mutate();
   };
 
   if (isLoading) {

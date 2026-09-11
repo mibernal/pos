@@ -1,4 +1,6 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { publicKeys } from '../../shared/query-keys';
 
 interface CatalogCategory {
   id: string;
@@ -15,34 +17,33 @@ interface CatalogProduct {
   imageId: string | null;
 }
 
+interface PublicCatalog {
+  branch: { name: string; footer: string };
+  catalog: CatalogCategory[];
+}
+
 export function PublicMenuScreen({ branchId }: { branchId: string }) {
-  const [data, setData] = useState<{ branch: { name: string; footer: string }, catalog: CatalogCategory[] } | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(false);
   const [activeCategory, setActiveCategory] = useState<string | null>(null);
 
-  useEffect(() => {
-    // Standard fetch bypassing authenticated API Client, because we don't have/need a token
-    // The api client expects a token usually, but we can do a raw fetch to /api/v1/public/catalog/:branchId
-    const fetchCatalog = async () => {
-      try {
-        const res = await fetch(`${import.meta.env.VITE_API_URL || ''}/api/v1/public/catalog/${branchId}`);
-        if (!res.ok) throw new Error('Error fetching catalog');
-        const json = await res.json();
-        setData(json);
-        if (json.catalog && json.catalog.length > 0) {
-          setActiveCategory(json.catalog[0].id);
-        }
-      } catch (err) {
-        console.error(err);
-        setError(true);
-      } finally {
-        setLoading(false);
-      }
-    };
-    
-    fetchCatalog();
-  }, [branchId]);
+  // Aquí no hay sesión: la abre quien escanea el QR de la sucursal. Por eso la clave la
+  // define el identificador público que viene en la URL y no el comercio de nadie.
+  const consulta = useQuery({
+    queryKey: publicKeys.catalog(branchId),
+    queryFn: async (): Promise<PublicCatalog> => {
+      // Petición directa, sin el cliente autenticado: no hay token que mandar ni que pedir.
+      const res = await fetch(`${import.meta.env.VITE_API_URL || ''}/api/v1/public/catalog/${branchId}`);
+      if (!res.ok) throw new Error('Error fetching catalog');
+      return res.json();
+    }
+  });
+
+  const data = consulta.data ?? null;
+  const loading = consulta.isPending;
+  const error = consulta.isError;
+
+  // La primera categoría manda hasta que el comensal toque otra; derivarlo evita tener que
+  // sembrar el estado cuando llega la carta.
+  const categoriaActiva = activeCategory ?? data?.catalog[0]?.id ?? null;
 
   if (loading) {
     return (
@@ -98,8 +99,8 @@ export function PublicMenuScreen({ branchId }: { branchId: string }) {
               padding: '0.5rem 1rem',
               borderRadius: '9999px',
               border: 'none',
-              backgroundColor: activeCategory === cat.id ? '#111827' : '#f3f4f6',
-              color: activeCategory === cat.id ? 'white' : '#4b5563',
+              backgroundColor: categoriaActiva === cat.id ? '#111827' : '#f3f4f6',
+              color: categoriaActiva === cat.id ? 'white' : '#4b5563',
               fontWeight: 600,
               fontSize: '0.875rem',
               whiteSpace: 'nowrap',

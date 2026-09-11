@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useMutation } from '@tanstack/react-query';
 import { Banner } from '../../components/ui';
 import { formatMoneyFromCents } from '../../lib/format';
 import { useApi } from '../auth';
@@ -11,12 +12,17 @@ export function CashControlScreen({
   cashSessionId: string;
 }) {
   const api = useApi();
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [success, setSuccess] = useState<string | null>(null);
   const [observedCashPesos, setObservedCashPesos] = useState('');
   const [notes, setNotes] = useState('');
+  // El monto se valida antes de salir a la red, así que ese error no es el de la mutación.
+  const [errorValidacion, setErrorValidacion] = useState<string | null>(null);
 
+  /**
+   * El último arqueo se queda en estado local a propósito: es el comprobante de lo que
+   * acaba de hacer este cajero en esta pantalla —de ahí sale el Ticket X—, no un dato que
+   * otra pantalla vaya a pedir por su clave. Tampoco se lee de `mutación.data`, que se
+   * descarta en cada `mutate`: el panel se vaciaría mientras se registra el siguiente.
+   */
   const [lastAudit, setLastAudit] = useState<{
     observed_cash_cents: number;
     expected_cash_cents: number;
@@ -24,29 +30,37 @@ export function CashControlScreen({
     created_at: string;
   } | null>(null);
 
-  async function handleAudit(e: React.FormEvent) {
-    e.preventDefault();
-    const rawVal = Number(observedCashPesos);
-    if (isNaN(rawVal) || rawVal < 0) {
-      setError('Ingresa un monto válido en efectivo');
-      return;
-    }
-
-    setLoading(true);
-    setError(null);
-    setSuccess(null);
-
-    try {
-      const res = await api.auditCashSession(cashSessionId, rawVal * 100, notes);
-      setSuccess('Arqueo registrado exitosamente. Ticket X disponible.');
+  /**
+   * El arqueo es una foto, no un asiento: anota lo que hay en el cajón y lo compara con lo
+   * esperado, sin mover el saldo de la sesión. Por eso no invalida nada.
+   */
+  const arquear = useMutation({
+    mutationFn: (observadoCents: number) => api.auditCashSession(cashSessionId, observadoCents, notes),
+    onSuccess: (res) => {
       setLastAudit(res.audit);
       setObservedCashPesos('');
       setNotes('');
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Error al registrar arqueo');
-    } finally {
-      setLoading(false);
     }
+  });
+
+  const loading = arquear.isPending;
+  const success = arquear.isSuccess ? 'Arqueo registrado exitosamente. Ticket X disponible.' : null;
+  const error =
+    errorValidacion ??
+    (arquear.error
+      ? (arquear.error instanceof Error ? arquear.error.message : 'Error al registrar arqueo')
+      : null);
+
+  function handleAudit(e: React.FormEvent) {
+    e.preventDefault();
+    const rawVal = Number(observedCashPesos);
+    if (isNaN(rawVal) || rawVal < 0) {
+      setErrorValidacion('Ingresa un monto válido en efectivo');
+      return;
+    }
+
+    setErrorValidacion(null);
+    arquear.mutate(rawVal * 100);
   }
 
   function printXReport() {
