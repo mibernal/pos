@@ -448,6 +448,29 @@ Se documentan porque la ausencia de política es una decisión, no un olvido:
 - Queda escrito porque el razonamiento que llevó al «Más» era correcto en lo que medía —el alto— y equivocado en lo que no medía: cuántas veces al día se usa cada ruta. Es fácil volver a proponerlo mirando solo la captura.
 - Lo que **no** se revirtió: los títulos por zona del cajón del móvil. Ahí no hay desplegable, solo encabezados, y veintiuna rutas seguidas en un teléfono sí son un muro.
 
+## D-082 — El atajo de permisos, fuera; y CORS deja de ser lo que no era
+- `requirePermissions` ya no deja pasar a `TENANT_OWNER` ni a `ADMIN` sin mirar el catálogo. A `ADMIN` se le declara `tenant:settings:manage`, que era lo único que le faltaba.
+- **Motivo:** en un sistema con obligación de auditoría, dos roles que pasan por encima de todo vacían el rastro de significado. El catálogo describía lo que hace el resto de la plantilla y callaba justo sobre quien más puede.
+- Se midió antes de tocarlo: de 99 guardas, `TENANT_OWNER` no perdía ninguna y `ADMIN` perdía tres —perfil de negocio, perfil tributario y módulos—. Por eso el cambio no altera el comportamiento de nadie: solo lo pone por escrito. `refresh` recalcula permisos del catálogo, así que tampoco hay que volver a entrar.
+- `catalogo-permisos.test.ts` compara las guardas del código con el catálogo. Es justo el fallo que el atajo llevaba años escondiendo: una ruta nueva con un permiso que nadie tiene funcionaba igual, hasta el día que se quitara el atajo.
+- **CORS no corta las peticiones sin `Origin`, a propósito.** Llegan así los webhooks del PAC y de la pasarela, `/health`, `/metrics` y cualquier integración de servidor a servidor —lo que la fase 17 quiere abrir—. CORS lo aplica el navegador, no el servidor: nunca fue el control de acceso. Lo que sí se cerró es donde había superficie real: `/auth/refresh` y `/auth/logout` se autentican con cookie, y ahora exigen origen conocido. La cookie ya era `SameSite=lax`; esto es el cinturón sobre el tirante.
+- Un origen no permitido devolvía **500** porque el callback de CORS lanzaba un `Error`. Decir «me he roto» cuando pasa «tú no puedes» ensucia la monitorización con errores de servidor falsos y esconde los de verdad. Ahora es 403.
+
+## D-083 — El tiquete congela el nombre, y las ventas viejas se quedan en NULL
+- `sale_items.product_name` guarda el nombre con el que se vendió (migración 111). Al leer una venta manda ese; el join contra `products` queda de respaldo.
+- **Motivo:** el importe ya estaba congelado, la descripción no. El nombre se resolvía con un join **en el momento de mirar la venta**, así que renombrar un producto reescribía el nombre impreso en el tiquete de una venta de hace seis meses. En un documento con obligación fiscal eso no debería poder pasar.
+- **Las ventas anteriores se quedan en NULL, y es la decisión importante.** El nombre que tenían el día de la venta no se puede reconstruir: si el producto se renombró, se perdió. Rellenar con el de hoy sería estampar una afirmación falsa en un documento fiscal, y encima nadie podría después distinguir cuál es de fiar. Un NULL dice la verdad —«esto no se congeló»— y la deuda se apaga sola según entran ventas nuevas.
+- Por eso la columna es NULL-able y sin valor por defecto: cualquiera de las dos cosas borraría la diferencia entre «se congeló» y «se reconstruyó».
+- Quedan tres ramas al leer, y dicen cosas distintas: nombre congelado → el de la venta; sin él → el del catálogo (venta vieja); sin ninguno → texto honesto, nunca «null», que es lo que se imprimía cuando se borraba un producto.
+- Comprobado que la prueba falla al invertir la preferencia: «expected 'Nombre Cambiado Después De Vender' to be 'Producto E2E'».
+
+## D-084 — El prorrateo que se enseña se aplica, y se cobra en la próxima factura
+- `ChangeTenantPlanUseCase` ajusta el fin de periodo con `computeProration` —la misma función que usa el preview— y apunta la diferencia en `subscription_pending_charges` (migración 112). El motor de cobro la añade como línea de la siguiente factura.
+- **Motivo:** el preview calculaba el prorrateo y se lo enseñaba al comercio; el cambio de plan cambiaba `plan_id` y nada más. Lo que el cliente veía antes de aceptar no era lo que pasaba después, y en un producto que cobra eso lo descubre siempre el cliente.
+- **No se cobra en el acto**, y es deliberado. Mover dinero dentro del cambio de plan obliga a decidir qué pasa si la tarjeta falla **después** de haber cambiado el plan: o el comercio se queda en un plan que no pagó, o se le revierte el plan por un problema de cobro. Las dos son malas y las dos hay que construirlas. Como línea en la próxima factura no hay estado intermedio que pueda quedarse a medias.
+- Se reutiliza `computeProration` en vez de recalcular. Dos cálculos de la misma cifra escritos por separado divergen, y cuando lo que diverge son pesos, la discrepancia la paga soporte.
+- `applied_invoice_id` es lo que impide cobrar dos veces, y solo se marca si la factura se emitió **ahora**: `issueForPeriod` es idempotente y devuelve la factura anterior sin estas líneas, así que marcarlo en ese caso daría el cargo por cobrado sin estar en ninguna factura — el dinero desaparecería en silencio.
+
 ## D-081 — Por debajo de 768 px las tablas dejan de ser tablas
 - `.tabla-datos` convierte cada fila en una ficha y cada celda en una línea con su etiqueta, sacada de `data-label`. Lo usan Clientes e Inventario.
 - **Motivo:** arrastrar seis columnas de lado en un teléfono «funciona» —hay barra, se alcanza todo—, pero para leer una fila entera hay que barrer la pantalla dos veces y recordar qué columna era cada cosa, porque la cabecera se queda atrás.

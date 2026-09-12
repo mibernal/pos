@@ -255,6 +255,22 @@ async function openInvoiceFor(
   const periodEnd = new Date(periodStart);
   periodEnd.setDate(periodEnd.getDate() + periodDays);
 
+  /**
+   * Las diferencias de un cambio de plan entran aquí, como una línea más.
+   *
+   * `/plan/preview` calcula el prorrateo y `ChangeTenantPlanUseCase` lo apunta en
+   * `subscription_pending_charges` en vez de cobrarlo en el acto: así no hay ningún estado
+   * a medias si una tarjeta falla justo después de haber cambiado el plan. Este es el
+   * momento en que se cobra.
+   */
+  const pendientes = await trx
+    .selectFrom('subscription_pending_charges')
+    .select(['id', 'description', 'amount_cents'])
+    .where('subscription_id', '=', input.subscription.id)
+    .where('applied_invoice_id', 'is', null)
+    .orderBy('created_at', 'asc')
+    .execute();
+
   const issued = await SubscriptionInvoiceService.issueForPeriod(trx, {
     tenantId: input.tenantId,
     subscriptionId: input.subscription.id,
@@ -270,9 +286,34 @@ async function openInvoiceFor(
         description: `Plan ${input.plan.name} · ${input.plan.billing_cycle === 'YEARLY' ? 'anual' : 'mensual'}`,
         quantity: 1,
         unitPriceCents: input.plan.price_cents
-      }
+      },
+      ...pendientes.map((cargo) => ({
+        description: cargo.description,
+        quantity: 1,
+        unitPriceCents: cargo.amount_cents
+      }))
     ]
   });
+
+  /**
+   * Solo se marcan si la factura se emitió **ahora**.
+   *
+   * `issueForPeriod` es idempotente: si ya existía una factura para este periodo devuelve
+   * la de antes con `created: false`, y sus líneas no incluyen estos cargos. Marcarlos en
+   * ese caso los daría por cobrados sin que estén en ninguna factura — el dinero
+   * desaparecería en silencio, que es la peor forma de perderlo.
+   */
+  if (issued.created && pendientes.length > 0) {
+    await trx
+      .updateTable('subscription_pending_charges')
+      .set({ applied_invoice_id: issued.invoice.id })
+      .where(
+        'id',
+        'in',
+        pendientes.map((cargo) => cargo.id)
+      )
+      .execute();
+  }
 
   return issued.invoice;
 }

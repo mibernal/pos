@@ -530,6 +530,14 @@ export interface SaleItemsTable {
   qty: string;
   price_cents: number;
   line_total_cents: number;
+  /**
+   * El nombre con el que se vendió, congelado.
+   *
+   * `null` solo en ventas anteriores a la migración 111: para esas se resuelve con join
+   * contra `products`, que es lo que hacía todo el mundo antes. Ver esa migración para por
+   * qué no se rellenaron hacia atrás.
+   */
+  product_name: string | null;
   notes: string | null;
   modifiers_json?: JsonArrayColumn | null;
   created_at: Generated<Date>;
@@ -1056,6 +1064,23 @@ export interface TenantCouponRedemptionsTable {
   redeemed_at: Generated<Date>;
 }
 
+/**
+ * Diferencias de prorrateo esperando a la próxima factura. Ver migración 112.
+ *
+ * `applied_invoice_id` nulo significa «todavía por cobrar». En cuanto entra en una factura
+ * queda apuntado a ella, y eso es lo que impide que el motor de cobro —que puede correr
+ * cada hora— lo añada dos veces.
+ */
+export interface SubscriptionPendingChargesTable {
+  id: string;
+  tenant_id: string;
+  subscription_id: string;
+  description: string;
+  amount_cents: number;
+  created_at: Generated<Date>;
+  applied_invoice_id: string | null;
+}
+
 export interface SubscriptionInvoicesTable {
   id: string;
   tenant_id: string;
@@ -1402,6 +1427,7 @@ export interface Database {
   billing_coupons: BillingCouponsTable;
   tenant_coupon_redemptions: TenantCouponRedemptionsTable;
   subscription_invoices: SubscriptionInvoicesTable;
+  subscription_pending_charges: SubscriptionPendingChargesTable;
   subscription_invoice_items: SubscriptionInvoiceItemsTable;
   dunning_events: DunningEventsTable;
   product_images: ProductImagesTable;

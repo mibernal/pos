@@ -86,6 +86,15 @@ interface SaleInsertItem {
   branch_id: string;
   sale_id: string;
   product_id: string;
+  /**
+   * El nombre con el que se vendió, congelado en la línea.
+   *
+   * Antes solo se guardaba el `product_id` y el nombre se resolvía con un join al mirar la
+   * venta, así que renombrar un producto reescribía el tiquete de una venta de hace meses.
+   * El importe ya se congelaba; esto congela la descripción, que en un documento fiscal
+   * pesa lo mismo. Ver la migración 111.
+   */
+  product_name: string;
   variant_id: string | null;
   qty: string;
   price_cents: number;
@@ -387,6 +396,8 @@ export async function createSaleService(input: CreateSaleServiceInput) {
             branch_id: payload.branch_id,
             sale_id: saleId,
             product_id: item.product_id,
+            // El nombre de ahora, no el de cuando alguien mire la venta. Ver migración 111.
+            product_name: product.name,
             variant_id: item.variant_id ?? null,
             qty: item.qty.toString(),
             price_cents: effectivePriceCents,

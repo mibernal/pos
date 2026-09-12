@@ -218,6 +218,18 @@ export const salesRoutes: FastifyPluginAsync = async (app) => {
             'sale_items.qty',
             'sale_items.price_cents',
             'sale_items.line_total_cents',
+            /**
+             * Los dos nombres, y el congelado manda.
+             *
+             * `sale_items.product_name` es el nombre con el que se vendió; `products.name`
+             * es el que tiene el catálogo **ahora**. Antes solo existía el segundo, así que
+             * renombrar un producto reescribía el tiquete de una venta vieja.
+             *
+             * El del catálogo se sigue trayendo porque las ventas anteriores a la migración
+             * 111 tienen la columna en `null` y no hay forma de reconstruir el nombre real:
+             * para esas, el de hoy es lo mejor que hay. Para todo lo posterior no se mira.
+             */
+            'sale_items.product_name as product_name_congelado',
             'products.name as product_name',
             'product_variants.name as variant_name',
             'products.image_url as product_image_url',
@@ -257,17 +269,21 @@ export const salesRoutes: FastifyPluginAsync = async (app) => {
           product_id: item.product_id,
           variant_id: item.variant_id,
           /**
-           * El nombre viene de un `leftJoin`, así que puede ser nulo, y el contrato lo
-           * promete siempre presente. Quien imprime el tiquete se lo cree: un nulo ahí
-           * salía impreso como «null» en la línea de una venta ya cobrada.
+           * Manda el nombre congelado en la venta; el del catálogo es solo el respaldo.
            *
-           * Hay un problema de fondo que esto NO arregla y conviene no perder de vista:
-           * `sale_items` no guarda el nombre del producto, solo su `product_id`. Eso
-           * significa que renombrar un producto hoy reescribe el nombre impreso en el
-           * tiquete de una venta del mes pasado. Para un documento fiscal eso no debería
-           * poder pasar; arreglarlo pide una columna nueva y una migración, no una línea.
+           * Ese orden es el arreglo de la fase 13. Antes solo existía el del catálogo, que
+           * se resolvía con un `leftJoin` **en el momento de mirar la venta**: renombrar un
+           * producto reescribía el tiquete de una venta del mes pasado, y borrarlo dejaba
+           * un nulo que se imprimía como «null» en una línea ya cobrada.
+           *
+           * Las tres ramas dicen cosas distintas y por eso están las tres:
+           *   1. Hay nombre congelado → es el de la venta. Punto.
+           *   2. No lo hay (venta anterior a la migración 111) → el del catálogo, que es lo
+           *      mejor disponible aunque pueda haber cambiado.
+           *   3. Tampoco hay catálogo (producto borrado) → un texto honesto, nunca «null».
            */
-          product_name: item.product_name ?? 'Producto no disponible',
+          product_name:
+            item.product_name_congelado ?? item.product_name ?? 'Producto no disponible',
           variant_name: item.variant_name,
           imageUrl: item.product_image_url,
           description: item.product_description,
