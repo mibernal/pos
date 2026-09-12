@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
+import { shiftPaymentSummarySchema } from '@pos-dian/shared';
 import { LedgerService } from '../../../shared/infra/db/ledger-service.js';
 import type { FastifyPluginAsync } from 'fastify';
 import { ZodTypeProvider } from 'fastify-type-provider-zod';
@@ -41,6 +42,68 @@ const cashMovementBodySchema = z.object({
   type: z.enum(['IN', 'OUT']),
   amount_cents: z.coerce.number().int().positive(),
   reason: z.string().min(3).max(255)
+});
+
+/**
+ * Lo que la API promete devolver de una sesión de caja.
+ *
+ * Declararlo no es documentación: Fastify serializa **a través** del esquema y recorta lo
+ * que no esté declarado. Eso lo convierte en una frontera de seguridad —una columna que
+ * llegue de más por un `select *` o un join no sale por el cable— y a la vez en un riesgo
+ * si se declara de menos, porque el campo desaparece sin que nada avise. Por eso esta lista
+ * se escribió leyendo `mapCashSession`, campo a campo, y no de memoria.
+ *
+ * Los importes de cierre son nulos mientras el turno está abierto, y así se declaran: un
+ * `expected_cash_cents` a cero y uno «todavía no se sabe» son cosas distintas, y en un
+ * arqueo esa diferencia es justo la que se investiga.
+ */
+const cashSessionResponseSchema = z.object({
+  id: z.string().uuid(),
+  tenant_id: z.string().uuid(),
+  branch_id: z.string().uuid(),
+  terminal_id: z.string().uuid(),
+  opened_by_user_id: z.string().uuid(),
+  opened_at: z.string(),
+  opening_amount_cents: z.number().int(),
+  closed_at: z.string().nullable(),
+  closing_cash_real_cents: z.number().int().nullable(),
+  expected_cash_cents: z.number().int().nullable(),
+  diff_cents: z.number().int().nullable(),
+  status: z.enum(['OPEN', 'CLOSED', 'RECONCILED'])
+});
+
+/** `null` cuando la caja de ese terminal no está abierta: es una respuesta válida, no un 404. */
+const currentCashSessionResponseSchema = z.object({
+  cash_session: cashSessionResponseSchema.nullable()
+});
+
+const openCashSessionResponseSchema = z.object({
+  cash_session: cashSessionResponseSchema
+});
+
+/**
+ * El cierre, con el resumen del turno.
+ *
+ * `payment_breakdown` reutiliza el esquema del paquete compartido a propósito: es la misma
+ * forma que consume la pantalla de cierre, y tenerla escrita dos veces es cómo el Z del
+ * servidor y el arqueo del frontend acabaron siendo dos sumas distintas sobre los mismos
+ * datos.
+ *
+ * `expected_cash_cents` y `diff_cents` llegan en cero cuando quien cierra es el cajero. No
+ * es un error de cálculo: es cierre a ciegas, para que quien cuenta el cajón no sepa antes
+ * cuánto «debería» haber. El esquema los declara como números normales porque eso es lo que
+ * salen — el cero aquí significa «no te toca saberlo», y esa distinción vive en el rol de
+ * quien pide, no en el tipo.
+ */
+const closeCashSessionResponseSchema = z.object({
+  cash_session: cashSessionResponseSchema,
+  summary: z.object({
+    completed_sales_count: z.number().int(),
+    completed_sales_total_cents: z.number().int(),
+    expected_cash_cents: z.number().int(),
+    diff_cents: z.number().int(),
+    payment_breakdown: shiftPaymentSummarySchema
+  })
 });
 
 function mapCashSession(
@@ -112,7 +175,8 @@ export const cashSessionsRoutes: FastifyPluginAsync = async (app) => {
       schema: {
         tags: ['cash-sessions'],
         security: [{ bearerAuth: [] }],
-        body: openCashSessionBodySchema
+        body: openCashSessionBodySchema,
+        response: { 201: openCashSessionResponseSchema }
       }
     },
     async (request, reply) => {
@@ -354,7 +418,8 @@ export const cashSessionsRoutes: FastifyPluginAsync = async (app) => {
         tags: ['cash-sessions'],
         security: [{ bearerAuth: [] }],
         params: closeCashSessionParamsSchema,
-        body: closeCashSessionBodySchema
+        body: closeCashSessionBodySchema,
+        response: { 200: closeCashSessionResponseSchema }
       }
     },
     async (request) => {
@@ -559,7 +624,8 @@ export const cashSessionsRoutes: FastifyPluginAsync = async (app) => {
       schema: {
         tags: ['cash-sessions'],
         security: [{ bearerAuth: [] }],
-        querystring: currentCashSessionQuerySchema
+        querystring: currentCashSessionQuerySchema,
+        response: { 200: currentCashSessionResponseSchema }
       }
     },
     async (request) => {
