@@ -2,9 +2,11 @@ import { resolve } from 'node:path';
 import { defineConfig } from 'vitest/config';
 
 export default defineConfig({
+  envDir: resolve(__dirname, '../../'),
   test: {
     environment: 'node',
-    fileParallelism: false
+    fileParallelism: false,
+    setupFiles: [resolve(__dirname, 'test/setup.ts')]
   },
   resolve: {
     // Las subrutas se importan con extensión `.js` (obligatorio en ESM/NodeNext), pero en

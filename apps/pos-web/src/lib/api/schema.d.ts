@@ -1547,6 +1547,7 @@ export interface paths {
             requestBody: {
                 content: {
                     "application/json": {
+                        /** Format: uuid */
                         session_id: string;
                     };
                 };
@@ -1619,6 +1620,7 @@ export interface paths {
             requestBody: {
                 content: {
                     "application/json": {
+                        /** Format: uuid */
                         session_id: string;
                     };
                 };
@@ -2867,11 +2869,34 @@ export interface paths {
             };
             responses: {
                 /** @description Default Response */
-                200: {
+                201: {
                     headers: {
                         [name: string]: unknown;
                     };
-                    content?: never;
+                    content: {
+                        "application/json": {
+                            cash_session: {
+                                /** Format: uuid */
+                                id: string;
+                                /** Format: uuid */
+                                tenant_id: string;
+                                /** Format: uuid */
+                                branch_id: string;
+                                /** Format: uuid */
+                                terminal_id: string;
+                                /** Format: uuid */
+                                opened_by_user_id: string;
+                                opened_at: string;
+                                opening_amount_cents: number;
+                                closed_at: string | (null);
+                                closing_cash_real_cents: number | (null);
+                                expected_cash_cents: number | (null);
+                                diff_cents: number | (null);
+                                /** @enum {string} */
+                                status: "OPEN" | "CLOSED" | "RECONCILED";
+                            };
+                        };
+                    };
                 };
             };
         };
@@ -2954,7 +2979,54 @@ export interface paths {
                     headers: {
                         [name: string]: unknown;
                     };
-                    content?: never;
+                    content: {
+                        "application/json": {
+                            cash_session: {
+                                /** Format: uuid */
+                                id: string;
+                                /** Format: uuid */
+                                tenant_id: string;
+                                /** Format: uuid */
+                                branch_id: string;
+                                /** Format: uuid */
+                                terminal_id: string;
+                                /** Format: uuid */
+                                opened_by_user_id: string;
+                                opened_at: string;
+                                opening_amount_cents: number;
+                                closed_at: string | (null);
+                                closing_cash_real_cents: number | (null);
+                                expected_cash_cents: number | (null);
+                                diff_cents: number | (null);
+                                /** @enum {string} */
+                                status: "OPEN" | "CLOSED" | "RECONCILED";
+                            };
+                            summary: {
+                                completed_sales_count: number;
+                                completed_sales_total_cents: number;
+                                expected_cash_cents: number;
+                                diff_cents: number;
+                                payment_breakdown: {
+                                    rows: {
+                                        code: string;
+                                        /** @enum {string} */
+                                        kind: "CASH" | "CARD" | "TRANSFER" | "WALLET" | "GIFT_CARD" | "STORE_CREDIT" | "POINTS" | "VOUCHER";
+                                        label: string;
+                                        /** @enum {string} */
+                                        group: "CASH" | "ELECTRONIC" | "DEFERRED";
+                                        amount_cents: number;
+                                        count: number;
+                                    }[];
+                                    cash_cents: number;
+                                    electronic_cents: number;
+                                    deferred_cents: number;
+                                    tendered_cents: number;
+                                    change_cents: number;
+                                    total_cents: number;
+                                };
+                            };
+                        };
+                    };
                 };
             };
         };
@@ -2987,7 +3059,30 @@ export interface paths {
                     headers: {
                         [name: string]: unknown;
                     };
-                    content?: never;
+                    content: {
+                        "application/json": {
+                            cash_session: {
+                                /** Format: uuid */
+                                id: string;
+                                /** Format: uuid */
+                                tenant_id: string;
+                                /** Format: uuid */
+                                branch_id: string;
+                                /** Format: uuid */
+                                terminal_id: string;
+                                /** Format: uuid */
+                                opened_by_user_id: string;
+                                opened_at: string;
+                                opening_amount_cents: number;
+                                closed_at: string | (null);
+                                closing_cash_real_cents: number | (null);
+                                expected_cash_cents: number | (null);
+                                diff_cents: number | (null);
+                                /** @enum {string} */
+                                status: "OPEN" | "CLOSED" | "RECONCILED";
+                            } | (null);
+                        };
+                    };
                 };
             };
         };
@@ -5921,6 +6016,105 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/webhooks/payments/wompi": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Default Response */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/webhooks/payments/mercadopago": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Default Response */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/webhooks/payments/stripe": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Default Response */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/billing/portal": {
         parameters: {
             query?: never;
@@ -6189,105 +6383,6 @@ export interface paths {
         };
         put?: never;
         post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/webhooks/payments/wompi": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post: {
-            parameters: {
-                query?: never;
-                header?: never;
-                path?: never;
-                cookie?: never;
-            };
-            requestBody?: never;
-            responses: {
-                /** @description Default Response */
-                200: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content?: never;
-                };
-            };
-        };
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/webhooks/payments/mercadopago": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post: {
-            parameters: {
-                query?: never;
-                header?: never;
-                path?: never;
-                cookie?: never;
-            };
-            requestBody?: never;
-            responses: {
-                /** @description Default Response */
-                200: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content?: never;
-                };
-            };
-        };
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/webhooks/payments/stripe": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post: {
-            parameters: {
-                query?: never;
-                header?: never;
-                path?: never;
-                cookie?: never;
-            };
-            requestBody?: never;
-            responses: {
-                /** @description Default Response */
-                200: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content?: never;
-                };
-            };
-        };
         delete?: never;
         options?: never;
         head?: never;

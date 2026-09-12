@@ -148,8 +148,11 @@ async function aplicarProrrateo(
   await trx
     .updateTable('tenant_subscriptions')
     .set({
-      current_period_end: prorrateo.new_period_end,
-      expires_at: prorrateo.new_period_end
+      // El esquema compartido devuelve la fecha como texto ISO (viaja tal cual al panel).
+      // A la columna `timestamptz` se le pasa un `Date`: con la cadena funcionaba en tiempo
+      // de ejecución, pero rompía el typecheck desde la fase 13.
+      current_period_end: new Date(prorrateo.new_period_end),
+      expires_at: new Date(prorrateo.new_period_end)
     })
     .where('id', '=', input.subscriptionId)
     .execute();

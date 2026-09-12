@@ -1,6 +1,22 @@
-import { writeFileSync } from 'node:fs';
+import { writeFileSync, existsSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { buildApp } from '../src/app/build-app.js';
+
+// Cargar .env de la raíz si existe para heredar configuración local
+const rootEnv = resolve(process.cwd(), '../../.env');
+if (typeof process.loadEnvFile === 'function' && existsSync(rootEnv)) {
+  try {
+    process.loadEnvFile(rootEnv);
+  } catch {
+    // Si falla o no se puede leer, continuamos con las variables del entorno
+  }
+}
+
+// Swagger está apagado en producción a propósito; el volcado necesita que esté encendido.
+process.env.NODE_ENV = process.env.NODE_ENV === 'production' ? 'development' : (process.env.NODE_ENV ?? 'development');
+
+// El volcado solo extrae los esquemas de rutas para la especificación OpenAPI;
+// no emite tokens reales. Se garantiza un JWT_SECRET válido para satisfacer la validación de entorno.
+process.env.JWT_SECRET = process.env.JWT_SECRET || 'openapi-dump-dummy-jwt-secret-at-least-thirty-two-chars-long';
 
 /**
  * Vuelca el contrato OpenAPI a un archivo.
@@ -15,9 +31,7 @@ import { buildApp } from '../src/app/build-app.js';
  * esquema, esto lo refleja sin que nadie tenga que acordarse.
  */
 async function main() {
-  // Swagger está apagado en producción a propósito; el volcado necesita que esté encendido.
-  process.env.NODE_ENV = process.env.NODE_ENV === 'production' ? 'development' : (process.env.NODE_ENV ?? 'development');
-
+  const { buildApp } = await import('../src/app/build-app.js');
   const app = await buildApp();
   await app.ready();
 

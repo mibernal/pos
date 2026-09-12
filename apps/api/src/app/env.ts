@@ -20,6 +20,22 @@ const envSchema = z.object({
    */
   REDIS_COMMAND_TIMEOUT_MS: z.coerce.number().int().positive().max(60_000).default(2_000),
   CORS_ALLOWED_ORIGINS: z.string().optional(),
+  /**
+   * Cuántos proxys hay delante de la API (o `true`/una lista de IP/CIDR), para Fastify.
+   *
+   * Sin esto, detrás de nginx o de un balanceador `request.ip` es la IP del proxy: todos los
+   * clientes parecen el mismo, y los límites por IP (login, refresh, registro, QR) se
+   * vuelven globales — treinta refrescos por minuto para *toda* la tienda. Por defecto no se
+   * confía en `X-Forwarded-For`, que un cliente directo podría falsificar.
+   */
+  TRUST_PROXY: z
+    .string()
+    .optional()
+    .transform((v): boolean | number | string => {
+      if (!v || v === 'false') return false;
+      if (v === 'true') return true;
+      return /^\d+$/.test(v) ? Number(v) : v;
+    }),
   DATABASE_URL: z
     .string()
     .min(1)
@@ -50,7 +66,18 @@ const envSchema = z.object({
   
   // Notification Service variables
   RESEND_API_KEY: z.string().optional(),
-  NOTIFICATION_PROVIDER: z.enum(['RESEND', 'SENDGRID']).default('RESEND'),
+  // `NONE` es para la instalación local sin internet: los correos se registran en el log y
+  // no se intenta enviarlos. `SENDGRID` sigue siendo un adaptador sin implementar.
+  NOTIFICATION_PROVIDER: z.enum(['RESEND', 'SENDGRID', 'NONE']).default('RESEND'),
+
+  /**
+   * Dónde corre esta instancia.
+   *
+   * `onprem` es la instalación en el equipo del comercio: un solo comercio, sin autoregistro,
+   * sin panel de plataforma ni pasarelas de pago, y con la suscripción gobernada por el
+   * archivo de licencia que verifica el worker (ver `docs/INSTALACION-ONPREM.md`).
+   */
+  DEPLOYMENT_MODE: z.enum(['cloud', 'onprem']).default('cloud'),
   
   // Billing Renewal Engine variables
   BILLING_MAX_RETRIES: z.coerce.number().int().default(3),
@@ -87,6 +114,24 @@ const envSchema = z.object({
       code: z.ZodIssueCode.custom,
       path: ['RESEND_API_KEY'],
       message: 'RESEND_API_KEY es obligatorio en producción si se usa RESEND'
+    });
+  }
+
+  // Sin `DATABASE_URL` explícita se caía al rol dueño del esquema (`pos:pos`), que salta la
+  // RLS si no hay FORCE: el aislamiento entre comercios dependería de no olvidar una variable.
+  if (value.NODE_ENV === 'production' && value.DATABASE_URL === 'postgres://pos:pos@localhost:5432/pos_dian') {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['DATABASE_URL'],
+      message: 'DATABASE_URL es obligatoria en producción y debe usar el rol pos_api (sin BYPASSRLS)'
+    });
+  }
+
+  if (value.NODE_ENV === 'production' && value.NOTIFICATION_PROVIDER === 'SENDGRID') {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['NOTIFICATION_PROVIDER'],
+      message: 'SENDGRID no está implementado: los correos se descartarían en silencio. Usa RESEND o NONE'
     });
   }
 

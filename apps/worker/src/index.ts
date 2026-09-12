@@ -21,6 +21,7 @@ import { rollupInventoryValuation } from './scheduler/rollup-inventory-valuation
 import { rollupBillingUsage } from './scheduler/rollup-billing-usage.scheduler.js';
 import { runHousekeepingJobs } from './scheduler/cleanup-housekeeping.scheduler.js';
 import { runSubscriptionRenewals, closeRenewalEngineRedis } from './scheduler/renewal-engine.scheduler.js';
+import { syncOnPremLicense } from './scheduler/onprem-license.scheduler.js';
 import { logWorkerError, logWorkerInfo } from './infra/logging/worker-log.js';
 
 const dbPool = createDbPool();
@@ -230,8 +231,16 @@ const inventoryRollupTimer = setInterval(() => {
   });
 }, inventoryRollupIntervalMs);
 
+/**
+ * En la instalación local no hay pasarela ni plataforma: el motor de renovaciones y el
+ * rollup de uso para facturar no tienen nada que hacer, y el motor, si corriera, pasaría a
+ * `PAST_DUE` a un comercio al que nadie puede cobrarle automáticamente. Ahí manda la
+ * licencia.
+ */
+const esOnPrem = env.DEPLOYMENT_MODE === 'onprem';
+
 const billingRollupIntervalMs = 24 * 60 * 60 * 1000; // 24 horas
-const billingRollupTimer = setInterval(() => {
+const billingRollupTimer: NodeJS.Timeout | null = esOnPrem ? null : setInterval(() => {
   void rollupBillingUsage(dbPool).catch(err => {
     logWorkerError({
       event: 'rollup_billing_usage_failed',
@@ -255,7 +264,7 @@ const housekeepingTimer = setInterval(() => {
 
 // C9: Scheduler de Renovación de Suscripciones
 const renewalIntervalMs = 15 * 60 * 1000; // 15 minutos
-const renewalTimer = setInterval(() => {
+const renewalTimer: NodeJS.Timeout | null = esOnPrem ? null : setInterval(() => {
   void runSubscriptionRenewals(dbPool).catch(err => {
     logWorkerError({
       event: 'renewal_scheduler_failed',
@@ -264,6 +273,20 @@ const renewalTimer = setInterval(() => {
     });
   });
 }, renewalIntervalMs);
+
+const ejecutarLicencia = () =>
+  void syncOnPremLicense(dbPool).catch((err) => {
+    logWorkerError({
+      event: 'onprem_license_sync_failed',
+      message: 'No se pudo sincronizar la licencia local',
+      error: err
+    });
+  });
+
+const licenseTimer: NodeJS.Timeout | null = esOnPrem
+  ? setInterval(ejecutarLicencia, env.ONPREM_LICENSE_CHECK_INTERVAL_MS)
+  : null;
+if (esOnPrem) ejecutarLicencia();
 
 void ensureAuditLogPartitions(dbPool).catch(err => {
   logWorkerError({
@@ -296,7 +319,14 @@ void enqueueDueOutboxEvents(dbPool, queue, env.OUTBOX_BATCH_SIZE)
 const healthServer = http.createServer((req, res) => {
   const ip = req.socket.remoteAddress || '';
   const isLocal = ip === '127.0.0.1' || ip === '::1' || ip === '::ffff:127.0.0.1';
-  const isPrivate = ip.startsWith('10.') || ip.startsWith('172.16.') || ip.startsWith('192.168.') || ip.startsWith('::ffff:10.') || ip.startsWith('::ffff:172.16.') || ip.startsWith('::ffff:192.168.');
+  // 172.16.0.0/12 llega hasta 172.31: las redes de Docker suelen ser 172.17–172.31, y con
+  // solo `172.16.` el healthcheck desde otro contenedor recibía 403 en producción.
+  const ipv4 = ip.replace(/^::ffff:/, '');
+  const segundo = Number(ipv4.split('.')[1]);
+  const isPrivate =
+    ipv4.startsWith('10.') ||
+    ipv4.startsWith('192.168.') ||
+    (ipv4.startsWith('172.') && segundo >= 16 && segundo <= 31);
   
   if (!isLocal && !isPrivate && process.env.NODE_ENV === 'production') {
     res.writeHead(403);
@@ -336,9 +366,10 @@ const shutdown = async () => {
   clearInterval(alertsTimer); // C6: cancelar el alerts timer
   clearInterval(salesRollupTimer); // C7: cancelar rollups
   clearInterval(inventoryRollupTimer);
-  clearInterval(billingRollupTimer);
+  if (billingRollupTimer) clearInterval(billingRollupTimer);
   clearInterval(housekeepingTimer); // C8: cancelar housekeeping
-  clearInterval(renewalTimer); // C9: cancelar renovación
+  if (renewalTimer) clearInterval(renewalTimer); // C9: cancelar renovación
+  if (licenseTimer) clearInterval(licenseTimer);
   await closeRenewalEngineRedis();
   await Promise.all([worker.close(), bulkImportWorker.close(), queue.close(), queueEvents.close(), dbPool.end()]);
   process.exit(0);

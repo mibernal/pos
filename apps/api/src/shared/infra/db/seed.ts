@@ -383,6 +383,41 @@ async function runSeed(): Promise<void> {
       }
     });
 
+    // ==========================================
+    // CONFIGURACIÓN DIAN: todos los demo tenants
+    // ==========================================
+    // Sin resolución activa ni proveedor, las ventas que genera el seed quedan en la cola
+    // del worker reintentando indefinidamente con `FiscalNumberingError: NO_ACTIVE_RESOLUTION`.
+    // El proveedor es MOCK (simulado) porque en desarrollo no hay PAC real.
+    const allDemoTenants = [demoIds.tenant1Id, demoIds.tenant2Id, demoIds.tenant3Id, demoIds.tenant4Id];
+
+    for (const tenantId of allDemoTenants) {
+      await sql`
+        INSERT INTO tenant_dian_settings (tenant_id, provider_name, credentials, test_mode, resolution_number, prefix)
+        VALUES (${tenantId}, 'MOCK', '{}'::jsonb, true, '18764000001234', 'SETP')
+        ON CONFLICT (tenant_id) DO UPDATE SET
+          provider_name = EXCLUDED.provider_name,
+          test_mode = EXCLUDED.test_mode
+      `.execute(db);
+
+      await sql`
+        INSERT INTO dian_resolutions (
+          id, tenant_id, branch_id, document_type, resolution_number, resolution_date,
+          prefix, range_from, range_to, current_number, valid_from, valid_until,
+          alert_threshold, is_active
+        ) VALUES (
+          ${randomUUID()}, ${tenantId}, NULL, 'INVOICE', '18764000001234',
+          CURRENT_DATE - INTERVAL '10 days', 'SETP', 1, 500000, 0,
+          CURRENT_DATE - INTERVAL '10 days', CURRENT_DATE + INTERVAL '1 year', 500, true
+        )
+        ON CONFLICT (tenant_id, document_type, (COALESCE(branch_id, '00000000-0000-0000-0000-000000000000'::uuid))) WHERE is_active
+        DO UPDATE SET
+          valid_until = CURRENT_DATE + INTERVAL '1 year',
+          range_to = 500000
+      `.execute(db);
+    }
+    console.info('[seed] DIAN settings + resoluciones para los 4 demo tenants');
+
     console.info('==========================================');
     console.info('[seed] SEED EXITOSO!');
     console.info('==========================================');

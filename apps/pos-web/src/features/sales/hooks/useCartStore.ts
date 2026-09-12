@@ -77,6 +77,30 @@ export const useCartStore = create<CartState>()(
     }),
     {
       name: 'pos-draft-sale-v1',
+      /**
+       * Solo se guarda en la tablet lo que es de esta caja.
+       *
+       * Los carritos de mesa (`tableCarts`) son de la sala, no del dispositivo: los ve y los
+       * toca cualquier mesero. Persistirlos en el `localStorage` de cada tablet hacía que, al
+       * recargar, una tablet resucitara su copia vieja de la mesa y pisara lo que otro
+       * mesero había añadido desde la suya. Venía anotado como riesgo abierto en
+       * `MEMORY.md` («Zustand Offline Sync Risk»).
+       */
+      partialize: (state) => ({
+        cartItems: state.cartItems,
+        selectedCartIndex: state.selectedCartIndex,
+        parkedCarts: state.parkedCarts
+      }),
+      // v1 descarta los `tableCarts` que ya estuvieran guardados en tablets existentes.
+      version: 1,
+      migrate: (persisted) => {
+        const anterior = (persisted ?? {}) as Partial<CartState>;
+        return {
+          cartItems: anterior.cartItems ?? [],
+          selectedCartIndex: anterior.selectedCartIndex ?? -1,
+          parkedCarts: anterior.parkedCarts ?? []
+        } as unknown as CartState;
+      }
     }
   )
 );

@@ -156,6 +156,35 @@ pos-web, 25 shared), lint sin errores, e2e de anchos en verde a 375 / 768 / 1024
 sobre seis pantallas, y revisión visual de las capturas (`apps/pos-web/e2e/capturas.mjs`,
 `fichas.mjs`, `barra.mjs`, `recortes.mjs`).
 
+## Fases 12 y 13 (12 de septiembre de 2026) — D-082…D-084
+
+Migraciones 111 y 112. Lo esencial para quien siga:
+
+- **El atajo de permisos de `ADMIN`/`TENANT_OWNER` ya no existe.** Se midió antes de tocarlo:
+  de 99 guardas, `TENANT_OWNER` no perdía ninguna y `ADMIN` perdía tres. Regla que queda:
+  `catalogo-permisos.test.ts` compara guardas contra catálogo, así que **una ruta nueva con un
+  permiso que nadie tiene ahora falla**, en vez de funcionar por el atajo hasta que se quitara.
+- **CORS no corta lo que llega sin `Origin`, y es deliberado.** Webhooks del PAC y la pasarela,
+  `/health` y `/metrics` llegan así. CORS lo aplica el navegador, no el servidor. La defensa
+  real está en `/auth/refresh` y `/auth/logout`, que se autentican con cookie y exigen origen
+  conocido (`origen-conocido.ts`).
+- **`sale_items.product_name` congela el nombre vendido.** Las ventas anteriores a la 111 están
+  en NULL a propósito: su nombre real no se puede reconstruir, y rellenar con el de hoy sería
+  falsear un documento fiscal. Al leer: congelado → catálogo → texto honesto, nunca «null».
+- **El prorrateo se aplica y se cobra en la próxima factura**, no en el acto. `applied_invoice_id`
+  impide el doble cobro, y solo se marca si la factura se emitió *ahora* — `issueForPeriod` es
+  idempotente, y marcarlo sobre una factura vieja daría el cargo por cobrado sin estar en
+  ninguna.
+- **Quedan 153 rutas sin esquema de respuesta** (se declararon 3: el tramo de caja). De eso
+  depende que `client.ts` deje sus 38 tipos a mano. Por tramos, con prueba, tachando de la
+  lista: declarar esquemas destapa divergencias reales.
+- Si se tocan esquemas de respuesta hay que **regenerar `openapi.json`** (`pnpm --filter
+  @pos-dian/api run openapi:dump`): la prueba del candado lee el contrato publicado, no el
+  código.
+
+Verificación al cierre: **420 pruebas** (283 API + 1 omitida, 64 worker, 48 pos-web, 25
+shared), lint sin errores y e2e de navegador en verde.
+
 ## Actualizaciones Recientes (Junio 2026)
 
 ### Sincronización Offline y Sesiones de Caja

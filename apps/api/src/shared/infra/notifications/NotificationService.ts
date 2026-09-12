@@ -16,6 +16,7 @@ import {
 } from './NotificationEvents.js';
 import { ResendProvider } from './providers/ResendProvider.js';
 import { SendGridProvider } from './providers/SendGridProvider.js';
+import { NullProvider } from './providers/NullProvider.js';
 import { env } from '../../../app/env.js';
 
 export class NotificationService {
@@ -28,6 +29,8 @@ export class NotificationService {
     
     if (providerType === 'SENDGRID') {
       this.provider = new SendGridProvider();
+    } else if (providerType === 'NONE') {
+      this.provider = new NullProvider();
     } else {
       this.provider = new ResendProvider();
     }

@@ -26,7 +26,16 @@ export const envSchema = z
     BILLING_MAX_RETRIES: z.coerce.number().int().default(3),
     BILLING_GRACE_PERIOD_DAYS: z.coerce.number().int().default(7),
     BILLING_TRIAL_DAYS: z.coerce.number().int().default(14),
-    BILLING_SUSPENSION_AFTER_DAYS: z.coerce.number().int().default(30)
+    BILLING_SUSPENSION_AFTER_DAYS: z.coerce.number().int().default(30),
+    /**
+     * `onprem`: instalación en el equipo del comercio. No corre el motor de cobro (no hay
+     * pasarela) y la suscripción la decide el archivo de licencia firmado.
+     */
+    DEPLOYMENT_MODE: z.enum(['cloud', 'onprem']).default('cloud'),
+    ONPREM_LICENSE_FILE: z.string().min(1).default('/licencia/licencia.json'),
+    // PEM de la llave pública Ed25519, o ese PEM en base64 (una sola línea, cómodo en .env).
+    ONPREM_LICENSE_PUBLIC_KEY: z.string().min(1).optional(),
+    ONPREM_LICENSE_CHECK_INTERVAL_MS: z.coerce.number().int().positive().default(6 * 60 * 60 * 1000)
   })
   .superRefine((value, ctx) => {
     // C11: Bloquear DIAN_PROVIDER=mock en producción — riesgo fiscal crítico.

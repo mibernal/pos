@@ -113,4 +113,31 @@ describe('Variables vacías en el .env', () => {
 
     expect(result.success).toBe(false);
   });
+
+  it('rechaza el DATABASE_URL por defecto (rol dueño) en producción', () => {
+    const result = parse({ DATABASE_URL: 'postgres://pos:pos@localhost:5432/pos_dian' });
+    expect(issuePaths(result)).toContain('DATABASE_URL');
+  });
+
+  it('no permite el adaptador SENDGRID, que descarta correos en silencio', () => {
+    expect(issuePaths(parse({ NOTIFICATION_PROVIDER: 'SENDGRID' }))).toContain('NOTIFICATION_PROVIDER');
+  });
+
+  it('NOTIFICATION_PROVIDER=NONE no exige llave de Resend', () => {
+    const result = envSchema.safeParse({ ...productionBase, RESEND_API_KEY: undefined, NOTIFICATION_PROVIDER: 'NONE' });
+    expect(result.success).toBe(true);
+  });
+
+  it('interpreta TRUST_PROXY como booleano, número de saltos o lista', () => {
+    const valor = (v?: string) => {
+      const r = envSchema.safeParse({ ...productionBase, ...(v === undefined ? {} : { TRUST_PROXY: v }) });
+      return r.success ? r.data.TRUST_PROXY : 'error';
+    };
+    expect(valor(undefined)).toBe(false);
+    expect(valor('false')).toBe(false);
+    expect(valor('true')).toBe(true);
+    expect(valor('1')).toBe(1);
+    expect(valor('10.0.0.0/8')).toBe('10.0.0.0/8');
+  });
 });
+

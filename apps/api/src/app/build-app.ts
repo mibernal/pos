@@ -163,6 +163,7 @@ export async function buildApp() {
   const bulkImportQueue = new Queue('bulk-import-queue', { connection: redisClient as any });
 
   const app = Fastify({
+    trustProxy: env.TRUST_PROXY,
     logger: {
       redact: [
         'req.headers.authorization',
@@ -372,8 +373,15 @@ export async function buildApp() {
     }
   });
 
+  /**
+   * En la instalación local no se registran el panel de plataforma, el checkout ni los
+   * webhooks de pago: ahí no hay plataforma ni pasarela, la suscripción la gobierna el
+   * archivo de licencia. Una ruta que no existe no se puede atacar.
+   */
+  const esOnPrem = env.DEPLOYMENT_MODE === 'onprem';
+
   await app.register(healthRoutes, { prefix: '/api/v1' });
-  await app.register(platformAdminRoutes, { prefix: '/api/v1' });
+  if (!esOnPrem) await app.register(platformAdminRoutes, { prefix: '/api/v1' });
   await app.register(authRoutes, { prefix: '/api/v1' });
   await app.register(branchesRoutes, { prefix: '/api/v1' });
   await app.register(adminTenantsRoutes, { prefix: '/api/v1' });
@@ -401,9 +409,11 @@ export async function buildApp() {
   await app.register(auditRoutes, { prefix: '/api/v1' });
   await app.register(terminalsRoutes, { prefix: '/api/v1' });
   await app.register(journalRoutes, { prefix: '/api/v1' });
-  await app.register(billingRoutes, { prefix: '/api/v1' });
+  if (!esOnPrem) {
+    await app.register(billingRoutes, { prefix: '/api/v1' });
+    await app.register(webhooksRoutes, { prefix: '/api/v1' });
+  }
   await app.register(billingPortalRoutes, { prefix: '/api/v1' });
-  await app.register(webhooksRoutes, { prefix: '/api/v1' });
   await app.register(tablesRoutes, { prefix: '/api/v1' });
   await app.register(reservationsRoutes, { prefix: '/api/v1' });
   await app.register(waitersRoutes, { prefix: '/api/v1' });

@@ -84,6 +84,32 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
       }
     },
     async (request, reply) => {
+      // En la instalación local el comercio se crea al instalar (`provision-tenant`), no
+      // desde la pantalla de registro: una instancia en el local es de un solo comercio.
+      if (env.DEPLOYMENT_MODE === 'onprem') {
+        throw new AppError(404, 'NOT_FOUND', 'El registro no está disponible en esta instalación');
+      }
+
+      /**
+       * El registro no tenía límite: cada llamada crea un comercio, un usuario, una
+       * sucursal, siembra medios de pago y manda un correo de bienvenida. Un script podía
+       * llenar la base de comercios basura y usar nuestro dominio de correo para molestar a
+       * direcciones ajenas. Diez altas por hora y por IP sobran para cualquier uso real.
+       */
+      const registerKey = buildIpRateLimitKey('register', request.ip);
+      try {
+        if (app.redis) {
+          await assertAndRecordIpRateLimit(app.redis, registerKey, 10, 60 * 60 * 1000, app.log);
+        } else {
+          assertAndRecordIpRateLimitSync(registerKey, 10, 60 * 60 * 1000);
+        }
+      } catch (err) {
+        if (err instanceof Error && err.message === RATE_LIMIT_EXCEEDED) {
+          throw new AppError(429, 'AUTH_RATE_LIMITED', 'Demasiados registros desde esta red. Intenta más tarde.');
+        }
+        throw err;
+      }
+
       const payload = registerBodySchema.parse(request.body);
 
       const existingUser = await app.db.selectFrom('users').where('email', '=', payload.email).select('id').executeTakeFirst();
@@ -452,9 +478,19 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
   typedApp.post(
     '/auth/impersonate/exchange',
     {
+      /**
+       * El canje exige la sesión de plataforma que pidió la suplantación.
+       *
+       * Antes era una ruta pública: bastaba el `session_id` para salir con un token del
+       * dueño del comercio, durante una hora y tantas veces como se quisiera. Y ese
+       * identificador no era secreto: queda escrito en `audit_logs` (`USER_IMPERSONATED`),
+       * que el `ADMIN` del propio comercio puede leer con `audit:view` — un ADMIN podía
+       * convertirse en TENANT_OWNER leyendo su propia auditoría.
+       */
+      preHandler: [app.requirePlatformOwner],
       schema: {
         tags: ['auth'],
-        body: z.object({ session_id: z.string() })
+        body: z.object({ session_id: z.string().uuid() })
       }
     },
     async (request, _reply) => {
@@ -462,6 +498,7 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
 
       const session = await app.db.selectFrom('impersonation_sessions')
         .where('id', '=', session_id)
+        .where('platform_user_id', '=', request.auth!.userId)
         .where('expires_at', '>', new Date())
         .where('revoked_at', 'is', null)
         .selectAll()
@@ -663,17 +700,22 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
   typedApp.post(
     '/auth/impersonate/stop',
     {
+      // La cierra quien la abrió o quien la está usando; nadie más. Antes era pública y
+      // cualquiera con el identificador podía cortar la sesión de soporte de otro.
+      preHandler: [app.authenticate],
       schema: {
         tags: ['auth'],
-        body: z.object({ session_id: z.string() })
+        body: z.object({ session_id: z.string().uuid() })
       }
     },
     async (request, _reply) => {
       const { session_id } = request.body;
+      const auth = request.auth!;
 
       await app.db.updateTable('impersonation_sessions')
         .set({ revoked_at: new Date() })
         .where('id', '=', session_id)
+        .where(auth.isImpersonating ? 'target_user_id' : 'platform_user_id', '=', auth.userId)
         .execute();
 
       return { success: true };

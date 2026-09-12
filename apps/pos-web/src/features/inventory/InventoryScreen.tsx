@@ -9,6 +9,21 @@ interface InventoryScreenProps {
   branchId: string;
 }
 
+
+/**
+ * Una celda de CSV que se puede abrir en Excel sin sorpresas.
+ *
+ * Antes los nombres iban entre comillas sin escapar las comillas internas —un producto
+ * `Pulpo "a la gallega"` partía la fila y la reimportación leía columnas corridas— y sin
+ * neutralizar fórmulas: un nombre que empiece por `=`, `+`, `-` o `@` lo ejecuta Excel
+ * como fórmula al abrir el archivo (inyección CSV). Se antepone un apóstrofo a esas.
+ */
+function celdaCsv(valor: unknown): string {
+  let texto = String(valor ?? '');
+  if (/^[=+\-@\t\r]/.test(texto) && !/^-?\d+(\.\d+)?$/.test(texto)) texto = `'${texto}`;
+  return /[",\n\r]/.test(texto) || texto !== texto.trim() ? `"${texto.replace(/"/g, '""')}"` : texto;
+}
+
 export function InventoryScreen({ branchId }: InventoryScreenProps) {
   const api = useApi();
   const { role, tenantId } = useSession();
@@ -142,10 +157,13 @@ export function InventoryScreen({ branchId }: InventoryScreenProps) {
 
   const handleExportCSV = () => {
     const header = "id,name,category,tax_category,barcode,price_cents,active,stock_to_add\n";
-    const rows = products.map(p => 
-      `${p.id},"${p.name}","${p.category}","${p.taxCategory || 'IVA_19'}",${p.barcode || ''},${p.price_cents},${p.active ? 'true' : 'false'},0`
+    const rows = products.map(p =>
+      [p.id, p.name, p.category, p.taxCategory || 'IVA_19', p.barcode || '', p.price_cents, p.active ? 'true' : 'false', 0]
+        .map(celdaCsv)
+        .join(',')
     ).join('\n');
-    const blob = new Blob([header + rows], { type: 'text/csv;charset=utf-8;' });
+    // El BOM hace que Excel abra el archivo como UTF-8: sin él, «Café» sale como «CafÃ©».
+    const blob = new Blob(['\uFEFF' + header + rows], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.setAttribute("href", url);
@@ -161,8 +179,9 @@ export function InventoryScreen({ branchId }: InventoryScreenProps) {
 
     try {
       setIsSavingAdjustment(true);
-      const text = await file.text();
-      const lines = text.split('\n').filter(l => l.trim().length > 0);
+      // Sin quitar el BOM, la primera columna se llamaría «\uFEFFid» y se perdería el id.
+      const text = (await file.text()).replace(/^\uFEFF/, '');
+      const lines = text.split(/\r?\n/).filter(l => l.trim().length > 0);
       
       const itemsToImport: Array<any> = []; // eslint-disable-line @typescript-eslint/no-explicit-any
       
@@ -177,7 +196,11 @@ export function InventoryScreen({ branchId }: InventoryScreenProps) {
         
         // Simple regex to split by comma but ignore commas inside quotes
         const parts = line.split(/,(?=(?:(?:[^"]*"){2})*[^"]*$)/);
-        const cleanPart = (idx: number | undefined) => (idx !== undefined ? (parts[idx] || '').trim().replace(/^"|"$/g, '') : '');
+        // Deshace lo que hace `celdaCsv`: comillas dobladas y el apóstrofo antifórmula.
+        const cleanPart = (idx: number | undefined) =>
+          idx !== undefined
+            ? (parts[idx] || '').trim().replace(/^"|"$/g, '').replace(/""/g, '"').replace(/^'(?=[=+\-@])/, '')
+            : '';
         
         const id = cleanPart(colMap['id']);
         const name = cleanPart(colMap['name']);

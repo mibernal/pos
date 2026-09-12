@@ -55,7 +55,7 @@ describe('Catálogo de permisos', () => {
   it.each(ROLES_DE_CONFIANZA)(
     '%s puede con todo lo de su comercio sin depender de ningún atajo',
     (rol) => {
-      const tiene = new Set(ROLE_PERMISSIONS[rol]);
+      const tiene = new Set<string>(ROLE_PERMISSIONS[rol]);
       const sinCubrir = guardasDelCodigo()
         // Los permisos de plataforma son de la casa, no del comercio: estos roles no los
         // tienen a propósito y nunca los tuvieron, ni con el atajo puesto.
@@ -73,7 +73,7 @@ describe('Catálogo de permisos', () => {
   );
 
   it('ningún permiso exigido por una ruta se ha quedado sin dueño', () => {
-    const deAlguien = new Set(Object.values(ROLE_PERMISSIONS).flat());
+    const deAlguien = new Set<string>(Object.values(ROLE_PERMISSIONS).flat());
     const huerfanos = [
       ...new Set(guardasDelCodigo().flatMap(({ permisos }) => permisos))
     ].filter((p) => !deAlguien.has(p));

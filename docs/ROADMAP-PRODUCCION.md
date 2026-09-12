@@ -894,23 +894,35 @@ frontend siguen llamando con `fetch` crudo —SSE y pantallas públicas, en dos 
 Cerradas las fases 6 a 11, esto es lo que se sabe que falta. Está aquí y no en una lista de
 tareas porque cada punto se conoce por haberlo encontrado, no por haberlo previsto.
 
-**Seguridad y permisos.** CORS acepta las peticiones que llegan sin cabecera `Origin`. `ADMIN`
-y `TENANT_OWNER` se saltan la verificación de permisos —dentro de su comercio lo ven todo, lo
-que es una decisión de producto defendible, pero hoy es un `return` temprano y no una regla
-escrita en el catálogo de permisos.
+**Seguridad y permisos — cerrado (D-082).** El atajo de `ADMIN` y `TENANT_OWNER` ya no existe:
+los dos pasan por el catálogo, y a `ADMIN` se le declaró `tenant:settings:manage`, lo único que
+le faltaba de las 99 guardas. CORS **no** corta las peticiones sin `Origin` a propósito —así
+entran los webhooks, `/health` y `/metrics`—; lo que se cerró es la cookie de refresco, que
+ahora exige origen conocido. Y un origen no permitido devuelve 403 en vez del 500 que devolvía.
 
-**Documento fiscal.** `sale_items` no guarda el nombre del producto vendido, solo su
-`product_id`. Renombrar un producto reescribe el nombre impreso en el tiquete de una venta de
-hace seis meses. Para algo que es un documento fiscal eso no debería poder pasar: pide columna
-nueva y migración, y el nombre debe quedar congelado en la línea, como ya lo están los importes.
+**Documento fiscal — cerrado (D-083).** `sale_items.product_name` congela el nombre en la
+venta (migración 111). Las ventas anteriores se quedan en NULL: su nombre real no se puede
+reconstruir, y rellenar con el de hoy sería estampar una afirmación falsa en un documento
+fiscal. Para esas se sigue usando el catálogo, y la deuda se apaga sola.
 
 **Multi-instancia.** Sin `@socket.io/redis-adapter`, con más de una instancia de API las mesas
 y el KDS quedan desincronizados entre cajas. Es parte de la fase 5 y es la razón principal por
 la que el sistema sigue siendo de instancia única.
 
-**Facturación.** El prorrateo del cambio de plan se calcula en `/plan/preview` y
-`ChangeTenantPlanUseCase` no lo aplica: lo que el comercio ve antes de aceptar no es lo que se
-le cobra después.
+**Facturación — cerrado (D-084).** El cambio de plan ajusta el fin de periodo con la misma
+`computeProration` del preview y apunta la diferencia en `subscription_pending_charges`
+(migración 112); el motor la añade como línea de la siguiente factura. No se cobra en el acto
+a propósito: mover dinero dentro del cambio de plan obliga a decidir qué pasa si la tarjeta
+falla *después* de haberlo cambiado, y ninguna de las dos salidas es buena.
+
+**Lo que la fase 12 dejó a medias, y es lo que sigue.** De las 156 rutas sin esquema de
+respuesta se declararon 3 —abrir, consultar y cerrar caja, que es el tramo del arqueo— y
+quedan **153**. El resto del criterio de salida de la fase 11 depende de eso: mientras el
+contrato no diga qué devuelve cada ruta, `client.ts` no puede consumir tipos generados y sigue
+con sus 38 declaraciones a mano, y los trece archivos con `fetch` crudo siguen ahí. El orden
+que funciona es por tramos, cada uno con su prueba, tachando de la lista del candado: declarar
+un esquema destapa divergencias reales —en la fase 11, cinco rutas destaparon siete—, así que
+un tramo grande de una vez es un tramo que no se termina.
 
 **Frontend.** Además de la cadena del contrato sin consumir y los trece `fetch` crudos,
 `ScannerReconciliationScreen` es una maqueta: tiene `useQuery`, `useMutation` y el cliente del
@@ -974,6 +986,14 @@ Estimado: ~1 semana. Diferible hasta ~20 clientes. **Mientras tanto, debe estar 
 ---
 
 ## Instalación local (on-premise)
+
+> **Estado (21 oct 2026, fase 14):** construida. Paquete offline (`onprem/`), guía de
+> operación en `docs/INSTALACION-ONPREM.md`. De los siete puntos de abajo: 1 resuelto con
+> una CA propia del local (sin internet no hay Let's Encrypt), 3 resuelto (respaldo diario,
+> copia externa cifrada y validación semanal de restauración), 4 resuelto (paquete
+> versionado, `actualizar.sh` con respaldo previo y `--revertir`), 5 resuelto con licencia
+> Ed25519 que degrada el backoffice y nunca la caja. Quedan fuera del software el 2 (plazo
+> fiscal sin conexión, al contrato), el 6 (túnel, opcional y solo con internet) y el 7.
 
 Trabajo estimado en una a dos semanas, **después de la fase 3** — no antes, porque el on-premise hereda todos los bloqueantes y multiplica el costo de arreglarlos por el número de instalaciones.
 
