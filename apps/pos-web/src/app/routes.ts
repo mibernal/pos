@@ -19,18 +19,15 @@ export type EnhancedRouteDefinition = AppRouteDefinition & {
 };
 
 /**
- * Lo que un turno de caja usa de verdad, y por tanto lo que se queda en la barra.
+ * Lo que un turno de caja usa de verdad.
  *
- * Hay veintiuna rutas. Un administrador ve dieciocho, y dieciocho botones no caben en una
- * línea: envolvían en dos filas y, con el bloque de usuario, la barra se comía **235 px de
- * una pantalla de 1440** — un cuarto del alto en cromo antes de llegar al contenido.
+ * Esto agrupa, no esconde. Hubo una versión en la que la barra solo enseñaba estas seis y
+ * mandaba el resto a un desplegable «Más»; ahorraba unos 100 px de alto y costaba un clic
+ * en cada salto a Productos, Clientes o Reportes. Se descartó: quien trabaja aquí todo el
+ * día prefiere verlas todas, y la barra envuelve en dos filas a propósito.
  *
- * La respuesta no es esconder cosas por ancho, que es lo mismo que perderlas. Es aceptar
- * que no todo se usa con la misma frecuencia: estas seis se tocan cada turno y se quedan a
- * la vista; el catálogo y la administración se tocan de vez en cuando y viven un clic más
- * lejos, en «Más», donde siguen estando todas.
- *
- * Si alguna de estas deja de ser cosa del turno —o al revés—, se cambia aquí y ya.
+ * Los grupos siguen vivos porque el cajón del móvil los usa para poner títulos: veintiuna
+ * rutas seguidas en un teléfono son un muro, y ahí sí ayuda partirlas por zonas.
  */
 const OPERACION_DIARIA: ReadonlySet<AppRoute> = new Set<AppRoute>([
   'pos',
@@ -44,9 +41,8 @@ const OPERACION_DIARIA: ReadonlySet<AppRoute> = new Set<AppRoute>([
 /**
  * Lo que se administra sobre lo que se vende: la carta, el stock, quién compra.
  *
- * Separar esto de la administración pura no es adorno. Sin agrupar, «Más» era una lista de
- * once nombres seguidos — el mismo problema que acababa de quitarse de la barra, mudado un
- * clic más adentro. Con dos títulos, se busca por zona y no leyendo once.
+ * Separado de la administración pura para que el cajón del móvil tenga dos títulos en vez
+ * de uno: se busca por zona en lugar de leer una lista de quince nombres.
  */
 const CATALOGO: ReadonlySet<AppRoute> = new Set<AppRoute>([
   'products',

@@ -25,14 +25,8 @@ for (const [nombre, ancho] of [['telefono', 375], ['escritorio', 1440]]) {
     if (await enBarra.isVisible().catch(() => false)) {
       await enBarra.click();
     } else {
-      const cajon = page.getByRole('button', { name: /Abrir menú/i });
-      if (await cajon.isVisible().catch(() => false)) {
-        await cajon.click();
-        await page.getByRole('button', { name: pantalla, exact: true }).click();
-      } else {
-        await page.getByRole('button', { name: /^Más/ }).click();
-        await page.getByRole('menuitem', { name: pantalla, exact: true }).click();
-      }
+      await page.getByRole('button', { name: /Abrir menú/i }).click();
+      await page.getByRole('button', { name: pantalla, exact: true }).click();
     }
     await page.waitForTimeout(1500);
   };

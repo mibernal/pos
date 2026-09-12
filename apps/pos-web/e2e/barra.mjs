@@ -28,15 +28,10 @@ for (const ancho of [1280, 1440, 1920]) {
   console.log(`${ancho}px · barra ${alto}px · ${visibles} botones a la vista (${Math.round((alto / 900) * 100)}% del alto)`);
 
   if (ancho === 1440) {
-    // ¿«Más» lleva de verdad a una ruta que ya no está en la barra?
-    await page.getByRole('button', { name: /^Más/ }).click();
-    await page.waitForTimeout(300);
-    await page.screenshot({ path: '/tmp/capturas-pos/barra-mas.png' });
-    await page.getByRole('menuitem', { name: 'Reportes' }).click();
+    // Toda ruta tiene que ser alcanzable de un solo clic desde la barra.
+    await page.getByRole('button', { name: 'Reportes', exact: true }).click();
     await page.waitForTimeout(1500);
-    console.log('  tras pulsar Más → Reportes, la URL es', new URL(page.url()).pathname);
-    const marcado = await page.getByRole('button', { name: /^Más/ }).getAttribute('class');
-    console.log('  y el botón «Más» queda', marcado?.includes('active') ? 'marcado' : 'SIN MARCAR');
+    console.log('  «Reportes» de un clic →', new URL(page.url()).pathname);
     await page.screenshot({ path: '/tmp/capturas-pos/barra-reportes.png' });
   }
 

@@ -1,8 +1,7 @@
-import { useEffect, useRef, useState } from 'react';
+import { useState } from 'react';
 import type { AuthSession } from '../../lib/api';
 import type { AppRoute, AppRouteDefinition } from '../../types';
 import { MobileDrawer, type TopbarAction } from './MobileDrawer';
-import { grupoDeRuta, TITULO_DE_GRUPO, type GrupoDeRuta } from '../../app/routes';
 import { useTablesStore } from '../../features/tables/store/useTablesStore';
 
 export function AppTopbar({
@@ -43,42 +42,12 @@ export function AppTopbar({
   syncingPendingSales: boolean;
 }) {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
-  const [isMasOpen, setIsMasOpen] = useState(false);
-  const masRef = useRef<HTMLDivElement>(null);
-
-  const enLaBarra = routeDefinitions.filter((r) => grupoDeRuta(r.id) === 'operacion');
-  const enMas = routeDefinitions.filter((r) => grupoDeRuta(r.id) !== 'operacion');
-  const masContieneLaActiva = enMas.some((r) => r.id === activeRoute);
-
-  // El orden es el de las definiciones; los títulos solo lo parten en zonas. Un grupo sin
-  // rutas visibles para este usuario no pinta su título.
-  const gruposDeMas = (['catalogo', 'administracion'] as GrupoDeRuta[])
-    .map((grupo) => ({ grupo, rutas: enMas.filter((r) => grupoDeRuta(r.id) === grupo) }))
-    .filter(({ rutas }) => rutas.length > 0);
-
-  // Un menú que solo se cierra con su propio botón es un menú que se queda abierto.
-  useEffect(() => {
-    if (!isMasOpen) return;
-    const fuera = (e: MouseEvent) => {
-      if (!masRef.current?.contains(e.target as Node)) setIsMasOpen(false);
-    };
-    const escape = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setIsMasOpen(false);
-    };
-    document.addEventListener('mousedown', fuera);
-    document.addEventListener('keydown', escape);
-    return () => {
-      document.removeEventListener('mousedown', fuera);
-      document.removeEventListener('keydown', escape);
-    };
-  }, [isMasOpen]);
 
   const irA = (routeId: AppRoute) => {
     if (routeId === 'pos') {
       useTablesStore.getState().setActiveTable(null);
     }
     onNavigate(routeId);
-    setIsMasOpen(false);
   };
 
   const handleMobileNavigate = (routeId: AppRoute) => {
@@ -156,9 +125,17 @@ export function AppTopbar({
           </div>
         </div>
 
-        {/* Desktop Navigation */}
+        {/**
+         * Todas las rutas a la vista, sin desplegable.
+         *
+         * Hubo un «Más» que dejaba en la barra solo las seis del turno y escondía el resto:
+         * ahorraba unos 100 px de alto, pero costaba un clic en cada salto a Productos,
+         * Clientes o Reportes. Para quien trabaja aquí todo el día, ver la lista completa
+         * gana a recuperar ese alto — decisión de Miguel, y la barra envuelve en dos filas
+         * a propósito.
+         */}
         <nav className="topbar-nav">
-          {enLaBarra.map((route) => (
+          {routeDefinitions.map((route) => (
             <button
               key={route.id}
               className={`nav-btn ${activeRoute === route.id ? 'active' : ''}`}
@@ -167,39 +144,6 @@ export function AppTopbar({
               {route.label}
             </button>
           ))}
-
-          {enMas.length > 0 && (
-            <div className="nav-mas" ref={masRef}>
-              <button
-                className={`nav-btn ${masContieneLaActiva ? 'active' : ''}`}
-                onClick={() => setIsMasOpen((v) => !v)}
-                aria-expanded={isMasOpen}
-                aria-haspopup="menu"
-              >
-                Más <span aria-hidden="true">▾</span>
-              </button>
-
-              {isMasOpen && (
-                <div className="nav-mas-panel" role="menu">
-                  {gruposDeMas.map(({ grupo, rutas }) => (
-                    <div key={grupo} className="nav-mas-grupo">
-                      <p className="nav-mas-titulo">{TITULO_DE_GRUPO[grupo]}</p>
-                      {rutas.map((route) => (
-                        <button
-                          key={route.id}
-                          role="menuitem"
-                          className={`nav-mas-item ${activeRoute === route.id ? 'active' : ''}`}
-                          onClick={() => irA(route.id)}
-                        >
-                          {route.label}
-                        </button>
-                      ))}
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
         </nav>
 
         <div className="topbar-user">

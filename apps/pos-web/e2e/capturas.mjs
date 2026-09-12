@@ -27,7 +27,7 @@ for (const [nombre, ancho, alto] of [['telefono', 375, 812], ['tablet', 768, 102
   if (await seguir.isVisible()) await seguir.click();
   await page.locator('header').first().waitFor({ state: 'visible', timeout: 30_000 });
 
-  // Tres caminos según el ancho: barra, cajón (<1024 px) o «Más» (el resto de rutas).
+  // Dos caminos según el ancho: la barra, o el cajón por debajo de 1024 px.
   const irA = async (pantalla) => {
     const enBarra = page.getByRole('button', { name: pantalla, exact: true });
     if (await enBarra.isVisible().catch(() => false)) {
@@ -35,15 +35,8 @@ for (const [nombre, ancho, alto] of [['telefono', 375, 812], ['tablet', 768, 102
       await page.waitForTimeout(1200);
       return;
     }
-    const cajon = page.getByRole('button', { name: /Abrir menú/i });
-    if (await cajon.isVisible().catch(() => false)) {
-      await cajon.click();
-      await page.getByRole('button', { name: pantalla, exact: true }).click();
-      await page.waitForTimeout(1200);
-      return;
-    }
-    await page.getByRole('button', { name: /^Más/ }).click();
-    await page.getByRole('menuitem', { name: pantalla, exact: true }).click();
+    await page.getByRole('button', { name: /Abrir menú/i }).click();
+    await page.getByRole('button', { name: pantalla, exact: true }).click();
     await page.waitForTimeout(1200);
   };
 

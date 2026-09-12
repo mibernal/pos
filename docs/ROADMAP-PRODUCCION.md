@@ -935,9 +935,17 @@ tocan todas las pantallas a la vez, así que pide su propia tanda con capturas a
 no un hueco al final de otra cosa.
 
 **Lo que se cerró en esa revisión** y ya no está pendiente: las filas flex en línea de los pies
-de modal y las cabeceras (D-074), la barra superior a 130 px con «Más» (D-080), y Clientes e
-Inventario como fichas en el móvil (D-081). Quedan filas flex en línea en pantallas que la
-prueba no señaló; se convierten cuando se toquen.
+de modal y las cabeceras (D-074), y Clientes e Inventario como fichas en el móvil (D-081).
+Quedan filas flex en línea en pantallas que la prueba no señaló; se convierten cuando se
+toquen.
+
+**Y una que se probó y se descartó.** La barra superior ocupa unos 230 px en un portátil de
+1440 porque lista las veintiuna rutas. Se llegó a esconder el catálogo y la administración tras
+un desplegable «Más» —bajaba a 130 px— y se revirtió a petición de Miguel: quien trabaja en
+esta pantalla salta a Productos, Clientes o Reportes decenas de veces al día, y el desplegable
+convertía cada salto en dos clics. Cien píxeles se pagan una vez; un clic de más se paga cada
+vez. Está en D-080 con el razonamiento entero, para no volver a proponerlo mirando solo la
+captura.
 
 **Entorno de desarrollo.** `CORS_ALLOWED_ORIGINS` no incluía `http://localhost:4173`, el puerto
 del `vite preview` sobre el que corren las e2e. El síntoma no menciona CORS: el navegador se

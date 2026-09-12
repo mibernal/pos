@@ -60,9 +60,8 @@ async function entrar(page: Page) {
 /**
  * Va a una pantalla sin recargar, por donde llegaría una persona.
  *
- * Hay tres caminos según el ancho, y ninguno es «la URL»: por debajo de 1024 px todo vive
- * en el cajón; por encima, las seis rutas del turno están en la barra y las demás dentro de
- * «Más». Se prueban los caminos que existen, no el que sería cómodo para la prueba.
+ * Dos caminos según el ancho, y ninguno es «la URL»: por debajo de 1024 px la navegación
+ * vive en un cajón; por encima, todas las rutas están en la barra.
  */
 async function irA(page: Page, nombre: string) {
   const enBarra = page.getByRole('button', { name: nombre, exact: true });
@@ -74,19 +73,11 @@ async function irA(page: Page, nombre: string) {
 
   // El emoji es el contenido; «Abrir menú» es el nombre accesible. Se busca por el nombre.
   const cajon = page.getByRole('button', { name: /Abrir menú/i });
-  if (await cajon.isVisible().catch(() => false)) {
-    await cajon.click();
-    const enCajon = page.getByRole('button', { name: nombre, exact: true });
-    await enCajon.waitFor({ state: 'visible', timeout: 15_000 });
-    await enCajon.click();
-    await page.waitForTimeout(1500);
-    return;
-  }
-
-  await page.getByRole('button', { name: /^Más/ }).click();
-  const enMas = page.getByRole('menuitem', { name: nombre, exact: true });
-  await enMas.waitFor({ state: 'visible', timeout: 15_000 });
-  await enMas.click();
+  await cajon.waitFor({ state: 'visible', timeout: 15_000 });
+  await cajon.click();
+  const enCajon = page.getByRole('button', { name: nombre, exact: true });
+  await enCajon.waitFor({ state: 'visible', timeout: 15_000 });
+  await enCajon.click();
   await page.waitForTimeout(1500);
 }
 

@@ -441,12 +441,12 @@ Se documentan porque la ausencia de política es una decisión, no un olvido:
 - `hover:text-foreground` no cuenta como arreglo, y así estaba «Ajustar». Un color que solo llega al pasar el ratón deja el botón ilegible en reposo, y en la tablet de un salón no hay ratón que pasar. La prueba lo trata como defecto a propósito.
 - Comprobado que la prueba falla al reintroducirlo, y que nombra archivo y línea.
 
-## D-080 — Veintiuna rutas no caben en una línea, y esconderlas por ancho es perderlas
-- La barra lleva las seis rutas del turno; las demás viven en «Más», agrupadas en Catálogo y Administración. El cajón del móvil usa las mismas zonas.
-- **Motivo:** un administrador ve dieciocho rutas. Envolvían en dos filas y, con el bloque de usuario, la barra se comía **235 px de una pantalla de 1440** — un cuarto del alto en cromo antes de llegar al contenido. Ahora son 130 px a 1440 y 70 px a 1920.
-- El reparto es por frecuencia de uso, no por ancho de pantalla: lo que se toca cada turno se queda a la vista siempre, en cualquier monitor. Esconder cosas según el ancho es lo que hace que una función «desaparezca» en unas máquinas sí y en otras no.
-- «Más» se marca activo cuando la pantalla abierta vive dentro. Sin eso, entrar en Reportes dejaba toda la barra apagada y no había forma de saber dónde estabas.
-- El grupo de una ruta se decide en `routes.ts`, en un `Set` por zona. Cambiar de sitio una ruta es mover una línea.
+## D-080 — La barra enseña todas las rutas, y eso vale el alto que cuesta *(revertida)*
+- **Estado: revertida el 12 de septiembre de 2026, a petición de Miguel.** La barra vuelve a listar las veintiuna rutas; no hay desplegable «Más». Los grupos de `routes.ts` siguen existiendo, pero solo los usa el cajón del móvil para poner títulos.
+- **Lo que se probó:** dejar en la barra las seis rutas del turno y mandar el resto a un «Más» agrupado en Catálogo y Administración. Motivaba el cambio que un administrador ve dieciocho rutas, que envolvían en dos filas y, con el bloque de usuario, se comían **235 px de una pantalla de 1440**. Con el desplegable bajaba a 130 px, y a 70 px en 1920.
+- **Por qué se descartó:** el alto no era el problema que había que resolver. Quien trabaja en esta pantalla salta a Productos, Clientes o Reportes decenas de veces al día, y el desplegable convertía cada salto en dos clics. Cien píxeles de alto se pagan una vez; un clic de más se paga cada vez. Miguel lo pidió explícitamente: «prefiero que se vean todas las opciones, por practicidad».
+- Queda escrito porque el razonamiento que llevó al «Más» era correcto en lo que medía —el alto— y equivocado en lo que no medía: cuántas veces al día se usa cada ruta. Es fácil volver a proponerlo mirando solo la captura.
+- Lo que **no** se revirtió: los títulos por zona del cajón del móvil. Ahí no hay desplegable, solo encabezados, y veintiuna rutas seguidas en un teléfono sí son un muro.
 
 ## D-081 — Por debajo de 768 px las tablas dejan de ser tablas
 - `.tabla-datos` convierte cada fila en una ficha y cada celda en una línea con su etiqueta, sacada de `data-label`. Lo usan Clientes e Inventario.

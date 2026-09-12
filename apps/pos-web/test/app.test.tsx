@@ -110,21 +110,9 @@ async function enterPosShell() {
   fireEvent.click(posTab);
 }
 
-/**
- * Navega como navega ahora una persona.
- *
- * La barra ya no lleva las veintiuna rutas: las seis del turno están a la vista y el resto
- * viven en «Más». Una prueba que sigue pulsando el botón de siempre no prueba el camino que
- * existe — así que primero se abre «Más» si hace falta, igual que haría un usuario.
- */
+/** Todas las rutas están en la barra, así que se pulsa la que toca y ya. */
 async function irAPantalla(nombre: string | RegExp) {
-  const directo = screen.queryByRole('button', { name: nombre });
-  if (directo) {
-    fireEvent.click(directo);
-    return;
-  }
-  fireEvent.click(await screen.findByRole('button', { name: /^Más/ }));
-  fireEvent.click(await screen.findByRole('menuitem', { name: nombre }));
+  fireEvent.click(await screen.findByRole('button', { name: nombre }));
 }
 
 const OPEN_CASH_SESSION = {
