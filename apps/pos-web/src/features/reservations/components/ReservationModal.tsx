@@ -155,7 +155,7 @@ export function ReservationModal({ branchId, isOpen, onClose, reservation }: Pro
           />
         </div>
 
-        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '1rem', marginTop: '1rem' }}>
+        <div className="modal-actions">
           <Button type="button" variant="outline" onClick={onClose}>Cancelar</Button>
           <Button type="submit" disabled={isCreating || isUpdating}>Guardar</Button>
         </div>

@@ -57,18 +57,36 @@ async function entrar(page: Page) {
   await expect(page.locator('header').first()).toBeVisible({ timeout: 30_000 });
 }
 
-/** Va a una pantalla sin recargar: por el menú si está colapsado, por la barra si no. */
+/**
+ * Va a una pantalla sin recargar, por donde llegaría una persona.
+ *
+ * Hay tres caminos según el ancho, y ninguno es «la URL»: por debajo de 1024 px todo vive
+ * en el cajón; por encima, las seis rutas del turno están en la barra y las demás dentro de
+ * «Más». Se prueban los caminos que existen, no el que sería cómodo para la prueba.
+ */
 async function irA(page: Page, nombre: string) {
-  const enlace = page.getByRole('button', { name: nombre, exact: true });
-  if (!(await enlace.isVisible().catch(() => false))) {
-    // Por debajo de 1024 px la navegación vive en un cajón. Se busca por su nombre
-    // accesible, no por el emoji: el emoji es el contenido, «Abrir menú» es el nombre.
-    const menu = page.getByRole('button', { name: /Abrir menú/i });
-    await menu.waitFor({ state: 'visible', timeout: 15_000 });
-    await menu.click();
+  const enBarra = page.getByRole('button', { name: nombre, exact: true });
+  if (await enBarra.isVisible().catch(() => false)) {
+    await enBarra.click();
+    await page.waitForTimeout(1500);
+    return;
   }
-  await enlace.waitFor({ state: 'visible', timeout: 15_000 });
-  await enlace.click();
+
+  // El emoji es el contenido; «Abrir menú» es el nombre accesible. Se busca por el nombre.
+  const cajon = page.getByRole('button', { name: /Abrir menú/i });
+  if (await cajon.isVisible().catch(() => false)) {
+    await cajon.click();
+    const enCajon = page.getByRole('button', { name: nombre, exact: true });
+    await enCajon.waitFor({ state: 'visible', timeout: 15_000 });
+    await enCajon.click();
+    await page.waitForTimeout(1500);
+    return;
+  }
+
+  await page.getByRole('button', { name: /^Más/ }).click();
+  const enMas = page.getByRole('menuitem', { name: nombre, exact: true });
+  await enMas.waitFor({ state: 'visible', timeout: 15_000 });
+  await enMas.click();
   await page.waitForTimeout(1500);
 }
 

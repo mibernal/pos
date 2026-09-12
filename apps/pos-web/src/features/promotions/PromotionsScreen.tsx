@@ -143,7 +143,7 @@ export function PromotionsScreen() {
                       )}
                     </td>
                     <td style={{ padding: '12px 16px', textAlign: 'right' }}>
-                      <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end' }}>
+                      <div className="modal-actions">
                         <button
                           className="ghost-button"
                           style={{ padding: '4px 8px', fontSize: '0.85rem' }}

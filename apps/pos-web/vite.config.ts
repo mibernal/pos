@@ -8,7 +8,19 @@ export default defineConfig({
   plugins: [
     react(),
     VitePWA({
-      registerType: 'autoUpdate',
+      /**
+       * `prompt`, no `autoUpdate`, y la diferencia importa en una caja.
+       *
+       * Con `autoUpdate` el service worker nuevo toma el control, pero la pestaña que ya
+       * está abierta sigue ejecutando el JS y el CSS viejos hasta que alguien recarga. Un
+       * cajero deja la pestaña abierta todo el día: el arreglo se despliega y no lo ve
+       * nadie. Estuvo así desde que se montó la PWA.
+       *
+       * Lo contrario —recargar solo, en cuanto llega— es peor: se lleva por delante el
+       * carrito a medio montar. Con `prompt` la aplicación decide cuándo, y decide bien:
+       * sola si no hay venta en curso, avisando si la hay. Ver `useActualizacion`.
+       */
+      registerType: 'prompt',
       includeAssets: ['favicon.svg'],
       manifest: {
         name: 'POS DIAN',

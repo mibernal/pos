@@ -151,7 +151,7 @@ export function CustomersScreen({ branchId, cashSessionId }: CustomersScreenProp
   return (
     <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '1.5rem', padding: '1rem', minHeight: '0' }}>
       {pestanas}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+      <div className="heading-row">
         <div>
           <h2 style={{ fontSize: '1.5rem', fontWeight: 600, margin: 0 }}>Directorio de Clientes</h2>
           <p style={{ color: 'var(--color-slate-400)', margin: '0.25rem 0 0 0' }}>
@@ -174,29 +174,32 @@ export function CustomersScreen({ branchId, cashSessionId }: CustomersScreenProp
           <button className="button" onClick={openNewCustomerModal}>Crear Cliente</button>
         </div>
       ) : (
-        <div style={{ backgroundColor: 'var(--color-bg)', border: '1px solid var(--color-slate-700)', borderRadius: '8px', overflowX: 'auto' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '0.875rem' }}>
-            <thead style={{ borderBottom: '1px solid var(--color-slate-700)', backgroundColor: 'var(--color-slate-800)' }}>
+        <div className="tabla-marco">
+          {/* Sin `style` en línea: la tabla se vuelve fichas por debajo de 768 px, y eso lo
+              decide la hoja de estilos. Cada celda lleva en `data-label` el nombre de su
+              columna, que es lo que se dibuja al lado del dato cuando ya no hay cabecera. */}
+          <table className="tabla-datos">
+            <thead>
               <tr>
-                <th style={{ padding: '0.75rem 1rem' }}>Tipo Doc.</th>
-                <th style={{ padding: '0.75rem 1rem' }}>Número Doc.</th>
-                <th style={{ padding: '0.75rem 1rem' }}>Razón Social / Nombre</th>
-                <th style={{ padding: '0.75rem 1rem' }}>Email</th>
-                <th style={{ padding: '0.75rem 1rem' }}>Teléfono</th>
-                <th style={{ padding: '0.75rem 1rem', textAlign: 'right' }}>Acciones</th>
+                <th>Tipo Doc.</th>
+                <th>Número Doc.</th>
+                <th>Razón Social / Nombre</th>
+                <th>Email</th>
+                <th>Teléfono</th>
+                <th className="celda-derecha">Acciones</th>
               </tr>
             </thead>
             <tbody>
               {customers.map((c) => (
-                <tr key={c.id} style={{ borderBottom: '1px solid var(--color-slate-800)' }}>
-                  <td style={{ padding: '0.75rem 1rem' }}>
+                <tr key={c.id}>
+                  <td data-label="Tipo Doc.">
                     <span className="tag tag-info">{c.document_type}</span>
                   </td>
-                  <td style={{ padding: '0.75rem 1rem' }}><strong>{c.document_number}</strong></td>
-                  <td style={{ padding: '0.75rem 1rem' }}>{c.name}</td>
-                  <td style={{ padding: '0.75rem 1rem', color: 'var(--color-slate-400)' }}>{c.email || '-'}</td>
-                  <td style={{ padding: '0.75rem 1rem', color: 'var(--color-slate-400)' }}>{c.phone || '-'}</td>
-                  <td style={{ padding: '0.75rem 1rem', textAlign: 'right' }}>
+                  <td data-label="Número Doc."><strong>{c.document_number}</strong></td>
+                  <td data-label="Nombre">{c.name}</td>
+                  <td data-label="Email" className="celda-apagada">{c.email || '-'}</td>
+                  <td data-label="Teléfono" className="celda-apagada">{c.phone || '-'}</td>
+                  <td className="celda-derecha celda-acciones">
                     <button className="ghost-button button-sm" onClick={() => openEditCustomerModal(c)}>
                       ✏️ Editar
                     </button>
@@ -286,7 +289,7 @@ export function CustomersScreen({ branchId, cashSessionId }: CustomersScreenProp
                 />
               </label>
 
-              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem', marginTop: '1rem' }}>
+              <div className="modal-actions">
                 <button
                   type="button"
                   className="ghost-button"

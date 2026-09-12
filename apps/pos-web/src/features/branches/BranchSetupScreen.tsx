@@ -30,7 +30,7 @@ function TerminalCard({ name, status, lastActivity, currentUser, onClick, select
   return (
     <button 
       onClick={onClick}
-      className={`group relative w-full flex flex-col p-5 text-left bg-card rounded-2xl border transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 focus:ring-offset-background ${
+      className={`group relative w-full flex flex-col p-5 text-left bg-card text-foreground rounded-2xl border transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 focus:ring-offset-background ${
         selected 
           ? 'border-primary ring-2 ring-primary/20 shadow-md bg-primary/5' 
           : 'border-border hover:border-primary/50 hover:shadow-md'

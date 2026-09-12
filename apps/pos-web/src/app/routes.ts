@@ -18,6 +18,59 @@ export type EnhancedRouteDefinition = AppRouteDefinition & {
   requiresPosContext?: boolean;
 };
 
+/**
+ * Lo que un turno de caja usa de verdad, y por tanto lo que se queda en la barra.
+ *
+ * Hay veintiuna rutas. Un administrador ve dieciocho, y dieciocho botones no caben en una
+ * línea: envolvían en dos filas y, con el bloque de usuario, la barra se comía **235 px de
+ * una pantalla de 1440** — un cuarto del alto en cromo antes de llegar al contenido.
+ *
+ * La respuesta no es esconder cosas por ancho, que es lo mismo que perderlas. Es aceptar
+ * que no todo se usa con la misma frecuencia: estas seis se tocan cada turno y se quedan a
+ * la vista; el catálogo y la administración se tocan de vez en cuando y viven un clic más
+ * lejos, en «Más», donde siguen estando todas.
+ *
+ * Si alguna de estas deja de ser cosa del turno —o al revés—, se cambia aquí y ya.
+ */
+const OPERACION_DIARIA: ReadonlySet<AppRoute> = new Set<AppRoute>([
+  'pos',
+  'history',
+  'cash-control',
+  'tables',
+  'kds',
+  'delivery'
+]);
+
+/**
+ * Lo que se administra sobre lo que se vende: la carta, el stock, quién compra.
+ *
+ * Separar esto de la administración pura no es adorno. Sin agrupar, «Más» era una lista de
+ * once nombres seguidos — el mismo problema que acababa de quitarse de la barra, mudado un
+ * clic más adentro. Con dos títulos, se busca por zona y no leyendo once.
+ */
+const CATALOGO: ReadonlySet<AppRoute> = new Set<AppRoute>([
+  'products',
+  'promotions',
+  'recipes',
+  'customers',
+  'inventory',
+  'bulk-import'
+]);
+
+export type GrupoDeRuta = 'operacion' | 'catalogo' | 'administracion';
+
+export function grupoDeRuta(id: AppRoute): GrupoDeRuta {
+  if (OPERACION_DIARIA.has(id)) return 'operacion';
+  if (CATALOGO.has(id)) return 'catalogo';
+  return 'administracion';
+}
+
+export const TITULO_DE_GRUPO: Record<GrupoDeRuta, string> = {
+  operacion: 'Operación',
+  catalogo: 'Catálogo',
+  administracion: 'Administración'
+};
+
 /** La URL de una ruta es su identificador. Una sola regla, sin tabla de traducción. */
 export function pathForRoute(id: AppRoute): string {
   return `/${id}`;

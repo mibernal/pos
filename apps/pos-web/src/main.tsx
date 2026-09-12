@@ -2,12 +2,10 @@ import React from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './app';
 import './styles/global.css';
-import { registerSW } from 'virtual:pwa-register';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
-if ('serviceWorker' in navigator) {
-  registerSW({ immediate: true });
-}
+// El service worker se registra desde `useActualizacion`, dentro de la app: aplicar una
+// versión nueva depende de si hay una venta a medio montar, y eso aquí no se sabe.
 
 import { ApiClientError } from './lib/api';
 import { ErrorBoundary } from './components/ErrorBoundary';

@@ -110,6 +110,23 @@ async function enterPosShell() {
   fireEvent.click(posTab);
 }
 
+/**
+ * Navega como navega ahora una persona.
+ *
+ * La barra ya no lleva las veintiuna rutas: las seis del turno están a la vista y el resto
+ * viven en «Más». Una prueba que sigue pulsando el botón de siempre no prueba el camino que
+ * existe — así que primero se abre «Más» si hace falta, igual que haría un usuario.
+ */
+async function irAPantalla(nombre: string | RegExp) {
+  const directo = screen.queryByRole('button', { name: nombre });
+  if (directo) {
+    fireEvent.click(directo);
+    return;
+  }
+  fireEvent.click(await screen.findByRole('button', { name: /^Más/ }));
+  fireEvent.click(await screen.findByRole('menuitem', { name: nombre }));
+}
+
 const OPEN_CASH_SESSION = {
   id: '44444444-4444-4444-8444-444444444444',
   tenant_id: '22222222-2222-4222-8222-222222222222',
@@ -610,8 +627,7 @@ describe('App', () => {
     renderApp();
 
     await enterPosShell();
-    const productsTab = await screen.findByRole('button', { name: 'Productos' });
-    fireEvent.click(productsTab);
+    await irAPantalla('Productos');
 
     expect(await screen.findByRole('heading', { name: 'Catálogo de Productos' })).toBeInTheDocument();
   });
@@ -626,7 +642,7 @@ describe('App', () => {
     expect(screen.queryByRole('button', { name: 'Configuración DIAN' })).not.toBeInTheDocument();
 
     await enterPosShell();
-    fireEvent.click(await screen.findByRole('button', { name: 'Productos' }));
+    await irAPantalla('Productos');
 
     // El acceso de solo lectura ya no se anuncia con un aviso: lo impone PermissionGuard
     // alrededor de las acciones de gestión.

@@ -296,22 +296,25 @@ export function InventoryScreen({ branchId }: InventoryScreenProps) {
             </p>
           </div>
         ) : (
-          <div className="bg-card border border-border rounded-xl shadow-sm overflow-hidden animate-in slide-in-from-bottom-4 duration-500">
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-sm whitespace-nowrap">
-                <thead className="bg-muted/50 border-b border-border">
+          <div className="tabla-envoltorio bg-card border border-border rounded-xl shadow-sm overflow-hidden animate-in slide-in-from-bottom-4 duration-500">
+            {/* `tabla-envoltorio` quita el marco de tarjeta por debajo de 768 px: ahí cada
+                fila ya es su propia ficha, y una tarjeta alrededor de tarjetas solo añade
+                ruido — y su `overflow-hidden` recortaría las sombras de las de dentro. */}
+            <div className="tabla-marco">
+              <table className="tabla-datos">
+                <thead>
                   <tr>
-                    <th className="px-6 py-4 font-semibold text-muted-foreground w-16">Img</th>
-                    <th className="px-6 py-4 font-semibold text-muted-foreground">Producto</th>
-                    <th className="px-6 py-4 font-semibold text-muted-foreground">Categoría</th>
-                    <th className="px-6 py-4 font-semibold text-muted-foreground text-right">
+                    <th>Img</th>
+                    <th>Producto</th>
+                    <th>Categoría</th>
+                    <th className="celda-derecha">
                       {viewMode === 'LOCAL' ? 'Stock Disponible' : 'Stock Total'}
                     </th>
                     {viewMode === 'LOCAL' && (
-                      <th className="px-6 py-4 font-semibold text-muted-foreground text-right">Acción</th>
+                      <th className="celda-derecha">Acción</th>
                     )}
                     {viewMode === 'CONSOLIDATED' && (
-                      <th className="px-6 py-4 font-semibold text-muted-foreground">Desglose por Sucursal</th>
+                      <th>Desglose por Sucursal</th>
                     )}
                   </tr>
                 </thead>
@@ -323,7 +326,7 @@ export function InventoryScreen({ branchId }: InventoryScreenProps) {
 
                     return (
                       <tr key={p.id} className="hover:bg-muted/30 transition-colors">
-                        <td className="px-6 py-4">
+                        <td>
                           <div className="w-10 h-10 rounded-lg overflow-hidden border border-border bg-muted">
                             {p.imageUrl ? (
                               <img src={p.imageUrl} alt="" className="w-full h-full object-cover" />
@@ -332,12 +335,12 @@ export function InventoryScreen({ branchId }: InventoryScreenProps) {
                             )}
                           </div>
                         </td>
-                        <td className="px-6 py-4">
+                        <td data-label="Producto">
                           <div className="font-semibold text-foreground">{p.name}</div>
                           {p.barcode && <div className="text-xs text-muted-foreground mt-0.5 font-mono">{p.barcode}</div>}
                         </td>
-                        <td className="px-6 py-4 text-muted-foreground">{p.category}</td>
-                        <td className="px-6 py-4 text-right">
+                        <td data-label="Categoría" className="celda-apagada">{p.category}</td>
+                        <td data-label="Stock" className="celda-derecha">
                           <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold ${
                             isOutOfStock ? 'bg-destructive/10 text-destructive' : 
                             isLowStock ? 'bg-yellow-500/10 text-yellow-600 dark:text-yellow-400' : 
@@ -346,10 +349,10 @@ export function InventoryScreen({ branchId }: InventoryScreenProps) {
                             {qty} unds
                           </span>
                         </td>
-                        <td className="px-6 py-4 text-right">
+                        <td className="celda-derecha celda-acciones">
                           <PermissionGuard allowedPermissions={['inventory:adjust']}>
                              <button 
-                                className="inline-flex items-center justify-center h-8 px-3 rounded-md text-xs font-medium border border-border bg-background hover:bg-muted hover:text-foreground transition-colors"
+                                className="inline-flex items-center justify-center h-8 px-3 rounded-md text-xs font-medium border border-border bg-background text-foreground hover:bg-muted transition-colors"
                                 onClick={() => openAdjustmentModal(p.id)}
                              >
                                 Ajustar
@@ -366,7 +369,7 @@ export function InventoryScreen({ branchId }: InventoryScreenProps) {
 
                     return (
                       <tr key={p.product_id} className="hover:bg-muted/30 transition-colors">
-                        <td className="px-6 py-4">
+                        <td>
                           <div className="w-10 h-10 rounded-lg overflow-hidden border border-border bg-muted">
                             {p.image_url ? (
                               <img src={p.image_url ?? undefined} alt="" className="w-full h-full object-cover" />
@@ -375,11 +378,11 @@ export function InventoryScreen({ branchId }: InventoryScreenProps) {
                             )}
                           </div>
                         </td>
-                        <td className="px-6 py-4">
+                        <td data-label="Producto">
                           <div className="font-semibold text-foreground">{p.product_name}</div>
                         </td>
-                        <td className="px-6 py-4 text-muted-foreground">{p.category}</td>
-                        <td className="px-6 py-4 text-right">
+                        <td data-label="Categoría" className="celda-apagada">{p.category}</td>
+                        <td data-label="Stock" className="celda-derecha">
                           <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold ${
                             isOutOfStock ? 'bg-destructive/10 text-destructive' : 
                             isLowStock ? 'bg-yellow-500/10 text-yellow-600 dark:text-yellow-400' : 
@@ -388,7 +391,7 @@ export function InventoryScreen({ branchId }: InventoryScreenProps) {
                             {p.total_on_hand_qty} unds
                           </span>
                         </td>
-                        <td className="px-6 py-4 text-sm text-muted-foreground">
+                        <td data-label="Por sucursal" className="celda-apagada">
                           <div className="flex flex-col gap-1">
                             {(p.branches_breakdown as Array<{ branch_id: string; branch_name: string; on_hand_qty: number }>).map((b) => (
                               <div key={b.branch_id} className="flex justify-between items-center gap-4 border-b border-border/30 last:border-0 pb-1 last:pb-0">
@@ -432,7 +435,7 @@ export function InventoryScreen({ branchId }: InventoryScreenProps) {
                       <button 
                         type="button" 
                         onClick={addAdjustmentRow} 
-                        className="inline-flex items-center justify-center h-8 px-3 rounded-md text-xs font-medium bg-background border border-border hover:bg-muted transition-colors"
+                        className="inline-flex items-center justify-center h-8 px-3 rounded-md text-xs font-medium bg-background text-foreground border border-border hover:bg-muted transition-colors"
                       >
                         + Añadir Fila
                       </button>

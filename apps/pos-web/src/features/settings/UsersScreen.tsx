@@ -118,7 +118,7 @@ export function UsersScreen() {
 
   return (
     <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '1.5rem', padding: '1rem', minHeight: '0' }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+      <div className="heading-row">
         <div>
           <h2 style={{ fontSize: '1.5rem', fontWeight: 600, margin: 0 }}>Gestión de Usuarios</h2>
           <p style={{ color: 'var(--color-slate-400)', margin: '0.25rem 0 0 0' }}>
@@ -258,7 +258,7 @@ export function UsersScreen() {
                 </div>
               )}
 
-              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem', marginTop: '1rem' }}>
+              <div className="modal-actions">
                 <button type="button" className="ghost-button" onClick={() => setIsCreateModalOpen(false)} disabled={isSaving}>Cancelar</button>
                 <button type="submit" className="button" style={{ background: 'var(--color-primary-600)', color: '#fff' }} disabled={isSaving}>
                   {isSaving ? 'Creando...' : 'Crear Usuario'}
@@ -293,7 +293,7 @@ export function UsersScreen() {
                 </div>
               </div>
 
-              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem', marginTop: '1rem' }}>
+              <div className="modal-actions">
                 <button type="button" className="ghost-button" onClick={() => setIsAssignModalOpen(false)} disabled={isSaving}>Cancelar</button>
                 <button type="submit" className="button" style={{ background: 'var(--color-primary-600)', color: '#fff' }} disabled={isSaving}>
                   {isSaving ? 'Guardando...' : 'Guardar Asignación'}

@@ -357,7 +357,7 @@ export function ReportsScreen({
                           <div className="lg:col-span-4 mt-2">
                             <button
                               type="button"
-                              className="inline-flex items-center justify-center h-9 px-4 rounded-md border border-input bg-background hover:bg-accent hover:text-accent-foreground text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                              className="inline-flex items-center justify-center h-9 px-4 rounded-md border border-input bg-background text-foreground hover:bg-accent text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                               onClick={async () => {
                                 try {
                                   const zData = await api.getZReport(shift.id);

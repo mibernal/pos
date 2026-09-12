@@ -16,6 +16,7 @@ import {
   usePosStore
 } from '../hooks';
 import { pathForRoute } from './routes';
+import { useActualizacion } from './useActualizacion';
 import type { ShellContext } from './shell-context';
 
 /**
@@ -34,6 +35,7 @@ export function AppShell() {
   );
   const location = useLocation();
   const activeRouteLabel = routeDefinitions.find((r) => r.id === activeRoute)?.label ?? 'esta pantalla';
+  const { hayVersionNueva, aplicarAhora } = useActualizacion();
 
   const {
     isOnline,
@@ -158,6 +160,21 @@ export function AppShell() {
               </button>
             </div>
           )}
+          {/* Solo aparece si hay una venta a medio montar: sin venta, la versión nueva ya
+              se aplicó sola y no hay nada que anunciar. */}
+          {hayVersionNueva && (
+            <Banner
+              tone="info"
+              action={
+                <button className="secondary-button" onClick={aplicarAhora}>
+                  Actualizar ahora
+                </button>
+              }
+            >
+              Hay una versión nueva. Se aplicará sola al terminar esta venta.
+            </Banner>
+          )}
+
           {syncMessage ? <Banner tone="info">{syncMessage}</Banner> : null}
           {syncError ? <Banner tone="error">{syncError}</Banner> : null}
 

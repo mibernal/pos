@@ -426,3 +426,31 @@ Se documentan porque la ausencia de política es una decisión, no un olvido:
 - Se descubrió mirando una captura del móvil, no ejecutando pruebas. Es el mismo defecto que D-071 visto desde el otro extremo: un `as` no valida, solo calla al compilador.
 - `object` en lugar de `any` convierte justo ese error en fallo de compilación. Los otros dos llamadores del flujo ya pasaban objetos, así que el tipo describe el contrato que de hecho existía.
 - `test/dashboard-stream.e2e.test.ts` lee la primera trama sobre un socket real y la desenvuelve **una** vez, que es lo que hace el navegador. Comprobado que falla al reintroducir el defecto: «expected 'string' to be 'object'».
+
+## D-078 — La versión nueva se aplica sola, pero nunca encima de una venta
+- `registerType: 'prompt'` en la configuración de la PWA, y `useActualizacion` decide cuándo: recarga sola si el carrito está vacío, avisa y espera si hay una venta empezada, y se aplica en cuanto se cobra.
+- **Motivo:** la app instalaba la versión nueva y **no la aplicaba**. `registerSW({ immediate: true })` deja que el service worker nuevo tome el control, pero la pestaña abierta sigue ejecutando el JS y el CSS que cargó al abrirse. Un cajero no cierra la pestaña en todo el día: un arreglo se desplegaba y no lo veía nadie. Lo descubrimos porque un defecto corregido, construido y medido seguía apareciendo en la pantalla de quien lo reportó.
+- Lo contrario —recargar en cuanto llega, que es lo que `autoUpdate` insinúa— es peor: se lleva por delante el carrito a medio montar. Perder una comanda por una actualización cuesta más que el defecto que venía a arreglar, y encima no deja rastro: la pantalla parpadea y la comanda no está.
+- Por eso el aviso solo se dibuja mientras hay venta en curso. Sin venta no hay nada que anunciar, porque ya se recargó.
+- Tres pruebas fijan las tres ramas, y la del medio es la que importa: con el carrito lleno, `aplicar` no se llama.
+
+## D-079 — Un botón con fondo claro tiene que decir de qué color va su texto
+- Cuatro botones llevaban una utilidad de Tailwind para el fondo y ninguna para el texto; ahora declaran `text-foreground`, y `test/botones-legibles.test.ts` falla si aparece otro.
+- **Motivo:** la regla base de `global.css` le da a **todo** `button` `color: #ffffff` sobre fondo oscuro. `bg-background` gana por especificidad —clase (0,1,0) contra elemento (0,0,1)— pero solo cambia el fondo: el texto sigue blanco. Resultado, blanco sobre blanco. «Ajustar» en Inventario, «+ Añadir Fila» en su modal, la tarjeta de sucursal de la pantalla de entrada y un botón de Reportes llevaban así desde que se escribieron.
+- No lo delataba nada. El botón está, ocupa su sitio, responde al clic y la prueba de anchos lo encuentra: solo que no dice nada. Es el mismo síntoma que nos reportaron —«no se ven algunos botones»— por una causa distinta.
+- `hover:text-foreground` no cuenta como arreglo, y así estaba «Ajustar». Un color que solo llega al pasar el ratón deja el botón ilegible en reposo, y en la tablet de un salón no hay ratón que pasar. La prueba lo trata como defecto a propósito.
+- Comprobado que la prueba falla al reintroducirlo, y que nombra archivo y línea.
+
+## D-080 — Veintiuna rutas no caben en una línea, y esconderlas por ancho es perderlas
+- La barra lleva las seis rutas del turno; las demás viven en «Más», agrupadas en Catálogo y Administración. El cajón del móvil usa las mismas zonas.
+- **Motivo:** un administrador ve dieciocho rutas. Envolvían en dos filas y, con el bloque de usuario, la barra se comía **235 px de una pantalla de 1440** — un cuarto del alto en cromo antes de llegar al contenido. Ahora son 130 px a 1440 y 70 px a 1920.
+- El reparto es por frecuencia de uso, no por ancho de pantalla: lo que se toca cada turno se queda a la vista siempre, en cualquier monitor. Esconder cosas según el ancho es lo que hace que una función «desaparezca» en unas máquinas sí y en otras no.
+- «Más» se marca activo cuando la pantalla abierta vive dentro. Sin eso, entrar en Reportes dejaba toda la barra apagada y no había forma de saber dónde estabas.
+- El grupo de una ruta se decide en `routes.ts`, en un `Set` por zona. Cambiar de sitio una ruta es mover una línea.
+
+## D-081 — Por debajo de 768 px las tablas dejan de ser tablas
+- `.tabla-datos` convierte cada fila en una ficha y cada celda en una línea con su etiqueta, sacada de `data-label`. Lo usan Clientes e Inventario.
+- **Motivo:** arrastrar seis columnas de lado en un teléfono «funciona» —hay barra, se alcanza todo—, pero para leer una fila entera hay que barrer la pantalla dos veces y recordar qué columna era cada cosa, porque la cabecera se queda atrás.
+- La cabecera no se borra: se oculta solo visualmente, así que un lector de pantalla sigue leyendo la tabla como tabla.
+- Las etiquetas salen del marcado y no de un archivo aparte: si se añade una columna y se olvida el `data-label`, esa celda aparece sin nombre al primer vistazo. Un fallo visible es mejor que una tabla de traducción que se queda corta en silencio.
+- De paso, las dos pantallas perdieron sus `style` en línea. Es la misma disciplina de D-074: la disposición la decide la hoja de estilos.
