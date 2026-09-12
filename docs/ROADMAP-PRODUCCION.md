@@ -917,21 +917,27 @@ le cobra después.
 API **simulados dentro del propio archivo**, y ninguna ruta la pinta. O se termina o se borra;
 mientras siga ahí, parece una pantalla.
 
-**Lo que la revisión de responsive dejó a medias.** Los anchos ya no pierden controles y hay
-prueba que lo vigila, pero quedan tres cosas que se vieron y no se tocaron:
+**La regla base de `button` pelea con Tailwind, y gana a medias.** Es lo que queda vivo de la
+revisión de pantallas, y conviene entenderlo antes de tocarlo. `global.css` le da a **todo**
+`button` fondo oscuro y `color: #ffffff`. Una utilidad de Tailwind gana por especificidad a lo
+que declare —`bg-background` cambia el fondo— pero no a lo que no declare, así que el texto se
+queda blanco. De ahí salieron los cuatro botones ilegibles de D-079.
 
-- *Setenta y cinco filas flex escritas en línea.* `display: flex` como atributo `style` pisa la
-  hoja de estilos por especificidad, que es exactamente el mecanismo del defecto del historial.
-  Se arreglaron las que la prueba señaló; las demás siguen ahí, y la siguiente aparecerá igual
-  de callada. El arreglo de verdad es mover esas filas a clases con nombre.
-- *La barra superior ocupa 235 px en un portátil de 1440.* Dieciocho botones de navegación
-  envuelven en dos líneas y el bloque de usuario hace la tercera. Funciona y se ve todo, pero es
-  un cuarto de pantalla gastado en cromo antes de llegar al contenido. Es una decisión de
-  producto —agrupar rutas, o un menú—, no un defecto.
-- *Las tablas de Clientes e Inventario se desplazan de lado en el móvil.* Es un patrón legítimo
-  y la prueba lo permite a propósito, pero seis columnas arrastrables en un teléfono son peores
-  que unas fichas apiladas. Productos ya usa fichas y se lee bien; las otras dos no se
-  convirtieron.
+Los cuatro están corregidos y hay prueba que vigila ese patrón, pero la causa sigue en pie, y
+tiene una segunda cara: un botón que espera fondo **transparente** y no declara ninguno hereda
+el oscuro de la regla base. Se ve en el conmutador Local / Consolidado de Inventario y en
+«Exportar», donde el texto apagado cae sobre navy y el contraste queda pobre. No es ilegible,
+así que no entró en el arreglo.
+
+El remedio real es acotar la regla base —que solo se aplique a botones sin clases de
+presentación— o dejar de darle color y fondo a `button` a secas y moverlo a `.button`. Las dos
+tocan todas las pantallas a la vez, así que pide su propia tanda con capturas antes y después,
+no un hueco al final de otra cosa.
+
+**Lo que se cerró en esa revisión** y ya no está pendiente: las filas flex en línea de los pies
+de modal y las cabeceras (D-074), la barra superior a 130 px con «Más» (D-080), y Clientes e
+Inventario como fichas en el móvil (D-081). Quedan filas flex en línea en pantallas que la
+prueba no señaló; se convierten cuando se toquen.
 
 **Entorno de desarrollo.** `CORS_ALLOWED_ORIGINS` no incluía `http://localhost:4173`, el puerto
 del `vite preview` sobre el que corren las e2e. El síntoma no menciona CORS: el navegador se

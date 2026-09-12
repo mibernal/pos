@@ -122,8 +122,8 @@ qué ninguna prueba los vio**:
   No se veía ni una venta ni un producto. Regla: si un panel tiene el alto impuesto, su
   contenido se desplaza.
 - **`display: flex` en un atributo `style` pisa la hoja de estilos por especificidad.** Ese fue
-  el defecto del historial, y quedan ~75 filas escritas así: la próxima aparecerá igual de
-  callada.
+  el defecto del historial. Los pies de modal y las cabeceras ya son clases (`.modal-actions`,
+  `.heading-row`); quedan filas así en pantallas que la prueba no señaló.
 - **Un `as` no valida, solo calla al compilador.** Reportes enseñaba «$ NaN» porque la ruta
   serializaba y `writeEvent` volvía a serializar; el `as DashboardStats` del cliente y el `any`
   del servidor se taparon el uno al otro. Nada falló: 200, `data:` bien formado y `{stats && …}`
@@ -132,9 +132,29 @@ qué ninguna prueba los vio**:
   el que corren las e2e. Si falta, el navegador se queda en «Selecciona una Sucursal» y el error
   no menciona CORS por ningún lado.
 
-Verificación al cierre: typecheck 6/6, **402 pruebas** (269 API + 1 omitida, 64 worker, 44
+### Segunda pasada, el mismo día (D-078…D-081)
+
+El usuario volvió a reportar el mismo defecto **ya corregido**. No lo estaba viendo por el CSS:
+
+- **La app instalaba la versión nueva y no la aplicaba.** `registerSW({ immediate: true })` deja
+  que el service worker tome el control, pero la pestaña abierta sigue con el JS y el CSS que
+  cargó al abrirse. Un cajero no cierra la pestaña en todo el día → **cualquier despliegue era
+  invisible**. Ahora se aplica sola con el carrito vacío y espera si hay venta empezada.
+- **Texto blanco sobre botón blanco, en cuatro sitios.** La regla base da a todo `button`
+  `color: #ffffff`; `bg-background` de Tailwind gana al fondo pero no al texto. El botón está,
+  ocupa sitio y responde al clic: solo no dice nada, y por eso ninguna prueba lo veía.
+  `hover:text-foreground` **no** arregla nada — en una tablet no hay ratón que pasar.
+- **Dos veces me equivoqué midiendo contra un build viejo** (la API por la mañana, el botón por
+  la tarde) y estuve a punto de dar por imposible algo que ya estaba arreglado. Antes de
+  concluir «sigue roto»: comprobar que el `dist` es más nuevo que el fuente.
+
+Lo que sigue vivo de ahí: la regla base de `button` sigue peleando con Tailwind — un botón que
+espera fondo transparente hereda el oscuro. Está en el roadmap con el porqué.
+
+Verificación al cierre: typecheck 6/6, **406 pruebas** (269 API + 1 omitida, 64 worker, 48
 pos-web, 25 shared), lint sin errores, e2e de anchos en verde a 375 / 768 / 1024 / 1280 / 1440
-sobre seis pantallas, y revisión visual de las capturas (`apps/pos-web/e2e/capturas.mjs`).
+sobre seis pantallas, y revisión visual de las capturas (`apps/pos-web/e2e/capturas.mjs`,
+`fichas.mjs`, `barra.mjs`, `recortes.mjs`).
 
 ## Actualizaciones Recientes (Junio 2026)
 
