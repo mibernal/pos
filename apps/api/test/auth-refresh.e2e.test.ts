@@ -62,6 +62,9 @@ describe('auth refresh flow e2e', () => {
     const refreshResponse = await app.inject({
       method: 'POST',
       url: '/api/v1/auth/refresh',
+      // Un navegador manda `Origin` siempre en un POST, también cuando no cambia de
+      // origen. La ruta lo exige porque se autentica con la cookie: ver `origen-conocido`.
+      headers: { origin: 'http://localhost:5173' },
       cookies: {
         pos_refresh_token: refreshCookie!.value
       }
@@ -83,6 +86,9 @@ describe('auth refresh flow e2e', () => {
     const badRefreshResponse = await app.inject({
       method: 'POST',
       url: '/api/v1/auth/refresh',
+      // Un navegador manda `Origin` siempre en un POST, también cuando no cambia de
+      // origen. La ruta lo exige porque se autentica con la cookie: ver `origen-conocido`.
+      headers: { origin: 'http://localhost:5173' },
       cookies: {
         pos_refresh_token: refreshCookie!.value
       }
@@ -106,6 +112,9 @@ describe('auth refresh flow e2e', () => {
     const newRefreshFailsResponse = await app.inject({
       method: 'POST',
       url: '/api/v1/auth/refresh',
+      // Un navegador manda `Origin` siempre en un POST, también cuando no cambia de
+      // origen. La ruta lo exige porque se autentica con la cookie: ver `origen-conocido`.
+      headers: { origin: 'http://localhost:5173' },
       cookies: {
         pos_refresh_token: newRefreshCookie!.value
       }

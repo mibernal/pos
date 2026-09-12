@@ -309,18 +309,22 @@ export async function buildApp() {
 
   await app.register(cors, {
     credentials: true,
+    /**
+     * Sin `Origin` no se conceden cabeceras de CORS, pero tampoco se corta la petición.
+     *
+     * Antes esto era `callback(null, true)`: cualquier petición sin `Origin` recibía vía
+     * libre. Suena peor de lo que era —CORS lo aplica el navegador, no el servidor, así
+     * que devolver `true` no autoriza a nadie que no tuviera ya un token— pero repartir
+     * `Access-Control-Allow-Origin` a quien no lo pidió no tiene ningún sentido.
+     *
+     * Y cortar la petición sí sería un error: llegan sin `Origin` los webhooks del PAC y
+     * de la pasarela, `/health` y `/metrics`, y cualquier integración de servidor a
+     * servidor —que es justo lo que la fase 17 quiere abrir—. CORS nunca fue el control de
+     * acceso; el control es el token, y para la cookie de refresco, `exigirOrigenConocido`
+     * más abajo.
+     */
     origin: (origin, callback) => {
-      if (!origin) {
-        callback(null, true);
-        return;
-      }
-
-      if (allowedOrigins.has(origin)) {
-        callback(null, true);
-        return;
-      }
-
-      callback(new Error(`Origin not allowed by CORS: ${origin}`), false);
+      callback(null, Boolean(origin) && allowedOrigins.has(origin!));
     },
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization', 'X-Request-Id', 'X-Branch-Id'],
@@ -329,6 +333,29 @@ export async function buildApp() {
 
   app.addHook('onRequest', async (request, reply) => {
     reply.header('x-request-id', request.id);
+  });
+
+  /**
+   * Un origen que no está en la lista se rechaza con 403, no con 500.
+   *
+   * Antes el callback de CORS devolvía un `Error`, y Fastify lo convertía en **500**: la
+   * API decía «me he roto» cuando lo que pasaba era «tú no puedes». Además de mentir en el
+   * código de estado, ensuciaba la monitorización con errores de servidor que no lo eran, y
+   * escondía los que sí.
+   *
+   * Se comprueba solo cuando la cabecera viene: sin `Origin` no hay nada que juzgar, y
+   * cortar ahí dejaría fuera los webhooks, `/health` y `/metrics`.
+   */
+  app.addHook('onRequest', async (request, reply) => {
+    const origen = request.headers.origin;
+    if (!origen || allowedOrigins.has(origen)) return;
+
+    return reply.code(403).send({
+      error: {
+        code: 'ORIGIN_NOT_ALLOWED',
+        message: 'Origen no permitido'
+      }
+    });
   });
 
   await app.register(errorHandlerPlugin);

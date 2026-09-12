@@ -17,6 +17,8 @@ import {
   RATE_LIMIT_EXCEEDED
 } from '../../../shared/infra/security/login-rate-limit.js';
 import { getPermissionsForRole } from '../../../shared/infra/security/permissions.js';
+import { exigirOrigenConocido } from '../../../shared/infra/security/origen-conocido.js';
+import { resolveCorsAllowedOrigins } from '../../../app/cors.js';
 import { executeAsTenant } from '../../../shared/infra/db/rls.js';
 import { writeAuditLog } from '../../../shared/domain/audit/write-audit-log.js';
 import { SubscriptionService, LIVE_SUBSCRIPTION_STATUSES } from '../../billing/application/subscription.service.js';
@@ -62,6 +64,15 @@ const registerBodySchema = z.object({
 });
 
 export const authRoutes: FastifyPluginAsync = async (app) => {
+  /**
+   * Se resuelve con la misma función que usa CORS, y con las mismas entradas: así la lista
+   * de la puerta y la del guardia no pueden acabar diciendo cosas distintas.
+   */
+  const origenesPermitidos = new Set(
+    resolveCorsAllowedOrigins(env.NODE_ENV, env.CORS_ALLOWED_ORIGINS)
+  );
+  const soloDesdeLaApp = exigirOrigenConocido(origenesPermitidos);
+
   const typedApp = app.withTypeProvider<ZodTypeProvider>();
 
   typedApp.post(
@@ -414,6 +425,9 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
   typedApp.post(
     '/auth/logout',
     {
+      // Se autentica con la cookie, así que exige venir de la aplicación. Ver
+      // `origen-conocido.ts`.
+      preHandler: [soloDesdeLaApp],
       schema: {
         tags: ['auth']
       }
@@ -488,6 +502,9 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
   typedApp.post(
     '/auth/refresh',
     {
+      // Igual que logout: la cookie la adjunta el navegador solo, así que hay que
+      // comprobar quién le pidió que lo hiciera. Ver `origen-conocido.ts`.
+      preHandler: [soloDesdeLaApp],
       schema: {
         tags: ['auth']
       }

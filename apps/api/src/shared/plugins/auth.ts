@@ -176,15 +176,22 @@ const authPluginImpl: FastifyPluginAsync = async (app) => {
 
       await assertServiceLevelAllows(app, request, permissions);
 
-      if (request.auth.role === 'TENANT_OWNER' || request.auth.role === 'ADMIN') {
-        // TENANT_OWNER and ADMIN bypass permissions checks for convenience, EXCEPT for platform permissions
-        // We ensure platform permissions are NOT bypassed by TENANT_OWNER/ADMIN
-        const hasPlatformPerms = permissions.some(p => p.startsWith('platform:'));
-        if (!hasPlatformPerms) {
-          return;
-        }
-      }
-
+      /**
+       * Aquí había un atajo: `TENANT_OWNER` y `ADMIN` se saltaban la comprobación entera
+       * «por comodidad», salvo para permisos de plataforma.
+       *
+       * En un sistema con obligación de auditoría eso vacía el rastro de significado. Si
+       * dos roles pasan por encima de todo, el catálogo de permisos describe lo que hace
+       * el resto de la plantilla y calla justo sobre quien más puede hacer — y «tenía
+       * permiso» deja de ser una afirmación comprobable para los dos roles que más
+       * importan cuando algo se investiga.
+       *
+       * Quitarlo salió barato porque el catálogo ya estaba casi completo: medido contra
+       * las 99 guardas del código, `TENANT_OWNER` no perdía ninguna y `ADMIN` perdía tres
+       * —perfil de negocio, perfil tributario y módulos—, todas por `tenant:settings:manage`.
+       * Ese permiso se le añadió al catálogo, así que el comportamiento no cambia para
+       * nadie: lo que cambia es que ahora está escrito quién puede qué.
+       */
       const hasPermission = permissions.every(p => request.auth!.permissions.includes(p));
       if (!hasPermission) {
         throw new AppError(403, 'AUTH_FORBIDDEN', 'No tienes permisos para realizar esta acción');

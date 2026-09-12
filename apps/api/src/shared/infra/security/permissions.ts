@@ -75,7 +75,16 @@ export const ROLE_PERMISSIONS: Record<UserRole, UserPermission[]> = {
     'branches:view',
     'alerts:view',
     'alerts:manage',
-    'audit:view'
+    'audit:view',
+    /**
+     * Escrito, no heredado de un atajo.
+     *
+     * `ADMIN` ya editaba el perfil de negocio, el perfil tributario y los módulos del
+     * comercio, pero podía porque `requirePermissions` dejaba pasar al rol sin mirar el
+     * catálogo. Al quitar ese atajo eran las tres únicas guardas que se le caían, así que
+     * el permiso se declara aquí: el comportamiento es el mismo de siempre y ahora consta.
+     */
+    'tenant:settings:manage'
   ],
   MANAGER: [
     'sales:create',
