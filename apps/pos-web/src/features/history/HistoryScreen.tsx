@@ -1,24 +1,25 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Banner, Modal, PlaceholderImage } from '../../components/ui';
 import { formatMoneyFromCents, statusClassName, dianStatusLabel, toDateInputValue } from '../../lib/format';
 import { extractTicketPayments, printSaleTicket } from '../../lib/ticket-printer';
 import type { SaleDetailResponse, SalesListItem, TenantTaxMode } from '../../lib/api';
 import type { TicketTemplateConfig } from '../../lib/ticket-template';
-import type { PosApiClient } from '../../types';
 import { PermissionGuard, useSession } from '../auth';
 import { inferTaxModeFromSale } from '../sales';
 import { ReturnSaleModal } from './components/ReturnSaleModal';
+import { PAYMENT_KIND_BEHAVIOR, type PaymentKind } from '@pos-dian/shared';
+import { useApi } from '../auth';
+import { salesKeys } from '../../shared/query-keys';
 
-function paymentMethodLabel(method: 'CASH' | 'CARD' | 'TRANSFER'): string {
-  if (method === 'CASH') {
-    return 'Efectivo';
-  }
-
-  if (method === 'CARD') {
-    return 'Tarjeta';
-  }
-
-  return 'Transferencia';
+/**
+ * La etiqueta de cada medio sale de la tabla compartida, no de una cadena de `if` con los
+ * tres de siempre. Es la misma que usa el backend en el reporte Z, así que una venta con
+ * Nequi no puede aparecer aquí como «Transferencia» —que es lo que hacía este `return`
+ * final para cualquier método que no reconociera—.
+ */
+function paymentMethodLabel(method: PaymentKind): string {
+  return PAYMENT_KIND_BEHAVIOR[method]?.label ?? method;
 }
 
 function paymentModeLabel(mode: SalesListItem['payment_json']['mode']): string {
@@ -27,6 +28,14 @@ function paymentModeLabel(mode: SalesListItem['payment_json']['mode']): string {
   }
 
   return paymentMethodLabel(mode);
+}
+
+function mensajeDeError(causa: unknown, respaldo: string): string | null {
+  if (!causa) {
+    return null;
+  }
+
+  return causa instanceof Error ? causa.message : respaldo;
 }
 
 function formatSaleDateTime(value: string): { date: string; time: string } {
@@ -42,21 +51,21 @@ function formatSaleDateTime(value: string): { date: string; time: string } {
 }
 
 export function HistoryScreen({
-  api,
   branchId,
   branchName,
   branchAddress,
   ticketTemplate,
   tenantTaxMode
 }: {
-  api: PosApiClient;
   branchId: string;
   branchName: string;
   branchAddress?: string;
   ticketTemplate: TicketTemplateConfig;
   tenantTaxMode?: TenantTaxMode | null;
 }) {
-  const { role, user } = useSession();
+  const api = useApi();
+  const { role, user, tenantId } = useSession();
+  const queryClient = useQueryClient();
   const [fromDate, setFromDate] = useState(() => {
     const from = new Date();
     from.setDate(from.getDate() - 7);
@@ -64,87 +73,85 @@ export function HistoryScreen({
   });
   const [toDate, setToDate] = useState(() => toDateInputValue(new Date()));
   const [limit, setLimit] = useState(50);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [sales, setSales] = useState<SalesListItem[]>([]);
   const [selectedSaleId, setSelectedSaleId] = useState<string | null>(null);
-  const [detailLoading, setDetailLoading] = useState(false);
-  const [detailError, setDetailError] = useState<string | null>(null);
-  const [selectedSaleDetail, setSelectedSaleDetail] = useState<SaleDetailResponse | null>(null);
   const [isVoidModalOpen, setIsVoidModalOpen] = useState(false);
   const [voidReason, setVoidReason] = useState('');
-  const [voidLoading, setVoidLoading] = useState(false);
   const [isReturnModalOpen, setIsReturnModalOpen] = useState(false);
+
+  const filtros = useMemo(
+    () => ({
+      branchId,
+      from: fromDate ? new Date(`${fromDate}T00:00:00`).toISOString() : undefined,
+      to: toDate ? new Date(`${toDate}T23:59:59`).toISOString() : undefined,
+      limit
+    }),
+    [branchId, fromDate, toDate, limit]
+  );
+
+  const consultaVentas = useQuery({
+    queryKey: salesKeys.list(tenantId, filtros),
+    queryFn: () => api.listSales(filtros)
+  });
+
+  const sales: SalesListItem[] = useMemo(() => consultaVentas.data?.items ?? [], [consultaVentas.data]);
+
+  /**
+   * Qué venta tiene abierto el panel de la derecha.
+   *
+   * No es un estado propio sino una lectura del listado: si la venta marcada ya no aparece
+   * con los filtros de ahora, manda la primera de la lista. Así cambiar de fechas nunca
+   * deja el detalle de una venta que la izquierda ya no enseña.
+   */
+  const saleIdAbierta = useMemo(
+    () => sales.find((sale) => sale.id === selectedSaleId)?.id ?? sales[0]?.id ?? null,
+    [sales, selectedSaleId]
+  );
+
+  const consultaDetalle = useQuery({
+    queryKey: salesKeys.detail(tenantId, saleIdAbierta ?? ''),
+    queryFn: () => api.getSale(saleIdAbierta!),
+    enabled: Boolean(saleIdAbierta)
+  });
+
+  const anularVenta = useMutation({
+    mutationFn: ({ saleId, motivo }: { saleId: string; motivo: string }) =>
+      api.voidSale(saleId, { void_reason: motivo }),
+    onSuccess: async (_resultado, { saleId }) => {
+      // El detalle primero, y esperándolo: es el que lleva el motivo y la marca VOID al
+      // tiquete. Refrescando antes el listado, la fila diría ANULADA mientras la derecha
+      // sigue enseñando —e imprimiendo— la venta viva.
+      await queryClient.invalidateQueries({ queryKey: salesKeys.detail(tenantId, saleId) });
+      await queryClient.invalidateQueries({ queryKey: salesKeys.list(tenantId) });
+
+      setIsVoidModalOpen(false);
+      setVoidReason('');
+    }
+  });
+
+  const loading = consultaVentas.isFetching;
+  const error = mensajeDeError(consultaVentas.error, 'No fue posible cargar ventas');
+  const selectedSaleDetail: SaleDetailResponse | null = consultaDetalle.data ?? null;
+  const detailLoading = consultaDetalle.isFetching;
+  const voidLoading = anularVenta.isPending;
+
+  // El panel de la derecha tiene un solo sitio para avisar, y anular es lo último que hizo
+  // el usuario: su fallo tapa al de la carga del detalle, no al revés.
+  const detailError =
+    mensajeDeError(anularVenta.error, 'No fue posible anular la venta') ??
+    mensajeDeError(consultaDetalle.error, 'No fue posible cargar el detalle de venta');
 
   const listedTotalCents = useMemo(
     () => sales.reduce((sum, sale) => sum + sale.total_cents, 0),
     [sales]
   );
   const selectedSale = useMemo(
-    () => sales.find((sale) => sale.id === selectedSaleId) ?? null,
-    [sales, selectedSaleId]
+    () => sales.find((sale) => sale.id === saleIdAbierta) ?? null,
+    [sales, saleIdAbierta]
   );
   const selectedSalePayments = useMemo(
     () => (selectedSaleDetail ? extractTicketPayments(selectedSaleDetail.sale.payment_json) : []),
     [selectedSaleDetail]
   );
-
-
-  const loadSaleDetail = useCallback(
-    async (saleId: string) => {
-      setSelectedSaleId(saleId);
-      setDetailLoading(true);
-      setDetailError(null);
-
-      try {
-        const detail = await api.getSale(saleId);
-        setSelectedSaleDetail(detail);
-      } catch (loadError) {
-        setDetailError(
-          loadError instanceof Error ? loadError.message : 'No fue posible cargar el detalle de venta'
-        );
-        setSelectedSaleDetail(null);
-      } finally {
-        setDetailLoading(false);
-      }
-    },
-    [api]
-  );
-
-  const loadSales = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-
-    try {
-      const response = await api.listSales({
-        branchId,
-        from: fromDate ? new Date(`${fromDate}T00:00:00`).toISOString() : undefined,
-        to: toDate ? new Date(`${toDate}T23:59:59`).toISOString() : undefined,
-        limit
-      });
-
-      setSales(response.items);
-
-      const nextSelectedSaleId =
-        response.items.find((sale) => sale.id === selectedSaleId)?.id ?? response.items[0]?.id ?? null;
-
-      if (!nextSelectedSaleId) {
-        setSelectedSaleId(null);
-        setSelectedSaleDetail(null);
-        return;
-      }
-
-      await loadSaleDetail(nextSelectedSaleId);
-    } catch (loadError) {
-      setError(loadError instanceof Error ? loadError.message : 'No fue posible cargar ventas');
-    } finally {
-      setLoading(false);
-    }
-  }, [api, branchId, fromDate, limit, loadSaleDetail, selectedSaleId, toDate]);
-
-  useEffect(() => {
-    void loadSales();
-  }, [loadSales]);
 
   function openVoidModal() {
     if (!selectedSale || selectedSale.status === 'VOID' || (role !== 'ADMIN' && role !== 'TENANT_OWNER' && !user?.permissions?.includes('sales:void'))) {
@@ -152,7 +159,7 @@ export function HistoryScreen({
     }
 
     setVoidReason('');
-    setDetailError(null);
+    anularVenta.reset();
     setIsVoidModalOpen(true);
   }
 
@@ -165,7 +172,7 @@ export function HistoryScreen({
     setVoidReason('');
   }
 
-  async function handleVoidSale() {
+  function handleVoidSale() {
     if (!selectedSale || selectedSale.status === 'VOID' || (role !== 'ADMIN' && role !== 'TENANT_OWNER' && !user?.permissions?.includes('sales:void'))) {
       return;
     }
@@ -175,23 +182,7 @@ export function HistoryScreen({
       return;
     }
 
-    setVoidLoading(true);
-    setDetailError(null);
-
-    try {
-      await api.voidSale(selectedSale.id, {
-        void_reason: normalizedReason
-      });
-      setIsVoidModalOpen(false);
-      setVoidReason('');
-      await loadSales();
-    } catch (voidError) {
-      setDetailError(
-        voidError instanceof Error ? voidError.message : 'No fue posible anular la venta'
-      );
-    } finally {
-      setVoidLoading(false);
-    }
+    anularVenta.mutate({ saleId: selectedSale.id, motivo: normalizedReason });
   }
 
   function handlePrint() {
@@ -234,7 +225,7 @@ export function HistoryScreen({
             <h2>Historial de Ventas</h2>
             <p>Monitorea y audita las transacciones de esta sucursal</p>
           </div>
-          <button className="ghost-button" style={{ padding: '0.5rem 1rem' }} onClick={() => void loadSales()}>
+          <button className="ghost-button" style={{ padding: '0.5rem 1rem' }} onClick={() => void consultaVentas.refetch()}>
             🔄 Actualizar
           </button>
         </header>
@@ -293,7 +284,7 @@ export function HistoryScreen({
               return (
                 <button
                   key={sale.id}
-                  className={`sale-row ${sale.id === selectedSaleId ? 'selected' : ''}`}
+                  className={`sale-row ${sale.id === saleIdAbierta ? 'selected' : ''}`}
                   type="button"
                   style={{ 
                     padding: '1.25rem', 
@@ -302,7 +293,7 @@ export function HistoryScreen({
                     borderBottom: '1px solid var(--color-slate-100)',
                     opacity: isVoid ? 0.6 : 1
                   }}
-                  onClick={() => void loadSaleDetail(sale.id)}
+                  onClick={() => setSelectedSaleId(sale.id)}
                 >
                   <div className="sale-row-head" style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '1rem' }}>
                     <div>
@@ -347,7 +338,15 @@ export function HistoryScreen({
             <p>Auditoría completa de items, impuestos y estado legal</p>
           </div>
 
-          <div className="row-actions" style={{ marginTop: '1rem', display: 'flex', gap: '0.5rem' }}>
+          {/*
+            La disposición la decide `.row-actions`, no un `style` en línea.
+            Antes iba `display: flex` aquí, que pisa la hoja de estilos por especificidad:
+            tres botones en fila sin permiso para envolver, cada uno negándose a bajar de
+            su ancho de contenido. En el panel de detalle —340 px— el tercero se salía de
+            la ventana, y como el contenedor recorta, no había ni barra que lo delatara.
+            «Devolver» simplemente no existía para quien mirase la pantalla.
+          */}
+          <div className="row-actions" style={{ marginTop: '1rem' }}>
             <button 
               className="button button-sm ghost-button" 
               type="button" 
@@ -358,7 +357,10 @@ export function HistoryScreen({
               🖨️ Ticket
             </button>
             <PermissionGuard allowedPermissions={['sales:void', 'returns:create']}>
-              <div style={{ display: 'flex', gap: '0.5rem', flex: 2 }}>
+              {/* `contents` disuelve este envoltorio: los dos botones pasan a ser celdas
+                  de la rejilla de arriba, y envuelven con el resto en vez de competir
+                  entre ellos dentro de una caja que no cabe. */}
+              <div style={{ display: 'contents' }}>
                 <button
                   className="button button-sm"
                   type="button"
@@ -554,7 +556,7 @@ export function HistoryScreen({
               <button
                 className="danger-button"
                 type="button"
-                onClick={() => void handleVoidSale()}
+                onClick={handleVoidSale}
                 disabled={voidLoading || voidReason.trim().length < 3}
               >
                 {voidLoading ? 'Anulando...' : 'Confirmar anulación'}
@@ -568,14 +570,10 @@ export function HistoryScreen({
       ) : null}
 
       <ReturnSaleModal
-        api={api}
         saleDetail={selectedSaleDetail}
         isOpen={isReturnModalOpen}
         onClose={() => setIsReturnModalOpen(false)}
-        onSuccess={() => {
-          setIsReturnModalOpen(false);
-          void loadSales();
-        }}
+        onSuccess={() => setIsReturnModalOpen(false)}
       />
     </div>
   );

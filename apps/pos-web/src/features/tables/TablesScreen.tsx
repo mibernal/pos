@@ -18,6 +18,7 @@ import { useModules } from '../modules/FeatureModuleProvider';
 import type { AppRoute } from '../../types';
 import { useReservations } from '../reservations/api/reservations.api';
 import { format, startOfDay, endOfDay } from 'date-fns';
+import { tableKeys } from '../../shared/query-keys';
 
 export const TablesScreen: React.FC<{ onNavigate?: (route: AppRoute) => void }> = ({ onNavigate }) => {
   const queryClient = useQueryClient();
@@ -32,7 +33,7 @@ export const TablesScreen: React.FC<{ onNavigate?: (route: AppRoute) => void }> 
   const now = new Date();
   const dateFrom = startOfDay(now).toISOString();
   const dateTo = endOfDay(now).toISOString();
-  const { data: reservations } = useReservations(api, currentBranchId || '', dateFrom, dateTo);
+  const { data: reservations } = useReservations(currentBranchId || '', dateFrom, dateTo);
   
   const [waiterModalTableId, setWaiterModalTableId] = useState<string | null>(null);
   const [openTableModalId, setOpenTableModalId] = useState<string | null>(null);
@@ -46,7 +47,7 @@ export const TablesScreen: React.FC<{ onNavigate?: (route: AppRoute) => void }> 
     },
     onSuccess: () => {
       // toast.success('Mesero asignado exitosamente');
-      queryClient.invalidateQueries({ queryKey: ['rooms', currentBranchId] });
+      queryClient.invalidateQueries({ queryKey: tableKeys.rooms(currentBranchId) });
       setWaiterModalTableId(null);
     },
     onError: (err: Error) => {

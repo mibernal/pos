@@ -5,7 +5,37 @@ const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   PORT: z.coerce.number().int().positive().default(3000),
   REDIS_URL: z.string().url().default('redis://localhost:6379'),
+  /**
+   * Cuánto se espera una respuesta de Redis antes de darla por perdida.
+   *
+   * Sin esto, un Redis que acepta la conexión pero no contesta —un contenedor pausado, un
+   * balanceador que sostiene el socket, una conmutación a punto de terminar— deja la
+   * petición colgada para siempre: ioredis escribe el comando en un socket abierto y espera
+   * sin límite. Un timeout convierte ese silencio en un error, que es algo que el código sí
+   * sabe manejar.
+   *
+   * Dos segundos: dos órdenes de magnitud por encima de la latencia normal (menos de un
+   * milisegundo en la misma máquina, pocos entre nodos) y muy por debajo de lo que un
+   * cajero está dispuesto a esperar frente a un cliente.
+   */
+  REDIS_COMMAND_TIMEOUT_MS: z.coerce.number().int().positive().max(60_000).default(2_000),
   CORS_ALLOWED_ORIGINS: z.string().optional(),
+  /**
+   * Cuántos proxys hay delante de la API (o `true`/una lista de IP/CIDR), para Fastify.
+   *
+   * Sin esto, detrás de nginx o de un balanceador `request.ip` es la IP del proxy: todos los
+   * clientes parecen el mismo, y los límites por IP (login, refresh, registro, QR) se
+   * vuelven globales — treinta refrescos por minuto para *toda* la tienda. Por defecto no se
+   * confía en `X-Forwarded-For`, que un cliente directo podría falsificar.
+   */
+  TRUST_PROXY: z
+    .string()
+    .optional()
+    .transform((v): boolean | number | string => {
+      if (!v || v === 'false') return false;
+      if (v === 'true') return true;
+      return /^\d+$/.test(v) ? Number(v) : v;
+    }),
   DATABASE_URL: z
     .string()
     .min(1)
@@ -25,6 +55,10 @@ const envSchema = z.object({
   SALE_VOID_MAX_AGE_HOURS: z.coerce.number().int().positive().max(720).default(24),
   WOMPI_PUBLIC_KEY: z.string().optional(),
   WOMPI_EVENTS_KEY: z.string().optional(),
+  // Llave privada de Wompi. Solo se usa server-to-server: es la que autoriza a cobrar sobre
+  // una fuente de pago guardada, sin el tarjetahabiente delante. Nunca sale al frontend.
+  WOMPI_PRIVATE_KEY: z.string().optional(),
+  WOMPI_API_URL: z.string().url().default('https://production.wompi.co/v1'),
   MERCADOPAGO_ACCESS_TOKEN: z.string().optional(),
   MERCADOPAGO_WEBHOOK_SECRET: z.string().optional(),
   STRIPE_SECRET_KEY: z.string().optional(),
@@ -32,13 +66,37 @@ const envSchema = z.object({
   
   // Notification Service variables
   RESEND_API_KEY: z.string().optional(),
-  NOTIFICATION_PROVIDER: z.enum(['RESEND', 'SENDGRID']).default('RESEND'),
+  // `NONE` es para la instalación local sin internet: los correos se registran en el log y
+  // no se intenta enviarlos. `SENDGRID` sigue siendo un adaptador sin implementar.
+  NOTIFICATION_PROVIDER: z.enum(['RESEND', 'SENDGRID', 'NONE']).default('RESEND'),
+
+  /**
+   * Dónde corre esta instancia.
+   *
+   * `onprem` es la instalación en el equipo del comercio: un solo comercio, sin autoregistro,
+   * sin panel de plataforma ni pasarelas de pago, y con la suscripción gobernada por el
+   * archivo de licencia que verifica el worker (ver `docs/INSTALACION-ONPREM.md`).
+   */
+  DEPLOYMENT_MODE: z.enum(['cloud', 'onprem']).default('cloud'),
   
   // Billing Renewal Engine variables
   BILLING_MAX_RETRIES: z.coerce.number().int().default(3),
   BILLING_GRACE_PERIOD_DAYS: z.coerce.number().int().default(7),
   BILLING_TRIAL_DAYS: z.coerce.number().int().default(14),
   BILLING_SUSPENSION_AFTER_DAYS: z.coerce.number().int().default(30),
+  // Pasarela con la que se cobra solo. Las demás quedan como pago manual por checkout:
+  // solo Wompi expone fuentes de pago reutilizables en Colombia.
+  BILLING_RECURRING_GATEWAY: z.enum(['WOMPI', 'MOCK']).default('WOMPI'),
+  // IVA sobre el servicio, desglosado en la factura. 0.19 en Colombia.
+  BILLING_TAX_RATE: z.coerce.number().min(0).max(1).default(0.19),
+  BILLING_INVOICE_PREFIX: z.string().min(1).max(10).default('POS'),
+  // Días de plazo de la factura antes de considerarla vencida.
+  BILLING_INVOICE_DUE_DAYS: z.coerce.number().int().nonnegative().default(3),
+  // Descuento del ciclo anual, en porcentaje sobre doce mensualidades.
+  BILLING_YEARLY_DISCOUNT_PERCENT: z.coerce.number().min(0).max(90).default(15),
+  // A dónde manda el correo de cobranza. Sin esto los avisos dicen qué pasó pero no dónde
+  // arreglarlo, que es la mitad del trabajo.
+  BILLING_PORTAL_URL: z.string().url().optional(),
 
   // Platform Admin Cache TTLs
   CACHE_DASHBOARD_METRICS_TTL_S: z.coerce.number().int().nonnegative().default(120),
@@ -56,6 +114,24 @@ const envSchema = z.object({
       code: z.ZodIssueCode.custom,
       path: ['RESEND_API_KEY'],
       message: 'RESEND_API_KEY es obligatorio en producción si se usa RESEND'
+    });
+  }
+
+  // Sin `DATABASE_URL` explícita se caía al rol dueño del esquema (`pos:pos`), que salta la
+  // RLS si no hay FORCE: el aislamiento entre comercios dependería de no olvidar una variable.
+  if (value.NODE_ENV === 'production' && value.DATABASE_URL === 'postgres://pos:pos@localhost:5432/pos_dian') {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['DATABASE_URL'],
+      message: 'DATABASE_URL es obligatoria en producción y debe usar el rol pos_api (sin BYPASSRLS)'
+    });
+  }
+
+  if (value.NODE_ENV === 'production' && value.NOTIFICATION_PROVIDER === 'SENDGRID') {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['NOTIFICATION_PROVIDER'],
+      message: 'SENDGRID no está implementado: los correos se descartarían en silencio. Usa RESEND o NONE'
     });
   }
 
@@ -103,10 +179,27 @@ const envSchema = z.object({
   }
 });
 
+
+/**
+ * En un archivo `.env`, `FOO=` significa «sin configurar», no «cadena vacía». Pero para
+ * Node es una cadena vacía, que **no** es `undefined`: una variable declarada como
+ * `z.string().min(16).optional()` pasa el `optional()` y revienta contra el `min(16)`.
+ *
+ * Pasó de verdad: `.env.example` traía `METRICS_TOKEN=` y eso impedía arrancar la API y el
+ * worker con un error que no decía nada del `.env`. Aquí se normaliza antes de validar.
+ */
+function stripEmptyStrings(source: NodeJS.ProcessEnv): Record<string, string | undefined> {
+  const cleaned: Record<string, string | undefined> = {};
+  for (const [key, value] of Object.entries(source)) {
+    cleaned[key] = typeof value === 'string' && value.trim() === '' ? undefined : value;
+  }
+  return cleaned;
+}
+
 /**
  * Se exporta para poder probar las reglas de producción sin arrancar el proceso con esas
  * variables. `env` sigue siendo el objeto ya validado que usa el resto de la aplicación.
  */
-export { envSchema };
+export { envSchema, stripEmptyStrings };
 
-export const env = envSchema.parse(process.env);
+export const env = envSchema.parse(stripEmptyStrings(process.env));

@@ -6,19 +6,24 @@ interface WaiterModalProps {
   isOpen: boolean;
   onClose: () => void;
   waiter: Waiter | null;
-  onSave: (data: { name: string; pin: string | null; is_active: boolean }) => void;
+  // `undefined` deja el PIN como está, `null` lo quita, una cadena lo reemplaza.
+  onSave: (data: { name: string; pin?: string | null; is_active: boolean }) => void;
   isSaving: boolean;
 }
 
 export function WaiterModal({ isOpen, onClose, waiter, onSave, isSaving }: WaiterModalProps) {
   const [name, setName] = useState('');
   const [pin, setPin] = useState('');
+  const [removePin, setRemovePin] = useState(false);
   const [isActive, setIsActive] = useState(true);
 
   useEffect(() => {
     if (isOpen) {
       setName(waiter?.name ?? '');
-      setPin(waiter?.pin ?? '');
+      // El PIN nunca se precarga: el servidor no lo devuelve, y no debe. Dejarlo en blanco
+      // significa «no lo toques».
+      setPin('');
+      setRemovePin(false);
       setIsActive(waiter?.is_active ?? true);
     }
   }, [isOpen, waiter]);
@@ -27,9 +32,11 @@ export function WaiterModal({ isOpen, onClose, waiter, onSave, isSaving }: Waite
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    const trimmedPin = pin.trim();
+
     onSave({
       name: name.trim(),
-      pin: pin.trim() || null,
+      pin: removePin ? null : trimmedPin ? trimmedPin : undefined,
       is_active: isActive
     });
   };
@@ -54,18 +61,38 @@ export function WaiterModal({ isOpen, onClose, waiter, onSave, isSaving }: Waite
           </div>
 
           <div className="flex flex-col gap-1">
-            <label className="text-sm font-semibold">PIN de Acceso (Opcional)</label>
-            <input 
-              type="text" 
+            <label className="text-sm font-semibold">
+              {waiter?.has_pin ? 'Cambiar PIN' : 'PIN de Acceso (Opcional)'}
+            </label>
+            <input
+              type="password"
+              inputMode="numeric"
+              autoComplete="new-password"
               value={pin}
               onChange={(e) => setPin(e.target.value.replace(/\D/g, ''))}
-              maxLength={4}
-              className="p-2 border rounded border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500"
-              placeholder="Ej: 1234"
-              pattern="\d{4}"
-              title="Debe contener 4 dígitos"
+              disabled={removePin}
+              maxLength={6}
+              className="p-2 border rounded border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100"
+              placeholder={waiter?.has_pin ? 'Escribe uno nuevo para reemplazarlo' : 'Ej: 1234'}
+              title="Entre 4 y 6 dígitos"
             />
-            <span className="text-xs text-gray-500">Si se configura, se pedirá para tomar pedidos.</span>
+            <span className="text-xs text-gray-500">
+              {waiter?.has_pin
+                ? 'Este mesero ya tiene PIN. Déjalo en blanco para conservarlo.'
+                : 'Si se configura, se pedirá para tomar pedidos.'}
+            </span>
+
+            {waiter?.has_pin && (
+              <label className="flex items-center gap-2 text-xs text-gray-600 mt-1 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={removePin}
+                  onChange={(e) => setRemovePin(e.target.checked)}
+                  className="w-3.5 h-3.5 rounded"
+                />
+                Quitar el PIN de este mesero
+              </label>
+            )}
           </div>
 
           <div className="flex items-center gap-2 mt-2">

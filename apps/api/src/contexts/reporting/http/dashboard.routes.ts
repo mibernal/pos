@@ -99,8 +99,11 @@ export const dashboardRoutes: FastifyPluginAsync = async (app) => {
             chart_data: chartData
           };
 
-          const payload = JSON.stringify(responsePayload);
-          stream.writeEvent(payload);
+          // `writeEvent` serializa. Serializar aquí también mandaba por el cable una
+          // cadena JSON dentro de un JSON, y el navegador desenvolvía una sola capa: el
+          // cliente recibía un `string` donde esperaba el objeto, así que todos sus
+          // campos eran `undefined` y el panel enseñaba «$ NaN» donde va la caja del día.
+          stream.writeEvent(responsePayload);
           });
         } catch (err) {
           app.log.error(err, 'SSE Push error');

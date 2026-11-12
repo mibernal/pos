@@ -3,9 +3,13 @@ import { parseCorsAllowedOrigins, resolveCorsAllowedOrigins } from '../src/app/c
 
 describe('cors config', () => {
   it('uses localhost origins by default outside production', () => {
+    // El 5173 es el servidor de desarrollo; el 4173 es `vite preview`, contra el que corre
+    // el e2e del camino del dinero. En producción la lista sigue vacía por defecto.
     expect(resolveCorsAllowedOrigins('development', undefined)).toEqual([
       'http://localhost:5173',
-      'http://127.0.0.1:5173'
+      'http://127.0.0.1:5173',
+      'http://localhost:4173',
+      'http://127.0.0.1:4173'
     ]);
   });
 

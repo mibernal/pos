@@ -26,7 +26,16 @@ export const envSchema = z
     BILLING_MAX_RETRIES: z.coerce.number().int().default(3),
     BILLING_GRACE_PERIOD_DAYS: z.coerce.number().int().default(7),
     BILLING_TRIAL_DAYS: z.coerce.number().int().default(14),
-    BILLING_SUSPENSION_AFTER_DAYS: z.coerce.number().int().default(30)
+    BILLING_SUSPENSION_AFTER_DAYS: z.coerce.number().int().default(30),
+    /**
+     * `onprem`: instalación en el equipo del comercio. No corre el motor de cobro (no hay
+     * pasarela) y la suscripción la decide el archivo de licencia firmado.
+     */
+    DEPLOYMENT_MODE: z.enum(['cloud', 'onprem']).default('cloud'),
+    ONPREM_LICENSE_FILE: z.string().min(1).default('/licencia/licencia.json'),
+    // PEM de la llave pública Ed25519, o ese PEM en base64 (una sola línea, cómodo en .env).
+    ONPREM_LICENSE_PUBLIC_KEY: z.string().min(1).optional(),
+    ONPREM_LICENSE_CHECK_INTERVAL_MS: z.coerce.number().int().positive().default(6 * 60 * 60 * 1000)
   })
   .superRefine((value, ctx) => {
     // C11: Bloquear DIAN_PROVIDER=mock en producción — riesgo fiscal crítico.
@@ -68,5 +77,22 @@ export const envSchema = z
     }
   });
 
-export const env = envSchema.parse(process.env);
+
+/**
+ * En un archivo `.env`, `FOO=` significa «sin configurar», no «cadena vacía». Pero para
+ * Node es una cadena vacía, que **no** es `undefined`: una variable declarada como
+ * `z.string().min(16).optional()` pasa el `optional()` y revienta contra el `min(16)`.
+ *
+ * Pasó de verdad: `.env.example` traía `METRICS_TOKEN=` y eso impedía arrancar la API y el
+ * worker con un error que no decía nada del `.env`. Aquí se normaliza antes de validar.
+ */
+function stripEmptyStrings(source: NodeJS.ProcessEnv): Record<string, string | undefined> {
+  const cleaned: Record<string, string | undefined> = {};
+  for (const [key, value] of Object.entries(source)) {
+    cleaned[key] = typeof value === 'string' && value.trim() === '' ? undefined : value;
+  }
+  return cleaned;
+}
+
+export const env = envSchema.parse(stripEmptyStrings(process.env));
 

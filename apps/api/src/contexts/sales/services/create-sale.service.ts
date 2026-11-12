@@ -4,6 +4,8 @@ import type { Database } from '../../../shared/infra/db/schema.js';
 import type { Kysely } from 'kysely';
 import { AppError } from '../../../shared/infra/errors/app-error.js';
 import { normalizeSalePayments } from './payments.js';
+import { PaymentMethodsRepository } from '../infra/payment-methods.repository.js';
+import { ReceivablesService } from '../application/receivables.service.js';
 import { computeTaxes, type ComputeTaxesLineInput } from '../../../shared/domain/tax/index.js';
 import {
   getNextSaleNumberForBranchInTransaction,
@@ -20,6 +22,53 @@ import { TracerHelper } from '../../../shared/infra/tracing/Tracer.js';
 import { SemanticAttributes } from '../../../shared/infra/tracing/SemanticAttributes.js';
 import type { FastifyBaseLogger } from 'fastify';
 import type { CreateSaleBodyInput } from './schemas.js';
+import { allocateTip } from '@pos-dian/shared';
+import { modulesForTenantInTransaction } from '../../../shared/infra/entitlements/modules-in-transaction.js';
+
+/**
+ * Una sola vía de atribución del mesero.
+ *
+ * Dos cosas que no ocurrían. La primera: `waiterId` llegaba del cliente y se escribía tal
+ * cual, sin comprobar nada. La clave foránea solo exige que el mesero exista y no pasa por
+ * RLS, así que una venta podía quedar atribuida al mesero de otro comercio.
+ *
+ * La segunda: un mesero que entra con su propia cuenta y cobra su mesa dejaba la venta sin
+ * mesero, porque la pantalla solo manda `waiterId` cuando alguien lo elige a mano en el
+ * selector. Su ficha de personal existe y está ligada a su cuenta; usarla es exactamente
+ * para lo que está esa ligadura.
+ */
+async function resolveWaiterId(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  trx: any,
+  input: { tenantId: string; branchId: string; requestedWaiterId: string | null; userId: string }
+): Promise<string | null> {
+  if (input.requestedWaiterId) {
+    const mesero = await trx
+      .selectFrom('waiters')
+      .select('id')
+      .where('tenant_id', '=', input.tenantId)
+      .where('branch_id', '=', input.branchId)
+      .where('id', '=', input.requestedWaiterId)
+      .executeTakeFirst();
+
+    if (!mesero) {
+      throw new AppError(404, 'WAITER_NOT_FOUND', 'Ese mesero no existe en esta sucursal.');
+    }
+
+    return mesero.id;
+  }
+
+  const propio = await trx
+    .selectFrom('waiters')
+    .select('id')
+    .where('tenant_id', '=', input.tenantId)
+    .where('branch_id', '=', input.branchId)
+    .where('user_id', '=', input.userId)
+    .where('is_active', '=', true)
+    .executeTakeFirst();
+
+  return propio?.id ?? null;
+}
 
 interface CreateSaleServiceInput {
   db: Kysely<Database>;
@@ -37,6 +86,15 @@ interface SaleInsertItem {
   branch_id: string;
   sale_id: string;
   product_id: string;
+  /**
+   * El nombre con el que se vendió, congelado en la línea.
+   *
+   * Antes solo se guardaba el `product_id` y el nombre se resolvía con un join al mirar la
+   * venta, así que renombrar un producto reescribía el tiquete de una venta de hace meses.
+   * El importe ya se congelaba; esto congela la descripción, que en un documento fiscal
+   * pesa lo mismo. Ver la migración 111.
+   */
+  product_name: string;
   variant_id: string | null;
   qty: string;
   price_cents: number;
@@ -63,8 +121,6 @@ export async function createSaleService(input: CreateSaleServiceInput) {
     return { sale: existingSale, isIdempotentHit: true };
   }
 
-  const normalizedPayments = normalizeSalePayments(payload.payments);
-
   let createdSale: ReturnType<typeof loadExistingSaleByClientUuid> extends Promise<infer R> ? Exclude<R, null> : never;
   const maxNumberingAttempts = 2;
   let lastCreateError: unknown = null;
@@ -77,6 +133,47 @@ export async function createSaleService(input: CreateSaleServiceInput) {
       return db.transaction().execute(async (trx) => {
         // Configurar el contexto RLS para esta transacción
         await sql`SELECT set_config('app.current_tenant', ${tenantId}, true)`.execute(trx);
+
+        /**
+         * Los pagos se normalizan **dentro** de la transacción porque se validan contra el
+         * catálogo del comercio: qué medios existen, cuáles están encendidos y cuáles
+         * exigen referencia. Hacerlo fuera sería comprobar contra un catálogo que puede
+         * haber cambiado antes de que la venta se escriba.
+         */
+        const paymentCatalog = await PaymentMethodsRepository.loadCatalog(trx, tenantId);
+        const normalizedPayments = normalizeSalePayments(payload.payments, paymentCatalog);
+
+        /**
+         * Fiar exige saber a quién. Sin cliente, la venta a crédito no genera cuenta por
+         * cobrar y el importe desaparece: ni está en el cajón ni se le puede reclamar a
+         * nadie.
+         */
+        const creditCents = normalizedPayments.payments
+          .filter((payment) => payment.method === 'STORE_CREDIT')
+          .reduce((suma, payment) => suma + payment.amount_cents, 0);
+
+        if (creditCents > 0 && !payload.customer_id) {
+          throw new AppError(
+            400,
+            'CUSTOMER_REQUIRED_FOR_CREDIT',
+            'Una venta a crédito necesita un cliente identificado'
+          );
+        }
+
+        /**
+         * El cupo se comprueba aquí, con el lock del cliente tomado dentro de esta misma
+         * transacción. Comprobarlo antes y fiar después es la carrera por la que dos ventas
+         * simultáneas dejan a un cliente de 100.000 de tope debiendo 180.000.
+         */
+        let creditTermsDays = 30;
+        if (creditCents > 0) {
+          const cuenta = await ReceivablesService.assertCanTakeCredit(trx, {
+            tenantId,
+            customerId: payload.customer_id!,
+            amountCents: creditCents
+          });
+          creditTermsDays = cuenta.termsDays;
+        }
 
         let cashSession = await trx
           .selectFrom('cash_sessions')
@@ -132,20 +229,25 @@ export async function createSaleService(input: CreateSaleServiceInput) {
 
         const tenant = await trx
           .selectFrom('tenants')
-          .select([
-            'id', 
-            'tax_mode', 
-            'allow_negative_stock', 
-            'enable_tips as module_tips',
-            'enable_delivery as module_delivery',
-            'enable_product_modifiers as module_modifiers'
-          ])
+          .select(['id', 'tax_mode', 'allow_negative_stock'])
           .where('id', '=', tenantId)
           .executeTakeFirst();
 
         if (!tenant) {
           throw new AppError(404, 'TENANT_NOT_FOUND', 'Tenant no encontrado');
         }
+
+        /**
+         * Los módulos salen del plan y sus excepciones, no de las columnas `enable_*`.
+         *
+         * Esta consulta traía `enable_tips`, `enable_delivery` y `enable_product_modifiers`
+         * de `tenants` —las dos últimas ni siquiera se leían—. Desde la fase 7 esas columnas
+         * son una vista de compatibilidad que solo mantiene al día el alta por panel, así
+         * que un módulo concedido por override no llegaba hasta aquí: un comercio con
+         * propinas habilitadas recibía «Las propinas no están habilitadas para este
+         * comercio» al intentar cobrar una.
+         */
+        const tenantModules = await modulesForTenantInTransaction(trx, tenantId);
 
         const uniqueProductIds = [...new Set(payload.items.map((item) => item.product_id))];
         const products = await trx
@@ -294,6 +396,8 @@ export async function createSaleService(input: CreateSaleServiceInput) {
             branch_id: payload.branch_id,
             sale_id: saleId,
             product_id: item.product_id,
+            // El nombre de ahora, no el de cuando alguien mire la venta. Ver migración 111.
+            product_name: product.name,
             variant_id: item.variant_id ?? null,
             qty: item.qty.toString(),
             price_cents: effectivePriceCents,
@@ -330,7 +434,7 @@ export async function createSaleService(input: CreateSaleServiceInput) {
         }
 
         const tipCents = payload.tip_cents ?? 0;
-        if (tipCents > 0 && !tenant.module_tips) {
+        if (tipCents > 0 && !tenantModules.has('tips')) {
           throw new AppError(400, 'TIPS_NOT_ENABLED', 'Las propinas no están habilitadas para este comercio');
         }
         const totalCents = subtotalCents - payload.discount_cents + tipCents;
@@ -450,6 +554,13 @@ export async function createSaleService(input: CreateSaleServiceInput) {
           }
         }
 
+        const waiterId = await resolveWaiterId(trx, {
+          tenantId: tenantId!,
+          branchId: payload.branch_id,
+          requestedWaiterId: payload.waiterId ?? null,
+          userId
+        });
+
         const nextSaleNumber = await getNextSaleNumberForBranchInTransaction(trx, {
           tenantId,
           branchId: payload.branch_id
@@ -472,7 +583,7 @@ export async function createSaleService(input: CreateSaleServiceInput) {
             branch_id: payload.branch_id,
             cash_session_id: payload.cash_session_id,
             table_order_id: payload.table_order_id ?? null,
-            waiter_id: payload.waiterId ?? null,
+            waiter_id: waiterId,
             sale_number: nextSaleNumber,
             status: 'COMPLETED',
             subtotal_cents: finalSubtotalCents,
@@ -489,6 +600,54 @@ export async function createSaleService(input: CreateSaleServiceInput) {
           })
           .returning([...saleColumnList])
           .executeTakeFirstOrThrow();
+
+        const tipAllocation = allocateTip(
+          normalizedPayments.payments.map((payment) => payment.amount_cents),
+          tipCents
+        );
+
+        /**
+         * Los pagos, como filas. `payment_json` sigue guardándose —es lo que envió el
+         * cliente y sirve de respaldo— pero deja de ser la fuente de verdad: el arqueo y el
+         * Z leen de aquí, donde cada pago tiene su tipo, su referencia y su vuelto.
+         */
+        await trx
+          .insertInto('sale_payments')
+          .values(
+            normalizedPayments.payments.map((payment, index) => ({
+              id: randomUUID(),
+              tenant_id: tenantId!,
+              branch_id: payload.branch_id,
+              sale_id: saleId,
+              cash_session_id: payload.cash_session_id,
+              method_code: payment.method_code,
+              kind: payment.method,
+              amount_cents: payment.amount_cents,
+              tendered_cents: payment.tendered_cents ?? null,
+              change_cents: payment.change_cents ?? null,
+              reference: payment.reference ?? null,
+              // Qué parte de la propina llegó por este medio. Sin esto no se puede saber
+              // cuánta propina está en el cajón, y pagarla toda en efectivo sacaría de allí
+              // dinero que entró por tarjeta.
+              tip_cents: tipAllocation[index] ?? 0,
+              metadata_json: null
+            }))
+          )
+          .execute();
+
+        if (creditCents > 0) {
+          // El fiado deja de ser solo una etiqueta en el Z y pasa a ser una deuda con
+          // titular, importe y fecha de vencimiento.
+          await ReceivablesService.createForSale(trx, {
+            tenantId,
+            customerId: payload.customer_id!,
+            branchId: payload.branch_id,
+            saleId,
+            amountCents: creditCents,
+            termsDays: creditTermsDays,
+            now: new Date()
+          });
+        }
 
         await LedgerService.appendSalesLedger(trx, {
           tenantId,

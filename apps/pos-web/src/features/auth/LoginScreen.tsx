@@ -23,7 +23,7 @@ const InvoiceIcon = () => (
 );
 
 export function LoginScreen() {
-  const { authMessage, clearAuthMessage, login, logout, api } = useSession();
+  const { authMessage, clearAuthMessage, login, logout } = useSession();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [tenantOptions, setTenantOptions] = useState<{ id: string; name: string; business_name: string }[] | null>(null);
@@ -61,7 +61,6 @@ export function LoginScreen() {
   if (isRegistering) {
     return (
       <RegisterScreen 
-        api={api}
         login={login}
         onBack={() => setIsRegistering(false)} 
       />

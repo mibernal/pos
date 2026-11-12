@@ -1,6 +1,6 @@
 # Ruta a Producción
 
-Estado al **28 de agosto de 2026** (fases 0–4 cerradas en su parte de código). Este documento es el registro vivo del endurecimiento previo a producción: qué se cerró, con qué evidencia, y qué falta.
+Estado al **11 de septiembre de 2026**: cerradas las fases 0–4 en su parte de código y las 6–11 completas; la 5 sigue diferida y la 12 no ha empezado. Este documento es el registro vivo del endurecimiento previo a producción: qué se cerró, con qué evidencia, y qué falta.
 
 Punto de partida: auditoría sobre `main` del 25 de agosto de 2026. El sistema era funcionalmente rico y estaba operativamente roto — no compilaba, la base no se podía crear desde cero, y el CI llevaba meses sin ejecutar nada real. Nada de lo que sigue es opinión de diseño: son fallos que se reprodujeron y se corrigieron con una prueba que los cubre.
 
@@ -18,6 +18,13 @@ Punto de partida: auditoría sobre `main` del 25 de agosto de 2026. El sistema e
 | 3 | Hacerlo operable | ✅ Completada — 28 ago 2026 |
 | 4 | Cerrar el ciclo fiscal con el PAC real | ✅ Código completo — 28 ago 2026 · ⏳ falta la certificación con el PAC |
 | 5 | Escala horizontal | ⏳ Diferible hasta ~20 clientes |
+| 6 | Cerrar las fugas silenciosas (producto) | ✅ Completada — 30 ago 2026 |
+| 7 | Que el plan gobierne el producto | ✅ Completada — 30 ago 2026 |
+| 8 | Cobro recurrente que ocurre solo | ✅ Completada — 3 sep 2026 |
+| 9 | La caja completa | ✅ Completada — 4 sep 2026 |
+| 10 | El restaurante, completo | ✅ Completada — 4 sep 2026 |
+| 11 | Un frontend en el que se pueda seguir construyendo | ✅ Completada — 11 sep 2026 · `FE-03` a medias, ver abajo |
+| 12 | Convertir el POS en plataforma | ⏳ Sin empezar — bloques independientes |
 
 ---
 
@@ -176,11 +183,801 @@ No se factura automáticamente al marcar ENTREGADO porque una venta necesita tur
 
 ---
 
+## Fase 6 — Cerrar las fugas silenciosas ✅
+
+Primera fase de la ruta de producto (`auditoria_producto_2026-08-28.md`). Todos los
+defectos comparten una forma: **una capa se movió y las otras se quedaron**, y ninguno
+fallaba ruidosamente. Por eso llevaban meses ahí.
+
+### Lo que se corrigió
+
+**Alta de comercios sin suscripción.** El alta buscaba el plan por `billing_plans.name`
+mientras el catálogo se identifica por `id` (`'STARTER'` / `'Plan Starter'`). El formulario
+del panel arranca en `'STARTER'` y sus opciones valían `p.name`: un administrador que no
+tocaba el desplegable enviaba un identificador que la consulta no encontraba, y el
+`if (planRow)` se saltaba la creación de la suscripción **devolviendo 201**. Había dos
+comercios así en la base de desarrollo. Ahora `resolveBillingPlan` acepta id o nombre, un
+plan inválido es un 400, y los dos desplegables del panel envían el identificador.
+
+**El trial no podía montar el negocio.** `QuotaGuard` exigía `status = 'ACTIVE'` y el
+registro público crea la suscripción en `TRIAL`: durante los 14 días de prueba, crear un
+cajero o una segunda sucursal respondía `403 QUOTA_EXCEEDED · «No se encontró una
+suscripción activa»`. Ahora `TRIAL` y `PAST_DUE` (gracia) dan derecho, y «suscripción
+inactiva» dejó de disfrazarse de «cuota agotada» — que en el cliente web abre el modal de
+mejora de plan, inútil para quien está suspendido.
+
+**Bajas que no contaba nadie.** `cancelSubscription` escribía `'CANCELED'` con una ele
+mientras el tipo y las métricas consultan `'CANCELLED'`. Migración 091: normaliza el
+histórico, añade el `CHECK` que lo impide, y un índice único parcial que deja **una sola
+suscripción viva por comercio**. Todas las lecturas filtran por estado y ordenan: antes
+`executeTakeFirst()` devolvía una fila arbitraria, incluido el `plan_id` que se firma en el
+JWT.
+
+**Seis módulos que valían siempre falso.** Los macro-módulos de la migración 086 se leían
+en `buildAuthClaims` y no se seleccionaban en ninguna de las dos consultas de
+autenticación. No lo notaba nadie porque ninguna ruta los exige todavía; la primera que lo
+hiciera habría respondido 403 a todos los comercios. Hay una prueba que compara los claims
+contra las columnas de `tenants`, columna por columna.
+
+**Un plan anual concedía un mes.** `billing_cycle` se le pasaba a la pasarela para cobrar y
+la activación sumaba 30 días fijos.
+
+**Cobros que se perdían.** Las tres rutas de webhook respondían 200 a todo —firma inválida
+incluida— «para evitar reintentos maliciosos». Eso descarta también el reintento legítimo:
+un fallo nuestro procesando un pago aprobado se daba por entregado y el cobro desaparecía
+sin dejar rastro. Ahora el código HTTP depende de quién falló (400 la firma, 200 lo ajeno o
+ya aplicado, 500 lo nuestro), la migración 092 guarda el cuerpo crudo antes de intentar
+nada, y el importe se contrasta contra la transacción: la firma prueba el origen del
+mensaje, no la cifra.
+
+**El PIN del mesero era público.** `waiters.pin` se guardaba en claro, el repositorio hacía
+`selectAll()` y el esquema de respuesta lo incluía. `GET /branches/:id/waiters` está
+abierta a propósito a cualquiera con el módulo activo, así que **cualquier empleado podía
+leer el PIN de todos sus compañeros** desde la pestaña de red. Migración 094: Argon2 en
+`pin_hash`, como `users.pin_hash` desde la 056, y hacia fuera solo `has_pin`. Los PIN
+existentes hay que volver a asignarlos. De paso: dos meseros de la misma sucursal ya no
+pueden compartir PIN, editar el nombre ya no lo borra, y la sucursal de la URL se valida
+contra el comercio.
+
+**El informe de meseros salía vacío.** Unía `users.id = sales.waiter_id` cuando desde la
+migración 074 ese campo referencia `waiters.id`, y consultaba fuera de `executeAsTenant`,
+de modo que con RLS forzado `sales` devolvía cero filas.
+
+### Dos defectos que aparecieron al probarlo, no al leerlo
+
+1. **El webhook de pago nunca fijaba contexto de comercio.** Con el rol real de la API —sin
+   `BYPASSRLS`— la escritura de auditoría y las de la suscripción las denegaba Postgres: el
+   pago quedaba cobrado y sin aplicar. Ahora va dentro de `executeAsTenant`, como el webhook
+   de la DIAN. Con el rol dueño no se veía.
+
+2. **Migración 093 — los permisos por defecto pertenecían al rol equivocado.** La 089 dejó
+   configurados los `ALTER DEFAULT PRIVILEGES` y su propia nota lo dice: solo aplican a los
+   objetos creados por el rol que los configuró. En la base real estaban a nombre de
+   `postgres`, mientras que las migraciones corren como dueño del esquema. Es decir: **cada
+   tabla nueva de cada migración futura nacía invisible para la API**. Lo destapó la tabla
+   de la 092 al fallar dentro de su propio `catch`.
+
+### Y uno que solo se veía fuera de CI
+
+`inventory-stress.test.ts` sembraba el NIT fijo `'000000'` desde un `beforeAll` que corre
+aunque sus pruebas estén saltadas. En CI pasa porque la base nace vacía; en una base de
+desarrollo fallaba desde la segunda ejecución y arrastraba a toda la suite del API.
+
+**Criterio de salida — cumplido.** Un comercio se registra, monta usuarios y sucursales
+durante la prueba gratuita, paga un plan anual y recibe 365 días. El informe de meseros
+muestra nombres. `GET /waiters` no contiene ningún PIN. Un webhook con firma inválida
+responde 400 y queda registrado; uno que falla por nuestra causa responde 500 para que la
+pasarela reintente.
+
+Verificación: lint sin errores, typecheck 6/6, build 4/4 y **308 pruebas** (199 API, 60
+worker, 31 pos-web, 18 shared) contra PostgreSQL y Redis reales. 22 de ellas nuevas, una
+por defecto corregido.
+
+**Queda pendiente, y no es código:** los dos comercios sin suscripción de la base de
+desarrollo siguen sin plan asignado.
+
+---
+
+## Fase 7 — Que el plan gobierne el producto ✅
+
+**El problema.** El precio y las capacidades eran dos sistemas que nadie sincronizaba. Un
+plan era un registro con `price_cents` y un `features_json` de dos claves —`users` y
+`branches`—, y esas eran las **únicas** cuotas que se comprobaban en todo el sistema. Los
+módulos vivían en 21 columnas booleanas de `tenants` que un super-admin encendía a mano, sin
+relación con lo que el comercio pagaba. Vender un plan superior era, literalmente, editar la
+base de datos. Y como cada módulo nuevo exigía una columna, un claim del JWT, una rama de
+`switch` y una línea de frontend, el catálogo no podía crecer sin una migración.
+
+### Los entitlements pasan a ser datos
+
+Migración **095**: `plan_entitlements` (siete dimensiones limitables), `plan_modules`, y dos
+tablas de excepciones por comercio —módulos y límites— con **motivo y caducidad**. Un
+override sin motivo es un booleano suelto con otro nombre: dentro de seis meses nadie sabe
+por qué ese comercio tiene ese módulo.
+
+**La migración no le quita nada a nadie.** Los módulos de un comercio eran per-comercio, no
+per-plan, así que hay comercios con módulos que su plan no incluiría; apagárselos sería
+romperles el negocio para arreglar nuestro modelo. Cada uno se convirtió en una concesión
+explícita: **104 concesiones en 87 comercios**. Después de migrar, todos ven exactamente lo
+mismo que antes; lo que cambia es que ahora está escrito de dónde viene cada permiso.
+
+Migración **096**: RLS con `FORCE` en las dos tablas de excepciones, que llevan `tenant_id`.
+Las de plan quedan fuera a propósito — son catálogo global, como `billing_plans`.
+
+### Una sola fuente de verdad
+
+`EntitlementsResolver` resuelve módulos, límites y nivel de servicio por petición, con caché
+en Redis e invalidación explícita al cambiar plan, módulos u overrides. Dos consecuencias:
+
+- **Los módulos dejan de viajar firmados en el JWT.** Encender uno surte efecto en la
+  siguiente petición, sin cerrar sesión. Antes era imposible.
+- **El `switch` de 21 ramas de `requireModule` desaparece.** Era una de las cuatro copias
+  del mapa de módulos, y ya se había desincronizado de las columnas que decía representar
+  (fase 6, PL-06).
+
+Los claims del token se derivan de los módulos resueltos. Si salieran de las columnas, un
+cambio de plan movería lo que el backend permite sin mover lo que el frontend enseña. Una
+prueba nueva cazó exactamente esa deriva en `/auth/me`, que arma su DTO por su cuenta sin
+pasar por `buildAuthResponse`.
+
+### Cuotas sin carreras
+
+`EntitlementGuard` sustituye a `QuotaGuard`. Las dimensiones vienen del catálogo —añadir una
+es una fila, no un método— y el conteo se serializa con `pg_advisory_xact_lock` **dentro de
+la transacción que inserta**. El guard anterior contaba fuera de ella, así que dos peticiones
+simultáneas veían el mismo conteo y ambas pasaban: un plan de tres usuarios acababa con
+cuatro. Hay una prueba que lo reproduce.
+
+`monthly_sales` se mide y **no se bloquea**: cortar la facturación de un comercio a mitad de
+servicio no es una decisión que un límite comercial deba tomar.
+
+### La mora degrada, no apaga
+
+Hasta ahora el estado de la suscripción no se miraba en ninguna petición: lo único que
+bloqueaba era `tenants.status = 'SUSPENDED'`, y solo en el login. Una suscripción cancelada
+hacía meses seguía operando con normalidad — no había ninguna barrera técnica entre pagar y
+no pagar.
+
+Ahora se aplica en la capa de permisos, con una sola regla y sin tocar rutas: `PAST_DUE`
+apaga informes, catálogo, usuarios, sucursales, configuración y auditoría, y **deja la caja
+funcionando** — vender, cobrar, abrir y cerrar turno, cocina y mesas. Apagarle el punto de
+venta a quien debe dos semanas no acelera el pago: le hace perder el día y nos convierte a
+nosotros en el problema.
+
+### El cambio de plan se puede ver antes de hacerlo
+
+`POST /platform/tenants/:id/plan/preview` responde qué módulos gana y pierde, qué límites
+quedarían por debajo de lo que ya usa, y cuánto dinero implica. El cambio real **rechaza con
+409** una bajada que dejaría al comercio fuera de cuota, con el detalle de qué sobra; hay que
+reenviar con `force`. Antes era un `UPDATE plan_id` y el comercio quedaba permanentemente por
+encima de su límite sin que nadie se enterara hasta que llamaba.
+
+El prorrateo convierte el valor no consumido en días del plan nuevo y **no emite un cargo**:
+cuando se escribió esto no había cobro recurrente y emitirlo habría sido inventar un
+movimiento que nadie concilia. El `charge_cents` que devuelve es lo que la fase 8 ya sabe
+cobrar.
+
+**Criterio de salida — cumplido.** Crear un plan con sus módulos y límites, asignarlo y ver
+el cambio sin que nadie cierre sesión ni se toque una migración. Bajar de plan avisa
+exactamente qué queda fuera de cuota.
+
+Verificación: lint sin errores, typecheck 6/6, build 4/4 y **317 pruebas** (208 API, 60
+worker, 31 pos-web, 18 shared). 8 nuevas, entre ellas la de concurrencia y la de degradación.
+
+**Lo que queda de la fase, y es de interfaz:** el editor de límites y módulos existe como API
+(`PUT /platform/plans/:id/entitlements`) pero no tiene pantalla; el panel sigue editando
+módulos comercio por comercio. Y el portal del comercio no muestra todavía su consumo contra
+los límites, que ya expone `GET /platform/tenants/:id/usage`.
+
+---
+
+## Fase 8 — Cobro recurrente que ocurre solo ✅
+
+**El problema.** El motor de renovación existía desde el principio y no cobraba nada. Los
+cobros estaban comentados en el propio archivo:
+
+```ts
+if (sub.auto_renew && sub.payment_method_token) {
+  // Intentar cobrar
+  // MVP mock:
+  // await chargeMethod(...)
+}
+```
+
+Y `processTrialExpirations` llevaba un `// TODO: Si auto_renew es true, intentar cobrar el
+primer mes`. El scheduler corría todos los días, contaba suscripciones vencidas, escribía la
+cuenta en el log y no le cobraba a nadie. Un SaaS al que hay que perseguir el cobro a mano no
+escala más allá de los clientes que quepan en una hoja de cálculo.
+
+### El bloqueo que no bloqueaba
+
+Las tres funciones del motor reclamaban trabajo con este patrón:
+
+```ts
+const pendientes = await db.transaction().execute(async (trx) =>
+  trx.selectFrom('tenant_subscriptions')...forUpdate().skipLocked().execute()
+);                                    // ← la transacción hace COMMIT aquí
+for (const sub of pendientes) { ... } // ← y aquí ya no queda ningún lock
+```
+
+`FOR UPDATE SKIP LOCKED` reserva filas **mientras la transacción sigue abierta**. Al cerrarla
+para salir del `execute`, los locks se sueltan y dos instancias del worker reclaman
+exactamente las mismas suscripciones. Con los cobros comentados no se notaba. Con cobros de
+verdad es cobrarle dos veces al mismo comercio, que es la clase de error del que uno se
+entera por Twitter. `SU-01`
+
+Ahora el reclamo es una lectura sin locks —solo sirve para saber a quién mirar— y la
+exclusión vive dentro del cobro, en dos transacciones que toman `pg_advisory_xact_lock` sobre
+la suscripción:
+
+1. **Reservar** — dentro del lock: se confirma que sigue tocando cobrar, se emite o se
+   recupera la factura del periodo, se incrementa el intento y se deja una transacción
+   `PENDING`.
+2. **Aplicar** — dentro del lock otra vez: se asienta el resultado.
+
+La llamada a la pasarela va **entre** las dos, sin transacción abierta. Es deliberado:
+mantener una transacción —y un lock— abiertos durante una llamada HTTP que puede colgarse es
+cómo se agota un pool de conexiones un día de mucho tráfico. Lo que cubre ese hueco es la
+fila `PENDING` que deja la primera fase, que cualquier otro proceso ve al tomar el lock. Hay
+una prueba que lanza dos cobros simultáneos sobre la misma suscripción y comprueba que solo
+uno cobra.
+
+### Lo que hacía falta en el esquema
+
+Cobrar de verdad necesitaba cuatro cosas que no existían (migraciones 097 y 098):
+
+- **`tenant_payment_methods`** — el medio de pago sobrevive al checkout. Antes había una
+  columna `payment_method_token` suelta que no decía de qué pasarela era, cuándo vence ni si
+  sigue sirviendo. El número de la tarjeta no pasa por el servidor: lo tokeniza el navegador
+  con la llave pública y lo que se guarda es la fuente de pago de Wompi.
+- **`subscription_invoices`** — con consecutivo propio, IVA desglosado, líneas e histórico
+  descargable. Es tabla y no `SEQUENCE` a propósito: una secuencia de Postgres no retrocede
+  y deja hueco en cada transacción abortada, y un consecutivo de facturación con huecos es lo
+  primero que pregunta un auditor. `SU-06`
+- **`dunning_events`** — el rastro de la cobranza. Responde «¿por qué está suspendido este
+  comercio?» sin leer logs, y su índice único `(subscription_id, step, period_key, attempt)`
+  hace que el aviso de los siete días se mande **una sola vez** aunque el scheduler corra
+  cuatro veces al día.
+- **`billing_coupons`** y sus canjes, para conceder un descuento sin desplegar.
+
+Las 13 suscripciones activas que ya existían recibieron su `next_billing_at` en la propia
+migración: el cobro recurrente empieza a aplicar sobre la cartera existente sin que nadie
+toque una fila a mano.
+
+### La secuencia de cobranza, escrita
+
+Aviso a 7 días → aviso a 3 días → cobro → tres reintentos a 24 h, 72 h y una semana →
+periodo de gracia → degradación → suspensión. Cada paso deja su evento y manda su correo.
+
+El backoff crece a propósito: un rechazo por fondos insuficientes se resuelve cuando entra la
+nómina, no en la hora siguiente. Reintentar cada hora solo consigue que el banco marque la
+tarjeta y que el comercio reciba seis correos.
+
+La degradación es la de la fase 7 y no se tocó: `PAST_DUE` apaga informes y configuración y
+**deja la caja funcionando**. Apagarle el punto de venta a un comercio en mora no acelera el
+pago, le hace perder el día y nos convierte a nosotros en el problema.
+
+La salida es igual de automática que la entrada: registrar una tarjeta programa el reintento
+para ya mismo, así que un comercio suspendido que arregla su medio de pago vuelve solo en la
+siguiente pasada del motor, sin buscar ningún botón y sin que nadie de plataforma toque
+nada.
+
+### Wompi como pasarela del cobro automático
+
+De las tres integradas, es la que expone fuentes de pago reutilizables en Colombia.
+MercadoPago y Stripe siguen sirviendo para el pago manual por checkout. Prometer cobro
+automático sobre una pasarela que no lo soporta sería peor que no ofrecerlo: el comercio deja
+de vigilar su factura y la suscripción se le cae.
+
+La pasarela de mentira decide el resultado por el token de la tarjeta —uno que contenga
+`DECLINE` se rechaza siempre— así que la secuencia entera se ensaya en segundos con el reloj
+adelantado, sin depender de la caja de arena de nadie.
+
+### El portal del comercio
+
+Hasta ahora la única pantalla de cobro era el checkout: se pagaba y no se volvía a ver nada.
+`GET /billing/portal` devuelve en una petición el plan, el consumo contra los límites, el
+medio de pago, las facturas y el rastro de la cobranza —que también cierra lo que quedaba
+pendiente de la fase 7—. Hay un botón de «cóbrame ahora» para quien arregla la tarjeta a las
+nueve de la mañana y no quiere esperar tres días al reintento programado, y la factura se
+abre imprimible en HTML: se guarda como PDF desde el navegador y no arrastra una dependencia
+de composición al servidor para un documento de doce líneas.
+
+El panel de plataforma gana `Ingresos`: MRR, ARR, ingreso por cuenta, churn a 30 días y —lo
+que antes no se podía medir— **lo efectivamente cobrado frente a lo facturado**. La
+diferencia entre esas dos cifras es la que dice si la cobranza funciona.
+
+### Cuatro defectos que encontraron las pruebas, no la lectura
+
+- Una suscripción sin medio de pago quedaba en mora **sin factura**. Se le decía al comercio
+  «no pudimos cobrarte» sin decirle cuánto debe ni dónde pagarlo. Ahora la factura se emite
+  igual: el periodo transcurre y se debe, se pueda cobrar o no.
+- Un fallo al invalidar la caché tumbaba el cobro entero. El dinero ya se había movido:
+  propagar ese error dejaba la factura sin asentar. La caché caduca sola en cinco minutos; el
+  cobro se asienta igual.
+- **La suspensión era un callejón sin salida.** El login devolvía 403 a cualquiera de un
+  comercio suspendido, con un «contacta al administrador de la plataforma» heredado de cuando
+  suspender era una decisión humana. Ahora que la decide el motor de cobro, el correo de
+  suspensión decía «con un pago se reactiva todo», el comercio hacía clic y no podía ni
+  entrar a pagar: la única salida era que alguien de plataforma interviniera a mano, que es
+  justo lo que el cobro automático viene a evitar. El dueño y el administrador entran ahora,
+  y solo para eso: el nivel de servicio sigue siendo `BLOCKED` y `requirePermissions` deniega
+  todo lo demás. El resto del equipo sigue fuera, porque solo vería errores.
+- **Y el peor de los cuatro.** Al suspender, la factura se marca incobrable. El índice único
+  `(subscription_id, period_start)` incluye esas, así que cuando un comercio suspendido
+  registraba una tarjeta, el cobro recuperaba la factura vieja, la liquidación exigía `OPEN`
+  y no hacía nada — **después** de que la pasarela hubiera cobrado. El comercio pagaba y
+  seguía suspendido. Ahora una factura incobrable se reabre al intentar cobrarla otra vez:
+  mismo número, y el histórico cuenta lo que pasó de verdad.
+
+Los cuatro son del mismo tipo: código que se lee bien y hace algo distinto de lo que dice.
+Ninguno se veía sin recorrer el ciclo entero contra PostgreSQL.
+
+**Criterio de salida — cumplido.** Una suscripción llega a su vencimiento y se cobra sola. Un
+cobro rechazado recorre los reintentos, avisa, degrada y suspende sin intervención. Las nueve
+pruebas nuevas lo recorren entero con el reloj adelantado y **con la conexión de la app**,
+que usa el rol restringido sin BYPASSRLS: con la conexión administrativa pasarían en verde y
+el motor no cobraría nada el día del despliegue.
+
+**Lo que queda fuera:** el ensayo contra el ambiente de pruebas de Wompi con llaves reales.
+El código está y la variable `WOMPI_API_URL` existe para apuntar al sandbox; falta hacerlo con
+una cuenta.
+
+### Antes de encender el motor en producción
+
+La migración le puso `next_billing_at` a las suscripciones que ya existían, así que **en la
+primera pasada el motor las mira todas**. En la base de desarrollo eso son 12 suscripciones
+activas ya vencidas y ninguna con medio de pago registrado: la primera ejecución les emitiría
+su factura y las dejaría en `PAST_DUE` —degradadas, con la caja funcionando— y siete días
+después las suspendería.
+
+Es el comportamiento correcto y no debe sorprender el día del despliegue. Antes de encender
+el scheduler conviene decidir una de estas tres:
+
+1. **Avisar y dar plazo**: correr una vez `UPDATE tenant_subscriptions SET next_billing_at =
+   now() + interval '30 days'` sobre la cartera existente, mandar el aviso de renovación y
+   dejar que registren tarjeta durante ese mes.
+2. **Cobrar desde el principio** a quien ya venía pagando por otro medio, registrando su
+   método de pago primero.
+3. **Excluir la cartera antigua** dejándole `auto_renew = false`: seguirán recibiendo factura
+   y podrán pagarla a mano desde el portal.
+
+La primera es la que menos ruido genera. Lo que no conviene es encender el motor sin elegir:
+doce comercios degradados el mismo día son doce llamadas a soporte.
+
+---
+
+## Fase 9 — La caja completa ✅
+
+**El problema no eran los medios de pago que faltaban.** Era que los pagos no eran filas.
+Vivían dentro de `sales.payment_json`, un blob sin forma fija, y de ahí salían tres cosas
+que no se hablaban entre ellas:
+
+- `cash-sessions-service.ts` tenía una lista de **quince rutas posibles** dentro del JSON
+  —`cash_cents`, `cash.amount_cents`, `amounts.cashAmountCents`, `breakdown.cash_cents`…—
+  para adivinar cuánto efectivo había entrado, y si no encontraba ninguna miraba si la
+  palabra del método era «cash» y daba por efectivo el total entero de la venta. Esa lista
+  era el fósil de un formato que cambió varias veces sin migrar lo anterior. Adivinar el
+  dinero de un arqueo es la peor forma de calcularlo: cuando acierta nadie lo comprueba, y
+  cuando falla el cajero se come la diferencia.
+- El cierre de caja construía el desglose con un objeto literal de tres claves y un
+  `if (methodRevenues[method] !== undefined)`: cualquier medio que no fuera efectivo,
+  tarjeta o transferencia **se descartaba en silencio**.
+- El informe de ingresos repetía esa suma por su cuenta, en otro archivo, trayendo a memoria
+  el `payment_json` de todas las ventas del rango.
+
+Con `sale_payments` (migración 099, con backfill del histórico) el arqueo y el Z son un
+`GROUP BY`, y el desglose lo arma una sola función compartida entre backend y frontend.
+
+### El medio de pago pasa a ser un comportamiento
+
+No un nombre. Tres grupos, según lo que le hacen al dinero:
+
+| Grupo | Medios | Qué le hace al turno |
+|---|---|---|
+| En el cajón | efectivo | Suma al efectivo esperado |
+| Cobrado electrónicamente | tarjeta, transferencia, billeteras QR | Entra dinero, pero no al cajón |
+| Sin entrada de dinero | fiado, bono, puntos, vales | La venta se cierra y no entra dinero hoy |
+
+El tercero es el que no existía y el que más descuadra cajas: un fiado sumado a lo recaudado
+hace que el turno cuadre sobre dinero que nadie recibió. Ahora el Z dice qué vendiste, qué
+cobraste y qué te deben, que son tres números distintos.
+
+El catálogo por comercio hace que añadir «Nequi» sea una fila y no un despliegue. Lo que no
+es configurable es el comportamiento: declarar efectivo sobre el código de una billetera se
+rechaza, porque metería en el arqueo dinero que nunca estuvo ahí.
+
+**Recibido y vuelto** (`CA-02`): se guardan ambos, y el cajón se calcula con el importe
+aplicado a la venta, no con lo entregado —el vuelto sale del mismo cajón, así que sumarlo
+sería contarlo dos veces—.
+
+### El fiado, como cuenta por cobrar
+
+Cupo por cliente, abonos imputados del documento más antiguo al más nuevo, y estado de
+cuenta. En una tienda de barrio esto no es una función avanzada: es la forma normal de
+vender a la clientela conocida.
+
+**El detalle que decide si la caja cuadra:** un abono en efectivo pone plata en el cajón sin
+que haya ninguna venta. Los abonos guardan su turno y llegan al arqueo; sin eso, el turno
+cerraría con sobrante justo los días en que la gente viene a pagar lo que debe. En el Z
+salen como línea propia para que «¿cuánto vendí hoy?» siga teniendo respuesta.
+
+El saldo se deriva de los documentos pendientes, nunca se guarda como contador —un contador
+desincronizado miente con confianza, y aquí mentiría sobre cuánto le debe una persona a
+otra—. El cupo se comprueba con `pg_advisory_xact_lock` por cliente dentro de la transacción
+que fía: sin él, dos ventas simultáneas leen el mismo saldo y un cliente de 50.000 de tope
+acaba debiendo 60.000.
+
+### La propina se liquida
+
+`tip_cents` existía desde la migración 063 y su único lector era un `SUM` del informe de
+meseros. La propina en efectivo **está** en el cajón y el arqueo la cuenta bien; el problema
+es que cuando el mesero se lleva lo suyo sale dinero que nadie registraba, y aparecía un
+faltante exacto del tamaño de las propinas cada noche. Ahora la liquidación genera su
+movimiento de caja.
+
+La propina cobrada con tarjeta es otra cosa: no está en el cajón, la recibió el comercio y se
+la debe al mesero. Pagarlas igual sacaría del cajón un dinero que nunca entró en él.
+
+En una venta mixta se reparte en proporción a lo pagado por cada medio. Es una convención
+—el cliente no dijo con qué medio la dejaba— pero es la única que reparte sin inventar y,
+sobre todo, es una sola, escrita en un sitio.
+
+### Conciliación de tarjeta
+
+`CA-05` queda a medias **a propósito**. La integración directa con Redeban o Credibanco
+necesita una cuenta y credenciales del comercio, así que no está. Lo que sí está es el cierre
+de lote: se captura el total que imprime el datáfono y el sistema dice al momento si coincide
+con lo que registró y en qué se diferencia, con los códigos de aprobación para buscar el que
+sobra. Es la mayor parte del valor sin depender de un tercero; cuando exista el conector, lo
+único que cambia es de dónde salen esas cifras.
+
+### Tres defectos que encontraron las pruebas
+
+- **Un comercio que se registra solo por la web nacía sin catálogo de medios.** Podía cobrar
+  con los tres por defecto, pero no tenía nada que activar en su configuración.
+- **La creación de ventas comprobaba el módulo de propinas contra `tenants.enable_tips`.**
+  Desde la fase 7 esas columnas son una vista de compatibilidad que solo mantiene al día el
+  alta por panel, así que un comercio con propinas concedidas por override recibía «Las
+  propinas no están habilitadas» al intentar cobrar una. De paso salieron dos selects
+  muertos: `enable_delivery` y `enable_product_modifiers` se traían sin que nadie los leyera.
+- **La división de cuenta por montos nunca llegó al cobro.** El hook la soportaba desde la
+  fase 1 y el modal no le pasaba la prop; era un `TODO` documentado. `CA-04`
+
+**Criterio de salida — cumplido.** Un turno que mezcla efectivo con vuelto, Nequi, un fiado y
+propina repartida cierra con diferencia cero, y cada medio aparece desglosado en el Z. Ese Z
+se congela al cerrar: reimprimirlo tres meses después devuelve lo que dijo entonces, aunque
+desde entonces se hayan anulado ventas o renombrado medios.
+
+---
+
+## Fase 10 — El restaurante, completo ✅
+
+**El problema.** El módulo mejor construido del sistema —inventario con ledger inmutable y
+bloqueo pesimista— no le servía al vertical que mejor cubrimos. Vender una hamburguesa
+descontaba «hamburguesa»: un producto que nadie almacena, mientras el pan, la carne y el aceite
+se consumían sin que el sistema se enterara. Alrededor de eso, el mesero era dos cosas a la vez
+sin ser ninguna del todo, `enable_waiter_shifts` era un flag sin nada detrás, y el menú QR
+publicaba la carta para que el comensal la mirase.
+
+Migraciones 106 a 110. Decisiones en D-064…D-067.
+
+### Lo vendido se convierte en lo consumido
+
+`product_recipes` y `recipe_components` describen de qué está hecho un plato, con recetas
+anidadas —una salsa es un producto con receta propia que entra en otra—. Antes de tocar los
+balances, `expandDemand` traduce lo vendido a lo consumido: si el producto tiene receta activa
+bajan sus ingredientes con operación `RECIPE`; si no, baja él con `SALE` (D-064). De la misma
+expansión salen el coste teórico, el margen por plato y la desviación contra el conteo físico.
+
+La expansión vive en el API aunque quien descarga sea el worker, y a propósito: el informe de
+desviación usa exactamente el mismo cálculo, y con dos implementaciones ese informe mediría la
+diferencia entre dos programas en vez de entre la receta y la realidad.
+
+**El detalle que habría duplicado un descargo.** La guarda de idempotencia del worker buscaba
+un movimiento `SALE` para saber si ya había descargado. Una venta de platos con receta no deja
+ninguno —deja `RECIPE`—, así que el reintento del job habría vuelto a descontar el inventario
+entero.
+
+### El mesero, una identidad y un turno
+
+`waiter-shifts.service.ts` abre y cierra turno, asigna mesas al mesero del turno y verifica el
+PIN contra el Argon2 que la fase 6 ya había puesto en `pin_hash`. La ficha de personal sigue
+siendo la fila de `waiters` y la cuenta de acceso sigue siendo opcional (D-046): lo que se
+unificó es la atribución, que ahora tiene una sola vía.
+
+**El turno no se guarda en la venta.** No hay columna de turno en `sales`: el corte son las
+ventas de ese mesero entre la apertura y el cierre, y la deducción es exacta porque un índice
+único parcial impide dos turnos abiertos del mismo mesero. Al cerrar, el corte se congela en
+`summary_json` y deja de recalcularse — anular una venta tres días después no puede reescribir
+el papel que el mesero se llevó a casa (D-065).
+
+### Lo que mide el encargado
+
+Cuatro informes: rotación de mesa, tiempo de cocina, ventas por franja e ingeniería de carta.
+El segundo obligó a tocar el esquema. `kitchen_tickets` solo tenía `updated_at`, que se pisa en
+cada cambio y por tanto significa cosas distintas según el estado en que quedó cada ticket;
+ahora `started_at`, `ready_at` y `delivered_at` se escriben una sola vez cada una (D-067). No
+se rellenaron hacia atrás: de un ticket anterior no se sabe cuándo estuvo listo, y un informe
+que arranca sin historia es mejor que uno que arranca con una media inventada.
+
+### El comensal pide desde su mesa
+
+`POST /public/qr/:token/orders` crea el pedido sobre la misma infraestructura de mesas y KDS
+que usa el salón. El token de mesa es la credencial de escritura y vive en `qr_table_tokens`,
+una tabla sin RLS y sin más contenido que identificadores: de qué comercio es la petición hay
+que resolverlo **antes** de poder fijar el contexto de tenant, y en `tables`, con RLS forzado,
+esa consulta devuelve cero filas siempre (D-066). Se descartó meter el `tenant_id` dentro del
+token: dejar que una petición anónima elija bajo qué comercio corre una transacción no es una
+frase que deba existir en este código.
+
+Los precios los pone el servidor. Si vinieran del móvil del comensal, la carta sería una
+sugerencia.
+
+**Lo que no entró: el cobro.** El comensal pide y puede pedir la cuenta; el cobro sigue
+ocurriendo en la caja. Es media función de la que más piden, y está anotada como tal.
+
+**Criterio de salida — cumplido.** Una prueba recorre el servicio entero: el mesero entra con
+PIN y abre turno, toma el pedido, la cocina lo despacha, la cuenta se divide y se cobra, el
+inventario baja por ingrediente y no por plato, y el cierre del turno liquida las propinas.
+
+---
+
+## Fase 11 — Un frontend en el que se pueda seguir construyendo ✅
+
+**El problema.** `App.tsx` resolvía la pantalla con un `if/else` de 381 líneas. No había URL
+por pantalla: el botón atrás sacaba de la aplicación y recargar volvía al inicio, que en una
+tablet de salón significa perder el pedido en curso. El backend se llamaba de dos maneras —el
+cliente pasado como prop desde `App.tsx`, sin caché ni invalidación, y hooks de React Query—,
+con veinte llamadas manuales al cargador repartidas por las pantallas para refrescar después de
+escribir. Decisiones en D-068…D-072.
+
+### Cada pantalla tiene su URL
+
+`react-router-dom` estaba en `package.json` desde hacía meses sin que lo importara ningún
+archivo. Ahora el armazón son `AppShell`, `AppRoutes`, `RouteGuard` y `route-elements`: URL por
+pantalla, carga diferida por ruta y la guarda escrita **en la definición de la ruta**.
+
+Eso último no es organización, es una corrección. La guarda estaba escrita dos veces —una para
+decidir si la pantalla aparece en el menú, otra al renderizarla— y las dos copias habían
+divergido: el menú escondía el KDS a quien no tuviera `kitchen_display` mientras la pantalla
+solo exigía `kitchen`. Hoy las dos preguntas las responde la misma función, que además devuelve
+el motivo y no un booleano, porque a quien llega por un enlace guardado le falta o un permiso o
+el plan, y son cosas distintas que se arreglan en sitios distintos.
+
+### El cliente deja de ser un prop, y las claves viven en un solo sitio
+
+`useApi()` sustituye al prop, y las 34 pantallas consultan con React Query. Las veinte llamadas
+manuales al cargador después de escribir pasaron a ser invalidaciones.
+
+Las claves de los dieciséis dominios salen de `shared/query-keys`, con el ámbito primero
+(`tenant`, `branch`, `platform`, `public`) para poder invalidar una sucursal entera en una
+línea y para que cambiar de comercio no deje migas del anterior (D-069). Una clave es un
+contrato entre quien consulta y quien invalida, y escrita a mano en dos archivos se puede
+escribir mal en uno solo sin que se note leyendo cualquiera de los dos: enviar un curso a
+cocina invalidaba `['kitchen-tickets', branchId]`, una clave que no consulta nadie —el KDS lee
+`['kds-tickets']`—, así que el tablero solo se refrescaba si el socket llegaba a tiempo. Esa
+invalidación no hizo nada desde el día en que se escribió.
+
+### El contrato empieza a decir qué devuelve cada ruta
+
+El plan pedía generar el cliente desde el OpenAPI. Lo primero que apareció al intentarlo es que
+**no había OpenAPI**: `registerSwagger` no iba envuelto en `fastify-plugin`, así que decoraba
+una instancia hija y `/docs` llevaba tiempo documentando **cero rutas**. Es el mismo fallo que
+tuvo el manejador de errores (D-044), en otro plugin.
+
+Con el contrato publicándose de verdad: `openapi.json` y `apps/pos-web/src/lib/api/schema.d.ts`
+se generan y CI falla si el contrato cambió y no se regeneraron. De 193 operaciones, 31
+declaraban su respuesta; se enchufaron las cinco del camino del dinero y eso destapó siete
+divergencias reales entre lo que la API promete y lo que devuelve (abajo). Las 157 restantes
+están en una lista con candado —`contrato-respuestas.test.ts` falla si aparece una nueva y
+también si una apuntada se resolvió y nadie la tachó, porque una lista que no se vacía sola
+deja de contarse (D-070)—.
+
+Declarar la respuesta tampoco es documentar: Fastify serializa a través del esquema y recorta
+lo que no esté en él, así que sin declararla sale por el cable lo que el handler haya
+seleccionado de más —un `password_hash` arrastrado por un join, por ejemplo— y ninguna prueba
+se entera.
+
+### El camino del dinero, en un navegador
+
+Playwright en CI, bloqueando el merge: cobrar, cortar la red, encolar la venta, reconectar y
+sincronizar, y recargar la pantalla para comprobar que vuelve donde estaba. La impresión sigue
+sin cubrirse; es lo único de la lista del plan que el e2e no toca.
+
+### Un Redis mudo dejaba al comercio sin caja
+
+Lo más grave de la fase no estaba en la lista de la fase. Un Redis que **acepta la conexión y
+no responde** —un contenedor en pausa detrás del reenvío de puertos de Docker— colgaba
+`/auth/login`, `/auth/refresh` y el propio `/health` para siempre: el limitador de intentos
+corre antes que nada y la API se quedaba esperando un comando que nunca volvía. Sin error, sin
+log, y sin que el health check lo delatara porque se colgaba en el mismo `ping`. El POS entero
+caído en silencio porque un caché de límite de intentos parpadeó.
+
+Corregido en tres capas (D-068): `commandTimeout` y `connectTimeout` en el cliente —
+`maxRetriesPerRequest` no protege de esto, porque solo cuenta reintentos entre reconexiones y
+no hay reconexión si el socket sigue abierto—; el limitador se degrada a un contador en memoria
+y avisa por el log mientras dura, porque es una defensa y no una regla de negocio; y `/health`
+gana un límite por comprobación, ya que un health check que no responde es peor que no tenerlo:
+el balanceador espera y nunca llega a marcar la instancia como enferma, que es lo único para lo
+que existe.
+
+De paso se quitó el `catch` a secas del login, que convertía cualquier fallo de Redis en un 429
+«demasiados intentos» — un mensaje falso del que además no se salía esperando, porque no había
+ningún contador que expirar.
+
+### Lo que el contrato prometía y no cumplía
+
+- `tax_lines_json` y `payment_json` viajaban como `unknown` hasta el navegador, donde el
+  frontend los trataba como tipos garantizados que nadie garantizaba. Ahora se parsean con su
+  esquema al salir del mapeador de ventas. Las líneas de impuesto degradan a vacío; el medio de
+  pago **revienta**, porque no existe relleno honesto para «cómo se pagó» y cualquier valor por
+  defecto sería afirmar algo falso sobre dinero (D-071).
+- `product_name` podía ser nulo mientras el contrato lo prometía presente: el tiquete habría
+  impreso «null».
+- `createSale` escribía `label` y `change_cents`, dos campos que el esquema rechaza. Se
+  declararon en vez de dejar de escribirse: hay ventas guardadas que los tienen y tienen que
+  seguir leyéndose.
+
+### La aplicación se salía de la pantalla en la que se usa
+
+Fuera del plan. Un hijo de grid nace con `min-width: auto` —«no me encojas por debajo del ancho
+mínimo de mi contenido»—, de modo que la columna implícita del armazón se dimensionaba al
+contenido más ancho y arrastraba la barra superior fuera de la ventana: **203 px de más en un
+móvil de 375**, 118 en una tablet de 768. En una tablet de salón eso es arrastrar la interfaz
+de lado para encontrar el botón de cobrar.
+
+`.app-shell` declara ahora `grid-template-columns: minmax(0, 1fr)`, `.topbar-user` envuelve, y
+los controles suben a 44 px bajo `hover: none` —acotado a punteros gruesos, porque con ratón
+sobran y solo gastarían barra—. No se veía leyendo el CSS: se vio midiendo el documento en un
+navegador. Por eso la garantía que queda es una medición y no una regla de estilo:
+`e2e/responsive.spec.ts` recorre siete pantallas a 375, 768 y 1024 px y nombra al elemento
+culpable cuando falla (D-072).
+
+### La misma medición, hecha bien, destapó cuatro cosas más
+
+La prueba anterior no probaba nada y daba tranquilidad, que es lo peor que puede hacer una
+prueba: navegaba con `page.goto`, que recarga, y como el contexto de caja vive en memoria cada
+recarga volvía a «Selecciona una Sucursal». Siete pantallas medidas, una pantalla real.
+Reescrita para navegar **pulsando** y para mirar la caja de cada control contra la ventana —no
+el ancho del documento— a cinco anchos, encontró esto (D-073):
+
+**El historial recortaba «Devolver»** —lo reportado—. Un `display: flex` en línea pisaba
+`.row-actions` por especificidad: tres botones sin permiso para envolver dentro de un panel de
+340 px. El contenedor recorta, así que no había ni barra que lo delatara.
+
+**Tres ajustes de administración eran inalcanzables en móvil, en todas las pantallas.** Los
+siete botones de icono de la barra miden ~546 px en una línea, más que un teléfono entero: 🔑
+PIN de aprobación, ⚙️ configuración de negocio y 📄 DIAN quedaban fuera. Ahora las acciones se
+declaran como datos y se dibujan de dos maneras —iconos en la barra por encima de 1024 px,
+filas con su nombre dentro del cajón por debajo—, sin duplicar las condiciones de permiso
+(D-074).
+
+**En un teléfono no se veía ninguna venta, ni el catálogo.** Medido a 375 px: la lista del
+historial recibía **34 px** para 676 px de contenido, y el catálogo del POS 257 px para 681,
+los dos con `overflow: hidden`. Una pista `auto` se queda con el alto de su contenido y a la
+`1fr` le deja lo que sobre; cuando no sobra, cae a su mínimo. Un panel con alto impuesto y
+`overflow: hidden` no recorta: borra. Por debajo de 768 px las pantallas se apilan y se
+desplazan (D-075).
+
+**El panel de producto seguía en el orden de tabulación estando cerrado.** `translate-x-full`
+lo mueve, no lo quita: con el teclado se recorría un formulario invisible entero y un lector de
+pantalla lo anunciaba. Lleva `inert` mientras está cerrado (D-076).
+
+### Y una captura destapó un defecto que no era de CSS
+
+Reportes enseñaba **«$ NaN»** en «Ventas de Hoy» y en «Valor del Inventario». La ruta
+serializaba el payload y `writeEvent` lo serializaba otra vez: por el cable viajaba un JSON
+dentro de un JSON, el navegador desenvolvía una capa y se quedaba con un `string` donde
+esperaba el objeto. Nada falló —200, `data:` bien formado, `JSON.parse` correcto, y
+`{stats && …}` en verde porque una cadena no vacía es *truthy*—: el `as DashboardStats` del
+cliente y el `any` del servidor se taparon el uno al otro. `writeEvent` pasa a recibir
+`object`, que convierte ese error en fallo de compilación, y una prueba lee la trama sobre un
+socket real (D-077).
+
+Es el mismo defecto que D-071 visto desde el otro extremo, y la lección se repite: un `as` no
+valida, solo calla al compilador. Quedan sitios donde el frontend sigue afirmando formas que
+nadie comprueba.
+
+### Criterio de salida — cumplido en dos de sus tres frases
+
+Recargar cualquier pantalla la devuelve donde estaba: sí. El e2e del camino del dinero corre en
+cada pull request: sí. Añadir un endpoint no requiere escribir tipos a mano: **no**.
+`contract.ts` no lo importa ningún archivo y `client.ts` sigue con 38 tipos escritos a mano. La
+cadena de generación existe y CI la vigila; falta que alguien la consuma. Trece archivos del
+frontend siguen llamando con `fetch` crudo —SSE y pantallas públicas, en dos estilos distintos.
+
+---
+
+## Lo que queda abierto (11 de septiembre de 2026)
+
+Cerradas las fases 6 a 11, esto es lo que se sabe que falta. Está aquí y no en una lista de
+tareas porque cada punto se conoce por haberlo encontrado, no por haberlo previsto.
+
+**Seguridad y permisos — cerrado (D-082).** El atajo de `ADMIN` y `TENANT_OWNER` ya no existe:
+los dos pasan por el catálogo, y a `ADMIN` se le declaró `tenant:settings:manage`, lo único que
+le faltaba de las 99 guardas. CORS **no** corta las peticiones sin `Origin` a propósito —así
+entran los webhooks, `/health` y `/metrics`—; lo que se cerró es la cookie de refresco, que
+ahora exige origen conocido. Y un origen no permitido devuelve 403 en vez del 500 que devolvía.
+
+**Documento fiscal — cerrado (D-083).** `sale_items.product_name` congela el nombre en la
+venta (migración 111). Las ventas anteriores se quedan en NULL: su nombre real no se puede
+reconstruir, y rellenar con el de hoy sería estampar una afirmación falsa en un documento
+fiscal. Para esas se sigue usando el catálogo, y la deuda se apaga sola.
+
+**Multi-instancia.** Sin `@socket.io/redis-adapter`, con más de una instancia de API las mesas
+y el KDS quedan desincronizados entre cajas. Es parte de la fase 5 y es la razón principal por
+la que el sistema sigue siendo de instancia única.
+
+**Facturación — cerrado (D-084).** El cambio de plan ajusta el fin de periodo con la misma
+`computeProration` del preview y apunta la diferencia en `subscription_pending_charges`
+(migración 112); el motor la añade como línea de la siguiente factura. No se cobra en el acto
+a propósito: mover dinero dentro del cambio de plan obliga a decidir qué pasa si la tarjeta
+falla *después* de haberlo cambiado, y ninguna de las dos salidas es buena.
+
+**Lo que la fase 12 dejó a medias, y es lo que sigue.** De las 156 rutas sin esquema de
+respuesta se declararon 3 —abrir, consultar y cerrar caja, que es el tramo del arqueo— y
+quedan **153**. El resto del criterio de salida de la fase 11 depende de eso: mientras el
+contrato no diga qué devuelve cada ruta, `client.ts` no puede consumir tipos generados y sigue
+con sus 38 declaraciones a mano, y los trece archivos con `fetch` crudo siguen ahí. El orden
+que funciona es por tramos, cada uno con su prueba, tachando de la lista del candado: declarar
+un esquema destapa divergencias reales —en la fase 11, cinco rutas destaparon siete—, así que
+un tramo grande de una vez es un tramo que no se termina.
+
+**Frontend.** Además de la cadena del contrato sin consumir y los trece `fetch` crudos,
+`ScannerReconciliationScreen` es una maqueta: tiene `useQuery`, `useMutation` y el cliente del
+API **simulados dentro del propio archivo**, y ninguna ruta la pinta. O se termina o se borra;
+mientras siga ahí, parece una pantalla.
+
+**La regla base de `button` pelea con Tailwind, y gana a medias.** Es lo que queda vivo de la
+revisión de pantallas, y conviene entenderlo antes de tocarlo. `global.css` le da a **todo**
+`button` fondo oscuro y `color: #ffffff`. Una utilidad de Tailwind gana por especificidad a lo
+que declare —`bg-background` cambia el fondo— pero no a lo que no declare, así que el texto se
+queda blanco. De ahí salieron los cuatro botones ilegibles de D-079.
+
+Los cuatro están corregidos y hay prueba que vigila ese patrón, pero la causa sigue en pie, y
+tiene una segunda cara: un botón que espera fondo **transparente** y no declara ninguno hereda
+el oscuro de la regla base. Se ve en el conmutador Local / Consolidado de Inventario y en
+«Exportar», donde el texto apagado cae sobre navy y el contraste queda pobre. No es ilegible,
+así que no entró en el arreglo.
+
+El remedio real es acotar la regla base —que solo se aplique a botones sin clases de
+presentación— o dejar de darle color y fondo a `button` a secas y moverlo a `.button`. Las dos
+tocan todas las pantallas a la vez, así que pide su propia tanda con capturas antes y después,
+no un hueco al final de otra cosa.
+
+**Lo que se cerró en esa revisión** y ya no está pendiente: las filas flex en línea de los pies
+de modal y las cabeceras (D-074), y Clientes e Inventario como fichas en el móvil (D-081).
+Quedan filas flex en línea en pantallas que la prueba no señaló; se convierten cuando se
+toquen.
+
+**Y una que se probó y se descartó.** La barra superior ocupa unos 230 px en un portátil de
+1440 porque lista las veintiuna rutas. Se llegó a esconder el catálogo y la administración tras
+un desplegable «Más» —bajaba a 130 px— y se revirtió a petición de Miguel: quien trabaja en
+esta pantalla salta a Productos, Clientes o Reportes decenas de veces al día, y el desplegable
+convertía cada salto en dos clics. Cien píxeles se pagan una vez; un clic de más se paga cada
+vez. Está en D-080 con el razonamiento entero, para no volver a proponerlo mirando solo la
+captura.
+
+**Entorno de desarrollo.** `CORS_ALLOWED_ORIGINS` no incluía `http://localhost:4173`, el puerto
+del `vite preview` sobre el que corren las e2e. El síntoma no menciona CORS: el navegador se
+queda en «Selecciona una Sucursal» y la petición sencillamente no llega. Corregido en
+`.env.example`; quien tenga un `.env` de antes tiene que añadirlo a mano.
+
+**Producto que no existe todavía** (es la fase 12, y conviene no confundirlo con deuda):
+compras y proveedores —solo están las tablas—, fidelización —solo la bandera
+`enable_loyalty`—, promociones v2 (combos, happy hour, por categoría), API pública con llaves
+por comercio y webhooks salientes, roles a medida, y la integración de datáfono: `hardware.ts`
+es un simulador con `Math.random()`, y la conciliación de lote de la fase 9 es la mayor parte
+del valor sin depender de un adquirente, pero no es el conector.
+
+---
+
 ## Fase 5 — Escala horizontal ⏳
 
 Estimado: ~1 semana. Diferible hasta ~20 clientes. **Mientras tanto, debe estar escrito y aceptado que el sistema corre en instancia única.**
 
-- `pg_advisory_xact_lock` por scheduler, o migrar los schedulers a repeatable jobs de BullMQ con `jobId` fijo. Con dos réplicas hoy, las renovaciones se cobran dos veces.
+- `pg_advisory_xact_lock` por scheduler, o migrar los schedulers a repeatable jobs de BullMQ con `jobId` fijo. El cobro de suscripciones ya está protegido por su propio lock desde la fase 8; los demás schedulers —rollups, recheck de la DIAN, limpieza— siguen duplicando trabajo con dos réplicas.
 - `@socket.io/redis-adapter` para que mesas y KDS sobrevivan a más de una réplica.
 - `FOR UPDATE SKIP LOCKED` en el claim del outbox.
 
@@ -189,6 +986,14 @@ Estimado: ~1 semana. Diferible hasta ~20 clientes. **Mientras tanto, debe estar 
 ---
 
 ## Instalación local (on-premise)
+
+> **Estado (21 oct 2026, fase 14):** construida. Paquete offline (`onprem/`), guía de
+> operación en `docs/INSTALACION-ONPREM.md`. De los siete puntos de abajo: 1 resuelto con
+> una CA propia del local (sin internet no hay Let's Encrypt), 3 resuelto (respaldo diario,
+> copia externa cifrada y validación semanal de restauración), 4 resuelto (paquete
+> versionado, `actualizar.sh` con respaldo previo y `--revertir`), 5 resuelto con licencia
+> Ed25519 que degrada el backoffice y nunca la caja. Quedan fuera del software el 2 (plazo
+> fiscal sin conexión, al contrato), el 6 (túnel, opcional y solo con internet) y el 7.
 
 Trabajo estimado en una a dos semanas, **después de la fase 3** — no antes, porque el on-premise hereda todos los bloqueantes y multiplica el costo de arreglarlos por el número de instalaciones.
 
@@ -249,6 +1054,9 @@ Si alguno está sin marcar, la respuesta a "¿ya podemos salir?" es **no**, sin 
 - [x] La numeración fiscal viene de una resolución autorizada, es consecutiva y no se puede duplicar.
 - [x] Un documento que queda en `SENT` se resuelve o se alerta; no se queda colgado en silencio.
 - [x] Un domicilio entregado genera su documento fiscal.
+- [x] El camino del dinero —cobro, corte de red, cola offline, sincronización y recarga— se verifica en un navegador real en cada pull request.
+- [ ] `sale_items` guarda el nombre del producto vendido, de modo que renombrar un producto no reescriba un tiquete ya emitido.
+- [ ] CORS rechaza las peticiones sin cabecera `Origin`, y `ADMIN` / `TENANT_OWNER` pasan por la verificación de permisos como cualquier otro rol.
 - [ ] Un restore de backup probado end-to-end en el último mes.
 - [ ] Está escrito y aceptado que el sistema corre en instancia única hasta completar la fase 5.
 
@@ -267,4 +1075,13 @@ pnpm lint && pnpm typecheck && pnpm build && pnpm test
 
 Resultado al cierre de la fase 4: **0 errores de lint** (144 advertencias, ver D-043), **0 errores de tipos**, build correcto, **91 migraciones desde cero** y **282 pruebas verdes** — 173 API contra PostgreSQL real, 60 worker, 31 pos-web, 18 shared.
 
-Detalle de las decisiones en `docs/DECISIONS.md` (D-036 … D-062). Procedimientos operativos en `docs/RUNBOOK.md`. Guía de certificación en `docs/CERTIFICACION-PAC.md`.
+Desde la fase 11, el navegador es parte de la verificación y no un extra:
+
+```bash
+pnpm --filter @pos-dian/pos-web test:e2e:install   # una vez
+pnpm --filter @pos-dian/pos-web test:e2e           # camino del dinero + responsive
+```
+
+Resultado al cierre de la fase 11 (11 de septiembre de 2026): **0 errores de lint**, **typecheck 6/6**, **110 migraciones desde cero**, **401 pruebas verdes** —268 API contra PostgreSQL real (1 omitida), 64 worker, 44 pos-web, 25 shared— y **6 specs de navegador** en verde. El e2e del camino del dinero y la guardia del contrato (`openapi.json` y `schema.d.ts` regenerados) bloquean el merge en CI.
+
+Detalle de las decisiones en `docs/DECISIONS.md` (D-036 … D-072). Procedimientos operativos en `docs/RUNBOOK.md`. Guía de certificación en `docs/CERTIFICACION-PAC.md`.

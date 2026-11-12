@@ -1,11 +1,12 @@
 import { useState, useEffect } from 'react';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Modal, Banner } from '../../../components/ui';
-import type { PosApiClient } from '../../../types';
 import type { Promotion, CreatePromotion, ProductItem } from '../../../lib/api';
 import { formatMoneyFromCents } from '../../../lib/format';
+import { useApi, useSession } from '../../auth';
+import { promotionKeys } from '../../../shared/query-keys';
 
 interface Props {
-  api: PosApiClient;
   isOpen: boolean;
   onClose: () => void;
   onSuccess: () => void;
@@ -13,8 +14,10 @@ interface Props {
   products: ProductItem[];
 }
 
-export function PromotionFormModal({ api, isOpen, onClose, onSuccess, promotion, products }: Props) {
-  const [loading, setLoading] = useState(false);
+export function PromotionFormModal({ isOpen, onClose, onSuccess, promotion, products }: Props) {
+  const api = useApi();
+  const { tenantId } = useSession();
+  const queryClient = useQueryClient();
   const [error, setError] = useState<string | null>(null);
 
   const [productId, setProductId] = useState('');
@@ -55,6 +58,32 @@ export function PromotionFormModal({ api, isOpen, onClose, onSuccess, promotion,
     }
   }, [isOpen, promotion, products]);
 
+  const guardar = useMutation({
+    mutationFn: (payload: CreatePromotion) => {
+      if (promotion) {
+        return api.updatePromotion(promotion.id, {
+          type: payload.type,
+          value_cents: payload.value_cents,
+          buy_qty: payload.buy_qty,
+          get_qty: payload.get_qty,
+          start_date: payload.start_date,
+          end_date: payload.end_date,
+          active: payload.active
+        });
+      }
+      return api.createPromotion(payload);
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: promotionKeys.all(tenantId) });
+      onSuccess();
+    },
+    onError: (err: unknown) => {
+      setError(err instanceof Error ? err.message : 'Error al guardar');
+    }
+  });
+
+  const loading = guardar.isPending;
+
   if (!isOpen) return null;
 
   const isPercentage = type === 'PERCENTAGE';
@@ -72,7 +101,7 @@ export function PromotionFormModal({ api, isOpen, onClose, onSuccess, promotion,
     projectedPrice = originalPrice - numericValue;
   }
 
-  async function handleSubmit(e: React.FormEvent) {
+  function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!productId) return setError('Selecciona un producto');
     if (!value && !isBogo) return setError('Ingresa un valor');
@@ -91,49 +120,29 @@ export function PromotionFormModal({ api, isOpen, onClose, onSuccess, promotion,
       if (isNaN(g) || g < 1) return setError('Debes regalar al menos 1 unidad');
     }
 
-    setLoading(true);
     setError(null);
 
-    try {
-      const payload: CreatePromotion = {
-        product_id: productId,
-        type,
-        value_cents: isPercentage ? Math.round(numericValue * 100) : numericValue,
-        start_date: new Date(startDate).toISOString(),
-        active
-      };
-      
-      if (endDate) payload.end_date = new Date(endDate).toISOString();
-      if (isBogo) {
-        payload.buy_qty = parseInt(buyQty);
-        payload.get_qty = parseInt(getQty);
-        payload.value_cents = 0; // fallback para schema si no se usa el valor en BOGO
-      }
+    const payload: CreatePromotion = {
+      product_id: productId,
+      type,
+      value_cents: isPercentage ? Math.round(numericValue * 100) : numericValue,
+      start_date: new Date(startDate).toISOString(),
+      active
+    };
 
-      if (promotion) {
-        await api.updatePromotion(promotion.id, {
-          type: payload.type,
-          value_cents: payload.value_cents,
-          buy_qty: payload.buy_qty,
-          get_qty: payload.get_qty,
-          start_date: payload.start_date,
-          end_date: payload.end_date,
-          active: payload.active
-        });
-      } else {
-        await api.createPromotion(payload);
-      }
-      onSuccess();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Error al guardar');
-    } finally {
-      setLoading(false);
+    if (endDate) payload.end_date = new Date(endDate).toISOString();
+    if (isBogo) {
+      payload.buy_qty = parseInt(buyQty);
+      payload.get_qty = parseInt(getQty);
+      payload.value_cents = 0; // fallback para schema si no se usa el valor en BOGO
     }
+
+    guardar.mutate(payload);
   }
 
   return (
     <Modal ariaLabel={promotion ? 'Editar Promoción' : 'Nueva Promoción'} onClose={onClose}>
-      <form onSubmit={(e) => void handleSubmit(e)} className="stack-md">
+      <form onSubmit={handleSubmit} className="stack-md">
         <div className="section-heading">
           <div>
             <h3>{promotion ? 'Editar Promoción' : 'Nueva Promoción'}</h3>

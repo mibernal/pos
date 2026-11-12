@@ -17,6 +17,7 @@ Un Sistema de Punto de Venta (POS) y Gestión Hospitalaria (Hospitality & Retail
 | Archivo | Para qué sirve |
 |---|---|
 | `docs/ROADMAP-PRODUCCION.md` | **Empieza aquí si vuelves después de un tiempo.** Qué se cerró en las fases 0–2, con qué evidencia, qué falta en las 3–5, el plan on-premise y los criterios de salida a producción. |
+| `docs/INSTALACION-ONPREM.md` | Cómo construir el paquete sin internet, instalarlo en el mini-PC del comercio, emitir licencias, respaldar, restaurar y actualizar. |
 | `docs/ARCHITECTURE.md` | Componentes, flujos de sistema, modelo de datos, y la explicación completa del aislamiento por tenant. |
 | `docs/DECISIONS.md` | Registro de decisiones (ADR). Cuando algo del código parezca raro, la razón suele estar aquí. |
 | `docs/RUNBOOK.md` | Procedimientos operativos: despliegue, migraciones, diagnóstico de RLS, cómo correr las pruebas. |

@@ -7,6 +7,17 @@ import { invalidateDashboardCache } from '../../../shared/infra/cache/invalidate
 
 export type DbClient = Kysely<Database> | Transaction<Database>;
 
+/**
+ * Estados de una suscripción que sigue en juego. Una `CANCELLED` es histórico: no se
+ * renueva, no se activa y no se cuenta como la suscripción del comercio.
+ *
+ * Todas las lecturas por comercio filtran por esto y ordenan por `created_at`. Sin las dos
+ * cosas, `executeTakeFirst()` devolvía una fila arbitraria en cuanto un comercio tenía más
+ * de una — y el `plan_id` que se firma en el JWT podía cambiar entre dos logins seguidos.
+ * La migración 091 añade además el índice único que impide que lleguen a coexistir.
+ */
+export const LIVE_SUBSCRIPTION_STATUSES = ['TRIAL', 'ACTIVE', 'PAST_DUE', 'SUSPENDED'] as const;
+
 export class SubscriptionService {
   /**
    * Crea una suscripción inicial (generalmente TRIAL)
@@ -53,6 +64,8 @@ export class SubscriptionService {
   static async activateSubscription(db: DbClient, tenantId: string, durationDays: number = 30, redis?: Redis) {
     const currentSub = await db.selectFrom('tenant_subscriptions')
       .where('tenant_id', '=', tenantId)
+      .where('status', 'in', LIVE_SUBSCRIPTION_STATUSES)
+      .orderBy('created_at', 'desc')
       .select(['id', 'plan_id'])
       .executeTakeFirst();
 
@@ -92,6 +105,8 @@ export class SubscriptionService {
   static async renewSubscription(db: DbClient, tenantId: string, durationDays: number = 30, redis?: Redis) {
     const currentSub = await db.selectFrom('tenant_subscriptions')
       .where('tenant_id', '=', tenantId)
+      .where('status', 'in', LIVE_SUBSCRIPTION_STATUSES)
+      .orderBy('created_at', 'desc')
       .select(['id', 'current_period_end', 'status'])
       .executeTakeFirst();
 
@@ -134,6 +149,8 @@ export class SubscriptionService {
   static async upgradeSubscription(db: DbClient, tenantId: string, newPlanId: string, redis?: Redis) {
     const currentSub = await db.selectFrom('tenant_subscriptions')
       .where('tenant_id', '=', tenantId)
+      .where('status', 'in', LIVE_SUBSCRIPTION_STATUSES)
+      .orderBy('created_at', 'desc')
       .select(['id', 'plan_id'])
       .executeTakeFirst();
 
@@ -166,14 +183,21 @@ export class SubscriptionService {
   static async cancelSubscription(db: DbClient, tenantId: string, redis?: Redis) {
     const currentSub = await db.selectFrom('tenant_subscriptions')
       .where('tenant_id', '=', tenantId)
+      .where('status', 'in', LIVE_SUBSCRIPTION_STATUSES)
+      .orderBy('created_at', 'desc')
       .select('id')
       .executeTakeFirst();
 
     if (!currentSub) return;
 
+    // `CANCELLED`, con dos eles. Aquí se escribía `CANCELED` mientras el tipo
+    // `SubscriptionStatus` y `billing-metrics` consultaban la otra forma: las bajas
+    // existían en la tabla y no las contaba nadie. La migración 091 normaliza el
+    // histórico y añade el CHECK que impide que vuelva a ocurrir.
     await db.updateTable('tenant_subscriptions')
       .set({
-        status: 'CANCELED',
+        status: 'CANCELLED',
+        cancelled_at: new Date(),
         updated_at: new Date()
       })
       .where('id', '=', currentSub.id)

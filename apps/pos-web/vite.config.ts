@@ -8,7 +8,19 @@ export default defineConfig({
   plugins: [
     react(),
     VitePWA({
-      registerType: 'autoUpdate',
+      /**
+       * `prompt`, no `autoUpdate`, y la diferencia importa en una caja.
+       *
+       * Con `autoUpdate` el service worker nuevo toma el control, pero la pestaña que ya
+       * está abierta sigue ejecutando el JS y el CSS viejos hasta que alguien recarga. Un
+       * cajero deja la pestaña abierta todo el día: el arreglo se despliega y no lo ve
+       * nadie. Estuvo así desde que se montó la PWA.
+       *
+       * Lo contrario —recargar solo, en cuanto llega— es peor: se lleva por delante el
+       * carrito a medio montar. Con `prompt` la aplicación decide cuándo, y decide bien:
+       * sola si no hay venta en curso, avisando si la hay. Ver `useActualizacion`.
+       */
+      registerType: 'prompt',
       includeAssets: ['favicon.svg'],
       manifest: {
         name: 'POS DIAN',
@@ -36,6 +48,19 @@ export default defineConfig({
       '@': resolve(__dirname, 'src'),
       '@pos-dian/shared': resolve(__dirname, '../../packages/shared/src/index.ts'),
       '@pos-dian/shared/': resolve(__dirname, '../../packages/shared/src/')
+    }
+  },
+  /**
+   * `vite preview` sirve el build de producción, y es contra eso que corre el e2e del camino
+   * del dinero. Necesita el mismo proxy que el servidor de desarrollo: sin él, la PWA
+   * hablaría con otro origen y haría falta abrir CORS solo para las pruebas — que es tanto
+   * como probar una configuración que nadie despliega.
+   */
+  preview: {
+    port: Number(process.env.E2E_WEB_PORT ?? 4173),
+    proxy: {
+      '/api': { target: 'http://127.0.0.1:3000', changeOrigin: true },
+      '/socket.io': { target: 'http://127.0.0.1:3000', ws: true, changeOrigin: true }
     }
   },
   server: {

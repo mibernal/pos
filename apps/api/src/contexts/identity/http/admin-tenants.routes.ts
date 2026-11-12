@@ -341,7 +341,7 @@ export const adminTenantsRoutes: FastifyPluginAsync = async (app) => {
         throw new AppError(401, 'AUTH_UNAUTHORIZED', 'No autorizado');
       }
 
-      const useCase = new UpdateTenantModulesUseCase(app.db);
+      const useCase = new UpdateTenantModulesUseCase(app.db, app.entitlements);
       await useCase.execute(request.auth!.tenantId!, request.body, request.auth!.userId);
 
       return { success: true };

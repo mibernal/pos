@@ -40,6 +40,30 @@ interface SessionContextValue {
 
 const SessionContext = createContext<SessionContextValue | null>(null);
 
+/**
+ * El cliente del API, en su propio contexto.
+ *
+ * Vivía dentro del de sesión y además se enhebraba como prop por treinta y seis archivos:
+ * cada pantalla lo recibía de quien la pintaba. Con el enrutador eso deja de tener sentido
+ * —a una ruta cargada en diferido no la pinta nadie que pueda pasarle nada— así que quien lo
+ * necesita lo pide.
+ *
+ * Tiene contexto propio y no se lee del de sesión para que una prueba de pantalla pueda
+ * inyectar un cliente falso sin montar toda la maquinaria de autenticación: probar el
+ * catálogo de productos no debería exigir simular un login.
+ */
+const ApiContext = createContext<SessionContextValue['api'] | null>(null);
+
+export function ApiProvider({
+  client,
+  children
+}: {
+  client: SessionContextValue['api'];
+  children: ReactNode;
+}) {
+  return <ApiContext.Provider value={client}>{children}</ApiContext.Provider>;
+}
+
 const getAuthFingerprint = (user?: AuthSession['user'] | null) => {
   if (!user) return null;
   return `${user.id}:${user.tenantId}:${user.role}:${(user.permissions || []).join(',')}:${(user.branchIds || []).join(',')}`;
@@ -293,7 +317,11 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     [api, authMessage, clearAuthMessage, authState, isHydrating, login, logout, session, user, resolveReauth, rejectReauth, refreshSession]
   );
 
-  return <SessionContext.Provider value={value}>{children}</SessionContext.Provider>;
+  return (
+    <SessionContext.Provider value={value}>
+      <ApiProvider client={api}>{children}</ApiProvider>
+    </SessionContext.Provider>
+  );
 }
 
 export function useSession() {
@@ -304,4 +332,13 @@ export function useSession() {
   }
 
   return context;
+}
+
+/** El cliente del API. Ver la nota de `ApiContext`. */
+export function useApi() {
+  const client = useContext(ApiContext);
+  if (!client) {
+    throw new Error('useApi debe usarse dentro de SessionProvider o de ApiProvider');
+  }
+  return client;
 }

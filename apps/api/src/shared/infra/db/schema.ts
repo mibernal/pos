@@ -11,7 +11,7 @@ export type SaleStatus = 'COMPLETED' | 'VOID';
 export type DianDocumentStatus = 'PENDING' | 'SENT' | 'ACCEPTED' | 'REJECTED';
 export type DianDocumentType = 'INVOICE' | 'CREDIT_NOTE' | 'SUPPORT_DOC';
 export type OutboxStatus = 'PENDING' | 'SENT' | 'FAILED';
-export type InventoryOperation = 'SALE' | 'SALE_VOID' | 'SALE_RETURN' | 'MANUAL_ENTRY' | 'MANUAL_EXIT' | 'PURCHASE' | 'PO_RECEIPT' | 'TRANSFER_OUT' | 'TRANSFER_IN' | 'ADJUSTMENT_IN' | 'ADJUSTMENT_OUT' | 'CYCLE_COUNT';
+export type InventoryOperation = 'SALE' | 'SALE_VOID' | 'SALE_RETURN' | 'MANUAL_ENTRY' | 'MANUAL_EXIT' | 'PURCHASE' | 'PO_RECEIPT' | 'TRANSFER_OUT' | 'TRANSFER_IN' | 'ADJUSTMENT_IN' | 'ADJUSTMENT_OUT' | 'CYCLE_COUNT' | 'RECIPE';
 export type CashSessionStatus = 'OPEN' | 'CLOSED' | 'RECONCILED';
 export type PoStatus = 'DRAFT' | 'SENT' | 'PARTIAL' | 'COMPLETED' | 'CANCELED';
 export type ReceiptStatus = 'DRAFT' | 'COMPLETED' | 'CANCELED';
@@ -134,6 +134,12 @@ export interface KitchenTicketsTable {
   course: Generated<number>;
   status: Generated<string>;
   printed_at: Date | null;
+  /** Cuándo la cocina lo empezó. Las tres marcas no se pisan entre sí, `updated_at` sí. */
+  started_at: Date | null;
+  /** Cuándo lo dio por listo: el tiempo de preparación es `ready_at - created_at`. */
+  ready_at: Date | null;
+  /** Cuándo salió al comedor. Lo que pasa entre listo y entregado es problema del salón. */
+  delivered_at: Date | null;
   created_at: Generated<Date>;
   updated_at: Generated<Date>;
 }
@@ -158,10 +164,36 @@ export interface WaitersTable {
   branch_id: string;
   user_id: string | null;
   name: string;
-  pin: string | null;
+  // Argon2, como `users.pin_hash`. Nunca sale en una respuesta: ver la nota del repositorio.
+  pin_hash: string | null;
   is_active: Generated<boolean>;
   created_at: Generated<Date>;
   updated_at: Generated<Date>;
+}
+
+export interface WaiterShiftsTable {
+  id: string;
+  tenant_id: string;
+  branch_id: string;
+  waiter_id: string;
+  /** Turno de caja en el que ocurre; nulo si el mesero entra antes de que la caja abra. */
+  cash_session_id: string | null;
+  opened_at: Generated<Date>;
+  closed_at: Date | null;
+  opened_by_user_id: string | null;
+  closed_by_user_id: string | null;
+  /** Corte congelado al cerrar: reabrir un turno viejo devuelve lo que dijo entonces. */
+  summary_json: NullableJsonColumn;
+  notes: string | null;
+  created_at: Generated<Date>;
+}
+
+export interface WaiterShiftTablesTable {
+  id: string;
+  tenant_id: string;
+  shift_id: string;
+  table_id: string;
+  created_at: Generated<Date>;
 }
 
 export interface UsersTable {
@@ -278,6 +310,8 @@ export interface CashSessionsTable {
   closing_cash_real_cents: number | null;
   expected_cash_cents: number | null;
   diff_cents: number | null;
+  /** Desglose congelado al cerrar: reimprimir un Z antiguo devuelve lo que ese Z decía. */
+  payment_breakdown_json: NullableJsonColumn;
 }
 
 export interface UserBranchesTable {
@@ -347,6 +381,145 @@ export interface SalesTable {
   created_at: Generated<Date>;
 }
 
+export interface CustomerCreditAccountsTable {
+  tenant_id: string;
+  customer_id: string;
+  /** `null` es sin límite; 0 es cliente sin fiado. */
+  credit_limit_cents: number | null;
+  terms_days: Generated<number>;
+  status: Generated<string>;
+  notes: string | null;
+  created_at: Generated<Date>;
+  updated_at: Generated<Date>;
+}
+
+export interface CustomerReceivablesTable {
+  id: string;
+  tenant_id: string;
+  customer_id: string;
+  branch_id: string;
+  sale_id: string | null;
+  original_cents: number;
+  balance_cents: number;
+  status: Generated<string>;
+  due_at: Date | null;
+  notes: string | null;
+  created_at: Generated<Date>;
+  updated_at: Generated<Date>;
+}
+
+export interface CustomerPaymentsTable {
+  id: string;
+  tenant_id: string;
+  customer_id: string;
+  branch_id: string;
+  /** El turno en que se recibió: un abono en efectivo entra al cajón y debe llegar al arqueo. */
+  cash_session_id: string | null;
+  method_code: string;
+  kind: string;
+  amount_cents: number;
+  reference: string | null;
+  received_by_user_id: string;
+  notes: string | null;
+  created_at: Generated<Date>;
+}
+
+export interface CustomerPaymentAllocationsTable {
+  id: string;
+  tenant_id: string;
+  payment_id: string;
+  receivable_id: string;
+  amount_cents: number;
+  created_at: Generated<Date>;
+}
+
+export interface PaymentMethodCatalogTable {
+  tenant_id: string;
+  code: string;
+  kind: string;
+  label: string;
+  active: Generated<boolean>;
+  requires_reference: Generated<boolean>;
+  sort_order: Generated<number>;
+  is_system: Generated<boolean>;
+  created_at: Generated<Date>;
+}
+
+export interface SalePaymentsTable {
+  id: string;
+  tenant_id: string;
+  branch_id: string;
+  sale_id: string;
+  cash_session_id: string;
+  method_code: string;
+  /** Copiado en el cobro, no unido contra el catálogo: el comportamiento del dinero es un
+   *  hecho del momento, no una propiedad que se pueda editar después. */
+  kind: string;
+  amount_cents: number;
+  tendered_cents: number | null;
+  change_cents: number | null;
+  reference: string | null;
+  /** Parte de la propina de la venta que llegó por este medio. Reparto proporcional. */
+  tip_cents: Generated<number>;
+  metadata_json: NullableJsonColumn;
+  created_at: Generated<Date>;
+}
+
+export interface CardBatchesTable {
+  id: string;
+  tenant_id: string;
+  branch_id: string;
+  terminal_id: string | null;
+  acquirer: string;
+  batch_date: Date;
+  declared_total_cents: number;
+  declared_count: number;
+  system_total_cents: number;
+  system_count: number;
+  diff_cents: number;
+  status: string;
+  reconciled_by_user_id: string;
+  notes: string | null;
+  created_at: Generated<Date>;
+}
+
+export interface TenantTipSettingsTable {
+  tenant_id: string;
+  policy: Generated<string>;
+  auto_settle_on_close: Generated<boolean>;
+  created_at: Generated<Date>;
+  updated_at: Generated<Date>;
+}
+
+export interface TipSettlementsTable {
+  id: string;
+  tenant_id: string;
+  branch_id: string;
+  cash_session_id: string;
+  policy: string;
+  total_cents: number;
+  /** Lo que estaba en el cajón y sale de él al pagarlo. */
+  cash_cents: number;
+  /** Lo cobrado con tarjeta o billetera: el comercio lo tiene y se lo debe al mesero. */
+  electronic_cents: number;
+  settled_by_user_id: string;
+  cash_movement_id: string | null;
+  notes: string | null;
+  created_at: Generated<Date>;
+}
+
+export interface TipSettlementItemsTable {
+  id: string;
+  tenant_id: string;
+  settlement_id: string;
+  waiter_id: string | null;
+  waiter_name: string;
+  sales_count: Generated<number>;
+  earned_cents: number;
+  cash_cents: number;
+  electronic_cents: number;
+}
+
 export interface SaleItemsTable {
   id: string;
   tenant_id: string;
@@ -357,6 +530,14 @@ export interface SaleItemsTable {
   qty: string;
   price_cents: number;
   line_total_cents: number;
+  /**
+   * El nombre con el que se vendió, congelado.
+   *
+   * `null` solo en ventas anteriores a la migración 111: para esas se resuelve con join
+   * contra `products`, que es lo que hacía todo el mundo antes. Ver esa migración para por
+   * qué no se rellenaron hacia atrás.
+   */
+  product_name: string | null;
   notes: string | null;
   modifiers_json?: JsonArrayColumn | null;
   created_at: Generated<Date>;
@@ -495,6 +676,32 @@ export interface InventoryTransactionsTable {
   balance_after: string | null;
   notes: string | null;
   created_by_user_id: string;
+  created_at: Generated<Date>;
+}
+
+export interface ProductRecipesTable {
+  id: string;
+  tenant_id: string;
+  product_id: string;
+  variant_id: string | null;
+  /** Cuántas unidades produce la receta: una salsa se prepara por litros y se usa por cucharadas. */
+  yield_qty: Generated<string>;
+  active: Generated<boolean>;
+  notes: string | null;
+  created_at: Generated<Date>;
+  updated_at: Generated<Date>;
+}
+
+export interface RecipeComponentsTable {
+  id: string;
+  tenant_id: string;
+  recipe_id: string;
+  ingredient_product_id: string;
+  ingredient_variant_id: string | null;
+  /** Consumo de la receta entera, no de una unidad: se divide por el rendimiento. */
+  qty: string;
+  /** Merma en porcentaje: la cebolla pierde piel, la carne pierde agua. */
+  waste_percent: Generated<string>;
   created_at: Generated<Date>;
 }
 
@@ -757,9 +964,173 @@ export interface TenantSubscriptionsTable {
   cancelled_at: Date | null;
   cancellation_reason: string | null;
   payment_method_token: string | null;
+  payment_method_id: string | null;
+  coupon_code: string | null;
+  coupon_periods_left: number | null;
+  next_retry_at: Date | null;
+  dunning_stage: string | null;
   auto_renew: Generated<boolean>;
   created_at: Generated<Date>;
   updated_at: Generated<Date>;
+}
+
+export interface PlanEntitlementsTable {
+  plan_id: string;
+  entitlement_key: string;
+  limit_value: number;
+  updated_at: Generated<Date>;
+}
+
+export interface PlanModulesTable {
+  plan_id: string;
+  module: string;
+}
+
+export interface TenantModuleOverridesTable {
+  tenant_id: string;
+  module: string;
+  enabled: boolean;
+  reason: string;
+  expires_at: Date | null;
+  created_at: Generated<Date>;
+}
+
+export interface TenantLimitOverridesTable {
+  tenant_id: string;
+  entitlement_key: string;
+  limit_value: number;
+  reason: string;
+  expires_at: Date | null;
+  created_at: Generated<Date>;
+}
+
+export interface PaymentWebhookEventsTable {
+  id: string;
+  gateway: string;
+  event_id: string | null;
+  reference: string | null;
+  signature_valid: boolean;
+  status: Generated<string>;
+  amount_cents: number | null;
+  payload_json: JsonColumn;
+  error: string | null;
+  received_at: Generated<Date>;
+  processed_at: Date | null;
+}
+
+export interface TenantPaymentMethodsTable {
+  id: string;
+  tenant_id: string;
+  gateway: string;
+  gateway_token: string;
+  brand: string | null;
+  last_four: string | null;
+  exp_month: number | null;
+  exp_year: number | null;
+  holder_name: string | null;
+  status: Generated<string>;
+  is_default: Generated<boolean>;
+  metadata_json: NullableJsonColumn;
+  created_at: Generated<Date>;
+  updated_at: Generated<Date>;
+}
+
+export interface BillingInvoiceSequencesTable {
+  scope: string;
+  prefix: string;
+  last_number: Generated<number>;
+  updated_at: Generated<Date>;
+}
+
+export interface BillingCouponsTable {
+  code: string;
+  description: string | null;
+  type: string;
+  value: number;
+  duration: Generated<string>;
+  duration_periods: number | null;
+  max_redemptions: number | null;
+  redeemed_count: Generated<number>;
+  valid_from: Date | null;
+  valid_until: Date | null;
+  active: Generated<boolean>;
+  created_at: Generated<Date>;
+}
+
+export interface TenantCouponRedemptionsTable {
+  id: string;
+  tenant_id: string;
+  coupon_code: string;
+  redeemed_at: Generated<Date>;
+}
+
+/**
+ * Diferencias de prorrateo esperando a la próxima factura. Ver migración 112.
+ *
+ * `applied_invoice_id` nulo significa «todavía por cobrar». En cuanto entra en una factura
+ * queda apuntado a ella, y eso es lo que impide que el motor de cobro —que puede correr
+ * cada hora— lo añada dos veces.
+ */
+export interface SubscriptionPendingChargesTable {
+  id: string;
+  tenant_id: string;
+  subscription_id: string;
+  description: string;
+  amount_cents: number;
+  created_at: Generated<Date>;
+  applied_invoice_id: string | null;
+}
+
+export interface SubscriptionInvoicesTable {
+  id: string;
+  tenant_id: string;
+  subscription_id: string;
+  number: string;
+  status: Generated<string>;
+  plan_id: string;
+  plan_name: string;
+  billing_cycle: string;
+  period_start: Date;
+  period_end: Date;
+  subtotal_cents: number;
+  discount_cents: Generated<number>;
+  tax_cents: Generated<number>;
+  total_cents: number;
+  currency: Generated<string>;
+  coupon_code: string | null;
+  payment_transaction_id: string | null;
+  attempt_count: Generated<number>;
+  issued_at: Generated<Date>;
+  due_at: Date | null;
+  paid_at: Date | null;
+  metadata_json: NullableJsonColumn;
+  created_at: Generated<Date>;
+  updated_at: Generated<Date>;
+}
+
+export interface SubscriptionInvoiceItemsTable {
+  id: string;
+  tenant_id: string;
+  invoice_id: string;
+  description: string;
+  quantity: Generated<number>;
+  unit_price_cents: number;
+  amount_cents: number;
+  sort_order: Generated<number>;
+}
+
+export interface DunningEventsTable {
+  id: string;
+  tenant_id: string;
+  subscription_id: string;
+  invoice_id: string | null;
+  step: string;
+  period_key: string;
+  attempt: Generated<number>;
+  notified: Generated<boolean>;
+  detail: string | null;
+  metadata_json: NullableJsonColumn;
+  occurred_at: Generated<Date>;
 }
 
 export interface PlatformEventsTable {
@@ -825,6 +1196,20 @@ export interface IdempotencyRecordsTable {
   expires_at: Date;
 }
 
+/**
+ * Token del QR de una mesa.
+ *
+ * Vive aparte de `tables` porque `tables` tiene RLS forzado y esto hay que leerlo **antes**
+ * de saber de qué comercio es. Sin RLS a propósito, y por eso sin nada más que identificadores.
+ */
+export interface QrTableTokensTable {
+  token: string;
+  tenant_id: string;
+  branch_id: string;
+  table_id: string;
+  created_at: Generated<Date>;
+}
+
 export interface RoomsTable {
   id: string;
   tenant_id: string;
@@ -865,6 +1250,8 @@ export interface TableOrdersTable {
   customer_id: string | null;
   guests_count: number | null;
   order_type: Generated<string>;
+  /** «La cuenta, por favor» desde el móvil del comensal. */
+  bill_requested_at: Date | null;
   created_at: Generated<Date>;
   updated_at: Generated<Date>;
 }
@@ -885,6 +1272,8 @@ export interface TableOrderItemsTable {
   price_cents: number;
   line_total_cents: number;
   notes: string | null;
+  /** `POS` o `QR`: quién metió el plato en la cuenta. */
+  source: Generated<string>;
   sent_to_kitchen_at: Date | null;
   created_at: Generated<Date>;
 }
@@ -980,6 +1369,18 @@ export interface Database {
   cash_sessions: CashSessionsTable;
   cash_session_audits: CashSessionAuditsTable;
   sales: SalesTable;
+  sale_payments: SalePaymentsTable;
+  payment_method_catalog: PaymentMethodCatalogTable;
+  customer_credit_accounts: CustomerCreditAccountsTable;
+  customer_receivables: CustomerReceivablesTable;
+  customer_payments: CustomerPaymentsTable;
+  customer_payment_allocations: CustomerPaymentAllocationsTable;
+  tenant_tip_settings: TenantTipSettingsTable;
+  tip_settlements: TipSettlementsTable;
+  tip_settlement_items: TipSettlementItemsTable;
+  card_batches: CardBatchesTable;
+  product_recipes: ProductRecipesTable;
+  recipe_components: RecipeComponentsTable;
   sale_items: SaleItemsTable;
   sale_returns: SaleReturnsTable;
   return_items: ReturnItemsTable;
@@ -1011,11 +1412,24 @@ export interface Database {
   impersonation_sessions: ImpersonationSessionsTable;
   billing_plans: BillingPlansTable;
   tenant_subscriptions: TenantSubscriptionsTable;
+  payment_webhook_events: PaymentWebhookEventsTable;
+  plan_entitlements: PlanEntitlementsTable;
+  plan_modules: PlanModulesTable;
+  tenant_module_overrides: TenantModuleOverridesTable;
+  tenant_limit_overrides: TenantLimitOverridesTable;
   payment_transactions: PaymentTransactionsTable;
   bulk_import_jobs: BulkImportJobsTable;
   idempotency_records: IdempotencyRecordsTable;
   platform_events: PlatformEventsTable;
   subscription_events: SubscriptionEventsTable;
+  tenant_payment_methods: TenantPaymentMethodsTable;
+  billing_invoice_sequences: BillingInvoiceSequencesTable;
+  billing_coupons: BillingCouponsTable;
+  tenant_coupon_redemptions: TenantCouponRedemptionsTable;
+  subscription_invoices: SubscriptionInvoicesTable;
+  subscription_pending_charges: SubscriptionPendingChargesTable;
+  subscription_invoice_items: SubscriptionInvoiceItemsTable;
+  dunning_events: DunningEventsTable;
   product_images: ProductImagesTable;
   rooms: RoomsTable;
   tables: TablesTable;
@@ -1031,6 +1445,9 @@ export interface Database {
   tenant_dian_settings: TenantDianSettingsTable;
   dian_resolutions: DianResolutionsTable;
   waiters: WaitersTable;
+  waiter_shifts: WaiterShiftsTable;
+  waiter_shift_tables: WaiterShiftTablesTable;
+  qr_table_tokens: QrTableTokensTable;
   tenant_module_audit_logs: TenantModuleAuditLogsTable;
   product_modifier_groups: ProductModifierGroupsTable;
   product_modifier_options: ProductModifierOptionsTable;

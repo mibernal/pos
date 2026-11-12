@@ -86,13 +86,23 @@ describe('auth.utils', () => {
         isPlatformRole: false
       });
 
-      // Los feature flags se resuelven a partir del tenant: sin valores en la fila,
-      // todo queda apagado salvo el conteo de comensales, que es opt-out.
+      /**
+       * Los módulos se resuelven a partir del plan del comercio: sin valores en la fila, no
+       * hay ninguno encendido.
+       *
+       * `enableGuestsCount` era la excepción —llegaba en `true` por omisión— y dejó de
+       * serlo: desde la fase 7 el módulo sale del plan (`guests_count` está en PRO y
+       * ENTERPRISE, no en STARTER), así que ese `?? true` ya no describía nada real. Una
+       * asimetría que no significa nada es una que alguien va a copiar creyendo que sí.
+       */
       const flagEntries = Object.entries(dto).filter(([key]) => key.startsWith('enable'));
-      expect(flagEntries.length).toBeGreaterThan(0);
+      expect(flagEntries.length).toBe(21);
       for (const [key, value] of flagEntries) {
-        expect({ [key]: value }).toEqual({ [key]: key === 'enableGuestsCount' });
+        expect({ [key]: value }).toEqual({ [key]: false });
       }
+
+      // Y el DTO además lleva la lista, que es lo que el frontend consume desde la fase 11.
+      expect(dto.modules).toEqual([]);
     });
   });
 

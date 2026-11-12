@@ -4,6 +4,7 @@ import { platformTenantsRoutes } from './routes/platform-tenants.routes.js';
 import { platformPlansRoutes } from './routes/platform-plans.routes.js';
 import { platformUsersRoutes } from './routes/platform-users.routes.js';
 import { platformBillingRoutes } from './routes/platform-billing.routes.js';
+import { platformRevenueRoutes } from './routes/platform-revenue.routes.js';
 
 export const platformAdminRoutes: FastifyPluginAsync = async (app) => {
   // Apply Platform Owner protection to all routes in this context
@@ -14,4 +15,5 @@ export const platformAdminRoutes: FastifyPluginAsync = async (app) => {
   await app.register(platformPlansRoutes);
   await app.register(platformUsersRoutes);
   await app.register(platformBillingRoutes);
+  await app.register(platformRevenueRoutes);
 };

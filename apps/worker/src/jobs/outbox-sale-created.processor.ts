@@ -22,6 +22,10 @@ import {
   updateDianDocumentMetadata
 } from './shared/outbox-store.js';
 import { executeAsTenantClient } from '../infra/db/rls.js';
+import {
+  expandDemand,
+  type RecipeQueryRunner
+} from '@pos-dian/api/src/contexts/inventory/application/recipe-expansion.js';
 import { resolveDianCredentials } from '../infra/security/dian-credentials.js';
 import {
   assignDocumentNumber,
@@ -32,6 +36,18 @@ import {
 
 interface BuildOutboxSaleCreatedProcessorInput {
   pool: Pool;
+}
+
+/**
+ * La expansión de recetas vive en el API porque el informe de desviación usa exactamente el
+ * mismo cálculo. Solo necesita correr una consulta con parámetros, que es lo único que un
+ * cliente de `pg` y una transacción de Kysely saben hacer igual.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function runnerFromPg(client: { query: (text: string, params: any[]) => Promise<any> }): RecipeQueryRunner {
+  return {
+    query: async (text, params) => client.query(text, [...params])
+  };
 }
 
 export function buildOutboxSaleCreatedProcessor({
@@ -71,8 +87,13 @@ export function buildOutboxSaleCreatedProcessor({
     try {
       await executeAsTenantClient(pool, tenantId, async (client) => {
         // Verificar idempotencia de inventario (si ya existe transacción de venta, se omite)
+        /**
+         * Una venta de platos con receta no deja ningún movimiento `SALE`: deja movimientos
+         * `RECIPE` de sus ingredientes. Buscar solo `SALE` haría que el reintento del job
+         * volviera a descargar el inventario entero, y esta vez sin nadie mirando.
+         */
         const existingTx = await client.query(
-          `SELECT id FROM inventory_transactions WHERE reference_id = $1 AND operation = 'SALE' LIMIT 1`,
+          `SELECT id FROM inventory_transactions WHERE reference_id = $1 AND operation IN ('SALE', 'RECIPE') LIMIT 1`,
           [saleId]
         );
         if (existingTx.rows.length > 0) return;
@@ -95,7 +116,36 @@ export function buildOutboxSaleCreatedProcessor({
           });
         }
 
-        for (const req of qtyByKey.values()) {
+        /**
+         * De lo vendido a lo consumido.
+         *
+         * Un plato con receta activa no se descuenta a sí mismo: se descuentan sus
+         * ingredientes. Sin esto, el módulo de inventario —balances, kardex, valoración— no
+         * le sirve de nada a un restaurante: baja «hamburguesa», que es un producto que nadie
+         * compra ni almacena, mientras el pan y la carne se consumen sin que nadie se entere.
+         */
+        const expansion = await expandDemand(runnerFromPg(client), tenantId, [...qtyByKey.values()]);
+
+        if (expansion.truncated.length > 0) {
+          logWorkerError({
+            event: 'recipe_expansion_truncated',
+            message: 'Una receta seguía anidando al llegar a la profundidad máxima; se descargó el producto intermedio',
+            job_id: job.id?.toString(),
+            sale_id: saleId,
+            tenant_id: tenantId,
+            error: new Error(`Productos truncados: ${expansion.truncated.join(', ')}`)
+          });
+        }
+
+        for (const req of expansion.lines) {
+          /**
+           * `RECIPE` distingue en el kardex el pan que bajó por venderse pan del que bajó por
+           * venderse hamburguesas. Sin esa distinción, la desviación contra el conteo físico
+           * no se puede atribuir a nada.
+           */
+          const operacion = req.viaRecipe ? 'RECIPE' : 'SALE';
+          const operacionLedger = req.viaRecipe ? 'RECIPE_DISCHARGE' : 'SALE_DISCHARGE';
+
           // Actualizar balances
           const balanceRes = await client.query(
             `INSERT INTO inventory_balances (tenant_id, branch_id, product_id, variant_id, on_hand_qty, updated_at)
@@ -119,8 +169,19 @@ export function buildOutboxSaleCreatedProcessor({
           await client.query(
             `INSERT INTO inventory_transactions 
            (id, tenant_id, branch_id, product_id, variant_id, operation, reference_id, qty_change, balance_after, notes, created_by_user_id)
-           VALUES (gen_random_uuid(), $1::uuid, $2::uuid, $3::uuid, NULLIF($4, '')::uuid, 'SALE', $5::uuid, $6, $7, $8, NULLIF($9, '')::uuid)`,
-            [tenantId, payload.branch_id, req.productId, req.variantId, saleId, -req.qty, onHandQty, `Venta #${payload.sale_number}`, userId]
+           VALUES (gen_random_uuid(), $1::uuid, $2::uuid, $3::uuid, NULLIF($4, '')::uuid, $10::inventory_operation_enum, $5::uuid, $6, $7, $8, NULLIF($9, '')::uuid)`,
+            [
+              tenantId,
+              payload.branch_id,
+              req.productId,
+              req.variantId,
+              saleId,
+              -req.qty,
+              onHandQty,
+              req.viaRecipe ? `Venta #${payload.sale_number} (receta)` : `Venta #${payload.sale_number}`,
+              userId,
+              operacion
+            ]
           );
 
           const lastLedgerRes = await client.query(
@@ -138,7 +199,7 @@ export function buildOutboxSaleCreatedProcessor({
             branchId: payload.branch_id,
             productId: req.productId,
             variantId: req.variantId,
-            operation: 'SALE_DISCHARGE',
+            operation: operacionLedger,
             qtyChange: -req.qty,
             balanceAfter: onHandQty,
             referenceId: saleId,
@@ -158,8 +219,8 @@ export function buildOutboxSaleCreatedProcessor({
           await client.query(
             `INSERT INTO inventory_ledger
              (id, tenant_id, branch_id, product_id, variant_id, operation_type, qty_change, balance_after, reference_id, sequence_number, previous_hash, hash, created_at)
-             VALUES (gen_random_uuid(), $1::uuid, $2::uuid, $3::uuid, NULLIF($4, '')::uuid, 'SALE_DISCHARGE', $5, $6, $7::uuid, $8, $9, $10, NOW())`,
-            [tenantId, payload.branch_id, req.productId, req.variantId, -req.qty, onHandQty, saleId, sequenceNumber, previousHash, hash]
+             VALUES (gen_random_uuid(), $1::uuid, $2::uuid, $3::uuid, NULLIF($4, '')::uuid, $11::inventory_ledger_operation, $5, $6, $7::uuid, $8, $9, $10, NOW())`,
+            [tenantId, payload.branch_id, req.productId, req.variantId, -req.qty, onHandQty, saleId, sequenceNumber, previousHash, hash, operacionLedger]
           );
 
           const productRes = await client.query(
@@ -241,21 +302,25 @@ export function buildOutboxSaleCreatedProcessor({
         }
 
         if (payload.audit_payload) {
+          // audit_logs.entity_id es de tipo TEXT (polimórfico). No castear a ::uuid porque
+          // Postgres no tiene operador de igualdad text = uuid y falla en ejecución.
           const existingAudit = await client.query(
-            `SELECT id FROM audit_logs WHERE entity_id = $1::uuid AND action = 'SALE_CREATED' LIMIT 1`,
-            [saleId]
+            `SELECT id FROM audit_logs 
+             WHERE tenant_id = $1::uuid AND entity_type = 'SALE' AND entity_id = $2 AND action = 'SALE_CREATED' 
+             LIMIT 1`,
+            [tenantId, saleId]
           );
           if (existingAudit.rows.length === 0) {
             const saleRes = await client.query(
-              `SELECT created_by_user_id FROM sales WHERE id = $1::uuid`,
-              [saleId]
+              `SELECT created_by_user_id FROM sales WHERE id = $1::uuid AND tenant_id = $2::uuid`,
+              [saleId, tenantId]
             );
             const userId = saleRes.rows[0]?.created_by_user_id || null;
 
             await client.query(
               `INSERT INTO audit_logs 
                (id, tenant_id, branch_id, user_id, entity_type, entity_id, action, legacy_payload)
-               VALUES (gen_random_uuid(), $1::uuid, $2::uuid, $3::uuid, 'SALE', $4::uuid, 'SALE_CREATED', $5)`,
+               VALUES (gen_random_uuid(), $1::uuid, $2::uuid, $3::uuid, 'SALE', $4, 'SALE_CREATED', $5)`,
               [tenantId, payload.branch_id, userId, saleId, JSON.stringify(payload.audit_payload)]
             );
           }
@@ -270,7 +335,8 @@ export function buildOutboxSaleCreatedProcessor({
         tenant_id: tenantId,
         error: sideEffectsError
       });
-      throw sideEffectsError;
+      // No re-lanzamos: un fallo en efectos secundarios no esenciales (actualizar cocina / auditoría)
+      // nunca debe tumbar la operación ni bloquear la emisión fiscal DIAN (D-063, MEMORY.md).
     }
 
     // 2. Emisión DIAN

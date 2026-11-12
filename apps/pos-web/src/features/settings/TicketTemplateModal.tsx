@@ -1,12 +1,13 @@
 import { useEffect, useState } from 'react';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { updateTenantBusinessProfileBodySchema } from '@pos-dian/shared';
 import { Banner, Modal, BusinessTypeSelector } from '../../components/ui';
-import type { PosApiClient } from '../../types';
 import type { AuthSession } from '../../lib/api/client';
 import type { TicketTemplateConfig } from '../../lib/ticket-template';
+import { useApi, useSession } from '../auth';
+import { settingsKeys } from '../../shared/query-keys';
 
 export function TicketTemplateModal({
-  api,
   isOpen,
   onClose,
   onSave,
@@ -14,7 +15,6 @@ export function TicketTemplateModal({
   session,
   refreshSession
 }: {
-  api: PosApiClient;
   isOpen: boolean;
   onClose: () => void;
   onSave: (template: TicketTemplateConfig) => void;
@@ -22,6 +22,9 @@ export function TicketTemplateModal({
   session: AuthSession;
   refreshSession?: () => Promise<void>;
 }) {
+  const api = useApi();
+  const { tenantId } = useSession();
+  const queryClient = useQueryClient();
   const [draft, setDraft] = useState<TicketTemplateConfig & { businessType?: string, customBusinessType?: string }>(template);
   const [modules, setModules] = useState({
     enable_tables: session.user.enableTables || false,
@@ -49,7 +52,6 @@ export function TicketTemplateModal({
 
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
-  const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     if (isOpen) {
@@ -58,6 +60,55 @@ export function TicketTemplateModal({
       setMessage(null);
     }
   }, [isOpen, template]);
+
+  const guardarPerfil = useMutation({
+    mutationFn: async (payload: Parameters<typeof api.updateTenantBusinessProfile>[0]) => {
+      // Los módulos van antes que el perfil y la sesión se refresca en medio: los permisos
+      // que trae la sesión tienen que ser ya los nuevos cuando se guarde el resto.
+      await api.updateTenantModules({
+        modules,
+        reason: 'Actualización de configuración por el administrador'
+      });
+
+      if (refreshSession) {
+        await refreshSession();
+      }
+
+      return api.updateTenantBusinessProfile(payload);
+    },
+    onSuccess: async (updated) => {
+      onSave({
+        businessName: updated.businessName,
+        nit: updated.nit,
+        address: updated.address,
+        phone: updated.phone ?? '',
+        footerMessage: updated.footerMessage ?? '',
+        logoUrl: draft.logoUrl.trim(),
+        printerWidth: draft.printerWidth,
+        businessType: updated.businessType ?? 'OTHER',
+        customBusinessType: updated.customBusinessType ?? undefined
+      });
+      setMessage('Configuración comercial actualizada.');
+      // El perfil del comercio no se pinta solo en este modal: el encabezado del tiquete y
+      // el régimen de IVA leen esta misma clave. Invalidarla es lo que los deja al día sin
+      // que nadie tenga que recargar la pantalla.
+      await queryClient.invalidateQueries({ queryKey: settingsKeys.tenantProfile(tenantId) });
+      onClose();
+    },
+    onError: (saveError: any) => {
+      if (saveError.body?.code === 'MODULE_DEACTIVATION_CONFLICT') {
+        setError(saveError.body.message || 'No se pueden desactivar los módulos porque están en uso.');
+      } else {
+        setError(
+          saveError instanceof Error
+            ? saveError.message
+            : 'No fue posible guardar la configuración del negocio'
+        );
+      }
+    }
+  });
+
+  const saving = guardarPerfil.isPending;
 
   if (!isOpen) {
     return null;
@@ -70,7 +121,7 @@ export function TicketTemplateModal({
     }));
   }
 
-  async function handleSave() {
+  function handleSave() {
     const payload = {
       businessName: draft.businessName.trim(),
       nit: draft.nit.trim(),
@@ -87,48 +138,9 @@ export function TicketTemplateModal({
       return;
     }
 
-    setSaving(true);
     setError(null);
     setMessage(null);
-
-    try {
-      // Update Modules via new TMM endpoint
-      await api.updateTenantModules({
-        modules,
-        reason: 'Actualización de configuración por el administrador'
-      });
-
-      if (refreshSession) {
-        await refreshSession();
-      }
-
-      const updated = await api.updateTenantBusinessProfile(parsed.data);
-      onSave({
-        businessName: updated.businessName,
-        nit: updated.nit,
-        address: updated.address,
-        phone: updated.phone ?? '',
-        footerMessage: updated.footerMessage ?? '',
-        logoUrl: draft.logoUrl.trim(),
-        printerWidth: draft.printerWidth,
-        businessType: updated.businessType ?? 'OTHER',
-        customBusinessType: updated.customBusinessType ?? undefined
-      });
-      setMessage('Configuración comercial actualizada.');
-      onClose();
-    } catch (saveError: any) {
-      if (saveError.body?.code === 'MODULE_DEACTIVATION_CONFLICT') {
-        setError(saveError.body.message || 'No se pueden desactivar los módulos porque están en uso.');
-      } else {
-        setError(
-          saveError instanceof Error
-            ? saveError.message
-            : 'No fue posible guardar la configuración del negocio'
-        );
-      }
-    } finally {
-      setSaving(false);
-    }
+    guardarPerfil.mutate(parsed.data);
   }
 
   return (

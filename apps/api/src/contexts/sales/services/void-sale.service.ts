@@ -9,6 +9,7 @@ import { mapSaleRow, saleColumnList } from './sale-mapper.js';
 import { ensureUserCanAccessBranch } from '../../../shared/infra/security/permissions.js';
 import type { AuthContext } from '../../../shared/infra/security/types.js';
 import { LedgerService } from '../../../shared/infra/db/ledger-service.js';
+import { ReceivablesService } from '../application/receivables.service.js';
 
 interface VoidSaleServiceInput {
   db: Kysely<Database>;
@@ -79,6 +80,13 @@ export async function voidSaleService(input: VoidSaleServiceInput) {
 
     const voidedAt = new Date();
     const now = new Date();
+
+    /**
+     * Si la venta se fió, su deuda se anula con ella. Va antes del `UPDATE` a propósito: si
+     * el documento ya tiene abonos, `voidForSale` rechaza la anulación entera en vez de
+     * dejar un abono imputado a una venta que ya no existe.
+     */
+    await ReceivablesService.voidForSale(trx, tenantId, saleId);
 
     const updatedSale = await trx
       .updateTable('sales')

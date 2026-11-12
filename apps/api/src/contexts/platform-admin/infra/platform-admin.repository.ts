@@ -117,11 +117,17 @@ export class PlatformAdminRepository {
   }) {
     let q = this.db.selectFrom('tenants as t')
       .leftJoin('users as u', 'u.id', 't.owner_user_id')
-      .leftJoin('tenant_subscriptions as ts', 'ts.tenant_id', 't.id')
+      // Solo la suscripción viva: una cancelada es histórico, no el plan del comercio.
+      .leftJoin('tenant_subscriptions as ts', (join) =>
+        join.onRef('ts.tenant_id', '=', 't.id').on('ts.status', '!=', 'CANCELLED')
+      )
       .leftJoin('billing_plans as bp', 'bp.id', 'ts.plan_id')
       .select([
         't.id', 't.name', 't.business_name', 't.nit as document_number',
         't.status', 't.created_at', 't.business_type',
+        // El id, además del nombre: el panel envía el plan al cambiarlo, y el nombre es
+        // editable desde el catálogo mientras que el id es el identificador estable.
+        'bp.id as plan_id',
         'bp.name as plan_name', 'bp.price_cents as plan_price_cents',
         'ts.status as subscription_status', 'ts.expires_at',
         'u.email as owner_email',

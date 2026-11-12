@@ -3,6 +3,7 @@ import { sql } from 'kysely';
 import type { FastifyInstance, FastifyPluginAsync } from 'fastify';
 import { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { AppError } from '../../../shared/infra/errors/app-error.js';
+import { productsListResponseSchema, promotionTypeSchema, type PromotionType } from '@pos-dian/shared';
 import {
   branchHeaderSchema,
   createProductBodySchema,
@@ -55,7 +56,13 @@ export const productsRoutes: FastifyPluginAsync = async (app) => {
         tags: ['products'],
         security: [{ bearerAuth: [] }],
         headers: branchHeaderSchema,
-        querystring: productsQuerySchema
+        querystring: productsQuerySchema,
+        /**
+         * El catálogo es lo primero que toca el cajero y lo que más veces viaja. Declarar
+         * su respuesta la recorta a lo que el contrato promete y deja que el tipo del
+         * frontend salga de ahí en vez de escribirse a mano.
+         */
+        response: { 200: productsListResponseSchema }
       }
     },
     async (request) => {
@@ -115,7 +122,13 @@ export const productsRoutes: FastifyPluginAsync = async (app) => {
       const productRows = rows.slice(0, limit);
 
       const variantsByProductId: Record<string, Array<{ id: string; name: string; price_cents: number; barcode: string | null }>> = {};
-      const promotionsByProductId: Record<string, { type: string; value_cents: number; buy_qty: number | null; get_qty: number | null }> = {};
+      /**
+       * El tipo de promoción sale de una columna y venía como texto libre, aunque el
+       * contrato —y con él la pantalla que decide si mostrar «2x1» o un porcentaje—
+       * promete uno de tres valores. Tipándolo aquí, un valor inesperado en la base deja
+       * de colarse hasta el catálogo del cajero disfrazado de promoción válida.
+       */
+      const promotionsByProductId: Record<string, { type: PromotionType; value_cents: number; buy_qty: number | null; get_qty: number | null }> = {};
       const modifiersByProductId: Record<string, Array<{ id: string; name: string; minSelections: number; maxSelections: number; options: Array<{ id: string; name: string; priceCents: number }> }>> = {};
       
       if (productRows.length > 0) {
@@ -151,9 +164,15 @@ export const productsRoutes: FastifyPluginAsync = async (app) => {
           .execute();
           
         activePromotions.forEach(promo => {
+          const tipo = promotionTypeSchema.safeParse(promo.type);
+          // Una promoción con un tipo que el contrato no reconoce se ignora en vez de
+          // viajar al catálogo: el cajero vería una etiqueta que su pantalla no sabe
+          // interpretar y un precio que nadie puede explicar.
+          if (!tipo.success) return;
+
           if (!promotionsByProductId[promo.product_id]) {
             promotionsByProductId[promo.product_id] = {
-              type: promo.type,
+              type: tipo.data,
               value_cents: promo.value_cents,
               buy_qty: promo.buy_qty,
               get_qty: promo.get_qty

@@ -1,6 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useSession } from '../../auth';
 import { RoomWithTables, CreateRoomPayload, CreateTablePayload, UpdateTableStatusPayload, Table, Room, TableOrderWithItems, SaveTableOrderPayload, TransferTablePayload, TableOrderItem } from '@pos-dian/shared';
+import { kdsKeys, tableKeys } from '../../../shared/query-keys';
 
 const getRoomsWithTables = async (token: string, branchId: string): Promise<RoomWithTables[]> => {
   const response = await fetch(`${import.meta.env.VITE_API_URL}/branches/${branchId}/rooms`, {
@@ -99,7 +100,7 @@ const fireKitchenCourse = async (token: string, branchId: string, tableId: strin
 export const useGetRooms = (branchId?: string) => {
   const { token } = useSession();
   return useQuery({
-    queryKey: ['rooms', branchId],
+    queryKey: tableKeys.rooms(branchId),
     queryFn: () => getRoomsWithTables(token!, branchId!),
     enabled: !!branchId,
     // Polling is completely disabled because we use WebSockets (Socket.io) now
@@ -115,7 +116,7 @@ export const useCreateRoom = () => {
     mutationFn: ({ branchId, payload }: { branchId: string; payload: CreateRoomPayload }) =>
       createRoom(token!, branchId, payload),
     onSuccess: (_, { branchId }) => {
-      queryClient.invalidateQueries({ queryKey: ['rooms', branchId] });
+      queryClient.invalidateQueries({ queryKey: tableKeys.rooms(branchId) });
     }
   });
 };
@@ -127,7 +128,7 @@ export const useCreateTable = () => {
     mutationFn: ({ branchId, roomId, payload }: { branchId: string; roomId: string; payload: CreateTablePayload }) =>
       createTable(token!, branchId, roomId, payload),
     onSuccess: (_, { branchId }) => {
-      queryClient.invalidateQueries({ queryKey: ['rooms', branchId] });
+      queryClient.invalidateQueries({ queryKey: tableKeys.rooms(branchId) });
     }
   });
 };
@@ -139,7 +140,7 @@ export const useUpdateTableStatus = () => {
     mutationFn: ({ branchId, tableId, payload }: { branchId: string; tableId: string; payload: UpdateTableStatusPayload }) =>
       updateTableStatus(token!, branchId, tableId, payload),
     onSuccess: (_, { branchId }) => {
-      queryClient.invalidateQueries({ queryKey: ['rooms', branchId] });
+      queryClient.invalidateQueries({ queryKey: tableKeys.rooms(branchId) });
     }
   });
 };
@@ -147,7 +148,7 @@ export const useUpdateTableStatus = () => {
 export const useGetTableOrder = (branchId?: string, tableId?: string) => {
   const { token } = useSession();
   return useQuery({
-    queryKey: ['table-order', branchId, tableId],
+    queryKey: tableKeys.order(branchId, tableId),
     queryFn: () => getTableOrder(token!, branchId!, tableId!),
     enabled: !!branchId && !!tableId,
     staleTime: 30_000
@@ -161,9 +162,9 @@ export const useSaveTableOrder = () => {
     mutationFn: ({ branchId, tableId, payload }: { branchId: string; tableId: string; payload: SaveTableOrderPayload }) =>
       saveTableOrder(token!, branchId, tableId, payload),
     onSuccess: (data, { branchId, tableId }) => {
-      queryClient.setQueryData(['table-order', branchId, tableId], data);
-      queryClient.invalidateQueries({ queryKey: ['table-order', branchId, tableId] });
-      queryClient.invalidateQueries({ queryKey: ['rooms', branchId] });
+      queryClient.setQueryData(tableKeys.order(branchId, tableId), data);
+      queryClient.invalidateQueries({ queryKey: tableKeys.order(branchId, tableId) });
+      queryClient.invalidateQueries({ queryKey: tableKeys.rooms(branchId) });
     }
   });
 };
@@ -176,10 +177,10 @@ export const useClearTableOrder = () => {
       clearTableOrder(token!, branchId, tableId),
     onSuccess: (_, { branchId, tableId }) => {
       // Optimistically clear the table order data
-      queryClient.setQueryData(['table-order', branchId, tableId], null);
+      queryClient.setQueryData(tableKeys.order(branchId, tableId), null);
       
       // Optimistically update the table status in the rooms cache
-      queryClient.setQueryData(['rooms', branchId], (oldData: RoomWithTables[] | undefined) => {
+      queryClient.setQueryData(tableKeys.rooms(branchId), (oldData: RoomWithTables[] | undefined) => {
         if (!oldData) return oldData;
         return oldData.map(room => ({
           ...room,
@@ -192,8 +193,8 @@ export const useClearTableOrder = () => {
         }));
       });
       
-      queryClient.invalidateQueries({ queryKey: ['table-order', branchId, tableId] });
-      queryClient.invalidateQueries({ queryKey: ['rooms', branchId] });
+      queryClient.invalidateQueries({ queryKey: tableKeys.order(branchId, tableId) });
+      queryClient.invalidateQueries({ queryKey: tableKeys.rooms(branchId) });
     }
   });
 };
@@ -205,9 +206,9 @@ export const useTransferTableOrder = () => {
     mutationFn: ({ branchId, tableId, payload }: { branchId: string; tableId: string; payload: TransferTablePayload }) =>
       transferTableOrder(token!, branchId, tableId, payload),
     onSuccess: (_, { branchId, tableId, payload }) => {
-      queryClient.invalidateQueries({ queryKey: ['table-order', branchId, tableId] });
-      queryClient.invalidateQueries({ queryKey: ['table-order', branchId, payload.destinationTableId] });
-      queryClient.invalidateQueries({ queryKey: ['rooms', branchId] });
+      queryClient.invalidateQueries({ queryKey: tableKeys.order(branchId, tableId) });
+      queryClient.invalidateQueries({ queryKey: tableKeys.order(branchId, payload.destinationTableId) });
+      queryClient.invalidateQueries({ queryKey: tableKeys.rooms(branchId) });
     }
   });
 };
@@ -219,7 +220,7 @@ export const useSendTableOrderToKitchen = () => {
     mutationFn: ({ branchId, tableId }: { branchId: string; tableId: string }) =>
       sendTableOrderToKitchen(token!, branchId, tableId),
     onSuccess: (_, { branchId, tableId }) => {
-      queryClient.invalidateQueries({ queryKey: ['table-order', branchId, tableId] });
+      queryClient.invalidateQueries({ queryKey: tableKeys.order(branchId, tableId) });
     }
   });
 };
@@ -231,7 +232,7 @@ export const useFireKitchenCourse = () => {
     mutationFn: ({ branchId, tableId, course }: { branchId: string; tableId: string; course?: number }) =>
       fireKitchenCourse(token!, branchId, tableId, course),
     onSuccess: (_, { branchId }) => {
-      queryClient.invalidateQueries({ queryKey: ['kitchen-tickets', branchId] });
+      queryClient.invalidateQueries({ queryKey: kdsKeys.tickets(branchId) });
     }
   });
 };

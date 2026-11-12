@@ -1,115 +1,55 @@
-interface PaymentSnapshot {
-  payment_json: unknown;
-  total_cents: number;
-}
+import { PAYMENT_KIND_BEHAVIOR, summarizePayments, type PaymentKind, type ShiftPaymentSummary } from '@pos-dian/shared';
+
+/**
+ * El efectivo esperado de un turno.
+ *
+ * Lo que había aquí era una función que **adivinaba** cuánto efectivo había entrado
+ * recorriendo quince rutas posibles dentro de `sales.payment_json` —`cash_cents`,
+ * `cash.amount_cents`, `amounts.cashAmountCents`, `breakdown.cash_cents`…— y que, si no
+ * encontraba ninguna, miraba si la palabra del método era «cash» y en ese caso daba por
+ * efectivo el total entero de la venta.
+ *
+ * Esa lista no era paranoia: era el fósil de un formato que cambió varias veces sin migrar
+ * lo anterior. Pero adivinar el dinero de un arqueo es la peor forma posible de calcularlo,
+ * porque cuando acierta nadie lo comprueba y cuando falla el cajero se come la diferencia.
+ *
+ * Desde la migración 099 los pagos son filas con su tipo, así que aquí solo hay una suma.
+ */
 
 interface CashMovementSnapshot {
   type: 'IN' | 'OUT';
   amount_cents: number;
 }
 
-type JsonRecord = Record<string, unknown>;
-
-const CASH_AMOUNT_PATHS: ReadonlyArray<ReadonlyArray<string>> = [
-  ['cash_cents'],
-  ['cash_amount_cents'],
-  ['cashAmountCents'],
-  ['cash', 'cents'],
-  ['cash', 'amount_cents'],
-  ['cash', 'amountCents'],
-  ['amounts', 'cash_cents'],
-  ['amounts', 'cash_amount_cents'],
-  ['amounts', 'cashAmountCents'],
-  ['breakdown', 'cash_cents'],
-  ['breakdown', 'cash_amount_cents'],
-  ['breakdown', 'cashAmountCents'],
-  ['payment', 'cash_cents'],
-  ['payment', 'cash_amount_cents'],
-  ['payment', 'cashAmountCents']
-];
-
-function isJsonRecord(value: unknown): value is JsonRecord {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
+export interface SalePaymentRow {
+  method_code: string;
+  kind: PaymentKind;
+  label?: string | null;
+  amount_cents: number;
+  tendered_cents?: number | null;
+  change_cents?: number | null;
 }
 
-function toNonNegativeInteger(value: unknown): number | null {
-  if (typeof value === 'number' && Number.isFinite(value) && value >= 0) {
-    return Math.trunc(value);
-  }
-
-  if (typeof value === 'string' && value.trim().length > 0) {
-    const parsed = Number(value);
-    if (Number.isFinite(parsed) && parsed >= 0) {
-      return Math.trunc(parsed);
-    }
-  }
-
-  return null;
-}
-
-function getAtPath(record: JsonRecord, path: ReadonlyArray<string>): unknown {
-  let current: unknown = record;
-  for (const segment of path) {
-    if (!isJsonRecord(current)) {
-      return undefined;
-    }
-    current = current[segment];
-  }
-  return current;
-}
-
-function getPaymentMethod(paymentJson: unknown): string | undefined {
-  if (!isJsonRecord(paymentJson)) {
-    return undefined;
-  }
-
-  const method = paymentJson.payment_method ?? paymentJson.paymentMethod ?? paymentJson.method;
-  if (typeof method !== 'string') {
-    return undefined;
-  }
-
-  return method.toLowerCase();
-}
-
-function readExplicitCashAmountCents(paymentJson: unknown): number | null {
-  if (!isJsonRecord(paymentJson)) {
-    return null;
-  }
-
-  for (const path of CASH_AMOUNT_PATHS) {
-    const rawValue = getAtPath(paymentJson, path);
-    const parsed = toNonNegativeInteger(rawValue);
-    if (parsed !== null) {
-      return parsed;
-    }
-  }
-
-  return null;
-}
-
-export function extractCashPaidCents(paymentJson: unknown, totalCents: number): number {
-  const explicitCashAmountCents = readExplicitCashAmountCents(paymentJson);
-  if (explicitCashAmountCents !== null) {
-    return explicitCashAmountCents;
-  }
-
-  const paymentMethod = getPaymentMethod(paymentJson);
-  if (paymentMethod === 'cash') {
-    return totalCents;
-  }
-
-  return 0;
+/**
+ * Cuánto de este pago está en el cajón.
+ *
+ * El vuelto no se resta aparte: `amount_cents` es lo aplicado a la venta, ya neto de lo
+ * devuelto. Restarlo otra vez sería contarlo dos veces, que es el error clásico al modelar
+ * el recibido y el cambio.
+ */
+export function cashDrawerImpactCents(payment: SalePaymentRow): number {
+  return PAYMENT_KIND_BEHAVIOR[payment.kind].affectsCashDrawer ? payment.amount_cents : 0;
 }
 
 export function calculateExpectedCashCents(
   openingAmountCents: number,
-  salePayments: ReadonlyArray<PaymentSnapshot>,
+  payments: ReadonlyArray<SalePaymentRow>,
   cashMovements: ReadonlyArray<CashMovementSnapshot> = []
 ): number {
   let expectedCashCents = openingAmountCents;
 
-  for (const salePayment of salePayments) {
-    expectedCashCents += extractCashPaidCents(salePayment.payment_json, salePayment.total_cents);
+  for (const payment of payments) {
+    expectedCashCents += cashDrawerImpactCents(payment);
   }
 
   for (const movement of cashMovements) {
@@ -125,4 +65,15 @@ export function calculateExpectedCashCents(
 
 export function calculateDiffCents(expectedCashCents: number, closingCashRealCents: number): number {
   return closingCashRealCents - expectedCashCents;
+}
+
+/**
+ * Desglose del turno por medio de pago, agrupado por lo que le hace al dinero.
+ *
+ * Sustituye al objeto literal de tres claves que construía el cierre de caja, donde un
+ * `if (methodRevenues[method] !== undefined)` descartaba en silencio cualquier medio que no
+ * fuera efectivo, tarjeta o transferencia.
+ */
+export function buildShiftPaymentSummary(payments: ReadonlyArray<SalePaymentRow>): ShiftPaymentSummary {
+  return summarizePayments(payments);
 }

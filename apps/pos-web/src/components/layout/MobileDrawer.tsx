@@ -1,4 +1,20 @@
 import type { AppRoute, AppRouteDefinition } from '../../types';
+import { grupoDeRuta, TITULO_DE_GRUPO, type GrupoDeRuta } from '../../app/routes';
+
+/**
+ * Una acción de la barra superior, con su nombre escrito.
+ *
+ * En la barra se dibuja solo el icono, porque el espacio manda. En el cajón se dibuja el
+ * icono *y* la etiqueta: un cajón tiene sitio, y «🔑» a secas no le dice a nadie que ahí
+ * se configura el PIN de aprobación.
+ */
+export type TopbarAction = {
+  id: string;
+  icon: string;
+  label: string;
+  onClick: () => void;
+  tone?: 'danger';
+};
 
 export function MobileDrawer({
   isOpen,
@@ -6,7 +22,8 @@ export function MobileDrawer({
   routeDefinitions,
   activeRoute,
   onNavigate,
-  onLogout
+  onLogout,
+  actions = []
 }: {
   isOpen: boolean;
   onClose: () => void;
@@ -14,6 +31,7 @@ export function MobileDrawer({
   activeRoute: AppRoute;
   onNavigate: (routeId: AppRoute) => void;
   onLogout: () => void;
+  actions?: readonly TopbarAction[];
 }) {
   if (!isOpen) return null;
 
@@ -32,15 +50,44 @@ export function MobileDrawer({
           </button>
         </div>
         <nav className="mobile-drawer-nav">
-          {routeDefinitions.map((route) => (
-            <button
-              key={route.id}
-              className={`mobile-nav-btn ${activeRoute === route.id ? 'active' : ''}`}
-              onClick={() => handleMobileNavigate(route.id)}
-            >
-              {route.label}
-            </button>
-          ))}
+          {/* Las mismas zonas que en la barra. Veintiuna rutas seguidas en un cajón de
+              teléfono son un muro; con títulos se busca por zona y no leyendo todo. */}
+          {(['operacion', 'catalogo', 'administracion'] as GrupoDeRuta[])
+            .map((grupo) => ({ grupo, rutas: routeDefinitions.filter((r) => grupoDeRuta(r.id) === grupo) }))
+            .filter(({ rutas }) => rutas.length > 0)
+            .map(({ grupo, rutas }) => (
+              <div key={grupo}>
+                <p className="mobile-drawer-section">{TITULO_DE_GRUPO[grupo]}</p>
+                {rutas.map((route) => (
+                  <button
+                    key={route.id}
+                    className={`mobile-nav-btn ${activeRoute === route.id ? 'active' : ''}`}
+                    onClick={() => handleMobileNavigate(route.id)}
+                  >
+                    {route.label}
+                  </button>
+                ))}
+              </div>
+            ))}
+
+          {actions.length > 0 && (
+            <>
+              <p className="mobile-drawer-section">Acciones</p>
+              {actions.map((action) => (
+                <button
+                  key={action.id}
+                  className={`mobile-nav-btn ${action.tone === 'danger' ? 'is-danger' : ''}`}
+                  onClick={() => {
+                    onClose();
+                    action.onClick();
+                  }}
+                >
+                  <span className="mobile-nav-icon" aria-hidden="true">{action.icon}</span>
+                  {action.label}
+                </button>
+              ))}
+            </>
+          )}
         </nav>
         <div className="mobile-drawer-footer">
           <button className="danger-button" style={{ width: '100%' }} onClick={() => {

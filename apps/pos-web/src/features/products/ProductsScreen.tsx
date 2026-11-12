@@ -1,29 +1,36 @@
-import { useCallback, useEffect, useState, type FormEvent, useRef } from 'react';
+import { useEffect, useState, type FormEvent, useRef } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Banner, PlaceholderImage } from '../../components/ui';
 import { formatMoneyFromCents, pesosToCents, centsToPesos } from '../../lib/format';
 import type { ProductItem } from '../../lib/api';
-import type { PosApiClient } from '../../types';
-import type { ProductImageItem } from '../../lib/api/client';
 import { PermissionGuard, useSession } from '../auth';
 import {
   getProductTaxCategoryLabel,
   PRODUCT_TAX_CATEGORY_OPTIONS,
   type ProductTaxCategoryOption
 } from './constants';
+import { useApi } from '../auth';
+import { inventoryKeys } from '../../shared/query-keys';
+
+function mensajeDeError(causa: unknown, respaldo: string): string | null {
+  if (!causa) {
+    return null;
+  }
+
+  return causa instanceof Error ? causa.message : respaldo;
+}
 
 export function ProductsScreen({
-  api,
   branchId
 }: {
-  api: PosApiClient;
   branchId: string;
 }) {
-  const { role } = useSession();
+  const api = useApi();
+  const { role, tenantId } = useSession();
+  const queryClient = useQueryClient();
   const [query, setQuery] = useState('');
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [appliedQuery, setAppliedQuery] = useState('');
   const [message, setMessage] = useState<string | null>(null);
-  const [products, setProducts] = useState<ProductItem[]>([]);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [name, setName] = useState('');
   const [category, setCategory] = useState('');
@@ -32,39 +39,161 @@ export function ProductsScreen({
   const [pricePesos, setPricePesos] = useState(1000);
   const [description, setDescription] = useState('');
 
-  // Image Management State
-  const [images, setImages] = useState<ProductImageItem[]>([]);
-  const [loadingImages, setLoadingImages] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const canManageProducts = role === 'ADMIN' || role === 'TENANT_OWNER' || role === 'MANAGER';
   const [showForm, setShowForm] = useState(false);
 
-  const loadProducts = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-
-    try {
-      const response = await api.listProducts({
-        query: query.trim() || undefined,
-        limit: 120,
-        branchId
-      });
-      setProducts(response.items);
-    } catch (loadError) {
-      setError(loadError instanceof Error ? loadError.message : 'No fue posible cargar productos');
-    } finally {
-      setLoading(false);
-    }
-  }, [api, branchId, query]);
-
+  /**
+   * Lo que se teclea y lo que se busca son dos cosas distintas a propósito.
+   *
+   * Escribir «café» son cuatro pulsaciones; con el texto crudo en la clave serían cuatro
+   * consultas al servidor y tres respuestas que nadie llega a leer. El término aplicado se
+   * queda quieto mientras el dedo se mueve y solo cambia cuando para, así que la consulta
+   * sale una vez por búsqueda y no una por tecla.
+   */
   useEffect(() => {
-    const timeout = window.setTimeout(() => {
-      void loadProducts();
-    }, 160);
+    const temporizador = window.setTimeout(() => setAppliedQuery(query), 160);
 
-    return () => window.clearTimeout(timeout);
-  }, [loadProducts]);
+    return () => window.clearTimeout(temporizador);
+  }, [query]);
+
+  const searchTerm = appliedQuery.trim();
+
+  /**
+   * El término alarga la clave del catálogo en vez de sustituirla: cada búsqueda es su propia
+   * entrada en la caché, pero todas cuelgan de la del catálogo, así que invalidarlo tras una
+   * escritura las alcanza a todas sin tener que enumerarlas.
+   */
+  const catalogoConsulta = useQuery({
+    queryKey: [...inventoryKeys.products(tenantId, branchId), searchTerm],
+    queryFn: () => api.listProducts({ query: searchTerm || undefined, limit: 120, branchId })
+  });
+
+  /**
+   * La fábrica de claves no tiene una para la galería de un producto, así que se deriva de la
+   * del catálogo: cuelga de él —invalidar el catálogo del comercio alcanza también a las
+   * galerías— y consulta e invalidación salen de esta misma función. Escrita a mano en los
+   * cuatro sitios que la necesitan, tarde o temprano una se escribiría mal.
+   */
+  const claveImagenes = (productId: string) =>
+    [...inventoryKeys.products(tenantId), productId, 'imagenes'] as const;
+
+  const imagenesConsulta = useQuery({
+    queryKey: claveImagenes(editingId ?? ''),
+    queryFn: () => api.getProductImages(editingId ?? ''),
+    enabled: Boolean(editingId)
+  });
+
+  const invalidarCatalogo = () =>
+    queryClient.invalidateQueries({ queryKey: inventoryKeys.products(tenantId, branchId) });
+
+  /**
+   * Tocar una imagen mueve dos listas: la galería del formulario y el catálogo, porque la
+   * imagen principal es la que se ve en cada tarjeta del listado.
+   */
+  const invalidarImagenesYCatalogo = (productId: string) =>
+    Promise.all([
+      queryClient.invalidateQueries({ queryKey: claveImagenes(productId) }),
+      invalidarCatalogo()
+    ]);
+
+  const crearProducto = useMutation({
+    mutationFn: () =>
+      api.createProduct(
+        {
+          branchId,
+          name,
+          category,
+          taxCategory,
+          barcode: barcode.trim() ? barcode : null,
+          price_cents: pesosToCents(pricePesos),
+          active: true,
+          description: description.trim() ? description : null
+        },
+        branchId
+      ),
+    onSuccess: async (nuevo) => {
+      setMessage('Producto creado');
+      // El formulario no se cierra: recién creado es cuando se le suben las imágenes, y para
+      // eso hace falta el id que acaba de devolver el servidor.
+      setEditingId(nuevo.id);
+      await invalidarCatalogo();
+    }
+  });
+
+  const actualizarProducto = useMutation({
+    mutationFn: (productId: string) =>
+      api.patchProduct(
+        productId,
+        {
+          name,
+          category,
+          taxCategory,
+          barcode: barcode.trim() ? barcode : null,
+          price_cents: pesosToCents(pricePesos),
+          description: description.trim() ? description : null
+        },
+        branchId
+      ),
+    onSuccess: async () => {
+      setMessage('Producto actualizado');
+      resetForm();
+      await invalidarCatalogo();
+    }
+  });
+
+  const cambiarEstado = useMutation({
+    mutationFn: (productId: string) => api.toggleProductActive(productId, branchId),
+    onSuccess: async () => {
+      setMessage('Estado del producto actualizado');
+      await invalidarCatalogo();
+    }
+  });
+
+  const subirImagen = useMutation({
+    mutationFn: ({ productId, file }: { productId: string; file: File }) =>
+      api.uploadProductImage(productId, file),
+    onSuccess: (_imagen, { productId }) => invalidarImagenesYCatalogo(productId),
+    // El input de archivo se limpia pase lo que pase: si no, elegir el mismo archivo otra vez
+    // tras un fallo no dispara `change` y parece que el botón se ha roto.
+    onSettled: () => {
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  });
+
+  const eliminarImagen = useMutation({
+    mutationFn: ({ productId, imageId }: { productId: string; imageId: string }) =>
+      api.deleteProductImage(productId, imageId),
+    onSuccess: (_vacio, { productId }) => invalidarImagenesYCatalogo(productId)
+  });
+
+  const marcarPrincipal = useMutation({
+    mutationFn: ({ productId, imageId }: { productId: string; imageId: string }) =>
+      api.setProductImagePrimary(productId, imageId),
+    onSuccess: (_vacio, { productId }) => invalidarImagenesYCatalogo(productId)
+  });
+
+  const products = catalogoConsulta.data?.items ?? [];
+  const loading = catalogoConsulta.isPending;
+  const images = imagenesConsulta.data ?? [];
+  const loadingImages =
+    imagenesConsulta.isFetching ||
+    subirImagen.isPending ||
+    eliminarImagen.isPending ||
+    marcarPrincipal.isPending;
+
+  // Un solo banner para todos los fallos posibles. Manda el de la última acción del usuario:
+  // taparla con el error de una carga de hace un rato despista.
+  const error =
+    mensajeDeError(crearProducto.error, 'No fue posible guardar producto') ??
+    mensajeDeError(actualizarProducto.error, 'No fue posible guardar producto') ??
+    mensajeDeError(cambiarEstado.error, 'No fue posible cambiar el estado') ??
+    mensajeDeError(subirImagen.error, 'Error subiendo imagen') ??
+    mensajeDeError(eliminarImagen.error, 'Error eliminando imagen') ??
+    mensajeDeError(marcarPrincipal.error, 'Error actualizando imagen principal') ??
+    (imagenesConsulta.error ? 'No se pudieron cargar las imágenes' : null) ??
+    mensajeDeError(catalogoConsulta.error, 'No fue posible cargar productos');
 
   function resetForm() {
     setEditingId(null);
@@ -74,76 +203,24 @@ export function ProductsScreen({
     setBarcode('');
     setPricePesos(1000);
     setDescription('');
-    setImages([]);
     setShowForm(false);
   }
 
-  async function handleSaveProduct(event: FormEvent<HTMLFormElement>) {
+  function handleSaveProduct(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!canManageProducts) return;
 
-    setError(null);
     setMessage(null);
 
-    try {
-      let currentEditingId = editingId;
-      if (editingId) {
-        await api.patchProduct(
-          editingId,
-          {
-            name,
-            category,
-            taxCategory,
-            barcode: barcode.trim() ? barcode : null,
-            price_cents: pesosToCents(pricePesos),
-            description: description.trim() ? description : null
-          },
-          branchId
-        );
-        setMessage('Producto actualizado');
-      } else {
-        const newProduct = await api.createProduct(
-          {
-            branchId,
-            name,
-            category,
-            taxCategory,
-            barcode: barcode.trim() ? barcode : null,
-            price_cents: pesosToCents(pricePesos),
-            active: true,
-            description: description.trim() ? description : null
-          },
-          branchId
-        );
-        currentEditingId = newProduct.id;
-        setMessage('Producto creado');
-        // Stay on form to upload images if needed
-        setEditingId(currentEditingId);
-        await loadProducts();
-        return; // Don't reset if they just created it, allow adding images
-      }
-
-      resetForm();
-      await loadProducts();
-    } catch (saveError) {
-      setError(saveError instanceof Error ? saveError.message : 'No fue posible guardar producto');
+    if (editingId) {
+      actualizarProducto.mutate(editingId);
+      return;
     }
+
+    crearProducto.mutate();
   }
 
-  async function loadProductImages(productId: string) {
-    setLoadingImages(true);
-    try {
-      const data = await api.getProductImages(productId);
-      setImages(data);
-    } catch (err) {
-      console.error(err);
-      setError('No se pudieron cargar las imágenes');
-    } finally {
-      setLoadingImages(false);
-    }
-  }
-
-  async function startEdit(product: ProductItem) {
+  function startEdit(product: ProductItem) {
     setEditingId(product.id);
     setName(product.name);
     setCategory(product.category);
@@ -152,73 +229,37 @@ export function ProductsScreen({
     setPricePesos(centsToPesos(product.price_cents));
     setDescription(product.description ?? '');
     setShowForm(true);
-    await loadProductImages(product.id);
   }
 
-  async function handleToggleActive(productId: string) {
+  function handleToggleActive(productId: string) {
     if (!canManageProducts) return;
 
-    setError(null);
     setMessage(null);
-
-    try {
-      await api.toggleProductActive(productId, branchId);
-      setMessage('Estado del producto actualizado');
-      await loadProducts();
-    } catch (toggleError) {
-      setError(toggleError instanceof Error ? toggleError.message : 'No fue posible cambiar el estado');
-    }
+    cambiarEstado.mutate(productId);
   }
 
   // --- Image Handlers ---
 
-  async function handleImageUpload(e: React.ChangeEvent<HTMLInputElement>) {
+  function handleImageUpload(e: React.ChangeEvent<HTMLInputElement>) {
     if (!editingId || !e.target.files || e.target.files.length === 0) return;
-    
-    setLoadingImages(true);
-    try {
-      const file = e.target.files[0];
-      if (!file) return;
-      await api.uploadProductImage(editingId, file);
-      await loadProductImages(editingId);
-      await loadProducts(); // Refresh list to update primary image in catalog
-    } catch (err: any) { // eslint-disable-line @typescript-eslint/no-explicit-any
-      setError(err.message || 'Error subiendo imagen');
-    } finally {
-      setLoadingImages(false);
-      if (fileInputRef.current) fileInputRef.current.value = '';
-    }
+
+    const file = e.target.files[0];
+    if (!file) return;
+
+    subirImagen.mutate({ productId: editingId, file });
   }
 
-  async function handleDeleteImage(imageId: string) {
+  function handleDeleteImage(imageId: string) {
     if (!editingId) return;
     if (!confirm('¿Seguro que deseas eliminar esta imagen?')) return;
 
-    setLoadingImages(true);
-    try {
-      await api.deleteProductImage(editingId, imageId);
-      await loadProductImages(editingId);
-      await loadProducts();
-    } catch (err: any) { // eslint-disable-line @typescript-eslint/no-explicit-any
-      setError(err.message || 'Error eliminando imagen');
-    } finally {
-      setLoadingImages(false);
-    }
+    eliminarImagen.mutate({ productId: editingId, imageId });
   }
 
-  async function handleSetPrimaryImage(imageId: string) {
+  function handleSetPrimaryImage(imageId: string) {
     if (!editingId) return;
 
-    setLoadingImages(true);
-    try {
-      await api.setProductImagePrimary(editingId, imageId);
-      await loadProductImages(editingId);
-      await loadProducts();
-    } catch (err: any) { // eslint-disable-line @typescript-eslint/no-explicit-any
-      setError(err.message || 'Error actualizando imagen principal');
-    } finally {
-      setLoadingImages(false);
-    }
+    marcarPrincipal.mutate({ productId: editingId, imageId });
   }
 
   return (
@@ -233,7 +274,7 @@ export function ProductsScreen({
             <div className="flex items-center gap-3">
               <button 
                 className="inline-flex items-center justify-center h-9 px-4 rounded-md text-sm font-medium border border-border bg-background hover:bg-muted text-foreground transition-colors shadow-sm"
-                onClick={() => void loadProducts()}
+                onClick={() => void catalogoConsulta.refetch()}
               >
                 <span className="mr-2">🔄</span> Sincronizar
               </button>
@@ -375,7 +416,26 @@ export function ProductsScreen({
         />
       )}
 
-      <aside className={`fixed inset-y-0 right-0 z-50 w-full sm:w-[450px] bg-card border-l border-border shadow-2xl transform transition-transform duration-300 ease-in-out lg:relative lg:transform-none lg:w-[450px] flex flex-col h-full ${showForm ? 'translate-x-0' : 'translate-x-full lg:hidden'}`}>
+      {/**
+       * El panel cerrado se aparta con `translate-x-full`, pero sigue existiendo.
+       *
+       * Un panel corrido fuera de la pantalla no está oculto: sus campos siguen en el
+       * orden de tabulación y en el árbol de accesibilidad. Con el teclado se recorría un
+       * formulario invisible —nombre, precio, IVA, «Crear Producto»— sin que nada apareciera
+       * en pantalla, y un lector de pantalla lo anunciaba entero.
+       *
+       * `inert` lo saca de los dos: ni foco, ni lectura, ni clics. Se pone siempre que el
+       * panel está cerrado, que es justo cuando no debe usarse: en escritorio cerrado ya
+       * lleva `lg:hidden`, y abierto —en cualquier ancho— vuelve a ser un panel normal.
+       *
+       * En React 18 `inert` no es una propiedad conocida y el tipado de JSX la rechaza,
+       * así que se pasa como atributo suelto con cadena vacía, que es como lo lee el
+       * navegador. El día que se suba a React 19 esto pasa a ser `inert={!showForm}`.
+       */}
+      <aside
+        {...(showForm ? {} : ({ inert: '', 'aria-hidden': true } as Record<string, unknown>))}
+        className={`fixed inset-y-0 right-0 z-50 w-full sm:w-[450px] bg-card border-l border-border shadow-2xl transform transition-transform duration-300 ease-in-out lg:relative lg:transform-none lg:w-[450px] flex flex-col h-full ${showForm ? 'translate-x-0' : 'translate-x-full lg:hidden'}`}
+      >
         <header className="flex-shrink-0 px-6 py-4 border-b border-border bg-muted/30 flex items-center justify-between sticky top-0 z-10">
           <div>
             <h3 className="text-lg font-bold text-foreground">{editingId ? 'Editar Producto' : 'Nuevo Producto'}</h3>

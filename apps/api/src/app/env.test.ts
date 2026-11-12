@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { envSchema } from './env.js';
+import { envSchema, stripEmptyStrings } from './env.js';
 
 /**
  * Guardas de configuración que solo aplican en producción.
@@ -67,3 +67,77 @@ describe('Validación de entorno en producción', () => {
     expect(parse({ METRICS_TOKEN: 'a4f9c1e7b2d8a3f6c0e5b9d2' }).success).toBe(true);
   });
 });
+
+describe('Variables vacías en el .env', () => {
+  it('trata `FOO=` como ausente, no como cadena vacía', () => {
+    // `.env.example` traía `METRICS_TOKEN=` y eso impedía arrancar la API y el worker: una
+    // cadena vacía pasa el `.optional()` y luego revienta contra el `.min(16)`, con un
+    // error que no menciona el `.env` por ninguna parte.
+    const result = envSchema.safeParse(
+      stripEmptyStrings({
+        NODE_ENV: 'development',
+        JWT_SECRET: 'K7pQ2xR9vL4mN8wZ3bT6yH1jF5sD0gA2cE4uI7oP9kM',
+        METRICS_TOKEN: '',
+        DIAN_HTTP_URL: '',
+        ADMIN_DATABASE_URL: ''
+      } as NodeJS.ProcessEnv)
+    );
+
+    expect(result.success, result.success ? '' : JSON.stringify(result.error.issues)).toBe(true);
+    if (result.success) {
+      expect(result.data.METRICS_TOKEN).toBeUndefined();
+      expect(result.data.ADMIN_DATABASE_URL).toBeUndefined();
+    }
+  });
+
+  it('un valor con solo espacios también cuenta como ausente', () => {
+    const result = envSchema.safeParse(
+      stripEmptyStrings({
+        NODE_ENV: 'development',
+        JWT_SECRET: 'K7pQ2xR9vL4mN8wZ3bT6yH1jF5sD0gA2cE4uI7oP9kM',
+        METRICS_TOKEN: '   '
+      } as NodeJS.ProcessEnv)
+    );
+
+    expect(result.success).toBe(true);
+  });
+
+  it('sigue rechazando un token corto pero real', () => {
+    const result = envSchema.safeParse(
+      stripEmptyStrings({
+        NODE_ENV: 'development',
+        JWT_SECRET: 'K7pQ2xR9vL4mN8wZ3bT6yH1jF5sD0gA2cE4uI7oP9kM',
+        METRICS_TOKEN: 'corto'
+      } as NodeJS.ProcessEnv)
+    );
+
+    expect(result.success).toBe(false);
+  });
+
+  it('rechaza el DATABASE_URL por defecto (rol dueño) en producción', () => {
+    const result = parse({ DATABASE_URL: 'postgres://pos:pos@localhost:5432/pos_dian' });
+    expect(issuePaths(result)).toContain('DATABASE_URL');
+  });
+
+  it('no permite el adaptador SENDGRID, que descarta correos en silencio', () => {
+    expect(issuePaths(parse({ NOTIFICATION_PROVIDER: 'SENDGRID' }))).toContain('NOTIFICATION_PROVIDER');
+  });
+
+  it('NOTIFICATION_PROVIDER=NONE no exige llave de Resend', () => {
+    const result = envSchema.safeParse({ ...productionBase, RESEND_API_KEY: undefined, NOTIFICATION_PROVIDER: 'NONE' });
+    expect(result.success).toBe(true);
+  });
+
+  it('interpreta TRUST_PROXY como booleano, número de saltos o lista', () => {
+    const valor = (v?: string) => {
+      const r = envSchema.safeParse({ ...productionBase, ...(v === undefined ? {} : { TRUST_PROXY: v }) });
+      return r.success ? r.data.TRUST_PROXY : 'error';
+    };
+    expect(valor(undefined)).toBe(false);
+    expect(valor('false')).toBe(false);
+    expect(valor('true')).toBe(true);
+    expect(valor('1')).toBe(1);
+    expect(valor('10.0.0.0/8')).toBe('10.0.0.0/8');
+  });
+});
+

@@ -111,6 +111,10 @@ export const ProductGrid = memo(function ProductGrid({
                   {rowProducts.map((product) => (
                     <button
                       key={product.id}
+                      // El e2e del camino del dinero empieza aquí: añadir un producto es el
+                      // primer gesto de cualquier venta. Un `data-testid` lo ancla a algo que
+                      // no se mueve cuando alguien rediseñe la tarjeta y renombre la clase.
+                      data-testid="product-card"
                       className={`product-card ${highlightedProductId === product.id ? 'is-highlighted' : ''}`}
                       onMouseEnter={() => setHighlightedProductId(product.id)}
                       onTouchStart={() => setHighlightedProductId(product.id)}

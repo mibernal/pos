@@ -8,6 +8,7 @@ import {
   bearerHeaders,
   cleanupE2eFixture,
   ensureE2eSchema,
+  grantModules,
   loginE2eUser,
   seedE2eFixture,
   type E2eFixture
@@ -26,11 +27,9 @@ let app: FastifyInstance;
 const fixtures: E2eFixture[] = [];
 
 async function enableDelivery(tenantId: string) {
-  await adminDb()
-    .updateTable('tenants')
-    .set({ enable_delivery: true, enable_restaurant: true })
-    .where('id', '=', tenantId)
-    .execute();
+  // Desde la fase 7 los módulos salen del plan; la columna de `tenants` es una vista de
+  // compatibilidad y ya no habilita nada por sí sola.
+  await grantModules(tenantId, ['delivery', 'restaurant']);
 }
 
 async function openCashSession(fixture: E2eFixture): Promise<string> {

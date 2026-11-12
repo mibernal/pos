@@ -1,17 +1,18 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Button, Input, Label, BusinessTypeSelector } from '../../../components/ui';
 
-import { BillingPlan } from '../../../lib/api/client';
+import { platformKeys } from '../../../shared/query-keys';
+import { useApi } from '../../auth';
 
 interface CreateTenantModalProps {
-  api: ReturnType<typeof import('../../../lib/api/client').createApiClient>;
   onClose: () => void;
   onSuccess: () => void;
 }
 
-export function CreateTenantModal({ api, onClose, onSuccess }: CreateTenantModalProps) {
-  const [loading, setLoading] = useState(false);
-  const [plans, setPlans] = useState<BillingPlan[]>([]);
+export function CreateTenantModal({ onClose, onSuccess }: CreateTenantModalProps) {
+  const api = useApi();
+  const queryClient = useQueryClient();
   const [formData, setFormData] = useState({
     tenant_name: '',
     tenant_business_name: '',
@@ -48,18 +49,17 @@ export function CreateTenantModal({ api, onClose, onSuccess }: CreateTenantModal
       enable_advanced_reports: false
     }
   });
-  const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    api.getPlatformPlans().then((res: { plans: BillingPlan[] }) => setPlans(res.plans || []));
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  const consultaPlanes = useQuery({
+    queryKey: platformKeys.plans(),
+    queryFn: () => api.getPlatformPlans()
+  });
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setLoading(true);
-    setError(null);
-    try {
-      await api.createPlatformTenant({
+  const plans = consultaPlanes.data?.plans ?? [];
+
+  const creacion = useMutation({
+    mutationFn: () =>
+      api.createPlatformTenant({
         name: formData.tenant_name,
         business_name: formData.tenant_business_name,
         nit: formData.tenant_document_number,
@@ -69,13 +69,23 @@ export function CreateTenantModal({ api, onClose, onSuccess }: CreateTenantModal
         business_type: formData.business_type,
         custom_business_type: formData.business_type === 'OTHER' ? formData.custom_business_type : undefined,
         ...(formData.business_type === 'OTHER' ? formData.modules : {})
-      });
+      }),
+    onSuccess: () => {
+      // El alta no solo entra en el directorio: suma una suscripción, así que las cifras
+      // agregadas del resumen y de ingresos también quedan viejas.
+      queryClient.invalidateQueries({ queryKey: platformKeys.tenants() });
+      queryClient.invalidateQueries({ queryKey: platformKeys.dashboard() });
+      queryClient.invalidateQueries({ queryKey: platformKeys.revenue() });
       onSuccess();
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setLoading(false);
     }
+  });
+
+  const loading = creacion.isPending;
+  const error = creacion.error instanceof Error ? creacion.error.message : null;
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    creacion.mutate();
   };
 
   return (
@@ -142,8 +152,12 @@ export function CreateTenantModal({ api, onClose, onSuccess }: CreateTenantModal
               <div className="space-y-2">
                 <Label>Plan de Suscripción</Label>
                 <select value={formData.plan} onChange={e => setFormData({...formData, plan: e.target.value})} className="flex h-11 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500">
+                  {/* El valor es el `id`, no el nombre. El formulario arranca en 'STARTER'
+                      —un id— y las opciones valían `p.name`: un administrador que no tocaba
+                      el desplegable enviaba un identificador que la búsqueda por nombre no
+                      encontraba, y el comercio se creaba sin suscripción. */}
                   {plans.map(p => (
-                    <option key={p.name} value={p.name}>{p.name} - ${(p.price_cents / 100).toLocaleString('es-CO')}/mes</option>
+                    <option key={p.id} value={p.id}>{p.name} - ${(p.price_cents / 100).toLocaleString('es-CO')}/mes</option>
                   ))}
                   {plans.length === 0 && <option value="STARTER">STARTER</option>}
                 </select>

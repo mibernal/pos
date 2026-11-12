@@ -1,5 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useSession } from '../../auth';
+import { deliveryKeys } from '../../../shared/query-keys';
 import { 
   CreateDeliveryPayload, 
   DeliveryWithItems, 
@@ -69,7 +70,7 @@ const createDeliveryPerson = async (token: string, branchId: string, payload: Cr
 export const useGetActiveDeliveries = (branchId?: string) => {
   const { token } = useSession();
   return useQuery({
-    queryKey: ['deliveries', branchId],
+    queryKey: deliveryKeys.all(branchId),
     queryFn: () => getActiveDeliveries(token!, branchId!),
     enabled: !!branchId,
     refetchInterval: 10000 
@@ -83,7 +84,7 @@ export const useCreateDelivery = () => {
     mutationFn: ({ branchId, payload }: { branchId: string; payload: CreateDeliveryPayload }) =>
       createDelivery(token!, branchId, payload),
     onSuccess: (_, { branchId }) => {
-      queryClient.invalidateQueries({ queryKey: ['deliveries', branchId] });
+      queryClient.invalidateQueries({ queryKey: deliveryKeys.all(branchId) });
     }
   });
 };
@@ -95,7 +96,7 @@ export const useUpdateDeliveryStatus = () => {
     mutationFn: ({ branchId, id, payload }: { branchId: string; id: string; payload: UpdateDeliveryStatusPayload }) =>
       updateDeliveryStatus(token!, branchId, id, payload),
     onSuccess: (_, { branchId }) => {
-      queryClient.invalidateQueries({ queryKey: ['deliveries', branchId] });
+      queryClient.invalidateQueries({ queryKey: deliveryKeys.all(branchId) });
     }
   });
 };
@@ -107,7 +108,7 @@ export const useAssignDeliveryPerson = () => {
     mutationFn: ({ branchId, id, payload }: { branchId: string; id: string; payload: AssignDeliveryPersonPayload }) =>
       assignDeliveryPerson(token!, branchId, id, payload),
     onSuccess: (_, { branchId }) => {
-      queryClient.invalidateQueries({ queryKey: ['deliveries', branchId] });
+      queryClient.invalidateQueries({ queryKey: deliveryKeys.all(branchId) });
     }
   });
 };
@@ -115,7 +116,7 @@ export const useAssignDeliveryPerson = () => {
 export const useGetActiveDeliveryPersons = (branchId?: string) => {
   const { token } = useSession();
   return useQuery({
-    queryKey: ['delivery-persons', branchId],
+    queryKey: deliveryKeys.persons(branchId),
     queryFn: () => getActiveDeliveryPersons(token!, branchId!),
     enabled: !!branchId,
     refetchInterval: 30000 
@@ -129,7 +130,7 @@ export const useCreateDeliveryPerson = () => {
     mutationFn: ({ branchId, payload }: { branchId: string; payload: CreateDeliveryPersonPayload }) =>
       createDeliveryPerson(token!, branchId, payload),
     onSuccess: (_, { branchId }) => {
-      queryClient.invalidateQueries({ queryKey: ['delivery-persons', branchId] });
+      queryClient.invalidateQueries({ queryKey: deliveryKeys.persons(branchId) });
     }
   });
 };

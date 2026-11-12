@@ -7,8 +7,11 @@ export class WaiterReportsUseCase {
 
   async execute(tenantId: string, query: WaiterReportQuery): Promise<WaitersReportResponse> {
     let queryBuilder = this.db
+      // Contra `waiters`, no contra `users`. Desde la migración 074 `sales.waiter_id`
+      // referencia `waiters.id`: la unión anterior no resolvía un solo nombre y todas las
+      // filas del informe salían como «Sin Mesero Asignado».
       .selectFrom('sales')
-      .leftJoin('users', 'users.id', 'sales.waiter_id')
+      .leftJoin('waiters', 'waiters.id', 'sales.waiter_id')
       .where('sales.tenant_id', '=', tenantId)
       .where('sales.branch_id', '=', query.branch_id)
       .where('sales.status', '=', 'COMPLETED');
@@ -24,12 +27,12 @@ export class WaiterReportsUseCase {
     const rows = await queryBuilder
       .select([
         'sales.waiter_id',
-        'users.name as waiter_name',
+        'waiters.name as waiter_name',
         sql<number>`SUM(sales.total_cents)`.as('total_revenue_cents'),
         sql<number>`COUNT(sales.id)`.as('total_sales_count'),
         sql<number>`SUM(COALESCE(sales.tip_cents, 0))`.as('total_tips_cents')
       ])
-      .groupBy(['sales.waiter_id', 'users.name'])
+      .groupBy(['sales.waiter_id', 'waiters.name'])
       .orderBy('total_revenue_cents', 'desc')
       .execute();
 

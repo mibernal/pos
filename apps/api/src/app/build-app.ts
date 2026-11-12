@@ -31,19 +31,28 @@ import { promotionsRoutes } from '../contexts/inventory/http/promotions.routes.j
 import { cashSessionsRoutes } from '../contexts/sales/http/cash-sessions.routes.js';
 import { customersRoutes } from '../contexts/sales/http/customers.routes.js';
 import { inventoryRoutes } from '../contexts/inventory/http/inventory.routes.js';
+import { recipesRoutes } from '../contexts/inventory/http/recipes.routes.js';
 import { scannerRoutes } from '../contexts/inventory/http/scanner.routes.js';
 import { alertsRoutes } from '../contexts/alerts/http/alerts.routes.js';
 import { reportsRoutes } from '../contexts/reporting/http/reports.routes.js';
+import { operationsReportsRoutes } from '../contexts/reporting/http/operations-reports.routes.js';
 import { dashboardRoutes } from '../contexts/reporting/http/dashboard.routes.js';
 import { globalDashboardRoutes } from '../contexts/reporting/http/global-dashboard.routes.js';
 import { journalRoutes } from '../contexts/sales/http/journal.routes.js';
 import { auditRoutes } from '../contexts/admin/http/audit.routes.js';
 import { terminalsRoutes } from '../contexts/sales/http/terminals.routes.js';
+import { paymentMethodsRoutes } from '../contexts/sales/http/payment-methods.routes.js';
+import { receivablesRoutes } from '../contexts/sales/http/receivables.routes.js';
+import { tipsRoutes } from '../contexts/sales/http/tips.routes.js';
+import { cardBatchesRoutes } from '../contexts/sales/http/card-batches.routes.js';
 import { billingRoutes } from '../contexts/billing/http/billing.routes.js';
+import { billingPortalRoutes } from '../contexts/billing/http/billing-portal.routes.js';
 import { webhooksRoutes } from '../contexts/billing/http/webhooks.routes.js';
 import { tablesRoutes } from '../contexts/tables/presentation/tables.routes.js';
 import { reservationsRoutes } from '../contexts/tables/presentation/reservations.routes.js';
 import { waitersRoutes } from '../contexts/tables/presentation/waiters.routes.js';
+import { waiterShiftsRoutes } from '../contexts/tables/presentation/waiter-shifts.routes.js';
+import { qrOrderingRoutes, qrTokensRoutes } from '../contexts/tables/presentation/qr-ordering.routes.js';
 import { kdsRoutes } from '../contexts/tables/presentation/kds.routes.js';
 import { kdsSyncRoutes } from '../contexts/kds/http/kds-sync.routes.js';
 import { deliveriesRoutes } from '../contexts/deliveries/http/deliveries.routes.js';
@@ -52,6 +61,8 @@ import { dianWebhookRoutes } from '../contexts/fiscal/http/dian-webhook.routes.j
 import { auditContextStorage } from '../shared/infra/audit/audit-context.js';
 import { createDb } from '../shared/infra/db/connection.js';
 import { executeAsTenant } from '../shared/infra/db/rls.js';
+import { EntitlementsResolver } from '../shared/infra/entitlements/entitlements-resolver.js';
+import { EntitlementGuard } from '../shared/infra/entitlements/entitlement-guard.js';
 import { env } from './env.js';
 import { resolveCorsAllowedOrigins } from './cors.js';
 
@@ -109,7 +120,20 @@ function buildRedisClient(): Redis {
   return new Redis(env.REDIS_URL, {
     maxRetriesPerRequest: 3,
     enableReadyCheck: false,
-    lazyConnect: true
+    lazyConnect: true,
+    /**
+     * Sin estos dos, un Redis mudo cuelga la API entera.
+     *
+     * `maxRetriesPerRequest` solo cuenta reintentos entre reconexiones, y no hay
+     * reconexión si el socket sigue abierto: un Redis que acepta la conexión y no
+     * responde —Docker en pausa, un balanceador sosteniendo el socket, un nodo colgado—
+     * deja cada comando esperando indefinidamente. Y como el limitador de intentos vive
+     * en Redis y corre antes que nada en `/auth/login` y `/auth/refresh`, «Redis mudo»
+     * significaba «nadie puede entrar al POS», sin error, sin log y sin `/health` que lo
+     * delatara: el propio health check se quedaba esperando el `ping`.
+     */
+    commandTimeout: env.REDIS_COMMAND_TIMEOUT_MS,
+    connectTimeout: env.REDIS_COMMAND_TIMEOUT_MS
   });
 }
 
@@ -139,6 +163,7 @@ export async function buildApp() {
   const bulkImportQueue = new Queue('bulk-import-queue', { connection: redisClient as any });
 
   const app = Fastify({
+    trustProxy: env.TRUST_PROXY,
     logger: {
       redact: [
         'req.headers.authorization',
@@ -242,6 +267,12 @@ export async function buildApp() {
 
   // el outbox en DB es el mecanismo de comunicación con el worker.
   app.decorate('redis', redisClient);
+
+  // Resolutor de entitlements y guard de cuotas. Se decoran antes que el plugin de auth
+  // porque `requireModule` y `requirePermissions` los usan en cada petición.
+  const entitlementsResolver = new EntitlementsResolver(app.db, redisClient);
+  app.decorate('entitlements', entitlementsResolver);
+  app.decorate('entitlementGuard', new EntitlementGuard(entitlementsResolver));
   app.decorate('bulkImportQueue', bulkImportQueue);
 
   app.decorateRequest('executeAsTenant', function (callback: any) {
@@ -279,18 +310,22 @@ export async function buildApp() {
 
   await app.register(cors, {
     credentials: true,
+    /**
+     * Sin `Origin` no se conceden cabeceras de CORS, pero tampoco se corta la petición.
+     *
+     * Antes esto era `callback(null, true)`: cualquier petición sin `Origin` recibía vía
+     * libre. Suena peor de lo que era —CORS lo aplica el navegador, no el servidor, así
+     * que devolver `true` no autoriza a nadie que no tuviera ya un token— pero repartir
+     * `Access-Control-Allow-Origin` a quien no lo pidió no tiene ningún sentido.
+     *
+     * Y cortar la petición sí sería un error: llegan sin `Origin` los webhooks del PAC y
+     * de la pasarela, `/health` y `/metrics`, y cualquier integración de servidor a
+     * servidor —que es justo lo que la fase 17 quiere abrir—. CORS nunca fue el control de
+     * acceso; el control es el token, y para la cookie de refresco, `exigirOrigenConocido`
+     * más abajo.
+     */
     origin: (origin, callback) => {
-      if (!origin) {
-        callback(null, true);
-        return;
-      }
-
-      if (allowedOrigins.has(origin)) {
-        callback(null, true);
-        return;
-      }
-
-      callback(new Error(`Origin not allowed by CORS: ${origin}`), false);
+      callback(null, Boolean(origin) && allowedOrigins.has(origin!));
     },
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization', 'X-Request-Id', 'X-Branch-Id'],
@@ -299,6 +334,29 @@ export async function buildApp() {
 
   app.addHook('onRequest', async (request, reply) => {
     reply.header('x-request-id', request.id);
+  });
+
+  /**
+   * Un origen que no está en la lista se rechaza con 403, no con 500.
+   *
+   * Antes el callback de CORS devolvía un `Error`, y Fastify lo convertía en **500**: la
+   * API decía «me he roto» cuando lo que pasaba era «tú no puedes». Además de mentir en el
+   * código de estado, ensuciaba la monitorización con errores de servidor que no lo eran, y
+   * escondía los que sí.
+   *
+   * Se comprueba solo cuando la cabecera viene: sin `Origin` no hay nada que juzgar, y
+   * cortar ahí dejaría fuera los webhooks, `/health` y `/metrics`.
+   */
+  app.addHook('onRequest', async (request, reply) => {
+    const origen = request.headers.origin;
+    if (!origen || allowedOrigins.has(origen)) return;
+
+    return reply.code(403).send({
+      error: {
+        code: 'ORIGIN_NOT_ALLOWED',
+        message: 'Origen no permitido'
+      }
+    });
   });
 
   await app.register(errorHandlerPlugin);
@@ -315,8 +373,15 @@ export async function buildApp() {
     }
   });
 
+  /**
+   * En la instalación local no se registran el panel de plataforma, el checkout ni los
+   * webhooks de pago: ahí no hay plataforma ni pasarela, la suscripción la gobierna el
+   * archivo de licencia. Una ruta que no existe no se puede atacar.
+   */
+  const esOnPrem = env.DEPLOYMENT_MODE === 'onprem';
+
   await app.register(healthRoutes, { prefix: '/api/v1' });
-  await app.register(platformAdminRoutes, { prefix: '/api/v1' });
+  if (!esOnPrem) await app.register(platformAdminRoutes, { prefix: '/api/v1' });
   await app.register(authRoutes, { prefix: '/api/v1' });
   await app.register(branchesRoutes, { prefix: '/api/v1' });
   await app.register(adminTenantsRoutes, { prefix: '/api/v1' });
@@ -328,21 +393,33 @@ export async function buildApp() {
   await app.register(promotionsRoutes, { prefix: '/api/v1' });
   await app.register(cashSessionsRoutes, { prefix: '/api/v1' });
   await app.register(salesRoutes, { prefix: '/api/v1' });
+  await app.register(paymentMethodsRoutes, { prefix: '/api/v1' });
+  await app.register(receivablesRoutes, { prefix: '/api/v1' });
+  await app.register(tipsRoutes, { prefix: '/api/v1' });
+  await app.register(cardBatchesRoutes, { prefix: '/api/v1' });
   await app.register(customersRoutes, { prefix: '/api/v1' });
   await app.register(inventoryRoutes, { prefix: '/api/v1' });
+  await app.register(recipesRoutes, { prefix: '/api/v1' });
   await app.register(scannerRoutes, { prefix: '/api/v1' });
   await app.register(alertsRoutes, { prefix: '/api/v1' });
   await app.register(reportsRoutes, { prefix: '/api/v1' });
+  await app.register(operationsReportsRoutes, { prefix: '/api/v1' });
   await app.register(dashboardRoutes, { prefix: '/api/v1' });
   await app.register(globalDashboardRoutes, { prefix: '/api/v1' });
   await app.register(auditRoutes, { prefix: '/api/v1' });
   await app.register(terminalsRoutes, { prefix: '/api/v1' });
   await app.register(journalRoutes, { prefix: '/api/v1' });
-  await app.register(billingRoutes, { prefix: '/api/v1' });
-  await app.register(webhooksRoutes, { prefix: '/api/v1' });
+  if (!esOnPrem) {
+    await app.register(billingRoutes, { prefix: '/api/v1' });
+    await app.register(webhooksRoutes, { prefix: '/api/v1' });
+  }
+  await app.register(billingPortalRoutes, { prefix: '/api/v1' });
   await app.register(tablesRoutes, { prefix: '/api/v1' });
   await app.register(reservationsRoutes, { prefix: '/api/v1' });
   await app.register(waitersRoutes, { prefix: '/api/v1' });
+  await app.register(waiterShiftsRoutes, { prefix: '/api/v1' });
+  await app.register(qrOrderingRoutes, { prefix: '/api/v1' });
+  await app.register(qrTokensRoutes, { prefix: '/api/v1' });
   await app.register(kdsRoutes, { prefix: '/api/v1' });
   await app.register(kdsSyncRoutes, { prefix: '/api/v1' });
   await app.register(deliveriesRoutes, { prefix: '/api/v1' });

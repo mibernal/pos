@@ -330,3 +330,150 @@ Se documentan porque la ausencia de política es una decisión, no un olvido:
 - **Motivo:** el módulo de domicilios llegaba hasta ENTREGADO y ahí se acababa — nada creaba la venta, así que **el pedido se cobraba y no se facturaba**. No se factura automáticamente porque una venta necesita turno de caja y medio de pago, y ninguno se puede adivinar: el repartidor pudo cobrar en efectivo, con datáfono, o el cliente pudo pagar por adelantado.
 - La idempotencia usa un `client_uuid` determinista derivado del id del domicilio, de modo que un doble clic o un reintento de red devuelven la misma venta. Un domicilio con dos facturas solo se arregla con nota crédito.
 - Los precios y los impuestos los recalcula el servidor desde el catálogo: `deliveries.total_cents` es informativo y no se usa como base gravable (D-039).
+
+## D-063 — Los efectos secundarios del worker respetan los tipos de auditoría y no bloquean la emisión fiscal
+- En `apps/worker/src/jobs/outbox-sale-created.processor.ts`, la consulta y la inserción sobre `audit_logs` omiten el cast `::uuid` sobre `entity_id` y aprovechan el índice compuesto `(tenant_id, entity_type, entity_id)`.
+- Si los efectos secundarios asíncronos (actualización de comandas en cocina o registro de auditoría) arrojan una excepción, se captura y se registra con `logWorkerError({ event: 'sale_side_effects_failed' })`, pero **no se re-lanza el error**; el job continúa hacia el paso 2 (emisión DIAN).
+- **Motivo:** `audit_logs.entity_id` es de tipo `TEXT` (diseño polimórfico). En PostgreSQL no existe el operador `text = uuid`, por lo que forzar `$1::uuid` provocaba un fallo inmediato en tiempo de ejecución (`operator does not exist: text = uuid`) en cada venta procesada. Al relanzar el error, BullMQ abortaba el job antes del paso 2 y entraba en un bucle de reintentos infinitos, bloqueando por completo la emisión de facturas electrónicas a la DIAN por un fallo en una tarea secundaria.
+
+## D-064 — Un plato con receta no se descuenta a sí mismo
+- `expandDemand` convierte lo vendido en lo consumido antes de tocar los balances: si el producto tiene receta activa, bajan sus ingredientes con operación `RECIPE`; si no, baja él con `SALE`.
+- La expansión vive en el API (`contexts/inventory/application/recipe-expansion.ts`) aunque quien descarga sea el worker, porque el informe de desviación usa exactamente el mismo cálculo. Con dos implementaciones, ese informe mediría la diferencia entre dos programas en vez de entre la receta y la realidad.
+- **Motivo:** un plato no se almacena, se prepara. Descontar «hamburguesa» además de pan y carne sería contar el mismo inventario dos veces, y descontar solo «hamburguesa» —lo que ocurría— deja que el aceite y la carne se consuman sin que el sistema se entere.
+- La guarda de idempotencia del worker busca `SALE` **o** `RECIPE`: una venta de platos con receta no deja ningún movimiento `SALE`, así que buscar solo ese habría hecho que el reintento del job descargara el inventario dos veces.
+
+## D-065 — El corte del turno de mesero se deduce del tiempo, y se congela al cerrar
+- No hay columna de turno en `sales`. El corte son las ventas de ese mesero entre la apertura y el cierre.
+- La deducción es exacta porque un índice único parcial impide dos turnos abiertos del mismo mesero.
+- **Motivo:** tocar el camino de creación de la venta —el más delicado del sistema— para guardar algo que se puede deducir habría sido un mal cambio.
+- Al cerrar, el corte se guarda en `summary_json` y deja de recalcularse: anular una venta después no puede reescribir el papel que el mesero se llevó a casa.
+
+## D-066 — El token del QR de mesa vive en una tabla sin RLS
+- `qr_table_tokens` no lleva política de aislamiento, y por eso no lleva nada más que identificadores.
+- **Motivo:** es lo único que trae la petición del comensal, y hay que resolver de qué comercio es **antes** de poder fijar el contexto de tenant. En `tables`, que tiene RLS forzado, esa consulta devuelve cero filas siempre.
+- Se descartó meter el `tenant_id` dentro del token y fijar con él el contexto: dejar que una petición anónima elija el comercio bajo el que corre una transacción no es una frase que deba existir en este código, por muy validado que venga después.
+- El token es aleatorio de 32 bytes y rotable. Emitir uno nuevo invalida el anterior: es lo que hay que hacer cuando un código acaba fotografiado donde no debía.
+- Los precios del pedido los pone el servidor. Si vinieran del móvil del cliente, la carta sería una sugerencia.
+
+## D-067 — Las marcas de cocina no se pisan
+- `kitchen_tickets` tiene `started_at`, `ready_at` y `delivered_at`, y cada transición escribe la suya solo la primera vez.
+- **Motivo:** `updated_at` se pisa en cada cambio, así que medía cosas distintas según el estado en que hubiera quedado el ticket. Un informe construido sobre una columna que significa cosas distintas según la fila no es un informe lento: miente.
+- No se rellenaron hacia atrás: de un ticket viejo no se sabe cuándo estuvo listo. Arrancar sin historia es mejor que arrancar con una media falsa.
+
+## D-068 — Un Redis mudo no puede dejar al comercio sin caja
+- El cliente de Redis lleva `commandTimeout` y `connectTimeout`; el limitador de intentos se degrada a un contador en memoria cuando Redis no responde.
+- **Motivo:** pasó. Redis aceptaba la conexión y no contestaba —un contenedor en pausa detrás del reenvío de puertos de Docker— y como el limitador corre antes que nada en `/auth/login` y `/auth/refresh`, la API esperaba un comando que nunca volvía. Sin error, sin log, y con un `/health` que tampoco lo delataba porque se colgaba en el mismo `ping`. El POS entero caído, en silencio, porque un caché de rate limit parpadeó.
+- `maxRetriesPerRequest` no protege de esto: solo cuenta reintentos entre reconexiones, y no hay reconexión si el socket sigue abierto.
+- El limitador es una defensa, no una regla de negocio. Contar por proceso es peor que contar en compartido, pero infinitamente mejor que no dejar entrar a nadie. Se avisa por el log mientras dura.
+- El `catch` a secas del login se quitó: convertía cualquier fallo de Redis en un 429 «demasiados intentos», un mensaje falso del que además no se salía esperando, porque no había ningún contador que expirara.
+- `/health` gana un límite por comprobación. Un health check que no responde es peor que no tenerlo: el balanceador se queda esperando y nunca llega a marcar la instancia como enferma, que es lo único para lo que existe.
+
+## D-069 — Las claves de consulta del frontend salen de una fábrica, no de cada archivo
+- Los dieciséis dominios de React Query derivan sus claves de `shared/query-keys`, con la forma ámbito-primero (`tenant`, `branch`, `platform`, `public`).
+- **Motivo:** una clave es un contrato entre quien consulta y quien invalida. Escrita a mano en dos archivos distintos se puede escribir mal en uno solo, y eso no lo ve nadie leyendo cualquiera de los dos por separado. Pasaba: enviar un curso a cocina invalidaba `['kitchen-tickets', branchId]`, una clave que no consulta nadie —el KDS lee `['kds-tickets']`—, así que el tablero solo se refrescaba si el socket llegaba a tiempo.
+- El ámbito primero no es estética: permite invalidar una sucursal entera en una línea y que un cambio de comercio no deje migas del anterior.
+
+## D-070 — El contrato dice qué devuelve cada ruta, y eso lo verifica una prueba
+- Las rutas declaran `response` en su esquema; `contrato-respuestas.test.ts` lista las que todavía no y falla si aparece una nueva —o si una apuntada ya se resolvió y nadie la tachó.
+- **Motivo:** de 193 operaciones, 31 declaraban respuesta. El contrato documentaba lo que cada ruta recibe y callaba lo que devuelve, así que los tipos del frontend no podían salir de él y nadie comprobaba que el servidor respetara los que sí usaba. No los respetaba: enchufar cinco rutas destapó siete divergencias reales.
+- Declarar la respuesta no es documentar: Fastify serializa a través del esquema y recorta lo que no esté en él. Sin declararlo, lo que el handler seleccione de más sale por el cable —un `password_hash` arrastrado por un join, por ejemplo— y ninguna prueba se entera.
+- La lista de deuda falla en las dos direcciones a propósito. Una que no se vacía sola deja de contarse y se vuelve decorado.
+
+## D-071 — Los `jsonb` se validan donde entran al sistema de tipos
+- `tax_lines_json` y `payment_json` se parsean con su esquema al salir del mapeador de ventas, en vez de viajar como `unknown`.
+- **Motivo:** Kysely entrega una columna `jsonb` como `unknown`, y así viajaban hasta el navegador, donde el frontend las trataba como tipos garantizados que nadie garantizaba. Un `jsonb` con otra forma habría reventado en la pantalla de un cajero sin un solo aviso por el camino.
+- Las dos se tratan distinto, y la diferencia es deliberada. Las líneas de impuesto degradan a vacío: una venta sin desglose se ve rara y se corrige. El medio de pago **revienta**: no existe relleno honesto para «cómo se pagó», y cualquier valor por defecto sería afirmar algo falso sobre dinero. El precio de esa decisión —una fila corrupta tumba el listado entero— se acepta porque la alternativa es peor y además silenciosa.
+- `label` y `change_cents` se declararon en el esquema en vez de dejar de escribirse: hay ventas guardadas que los tienen y tienen que seguir leyéndose. El contrato describe lo que la API devuelve, no lo que nos habría gustado que devolviera.
+
+## D-072 — El armazón puede encogerse, y una prueba lo comprueba en un navegador
+- `.app-shell` declara `grid-template-columns: minmax(0, 1fr)`; los contenedores que envuelven contenido ancho llevan `min-width: 0`; los controles suben a 44 px bajo `hover: none`.
+- **Motivo:** un hijo de grid nace con `min-width: auto` —«no me encojas por debajo del ancho mínimo de mi contenido»—, así que la columna implícita se dimensionaba al contenido más ancho y arrastraba la barra superior fuera de la ventana: 203 px de más en un móvil de 375, 118 en una tablet de 768. En una tablet de salón eso significa arrastrar la interfaz de lado para encontrar el botón de cobrar.
+- No se veía leyendo el CSS. Se vio midiendo el documento en un navegador real, y por eso la garantía que queda es una medición, no una regla de estilo: `e2e/responsive.spec.ts` nombra al elemento culpable cuando falla. (Lo que esa prueba recorre y cómo lo mide cambió después; está en D-073.)
+- Se mide el documento, no cada componente: una tabla puede y debe desplazarse dentro de su propio contenedor.
+- Los 44 px van acotados a punteros gruesos porque con ratón sobran, y ensanchar los iconos solo gastaría barra.
+
+## D-073 — La prueba de anchos navega pulsando, y mide lo que se puede tocar
+- `e2e/responsive.spec.ts` entra, cobra una venta y recorre las pantallas **pulsando**, a cinco anchos. Mide dos cosas: lo que obliga a desplazarse de lado y lo que quedó fuera de la ventana.
+- **Motivo:** la versión anterior no probaba nada y daba tranquilidad, que es lo peor que puede hacer una prueba. Navegaba con `page.goto`, que recarga; el contexto de caja vive en memoria, así que cada recarga volvía a «Selecciona una Sucursal». Siete pantallas medidas, una pantalla real. Y solo miraba el desbordamiento del documento, cuando el defecto que buscábamos recortaba **dentro** de un panel con `overflow: hidden`, sin barra que lo delatara.
+- Un control que no se ve no produce desbordamiento: produce una función que el usuario jura que no existe. Por eso se mide la caja de cada control contra la ventana, no el ancho del documento.
+- La prueba perdona dos casos, y la diferencia importa: un control dentro de un contenedor con barra horizontal se alcanza arrastrando —las pestañas de Reportes y las tablas anchas lo usan a propósito—, y un panel marcado `inert` o `aria-hidden` es un cajón cerrado, no un control perdido. Lo que no esté en uno de esos dos casos cuenta como perdido, y así la prueba no empuja a «arreglar» diseños correctos.
+- El historial solo falla con datos: vacío cabe en cualquier ancho. Por eso cobra una venta antes de mirarlo.
+
+## D-074 — Las acciones de la barra se mudan al cajón, con su nombre escrito
+- `AppTopbar` declara sus acciones como datos y las dibuja de dos maneras: iconos en la barra por encima de 1024 px, filas con etiqueta dentro del cajón por debajo.
+- **Motivo:** eran siete botones de icono escritos a mano dentro del `<header>`, envueltos en cuatro condiciones de permiso. En una línea miden unos 546 px —más que un teléfono entero— y los últimos quedaban fuera de la ventana: 🔑 PIN de aprobación, ⚙️ configuración de negocio, 📄 DIAN. Tres ajustes de administración inalcanzables en móvil, en todas las pantallas.
+- Declararlas una vez y dibujarlas dos evita duplicar las condiciones de permiso, que es donde un descuido deja de ser un defecto de maquetación y pasa a ser un agujero.
+- Se mudan en el mismo umbral que la navegación, a propósito: por debajo de 1024 px ya hay un botón de menú, así que no se pierde nada. Repartirlas entre dos sitios según el ancho sería peor que moverlas enteras.
+- El bloque no lleva `style` en línea. Un `display: flex` escrito ahí ganaría por especificidad a la consulta de medios y el bloque seguiría dibujándose, encogido y fuera de la ventana — que es exactamente lo que hacía.
+
+## D-075 — Un panel con alto impuesto y `overflow: hidden` no recorta: borra
+- Por debajo de 768 px las pantallas de dos paneles se apilan y se desplazan (`height: auto`, `overflow: visible`), en vez de repartirse la ventana con `grid-template-rows: 1fr auto`.
+- **Motivo:** medido a 375 px, el historial daba **34 px** a la lista de ventas para 676 px de contenido. No es que costara encontrar una venta: no había ninguna a la vista, en la pantalla cuyo único trabajo es enseñarlas. El POS daba 257 px al catálogo para 681, así que en un teléfono solo se podía vender escaneando.
+- La causa es de rejilla, no de altura: una pista `auto` se queda con el alto de su contenido y a la `1fr` le deja lo que sobre. Cuando no sobra, la `1fr` cae a su mínimo. Con `overflow: hidden` encima, lo que no cabe no se recorta con barra — desaparece.
+- Regla que queda: si un panel tiene el alto impuesto, su contenido se desplaza. `overflow: hidden` sobre contenido más alto que su caja es pérdida de datos, no maquetación.
+- La lista de ventas conserva su propia ventana, acotada a `60vh`. Suelta mide 7.500 px con 41 ventas, y el detalle de la venta que acabas de tocar quedaría siete pantallas más abajo; tocar algo para que aparezca fuera de la vista es lo mismo que no verlo.
+- El total y el botón de cobrar se quedan pegados abajo (`sticky`). Es lo que el cajero necesita siempre a mano.
+
+## D-076 — Un panel corrido fuera de la pantalla sigue existiendo
+- El panel de producto de `ProductsScreen` lleva `inert` y `aria-hidden` mientras está cerrado.
+- **Motivo:** se aparta con `translate-x-full`, que lo mueve pero no lo quita. Sus campos seguían en el orden de tabulación y en el árbol de accesibilidad: con el teclado se recorría un formulario invisible —nombre, precio, IVA, «Crear Producto»— sin que nada apareciera en pantalla, y un lector de pantalla lo anunciaba entero.
+- En React 18 `inert` no es una propiedad conocida y el tipado de JSX la rechaza, así que se pasa como atributo suelto. Al subir a React 19 pasa a ser `inert={!showForm}`.
+
+## D-077 — `writeEvent` recibe el objeto, y el tipo lo obliga
+- `setupSseStream().writeEvent` se declara `(data: object)`; `dashboard.routes.ts` le pasa el objeto en vez de la cadena ya serializada.
+- **Motivo:** el panel en vivo enseñaba **«$ NaN»** en «Ventas de Hoy» y en «Valor del Inventario», y «Transacciones» salía en blanco. La ruta serializaba el payload y `writeEvent` lo serializaba otra vez: por el cable viajaba un JSON dentro de un JSON. El navegador desenvuelve una capa y se queda con un `string` donde espera el objeto, así que `stats.total_revenue_cents` era `undefined`, y `undefined / 100` es `NaN`.
+- Nada falló. La ruta devolvía 200 con un `data:` bien formado, el `JSON.parse` del cliente funcionaba, y `{stats && …}` daba verde porque una cadena no vacía es `truthy`. El `as DashboardStats` del cliente y el `any` del servidor se taparon el uno al otro: dos afirmaciones de tipo sobre datos que nadie comprobó, una a cada lado del cable.
+- Se descubrió mirando una captura del móvil, no ejecutando pruebas. Es el mismo defecto que D-071 visto desde el otro extremo: un `as` no valida, solo calla al compilador.
+- `object` en lugar de `any` convierte justo ese error en fallo de compilación. Los otros dos llamadores del flujo ya pasaban objetos, así que el tipo describe el contrato que de hecho existía.
+- `test/dashboard-stream.e2e.test.ts` lee la primera trama sobre un socket real y la desenvuelve **una** vez, que es lo que hace el navegador. Comprobado que falla al reintroducir el defecto: «expected 'string' to be 'object'».
+
+## D-078 — La versión nueva se aplica sola, pero nunca encima de una venta
+- `registerType: 'prompt'` en la configuración de la PWA, y `useActualizacion` decide cuándo: recarga sola si el carrito está vacío, avisa y espera si hay una venta empezada, y se aplica en cuanto se cobra.
+- **Motivo:** la app instalaba la versión nueva y **no la aplicaba**. `registerSW({ immediate: true })` deja que el service worker nuevo tome el control, pero la pestaña abierta sigue ejecutando el JS y el CSS que cargó al abrirse. Un cajero no cierra la pestaña en todo el día: un arreglo se desplegaba y no lo veía nadie. Lo descubrimos porque un defecto corregido, construido y medido seguía apareciendo en la pantalla de quien lo reportó.
+- Lo contrario —recargar en cuanto llega, que es lo que `autoUpdate` insinúa— es peor: se lleva por delante el carrito a medio montar. Perder una comanda por una actualización cuesta más que el defecto que venía a arreglar, y encima no deja rastro: la pantalla parpadea y la comanda no está.
+- Por eso el aviso solo se dibuja mientras hay venta en curso. Sin venta no hay nada que anunciar, porque ya se recargó.
+- Tres pruebas fijan las tres ramas, y la del medio es la que importa: con el carrito lleno, `aplicar` no se llama.
+
+## D-079 — Un botón con fondo claro tiene que decir de qué color va su texto
+- Cuatro botones llevaban una utilidad de Tailwind para el fondo y ninguna para el texto; ahora declaran `text-foreground`, y `test/botones-legibles.test.ts` falla si aparece otro.
+- **Motivo:** la regla base de `global.css` le da a **todo** `button` `color: #ffffff` sobre fondo oscuro. `bg-background` gana por especificidad —clase (0,1,0) contra elemento (0,0,1)— pero solo cambia el fondo: el texto sigue blanco. Resultado, blanco sobre blanco. «Ajustar» en Inventario, «+ Añadir Fila» en su modal, la tarjeta de sucursal de la pantalla de entrada y un botón de Reportes llevaban así desde que se escribieron.
+- No lo delataba nada. El botón está, ocupa su sitio, responde al clic y la prueba de anchos lo encuentra: solo que no dice nada. Es el mismo síntoma que nos reportaron —«no se ven algunos botones»— por una causa distinta.
+- `hover:text-foreground` no cuenta como arreglo, y así estaba «Ajustar». Un color que solo llega al pasar el ratón deja el botón ilegible en reposo, y en la tablet de un salón no hay ratón que pasar. La prueba lo trata como defecto a propósito.
+- Comprobado que la prueba falla al reintroducirlo, y que nombra archivo y línea.
+
+## D-080 — La barra enseña todas las rutas, y eso vale el alto que cuesta *(revertida)*
+- **Estado: revertida el 12 de septiembre de 2026, a petición de Miguel.** La barra vuelve a listar las veintiuna rutas; no hay desplegable «Más». Los grupos de `routes.ts` siguen existiendo, pero solo los usa el cajón del móvil para poner títulos.
+- **Lo que se probó:** dejar en la barra las seis rutas del turno y mandar el resto a un «Más» agrupado en Catálogo y Administración. Motivaba el cambio que un administrador ve dieciocho rutas, que envolvían en dos filas y, con el bloque de usuario, se comían **235 px de una pantalla de 1440**. Con el desplegable bajaba a 130 px, y a 70 px en 1920.
+- **Por qué se descartó:** el alto no era el problema que había que resolver. Quien trabaja en esta pantalla salta a Productos, Clientes o Reportes decenas de veces al día, y el desplegable convertía cada salto en dos clics. Cien píxeles de alto se pagan una vez; un clic de más se paga cada vez. Miguel lo pidió explícitamente: «prefiero que se vean todas las opciones, por practicidad».
+- Queda escrito porque el razonamiento que llevó al «Más» era correcto en lo que medía —el alto— y equivocado en lo que no medía: cuántas veces al día se usa cada ruta. Es fácil volver a proponerlo mirando solo la captura.
+- Lo que **no** se revirtió: los títulos por zona del cajón del móvil. Ahí no hay desplegable, solo encabezados, y veintiuna rutas seguidas en un teléfono sí son un muro.
+
+## D-082 — El atajo de permisos, fuera; y CORS deja de ser lo que no era
+- `requirePermissions` ya no deja pasar a `TENANT_OWNER` ni a `ADMIN` sin mirar el catálogo. A `ADMIN` se le declara `tenant:settings:manage`, que era lo único que le faltaba.
+- **Motivo:** en un sistema con obligación de auditoría, dos roles que pasan por encima de todo vacían el rastro de significado. El catálogo describía lo que hace el resto de la plantilla y callaba justo sobre quien más puede.
+- Se midió antes de tocarlo: de 99 guardas, `TENANT_OWNER` no perdía ninguna y `ADMIN` perdía tres —perfil de negocio, perfil tributario y módulos—. Por eso el cambio no altera el comportamiento de nadie: solo lo pone por escrito. `refresh` recalcula permisos del catálogo, así que tampoco hay que volver a entrar.
+- `catalogo-permisos.test.ts` compara las guardas del código con el catálogo. Es justo el fallo que el atajo llevaba años escondiendo: una ruta nueva con un permiso que nadie tiene funcionaba igual, hasta el día que se quitara el atajo.
+- **CORS no corta las peticiones sin `Origin`, a propósito.** Llegan así los webhooks del PAC y de la pasarela, `/health`, `/metrics` y cualquier integración de servidor a servidor —lo que la fase 17 quiere abrir—. CORS lo aplica el navegador, no el servidor: nunca fue el control de acceso. Lo que sí se cerró es donde había superficie real: `/auth/refresh` y `/auth/logout` se autentican con cookie, y ahora exigen origen conocido. La cookie ya era `SameSite=lax`; esto es el cinturón sobre el tirante.
+- Un origen no permitido devolvía **500** porque el callback de CORS lanzaba un `Error`. Decir «me he roto» cuando pasa «tú no puedes» ensucia la monitorización con errores de servidor falsos y esconde los de verdad. Ahora es 403.
+
+## D-083 — El tiquete congela el nombre, y las ventas viejas se quedan en NULL
+- `sale_items.product_name` guarda el nombre con el que se vendió (migración 111). Al leer una venta manda ese; el join contra `products` queda de respaldo.
+- **Motivo:** el importe ya estaba congelado, la descripción no. El nombre se resolvía con un join **en el momento de mirar la venta**, así que renombrar un producto reescribía el nombre impreso en el tiquete de una venta de hace seis meses. En un documento con obligación fiscal eso no debería poder pasar.
+- **Las ventas anteriores se quedan en NULL, y es la decisión importante.** El nombre que tenían el día de la venta no se puede reconstruir: si el producto se renombró, se perdió. Rellenar con el de hoy sería estampar una afirmación falsa en un documento fiscal, y encima nadie podría después distinguir cuál es de fiar. Un NULL dice la verdad —«esto no se congeló»— y la deuda se apaga sola según entran ventas nuevas.
+- Por eso la columna es NULL-able y sin valor por defecto: cualquiera de las dos cosas borraría la diferencia entre «se congeló» y «se reconstruyó».
+- Quedan tres ramas al leer, y dicen cosas distintas: nombre congelado → el de la venta; sin él → el del catálogo (venta vieja); sin ninguno → texto honesto, nunca «null», que es lo que se imprimía cuando se borraba un producto.
+- Comprobado que la prueba falla al invertir la preferencia: «expected 'Nombre Cambiado Después De Vender' to be 'Producto E2E'».
+
+## D-084 — El prorrateo que se enseña se aplica, y se cobra en la próxima factura
+- `ChangeTenantPlanUseCase` ajusta el fin de periodo con `computeProration` —la misma función que usa el preview— y apunta la diferencia en `subscription_pending_charges` (migración 112). El motor de cobro la añade como línea de la siguiente factura.
+- **Motivo:** el preview calculaba el prorrateo y se lo enseñaba al comercio; el cambio de plan cambiaba `plan_id` y nada más. Lo que el cliente veía antes de aceptar no era lo que pasaba después, y en un producto que cobra eso lo descubre siempre el cliente.
+- **No se cobra en el acto**, y es deliberado. Mover dinero dentro del cambio de plan obliga a decidir qué pasa si la tarjeta falla **después** de haber cambiado el plan: o el comercio se queda en un plan que no pagó, o se le revierte el plan por un problema de cobro. Las dos son malas y las dos hay que construirlas. Como línea en la próxima factura no hay estado intermedio que pueda quedarse a medias.
+- Se reutiliza `computeProration` en vez de recalcular. Dos cálculos de la misma cifra escritos por separado divergen, y cuando lo que diverge son pesos, la discrepancia la paga soporte.
+- `applied_invoice_id` es lo que impide cobrar dos veces, y solo se marca si la factura se emitió **ahora**: `issueForPeriod` es idempotente y devuelve la factura anterior sin estas líneas, así que marcarlo en ese caso daría el cargo por cobrado sin estar en ninguna factura — el dinero desaparecería en silencio.
+
+## D-081 — Por debajo de 768 px las tablas dejan de ser tablas
+- `.tabla-datos` convierte cada fila en una ficha y cada celda en una línea con su etiqueta, sacada de `data-label`. Lo usan Clientes e Inventario.
+- **Motivo:** arrastrar seis columnas de lado en un teléfono «funciona» —hay barra, se alcanza todo—, pero para leer una fila entera hay que barrer la pantalla dos veces y recordar qué columna era cada cosa, porque la cabecera se queda atrás.
+- La cabecera no se borra: se oculta solo visualmente, así que un lector de pantalla sigue leyendo la tabla como tabla.
+- Las etiquetas salen del marcado y no de un archivo aparte: si se añade una columna y se olvida el `data-label`, esa celda aparece sin nombre al primer vistazo. Un fallo visible es mejor que una tabla de traducción que se queda corta en silencio.
+- De paso, las dos pantallas perdieron sus `style` en línea. Es la misma disciplina de D-074: la disposición la decide la hoja de estilos.

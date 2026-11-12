@@ -1,4 +1,22 @@
 import type {
+  BillingPortal,
+  ConsumptionDeviationRow,
+  CreditAccount,
+  MenuEngineeringRow,
+  PrepTimeRow,
+  SalesByHourRow,
+  TableTurnoverRow,
+  Recipe,
+  UpsertRecipeInput,
+  CustomerStatement,
+  PaymentMethodCatalogEntry,
+  RegisterReceivablePaymentInput,
+  TipSettings,
+  TipSummary,
+  UpsertCreditAccountInput,
+  UpsertPaymentMethodInput,
+  PaymentMethod,
+  RevenueMetrics,
   TenantProfile as SharedTenantProfile,
   UpdateTenantBusinessProfileBody as SharedUpdateTenantBusinessProfileBody,
   AuthUser as SharedAuthUser,
@@ -160,6 +178,32 @@ function toQueryString(params: Record<string, string | number | undefined> = {})
   return search.toString();
 }
 
+/**
+ * Fila del listado de recetas: lo que se ve sin abrir el escandallo. El detalle —los
+ * componentes con su merma— llega con `getRecipe`.
+ */
+export interface RecipeSummary {
+  id: string;
+  product_id: string;
+  product_name: string;
+  variant_id: string | null;
+  variant_name: string | null;
+  yield_qty: number;
+  active: boolean;
+  component_count: number;
+  price_cents: number;
+  theoretical_cost_cents: number;
+  margin_percent: number | null;
+}
+
+/**
+ * Cuánto se espera a `/auth/refresh` antes de dar la sesión por no validable.
+ *
+ * Quince segundos: de sobra para una conexión móvil mala —es una petición diminuta— y muy
+ * por debajo de lo que un cajero aguanta mirando una pantalla que no avanza.
+ */
+export const REFRESH_TIMEOUT_MS = 15_000;
+
 export function createApiClient({ baseUrl, getSession, setSession, onReauthRequired, onQuotaExceeded }: CreateApiClientOptions) {
   let refreshPromise: Promise<AuthSession | null> | null = null;
 
@@ -175,11 +219,22 @@ export function createApiClient({ baseUrl, getSession, setSession, onReauthRequi
           headers['x-impersonation-id'] = impersonationId;
         }
 
+        /**
+         * Con plazo, porque de esta llamada depende que la aplicación arranque.
+         *
+         * Es lo primero que se pide al abrir el POS, y hasta que contesta la pantalla dice
+         * «Validando sesión…». Si el servidor acepta la conexión y no responde —pasó: un
+         * Redis mudo dejaba `/auth/refresh` colgado sin timeout ni error—, `fetch` espera
+         * indefinidamente y la caja se queda ahí para siempre, sin siquiera poder llegar al
+         * formulario de acceso. Vencido el plazo se trata como lo que es a efectos
+         * prácticos, un fallo de red: se muestra el login y el cajero puede volver a entrar.
+         */
         const response = await fetch(`${baseUrl}/auth/refresh`, {
           method: 'POST',
           credentials: 'include',
           headers,
-          body: '{}'
+          body: '{}',
+          signal: AbortSignal.timeout(REFRESH_TIMEOUT_MS)
         });
         if (!response.ok) {
           return null;
@@ -797,7 +852,142 @@ export function createApiClient({ baseUrl, getSession, setSession, onReauthRequi
       requestJson<{ checkoutUrl: string; transactionId: string }>('/billing/checkout', {
         method: 'POST',
         body: JSON.stringify(payload)
+      }),
+
+    // PORTAL DE FACTURACIÓN
+    getBillingPortal: () => requestJson<BillingPortal>('/billing/portal'),
+    getBillingGatewayConfig: () => requestJson<BillingGatewayConfig>('/billing/gateway-config'),
+    registerPaymentMethod: (payload: {
+      gateway: 'WOMPI' | 'MOCK';
+      card_token: string;
+      acceptance_token: string;
+      make_default?: boolean;
+    }) =>
+      requestJson<{ payment_method: PaymentMethod }>('/billing/payment-methods', {
+        method: 'POST',
+        body: JSON.stringify(payload)
+      }),
+    removePaymentMethod: (id: string) =>
+      requestJson<void>(`/billing/payment-methods/${id}`, { method: 'DELETE' }),
+    payNow: () => requestJson<{ outcome: string; detail?: string }>('/billing/pay-now', { method: 'POST' }),
+    redeemCoupon: (code: string) =>
+      requestJson<{ code: string; periods: number | null }>('/billing/coupons/redeem', {
+        method: 'POST',
+        body: JSON.stringify({ code })
+      }),
+    /** La factura se abre en una pestaña; el navegador la guarda como PDF si hace falta. */
+    invoiceUrl: (id: string) => `${baseUrl}/billing/invoices/${id}`,
+
+    // INGRESOS (plataforma)
+    getRevenueMetrics: () => requestJson<{ metrics: RevenueMetrics }>('/platform/revenue'),
+
+    // MEDIOS DE PAGO
+    getPaymentMethods: () =>
+      requestJson<{ payment_methods: PaymentMethodCatalogEntry[]; kinds: unknown[] }>('/payment-methods'),
+    upsertPaymentMethod: (code: string, payload: Omit<UpsertPaymentMethodInput, 'code'>) =>
+      requestJson<{ payment_method: PaymentMethodCatalogEntry }>(`/payment-methods/${code}`, {
+        method: 'PUT',
+        body: JSON.stringify(payload)
+      }),
+    deactivatePaymentMethod: (code: string) =>
+      requestJson<void>(`/payment-methods/${code}`, { method: 'DELETE' }),
+
+    // RECETAS Y ESCANDALLO
+    getRecipes: () => requestJson<RecipeSummary[]>('/recipes'),
+    getRecipe: (productId: string, variantId?: string | null) =>
+      requestJson<Recipe | null>(
+        `/recipes/${productId}${variantId ? `?variant_id=${variantId}` : ''}`
+      ),
+    upsertRecipe: (productId: string, payload: UpsertRecipeInput) =>
+      requestJson<Recipe>(`/recipes/${productId}`, { method: 'PUT', body: JSON.stringify(payload) }),
+    deleteRecipe: (recipeId: string) => requestJson<void>(`/recipes/${recipeId}`, { method: 'DELETE' }),
+    // QR DE MESA
+    issueTableQrToken: (tableId: string) =>
+      requestJson<{ id: string; name: string; qr_token: string }>(`/tables/${tableId}/qr-token`, {
+        method: 'POST'
+      }),
+
+    // INFORMES DE OPERACIÓN
+    getTableTurnover: (params: { branch_id: string; from: string; to: string }) =>
+      requestJson<TableTurnoverRow[]>(`/reports/operations/table-turnover?${new URLSearchParams(params).toString()}`),
+    getPrepTime: (params: { branch_id: string; from: string; to: string }) =>
+      requestJson<PrepTimeRow[]>(`/reports/operations/prep-time?${new URLSearchParams(params).toString()}`),
+    getSalesByHour: (params: { branch_id: string; from: string; to: string }) =>
+      requestJson<SalesByHourRow[]>(`/reports/operations/sales-by-hour?${new URLSearchParams(params).toString()}`),
+    getMenuEngineering: (params: { branch_id: string; from: string; to: string }) =>
+      requestJson<MenuEngineeringRow[]>(`/reports/operations/menu-engineering?${new URLSearchParams(params).toString()}`),
+
+    getConsumptionDeviation: (params: { from: string; to: string; branch_id?: string }) =>
+      requestJson<ConsumptionDeviationRow[]>(
+        `/recipes/reports/consumption-deviation?${new URLSearchParams(
+          params.branch_id ? { ...params, branch_id: params.branch_id } : { from: params.from, to: params.to }
+        ).toString()}`
+      ),
+
+    // CUENTAS POR COBRAR
+    getReceivables: () =>
+      requestJson<{
+        customers: Array<{
+          customer_id: string;
+          customer_name: string;
+          balance_cents: number;
+          documents: number;
+          oldest_due_at: string | null;
+          overdue: boolean;
+        }>;
+        total_cents: number;
+      }>('/receivables'),
+    getCustomerStatement: (customerId: string) =>
+      requestJson<CustomerStatement>(`/customers/${customerId}/statement`),
+    setCustomerCredit: (customerId: string, payload: UpsertCreditAccountInput) =>
+      requestJson<{ account: CreditAccount }>(`/customers/${customerId}/credit`, {
+        method: 'PUT',
+        body: JSON.stringify(payload)
+      }),
+    registerReceivablePayment: (customerId: string, payload: RegisterReceivablePaymentInput) =>
+      requestJson<{ payment_id: string; account: CreditAccount }>(`/customers/${customerId}/payments`, {
+        method: 'POST',
+        body: JSON.stringify(payload)
+      }),
+
+    // PROPINAS
+    getTipSettings: () => requestJson<TipSettings>('/settings/tips'),
+    saveTipSettings: (payload: TipSettings) =>
+      requestJson<TipSettings>('/settings/tips', { method: 'PUT', body: JSON.stringify(payload) }),
+    getShiftTips: (cashSessionId: string) => requestJson<TipSummary>(`/cash-sessions/${cashSessionId}/tips`),
+    settleShiftTips: (cashSessionId: string, payload: { pay_cash_now: boolean; notes?: string }) =>
+      requestJson<{ settlement_id: string; cash_movement_id: string | null; summary: TipSummary }>(
+        `/cash-sessions/${cashSessionId}/tips/settle`,
+        { method: 'POST', body: JSON.stringify(payload) }
+      ),
+
+    // CIERRE DE LOTE DE TARJETA
+    previewCardBatch: (branchId: string, batchDate: string) =>
+      requestJson<{
+        system_total_cents: number;
+        system_count: number;
+        transactions: Array<{ approval_code: string | null; amount_cents: number; sale_number: number; at: string }>;
+      }>(`/card-batches/preview?branch_id=${branchId}&batch_date=${batchDate}`),
+    reconcileCardBatch: (payload: {
+      branch_id: string;
+      acquirer: string;
+      batch_date: string;
+      declared_total_cents: number;
+      declared_count: number;
+      notes?: string;
+    }) =>
+      requestJson<{ id: string; system_total_cents: number; diff_cents: number; status: string }>('/card-batches', {
+        method: 'POST',
+        body: JSON.stringify(payload)
       })
   };
 }
 export type ApiClient = ReturnType<typeof createApiClient>;
+
+export interface BillingGatewayConfig {
+  gateway: string;
+  public_key: string | null;
+  tokenization_url: string | null;
+  acceptance_url: string | null;
+  configured: boolean;
+}

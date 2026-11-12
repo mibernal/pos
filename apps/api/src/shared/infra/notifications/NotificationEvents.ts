@@ -37,3 +37,49 @@ export interface PlanChangePayload {
   oldPlanName: string;
   newPlanName: string;
 }
+
+/* ------------------------------------------------------------------ *
+ * Cobro recurrente
+ * ------------------------------------------------------------------ */
+
+export interface RenewalReminderPayload {
+  tenantName: string;
+  planName: string;
+  daysRemaining: number;
+  renewalDate: string;
+  amountCents: number;
+  hasPaymentMethod: boolean;
+  portalUrl?: string;
+}
+
+export interface ChargeFailedPayload {
+  tenantName: string;
+  planName: string;
+  amountCents: number;
+  reason: string;
+  attempt: number;
+  /** Intentos en total, contando el primero: `max_retries` + 1. */
+  totalAttempts: number;
+  /** Cuándo se vuelve a intentar. Ausente cuando ya no quedan reintentos. */
+  nextRetryDate?: string;
+  suspensionDate?: string;
+  portalUrl?: string;
+}
+
+export interface SubscriptionSuspendedPayload {
+  tenantName: string;
+  planName: string;
+  amountCents: number;
+  suspendedOn: string;
+  portalUrl?: string;
+}
+
+export interface InvoicePaidPayload {
+  tenantName: string;
+  planName: string;
+  invoiceNumber: string;
+  periodStart: string;
+  periodEnd: string;
+  amountCents: number;
+  portalUrl?: string;
+}

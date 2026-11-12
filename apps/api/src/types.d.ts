@@ -25,6 +25,12 @@ declare module 'fastify' {
     requireModule: (
       modules: BusinessModule[]
     ) => (request: FastifyRequest, reply?: FastifyReply) => Promise<void>;
+
+    /** Módulos, límites y nivel de servicio del comercio. Fuente única desde la fase 7. */
+    entitlements: import('./shared/infra/entitlements/entitlements-resolver.js').EntitlementsResolver;
+
+    /** Cuotas del plan. Exige la transacción que va a insertar: la comprobación se serializa. */
+    entitlementGuard: import('./shared/infra/entitlements/entitlement-guard.js').EntitlementGuard;
   }
 
   interface FastifyRequest {

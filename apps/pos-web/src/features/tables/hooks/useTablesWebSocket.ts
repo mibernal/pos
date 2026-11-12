@@ -3,6 +3,7 @@ import { io, Socket } from 'socket.io-client';
 import { useQueryClient } from '@tanstack/react-query';
 import { useSession } from '../../auth/context/SessionProvider';
 import { useModules } from '../../modules';
+import { tableKeys } from '../../../shared/query-keys';
 
 export const useTablesWebSocket = (branchId?: string) => {
   const [isConnected, setIsConnected] = useState(false);
@@ -36,7 +37,7 @@ export const useTablesWebSocket = (branchId?: string) => {
     socket.on('TABLES_UPDATED', () => {
       console.log(`[WS] TABLES_UPDATED received - invalidating query`);
       // Invalida la caché para forzar un refetch de los rooms en background
-      queryClient.invalidateQueries({ queryKey: ['rooms', branchId] });
+      queryClient.invalidateQueries({ queryKey: tableKeys.rooms(branchId) });
     });
 
     return () => {

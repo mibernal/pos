@@ -2,6 +2,31 @@ import { sql } from 'kysely';
 import type { FastifyPluginAsync } from 'fastify';
 
 /**
+ * Lo que tarda como mucho cada comprobación antes de darse por fallida.
+ *
+ * Un `try/catch` no protege de una dependencia que no contesta: protege de una que
+ * responde mal. Sin este límite, una base o un Redis mudos dejaban `/health` colgado para
+ * siempre, y un health check que no responde es peor que no tenerlo — el balanceador se
+ * queda esperando y nunca llega a marcar la instancia como enferma, que es justo lo único
+ * que este endpoint existe para conseguir.
+ */
+const TIEMPO_MAXIMO_POR_COMPROBACION_MS = 2_000;
+
+async function conLimite<T>(promesa: Promise<T>, ms = TIEMPO_MAXIMO_POR_COMPROBACION_MS): Promise<T> {
+  let temporizador: NodeJS.Timeout | undefined;
+  try {
+    return await Promise.race([
+      promesa,
+      new Promise<never>((_, rechazar) => {
+        temporizador = setTimeout(() => rechazar(new Error('HEALTH_CHECK_TIMEOUT')), ms);
+      })
+    ]);
+  } finally {
+    if (temporizador) clearTimeout(temporizador);
+  }
+}
+
+/**
  * C10: Health check mejorado — verifica DB y Redis activamente.
  * Responde 200 si todo OK, 503 si alguna dependencia falla.
  * Usado por load balancers y monitoreo.
@@ -31,7 +56,7 @@ export const healthRoutes: FastifyPluginAsync = async (app) => {
 
       // Verificar PostgreSQL
       try {
-        await sql`SELECT 1`.execute(app.db);
+        await conLimite(sql`SELECT 1`.execute(app.db));
         checks.database = 'ok';
       } catch {
         checks.database = 'error';
@@ -40,7 +65,7 @@ export const healthRoutes: FastifyPluginAsync = async (app) => {
 
       // Verificar Redis (C2 rate-limit store)
       try {
-        await app.redis.ping();
+        await conLimite(app.redis.ping());
         checks.redis = 'ok';
       } catch {
         checks.redis = 'error';

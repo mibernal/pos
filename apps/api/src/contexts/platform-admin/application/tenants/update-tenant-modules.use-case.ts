@@ -3,9 +3,16 @@ import { Database } from '../../../../shared/infra/db/schema.js';
 import { UpdateTenantModulesInput } from '@pos-dian/shared';
 import { TenantModuleDependencyResolver, TenantModulesState } from '../../domain/tenant-module-dependency-resolver.js';
 import { TenantModuleValidator } from '../../domain/tenant-module-validator.js';
+import { applyTenantModules } from '../../../../shared/infra/entitlements/apply-tenant-modules.js';
+import { ASSIGNABLE_MODULES, MODULE_COLUMN, type AssignableModule } from '@pos-dian/shared';
+import type { EntitlementsResolver } from '../../../../shared/infra/entitlements/entitlements-resolver.js';
 
 export class UpdateTenantModulesUseCase {
-  constructor(private readonly db: Kysely<Database>) {}
+  constructor(
+    private readonly db: Kysely<Database>,
+    /** Sin él, el comercio sigue viendo los módulos anteriores hasta que caduque la caché. */
+    private readonly entitlements?: EntitlementsResolver
+  ) {}
 
   public async execute(
     tenantId: string,
@@ -57,12 +64,14 @@ export class UpdateTenantModulesUseCase {
     await validator.validateDeactivations(tenantId, currentState, newState);
 
     await this.db.transaction().execute(async (trx) => {
-      // Update tenant
-      await trx
-        .updateTable('tenants')
-        .set(newState)
-        .where('id', '=', tenantId)
-        .execute();
+      // Los módulos salen del plan; lo que este comercio tenga por encima o por debajo se
+      // guarda como excepción con su motivo. Escribir solo las columnas dejó de surtir
+      // efecto en la fase 7: el resolutor no las mira.
+      const desired = Object.fromEntries(
+        ASSIGNABLE_MODULES.map((module) => [module, newState[MODULE_COLUMN[module] as keyof TenantModulesState]])
+      ) as Partial<Record<AssignableModule, boolean>>;
+
+      await applyTenantModules(trx, tenantId, desired, payload.reason);
 
       // Insert audit logs
       const auditLogRecords = auditLogs.map(log => ({
@@ -80,5 +89,9 @@ export class UpdateTenantModulesUseCase {
         .values(auditLogRecords)
         .execute();
     });
+
+    // Después del commit: el comercio ve el cambio en su siguiente petición, sin cerrar
+    // sesión. Mientras los módulos viajaban firmados en el token, esto era imposible.
+    await this.entitlements?.invalidate(tenantId);
   }
 }

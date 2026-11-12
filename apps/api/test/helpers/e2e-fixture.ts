@@ -5,6 +5,7 @@ import { executeAsTenant } from '../../src/shared/infra/db/rls.js';
 import { Pool } from 'pg';
 import { hashPassword } from '../../src/contexts/identity/auth/password.js';
 import type { Database, ProductTaxCategory, TenantTaxMode } from '../../src/shared/infra/db/schema.js';
+import { PaymentMethodsRepository } from '../../src/contexts/sales/infra/payment-methods.repository.js';
 
 const adminPassword = 'Admin123*';
 const cashierPassword = 'Cashier123*';
@@ -168,6 +169,13 @@ export async function seedE2eFixture(
       })
       .execute();
 
+    // Sin catálogo, una venta con Nequi o fiado se rechaza: el comercio de prueba tiene que
+
+    // nacer igual que uno real.
+
+    await PaymentMethodsRepository.seedDefaults(trx, tenantId);
+
+
     await trx
       .insertInto('branches')
       .values({
@@ -282,12 +290,18 @@ export async function cleanupE2eFixture(
     await trx.deleteFrom('inventory_transactions').where('tenant_id', '=', fixture.tenantId).execute();
     await trx.deleteFrom('inventory_balances').where('tenant_id', '=', fixture.tenantId).execute();
     await trx.deleteFrom('promotions').where('tenant_id', '=', fixture.tenantId).execute();
+    // Antes que los productos: `recipe_components.ingredient_product_id` es RESTRICT a
+    // propósito —no se borra un producto que alguna receta usa— y eso también bloquea el
+    // borrado del tenant de prueba.
+    await trx.deleteFrom('recipe_components').where('tenant_id', '=', fixture.tenantId).execute();
+    await trx.deleteFrom('product_recipes').where('tenant_id', '=', fixture.tenantId).execute();
     await trx.deleteFrom('product_variants').where('tenant_id', '=', fixture.tenantId).execute();
     await trx.deleteFrom('products').where('tenant_id', '=', fixture.tenantId).execute();
     await trx.deleteFrom('user_branches').where('tenant_id', '=', fixture.tenantId).execute();
     await trx.deleteFrom('users').where('tenant_id', '=', fixture.tenantId).execute();
     await trx.deleteFrom('terminals').where('tenant_id', '=', fixture.tenantId).execute();
     await trx.deleteFrom('branches').where('tenant_id', '=', fixture.tenantId).execute();
+    await trx.deleteFrom('tenant_limit_overrides').where('tenant_id', '=', fixture.tenantId).execute();
     await trx.deleteFrom('tenant_subscriptions').where('tenant_id', '=', fixture.tenantId).execute();
     await trx.deleteFrom('tenants').where('id', '=', fixture.tenantId).execute();
   });
@@ -321,4 +335,64 @@ export function bearerHeaders(token: string): Record<string, string> {
   return {
     authorization: `Bearer ${token}`
   };
+}
+
+/**
+ * Concede módulos a un comercio de prueba.
+ *
+ * Desde la fase 7 los módulos salen del plan, así que encender la columna booleana de
+ * `tenants` ya no habilita nada: el resolutor no la mira. Una prueba que quiera un módulo
+ * lo pide como excepción, que es exactamente el camino que usa el panel de plataforma.
+ */
+/**
+ * Sube un cupo del plan para el comercio de prueba.
+ *
+ * Va de la mano de `grantModules`: activar el módulo y no subir el cupo deja al comercio con
+ * la función a la vista y un límite de cero. Es exactamente lo que pasaba con los meseros,
+ * donde STARTER trae `waiters = 0` y nadie comprobaba el límite.
+ */
+export async function grantLimits(
+  tenantId: string,
+  limits: Partial<Record<import('@pos-dian/shared').EntitlementKey, number>>
+): Promise<void> {
+  const filas = Object.entries(limits).map(([entitlement_key, limit_value]) => ({
+    tenant_id: tenantId,
+    entitlement_key,
+    limit_value: limit_value as number,
+    reason: 'Fixture de pruebas e2e',
+    expires_at: null
+  }));
+
+  if (filas.length === 0) return;
+
+  await adminDb()
+    .insertInto('tenant_limit_overrides')
+    .values(filas)
+    .onConflict((oc) =>
+      oc.columns(['tenant_id', 'entitlement_key']).doUpdateSet((eb) => ({
+        limit_value: eb.ref('excluded.limit_value')
+      }))
+    )
+    .execute();
+}
+
+export async function grantModules(
+  tenantId: string,
+  modules: ReadonlyArray<import('@pos-dian/shared').AssignableModule>
+): Promise<void> {
+  if (modules.length === 0) return;
+
+  await adminDb()
+    .insertInto('tenant_module_overrides')
+    .values(
+      modules.map((module) => ({
+        tenant_id: tenantId,
+        module,
+        enabled: true,
+        reason: 'Fixture de pruebas e2e',
+        expires_at: null
+      }))
+    )
+    .onConflict((oc) => oc.columns(['tenant_id', 'module']).doUpdateSet({ enabled: true }))
+    .execute();
 }

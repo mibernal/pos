@@ -13,7 +13,14 @@ import { CreateSaleCommand } from '../application/CreateSaleCommand.js';
 import { CreateSaleHandler } from '../application/CreateSaleHandler.js';
 import { voidSaleService } from '../services/void-sale.service.js';
 import { processPartialReturn } from '../services/create-return.service.js';
-import { CreateReturnRequestSchema } from '@pos-dian/shared';
+import {
+  CreateReturnRequestSchema,
+  createdSaleResponseSchema,
+  dianDocumentTypeSchema,
+  saleDetailResponseSchema,
+  salesListResponseSchema,
+  voidSaleResponseSchema
+} from '@pos-dian/shared';
 import { ensureUserCanAccessBranch } from '../../../shared/infra/security/permissions.js';
 
 
@@ -28,7 +35,17 @@ export const salesRoutes: FastifyPluginAsync = async (app) => {
       schema: {
         tags: ['sales'],
         security: [{ bearerAuth: [] }],
-        body: createSaleBodySchema
+        body: createSaleBodySchema,
+        /**
+         * Declarar la respuesta no es solo documentar.
+         *
+         * Fastify serializa a través de este esquema y recorta lo que no esté en él. Sin
+         * declararlo, lo que el handler seleccione de más sale por el cable, y de esta
+         * ruta sale el consecutivo de una venta: es el sitio donde menos gracia hace
+         * enterarse tarde. De paso, es lo que permite que el tipo del frontend salga del
+         * contrato en vez de escribirse a mano.
+         */
+        response: { 200: createdSaleResponseSchema, 201: createdSaleResponseSchema }
       }
     },
     async (request, reply) => {
@@ -91,7 +108,8 @@ export const salesRoutes: FastifyPluginAsync = async (app) => {
       schema: {
         tags: ['sales'],
         security: [{ bearerAuth: [] }],
-        querystring: salesListQuerySchema
+        querystring: salesListQuerySchema,
+        response: { 200: salesListResponseSchema }
       }
     },
     async (request) => {
@@ -156,7 +174,8 @@ export const salesRoutes: FastifyPluginAsync = async (app) => {
       schema: {
         tags: ['sales'],
         security: [{ bearerAuth: [] }],
-        params: saleIdParamsSchema
+        params: saleIdParamsSchema,
+        response: { 200: saleDetailResponseSchema }
       }
     },
     async (request) => {
@@ -199,6 +218,18 @@ export const salesRoutes: FastifyPluginAsync = async (app) => {
             'sale_items.qty',
             'sale_items.price_cents',
             'sale_items.line_total_cents',
+            /**
+             * Los dos nombres, y el congelado manda.
+             *
+             * `sale_items.product_name` es el nombre con el que se vendió; `products.name`
+             * es el que tiene el catálogo **ahora**. Antes solo existía el segundo, así que
+             * renombrar un producto reescribía el tiquete de una venta vieja.
+             *
+             * El del catálogo se sigue trayendo porque las ventas anteriores a la migración
+             * 111 tienen la columna en `null` y no hay forma de reconstruir el nombre real:
+             * para esas, el de hoy es lo mejor que hay. Para todo lo posterior no se mira.
+             */
+            'sale_items.product_name as product_name_congelado',
             'products.name as product_name',
             'product_variants.name as variant_name',
             'products.image_url as product_image_url',
@@ -237,7 +268,22 @@ export const salesRoutes: FastifyPluginAsync = async (app) => {
           id: item.id,
           product_id: item.product_id,
           variant_id: item.variant_id,
-          product_name: item.product_name,
+          /**
+           * Manda el nombre congelado en la venta; el del catálogo es solo el respaldo.
+           *
+           * Ese orden es el arreglo de la fase 13. Antes solo existía el del catálogo, que
+           * se resolvía con un `leftJoin` **en el momento de mirar la venta**: renombrar un
+           * producto reescribía el tiquete de una venta del mes pasado, y borrarlo dejaba
+           * un nulo que se imprimía como «null» en una línea ya cobrada.
+           *
+           * Las tres ramas dicen cosas distintas y por eso están las tres:
+           *   1. Hay nombre congelado → es el de la venta. Punto.
+           *   2. No lo hay (venta anterior a la migración 111) → el del catálogo, que es lo
+           *      mejor disponible aunque pueda haber cambiado.
+           *   3. Tampoco hay catálogo (producto borrado) → un texto honesto, nunca «null».
+           */
+          product_name:
+            item.product_name_congelado ?? item.product_name ?? 'Producto no disponible',
           variant_name: item.variant_name,
           imageUrl: item.product_image_url,
           description: item.product_description,
@@ -251,7 +297,11 @@ export const salesRoutes: FastifyPluginAsync = async (app) => {
             provider: dianDocument.provider,
             status: dianDocument.status,
             cude: dianDocument.cude,
-            document_type: dianDocument.document_type,
+            // La columna es `text` y el contrato promete un tipo de documento DIAN. La
+            // consulta ya filtra por 'INVOICE', así que en la práctica coinciden; se
+            // valida igualmente para que sea el contrato, y no una cláusula `where` a
+            // diez líneas de distancia, lo que sostiene la promesa.
+            document_type: dianDocumentTypeSchema.safeParse(dianDocument.document_type).data,
             parent_document_id: dianDocument.parent_document_id,
             created_at: dianDocument.created_at.toISOString(),
             updated_at: dianDocument.updated_at.toISOString()
@@ -270,7 +320,8 @@ export const salesRoutes: FastifyPluginAsync = async (app) => {
         tags: ['sales'],
         security: [{ bearerAuth: [] }],
         params: saleIdParamsSchema,
-        body: voidSaleBodySchema
+        body: voidSaleBodySchema,
+        response: { 200: voidSaleResponseSchema }
       }
     },
     async (request) => {

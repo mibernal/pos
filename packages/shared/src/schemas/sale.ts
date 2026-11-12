@@ -1,21 +1,93 @@
 import { z } from 'zod';
 import { productTaxCategorySchema } from './product.js';
+import { paymentKindSchema } from './payments.js';
 
 export const saleStatusSchema = z.enum(['COMPLETED', 'VOID']);
 export const dianStatusSchema = z.enum(['PENDING', 'SENT', 'ACCEPTED', 'REJECTED']);
 export const dianDocumentTypeSchema = z.enum(['INVOICE', 'CREDIT_NOTE']);
 
-export const salePaymentMethodSchema = z.enum(['CASH', 'CARD', 'TRANSFER']);
-export const salePaymentModeSchema = z.enum(['CASH', 'CARD', 'TRANSFER', 'MIXED']);
+/**
+ * El método de un pago es ahora su **tipo de comportamiento** (ver `payments.ts`), no una
+ * de tres etiquetas fijas. Es un superconjunto de lo anterior, así que una venta enviada
+ * por la cola offline con `CASH`, `CARD` o `TRANSFER` sigue siendo válida sin cambios.
+ */
+export const salePaymentMethodSchema = paymentKindSchema;
+export const salePaymentModeSchema = z.union([paymentKindSchema, z.literal('MIXED')]);
 const centsSchema = z.coerce.number().int().nonnegative().max(1_000_000_000);
 const positiveCentsSchema = z.coerce.number().int().positive().max(1_000_000_000);
 const saleQtySchema = z.coerce.number().positive().max(10_000);
 
 export const simpleSalePaymentSchema = z.object({
   method: salePaymentMethodSchema,
+  /**
+   * Entrada del catálogo del comercio: `NEQUI`, `DAVIPLATA`, `GIFT_CARD`… Si no viene, se
+   * asume la entrada homónima del tipo, que es lo que hace que las ventas antiguas y las
+   * que llegan de la cola offline sigan funcionando sin tocarlas.
+   */
+  method_code: z.string().trim().max(30).optional(),
+  /**
+   * El nombre del medio de pago tal como se le mostró al cajero («Efectivo», «Nequi»).
+   *
+   * Se declara porque `createSale` lleva tiempo guardándolo en `payment_json`, no porque
+   * nadie lo lea: hoy no lo consume ni el tiquete ni ninguna pantalla. Lo escribía sin que
+   * el contrato lo supiera, y como este esquema rechaza claves desconocidas, la primera
+   * vez que se enchufó de verdad a la ruta de ventas hizo fallar la creación de una venta.
+   *
+   * Declararlo, en vez de dejar de escribirlo, es lo único que también sirve para las
+   * ventas ya guardadas: hay miles de filas con este campo y tienen que seguir leyéndose.
+   */
+  label: z.string().trim().max(60).optional(),
   amount_cents: positiveCentsSchema,
-  approval_code: z.string().trim().min(3).max(50).optional()
-}).strict();
+  /** Se conserva por compatibilidad; `reference` es la forma general. */
+  approval_code: z.string().trim().min(3).max(50).optional(),
+  /** Aprobación del datáfono, referencia de la billetera, código del bono, número del vale. */
+  reference: z.string().trim().min(1).max(80).optional(),
+  /**
+   * Efectivo que entrega el cliente. Solo tiene sentido con `CASH`.
+   *
+   * El vuelto **no** se guarda como dato del cliente sino como consecuencia: sale del mismo
+   * cajón, así que el efectivo del turno se calcula con `amount_cents` —lo aplicado a la
+   * venta— y no con lo entregado. Guardar ambos es lo que permite distinguir el pago justo
+   * del pago con vuelto, que es lo que hoy no se puede.
+   */
+  tendered_cents: centsSchema.optional(),
+  /**
+   * El vuelto, ya calculado, tal como se guardó.
+   *
+   * El comentario de `tendered_cents` dice que el vuelto no se guarda porque es una
+   * consecuencia, y conceptualmente sigue siendo cierto: el efectivo del turno se calcula
+   * con `amount_cents`, nunca con esto. Pero `createSale` lo viene escribiendo igual, y
+   * este esquema rechaza claves desconocidas, así que en cuanto se enchufó de verdad a la
+   * ruta de ventas dejó de poderse cobrar con vuelto.
+   *
+   * Se declara en lugar de dejar de escribirlo por la misma razón que `label`: las ventas
+   * ya guardadas lo tienen y tienen que seguir leyéndose. Lo que describe el contrato es
+   * lo que la API devuelve, no lo que nos habría gustado que devolviera.
+   */
+  change_cents: centsSchema.optional()
+})
+  .strict()
+  .superRefine((payment, ctx) => {
+    if (payment.method !== 'CASH' && payment.tendered_cents !== undefined) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['tendered_cents'],
+        message: 'Solo un pago en efectivo puede registrar el importe entregado'
+      });
+    }
+
+    if (
+      payment.method === 'CASH' &&
+      payment.tendered_cents !== undefined &&
+      payment.tendered_cents < payment.amount_cents
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['tendered_cents'],
+        message: 'El efectivo entregado no puede ser menor que el importe del pago'
+      });
+    }
+  });
 
 export const mixedSalePaymentSchema = z.object({
   method: z.literal('MIXED'),

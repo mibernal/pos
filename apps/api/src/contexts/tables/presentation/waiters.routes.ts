@@ -6,7 +6,7 @@ import { z } from 'zod';
 
 export const waitersRoutes: FastifyPluginAsyncZod = async (app) => {
   const db = app.db;
-  const waitersRepo = new WaitersRepository(db);
+  const waitersRepo = new WaitersRepository(db, app.entitlementGuard);
   const waitersService = new WaitersService(waitersRepo);
 
   app.get(

@@ -4,12 +4,11 @@ import { Card, Button } from '../../../components/ui';
 import { platformKeys } from '../../../shared/query-keys';
 import { PlanFormModal } from './PlanFormModal';
 import type { BillingPlan, CreateBillingPlanInput, UpdateBillingPlanInput } from '../../../lib/api';
+import { useApi } from '../../auth';
 
-interface PlansManagementTabProps {
-  api: ReturnType<typeof import('../../../lib/api/client').createApiClient>;
-}
 
-export function PlansManagementTab({ api }: PlansManagementTabProps) {
+export function PlansManagementTab() {
+  const api = useApi();
   const queryClient = useQueryClient();
   const [modalOpen, setModalOpen] = useState(false);
   const [editingPlan, setEditingPlan] = useState<BillingPlan | null>(null);

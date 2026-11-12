@@ -1,14 +1,14 @@
 import { useState, useEffect } from 'react';
 import { Banner, Button, Card, Input, Label, BusinessTypeSelector } from '../../components/ui';
-import type { PosApiClient } from '../../types';
+import { useApi } from './context/SessionProvider';
 
 interface RegisterScreenProps {
-  api: PosApiClient;
   login: (input: { email: string; password: string }) => Promise<void>;
   onBack: () => void;
 }
 
-export function RegisterScreen({ api, login, onBack }: RegisterScreenProps) {
+export function RegisterScreen({ login, onBack }: RegisterScreenProps) {
+  const api = useApi();
   const [step, setStep] = useState(1);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);

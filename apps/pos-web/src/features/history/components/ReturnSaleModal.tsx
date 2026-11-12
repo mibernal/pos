@@ -1,28 +1,57 @@
 import { useState } from 'react';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Banner, Modal } from '../../../components/ui';
 import { formatMoneyFromCents } from '../../../lib/format';
-import type { PosApiClient } from '../../../types';
 import type { SaleDetailResponse } from '../../../lib/api';
 import type { CreateReturnRequest } from '@pos-dian/shared';
+import { useApi, useSession } from '../../auth';
+import { salesKeys } from '../../../shared/query-keys';
 
-export function ReturnSaleModal({
-  api,
-  saleDetail,
+export function ReturnSaleModal({ saleDetail,
   isOpen,
   onClose,
   onSuccess
 }: {
-  api: PosApiClient;
   saleDetail: SaleDetailResponse | null;
   isOpen: boolean;
   onClose: () => void;
   onSuccess: () => void;
 }) {
+  const api = useApi();
+  const { tenantId } = useSession();
+  const queryClient = useQueryClient();
   const [returnQtys, setReturnQtys] = useState<Record<string, number>>({});
   const [reason, setReason] = useState('');
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [refundSummary, setRefundSummary] = useState<{ amountCents: number; returnId: string } | null>(null);
+  const [errorValidacion, setErrorValidacion] = useState<string | null>(null);
+
+  const devolverVenta = useMutation({
+    mutationFn: ({ saleId, payload }: { saleId: string; payload: CreateReturnRequest }) =>
+      api.createReturn(saleId, payload),
+    onSuccess: async (_resultado, { saleId }) => {
+      // La devolución cambia lo que el historial debe enseñar de esta venta. El listado sin
+      // filtros es prefijo de todas sus variantes, así que invalidarlo alcanza el periodo
+      // que el cajero tuviera puesto, sea cual sea.
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: salesKeys.detail(tenantId, saleId) }),
+        queryClient.invalidateQueries({ queryKey: salesKeys.list(tenantId) })
+      ]);
+    }
+  });
+
+  const loading = devolverVenta.isPending;
+  const refundSummary = devolverVenta.data
+    ? { amountCents: devolverVenta.data.total_refund_cents, returnId: devolverVenta.data.return_id }
+    : null;
+
+  // Lo que no pasó el filtro previo manda sobre el fallo del servidor: es el reproche a lo
+  // que el usuario acaba de escribir, y el anterior ya no describe lo que tiene delante.
+  const error =
+    errorValidacion ??
+    (devolverVenta.error instanceof Error
+      ? devolverVenta.error.message
+      : devolverVenta.error
+        ? 'No fue posible procesar la devolución.'
+        : null);
 
   if (!isOpen || !saleDetail) {
     return null;
@@ -46,7 +75,7 @@ export function ReturnSaleModal({
     }));
   };
 
-  const handleReturn = async () => {
+  const handleReturn = () => {
     const itemsToReturn = items
       .filter((item) => (returnQtys[item.product_id] || 0) > 0)
       .map((item) => ({
@@ -55,39 +84,29 @@ export function ReturnSaleModal({
       }));
 
     if (itemsToReturn.length === 0) {
-      setError('Debes seleccionar al menos un producto para devolver.');
+      setErrorValidacion('Debes seleccionar al menos un producto para devolver.');
       return;
     }
 
     if (!reason.trim()) {
-      setError('El motivo de devolución es obligatorio.');
+      setErrorValidacion('El motivo de devolución es obligatorio.');
       return;
     }
 
-    setLoading(true);
-    setError(null);
+    setErrorValidacion(null);
 
-    try {
-      const payload: CreateReturnRequest = {
-        client_uuid: crypto.randomUUID(), // Used for idempotency
-        reason: reason.trim(),
-        items: itemsToReturn
-      };
+    const payload: CreateReturnRequest = {
+      // Marca la petición para que un reintento no genere una segunda devolución.
+      client_uuid: crypto.randomUUID(),
+      reason: reason.trim(),
+      items: itemsToReturn
+    };
 
-      const result = await api.createReturn(sale.id, payload);
-      setRefundSummary({
-        amountCents: result.total_refund_cents,
-        returnId: result.return_id
-      });
-      setLoading(false);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'No fue posible procesar la devolución.');
-      setLoading(false);
-    }
+    devolverVenta.mutate({ saleId: sale.id, payload });
   };
 
   const handleFinish = () => {
-    setRefundSummary(null);
+    devolverVenta.reset();
     setReturnQtys({});
     setReason('');
     onSuccess();
@@ -190,7 +209,7 @@ export function ReturnSaleModal({
               <button
                 className="button"
                 style={{ background: 'var(--color-primary-600)', color: '#fff', padding: '0.75rem', flex: 1 }}
-                onClick={() => void handleReturn()}
+                onClick={handleReturn}
                 disabled={loading || totalRefundCents === 0 || !reason.trim()}
               >
                 {loading ? 'Procesando...' : 'Confirmar Devolución'}

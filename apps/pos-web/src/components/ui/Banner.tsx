@@ -13,7 +13,18 @@ interface BannerProps {
 }
 
 export function Banner({ children, tone, onClose, action, className }: BannerProps) {
-  const baseClasses = "flex justify-between items-center gap-4 p-4 rounded-xl border text-sm font-medium animate-in fade-in duration-200";
+  /**
+   * `flex-wrap` y `min-w-0` no son adorno: son la diferencia entre ver el botón y no verlo.
+   *
+   * El aviso pone el texto a la izquierda y los botones a la derecha. Los botones llevaban
+   * `shrink-0` —correcto, no queremos «Imprim…»— y el texto, como todo hijo de un flex,
+   * se niega por defecto a bajar de su ancho de contenido. Con las dos cosas a la vez y
+   * 375 px de pantalla, algo tiene que salirse, y lo que se salía era el botón: «Imprimir
+   * ESC/POS» quedaba fuera de la ventana, sin barra de desplazamiento que lo delatara.
+   *
+   * Dejando envolver, el bloque de botones cae a la línea siguiente en vez de empujar.
+   */
+  const baseClasses = "flex flex-wrap justify-between items-center gap-x-4 gap-y-3 p-4 rounded-xl border text-sm font-medium animate-in fade-in duration-200";
   
   const toneClasses = {
     info: "bg-blue-50 text-blue-800 border-blue-200 dark:bg-blue-950/50 dark:text-blue-300 dark:border-blue-900/50",
@@ -24,9 +35,9 @@ export function Banner({ children, tone, onClose, action, className }: BannerPro
 
   return (
     <div className={twMerge(clsx(baseClasses, toneClasses[tone], className))}>
-      <div className="flex-1">{children}</div>
+      <div className="flex-1 min-w-0 break-words">{children}</div>
       {(action || onClose) && (
-        <div className="flex items-center gap-3 shrink-0">
+        <div className="flex flex-wrap items-center justify-end gap-3 shrink-0">
           {action}
           {onClose && (
             <button 

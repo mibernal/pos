@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useMutation } from '@tanstack/react-query';
 import { Button } from '../../../components/ui';
 import { Modal } from '../../../components/ui/Modal';
 import type { BillingPlan, CreateBillingPlanInput, UpdateBillingPlanInput } from '../../../lib/api';
@@ -11,8 +12,17 @@ interface PlanFormModalProps {
 }
 
 export function PlanFormModal({ open, onOpenChange, plan, onSave }: PlanFormModalProps) {
-  const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // La invalidación del catálogo vive en `PlansManagementTab`, que es quien tiene la clave y
+  // quien sabe si el guardado fue un alta o una edición; aquí solo se ejecuta su `onSave`.
+  const guardado = useMutation({
+    mutationFn: (datos: CreateBillingPlanInput | UpdateBillingPlanInput) => onSave(datos),
+    onError: (err: unknown) => setError(err instanceof Error ? err.message : String(err)),
+    onSuccess: () => onOpenChange(false)
+  });
+
+  const loading = guardado.isPending;
 
   // Form state
   const [id, setId] = useState('');
@@ -47,13 +57,12 @@ export function PlanFormModal({ open, onOpenChange, plan, onSave }: PlanFormModa
     setError(null);
   }, [plan, open]);
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!id || !name) {
       setError('El ID y el nombre son requeridos');
       return;
     }
-    setLoading(true);
     setError(null);
 
     const featuresJson = {
@@ -62,29 +71,22 @@ export function PlanFormModal({ open, onOpenChange, plan, onSave }: PlanFormModa
       support_level: supportLevel
     };
 
-    try {
-      if (plan) {
-        await onSave({
-          name,
-          price_cents: priceCents,
-          billing_cycle: billingCycle,
-          active,
-          features_json: featuresJson
-        });
-      } else {
-        await onSave({
-          id,
-          name,
-          price_cents: priceCents,
-          billing_cycle: billingCycle,
-          features_json: featuresJson
-        });
-      }
-      onOpenChange(false);
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setLoading(false);
+    if (plan) {
+      guardado.mutate({
+        name,
+        price_cents: priceCents,
+        billing_cycle: billingCycle,
+        active,
+        features_json: featuresJson
+      });
+    } else {
+      guardado.mutate({
+        id,
+        name,
+        price_cents: priceCents,
+        billing_cycle: billingCycle,
+        features_json: featuresJson
+      });
     }
   };
 

@@ -355,6 +355,8 @@ export class TableOrdersRepository {
             seat_number: null,
             item_status: 'PENDING',
             modifiers: null,
+            // Pasar un plato de la mesa 4 a la 7 no cambia quién lo pidió.
+            source: sourceItem.source,
             course: sourceItem.course
           });
         }

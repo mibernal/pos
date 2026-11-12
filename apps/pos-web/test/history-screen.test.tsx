@@ -2,7 +2,7 @@ import React from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { SessionProvider } from '../src/features/auth';
+import { ApiProvider, SessionProvider } from '../src/features/auth';
 import { HistoryScreen } from '../src/features/history';
 import { writeAuthSession, writeAuthUser } from '../src/lib/session';
 import type { PosApiClient } from '../src/types';
@@ -215,8 +215,8 @@ describe('HistoryScreen', () => {
     render(
       <QueryClientProvider client={new QueryClient()}>
         <SessionProvider>
+        <ApiProvider client={api}>
         <HistoryScreen
-          api={api}
           branchId="branch-1"
           branchName="Sucursal Centro"
           branchAddress="Calle 1 # 2-3"
@@ -231,6 +231,7 @@ describe('HistoryScreen', () => {
           }}
           tenantTaxMode="IVA"
         />
+        </ApiProvider>
         </SessionProvider>
       </QueryClientProvider>
     );
@@ -266,8 +267,8 @@ describe('HistoryScreen', () => {
     render(
       <QueryClientProvider client={new QueryClient()}>
         <SessionProvider>
+        <ApiProvider client={api}>
         <HistoryScreen
-          api={api}
           branchId="branch-1"
           branchName="Sucursal Centro"
           branchAddress="Calle 1 # 2-3"
@@ -282,6 +283,7 @@ describe('HistoryScreen', () => {
           }}
           tenantTaxMode="IVA"
         />
+        </ApiProvider>
         </SessionProvider>
       </QueryClientProvider>
     );
@@ -324,8 +326,8 @@ describe('HistoryScreen', () => {
     render(
       <QueryClientProvider client={new QueryClient()}>
         <SessionProvider>
+        <ApiProvider client={api}>
         <HistoryScreen
-          api={api}
           branchId="branch-1"
           branchName="Sucursal Centro"
           branchAddress="Calle 1 # 2-3"
@@ -340,6 +342,7 @@ describe('HistoryScreen', () => {
           }}
           tenantTaxMode="IVA"
         />
+        </ApiProvider>
         </SessionProvider>
       </QueryClientProvider>
     );

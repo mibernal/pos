@@ -1,8 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { useAlerts } from '../../hooks/useAlerts';
-import type { PosApiClient } from '../../types';
 import { Button } from '../../components/ui';
 import { AlertTriangle, Info, XCircle, CheckCircle2 } from 'lucide-react';
+import { useApi } from '../auth';
 
 interface AlertItem {
   id: string;
@@ -15,8 +15,9 @@ interface AlertItem {
   status: string;
 }
 
-export function AlertsScreen({ api }: { api: PosApiClient }) {
-  const { alerts, resolveAlert } = useAlerts(api);
+export function AlertsScreen() {
+  const api = useApi();
+  const { alerts, resolveAlert } = useAlerts();
   // Realistically we would fetch historical alerts from /alerts endpoint,
   // but for simplicity we rely on the in-memory array provided by useAlerts for active ones.
   const [history, setHistory] = useState<AlertItem[]>([]);

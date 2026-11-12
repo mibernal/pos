@@ -1,8 +1,26 @@
 node_modules
+**/node_modules
 .git
 .turbo
+**/.turbo
 dist
+**/dist
 build
 npm-debug.log
 Dockerfile*
 .DS_Store
+# Secretos y datos locales: `COPY . .` en los Dockerfile de api y worker los metía en la
+# capa de construcción (y en la caché de BuildKit), aunque no llegaran a la imagen final.
+.env
+.env.*
+**/.env
+**/.env.*
+apps/api/storage
+**/test-results
+**/playwright-report
+.capturas
+_to_delete
+memory
+onprem/paquete
+onprem/licencias/privada*
+onprem/certs

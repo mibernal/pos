@@ -205,6 +205,27 @@ button:hover:not(:disabled) {
     transform: scale(0.96);
     transition: transform 80ms ease;
   }
+
+  /**
+   * Ningún control por debajo de 44 px en un equipo que se usa con el dedo.
+   *
+   * Es la medida que recomiendan tanto WCAG 2.5.5 como la guía de Apple, y aquí no es un
+   * tecnicismo: la barra superior lleva siete botones de un solo emoji —sincronizar, PIN,
+   * configuración, DIAN, movimientos— y el de sincronizar medía 42 px de ancho. Fallar ese
+   * toque en hora pico no es una molestia de diseño: es un cajero tocando dos veces con
+   * fila delante.
+   *
+   * Va bajo `hover: none` a propósito: con ratón, 42 px sobran y ensanchar los iconos solo
+   * gastaría espacio de barra.
+   */
+  button,
+  [role="button"],
+  a.button,
+  .ghost-button,
+  .icon-button {
+    min-height: 44px;
+    min-width: 44px;
+  }
 }
 
 button:active:not(:disabled) {
@@ -342,6 +363,22 @@ textarea:focus {
   min-height: 100vh;
   display: grid;
   grid-template-rows: auto 1fr;
+  /**
+   * La columna tiene que poder encogerse, y por defecto no puede.
+   *
+   * Un hijo de grid nace con `min-width: auto`, que significa «no me encojas por debajo
+   * del ancho mínimo de mi contenido». Como aquí no había columna declarada, la implícita
+   * se dimensionaba al contenido más ancho de la pantalla, y el armazón entero —barra
+   * superior incluida— crecía más que la ventana: 203 px de más en un móvil de 375,
+   * 118 px en una tablet de 768. El síntoma era una barra de desplazamiento horizontal en
+   * toda la aplicación, que en una tablet de salón significa arrastrar la interfaz de lado
+   * para encontrar el botón de cobrar.
+   *
+   * `minmax(0, 1fr)` dice explícitamente que el mínimo es cero. Con esto el desborde deja
+   * de ser posible por construcción, en vez de depender de que ninguna pantalla tenga
+   * contenido ancho.
+   */
+  grid-template-columns: minmax(0, 1fr);
   background-color: var(--color-slate-50);
 }
 
@@ -427,6 +464,21 @@ textarea:focus {
   display: flex;
   align-items: center;
   gap: 0.75rem;
+  /**
+   * El bloque de la derecha de la barra tiene que poder partirse.
+   *
+   * Lleva el nombre del usuario, su rol, el contador de ventas pendientes y siete botones
+   * de icono. En una sola línea mide unos 546 px: más que un teléfono entero. Sin permitir
+   * salto ni encogimiento, empujaba la barra —y con ella toda la aplicación— fuera de la
+   * ventana.
+   *
+   * `flex-wrap` lo deja caer a la línea siguiente en vez de empujar, y `min-width: 0`
+   * permite que sus hijos se encojan; sin lo segundo, el nombre largo de un usuario vuelve
+   * a estirarlo aunque pueda envolver.
+   */
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  min-width: 0;
 }
 
 .topbar-user > div {
@@ -452,9 +504,43 @@ textarea:focus {
   border-left: 1px solid var(--color-slate-200);
 }
 
+.topbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  /* Aunque por debajo de 1024 px este bloque no se dibuja, en portátiles estrechos con la
+     navegación visible sigue siendo lo último que entra: que envuelva antes que empujar. */
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  min-width: 0;
+}
+
+.topbar-actions > .ghost-button {
+  padding: 0.5rem;
+  min-width: 40px;
+  min-height: 40px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1rem;
+  line-height: 1;
+}
+
+.topbar-logout-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 1rem;
+  border-radius: var(--radius-md);
+  white-space: nowrap;
+}
+
 .view-container {
   padding: 1.5rem;
   min-height: 0;
+  /* Misma razón que la columna del armazón: sin esto, una pantalla con contenido ancho
+     empuja el ancho del contenedor en vez de desplazarse dentro de él. */
+  min-width: 0;
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
 }
@@ -536,6 +622,23 @@ textarea:focus {
   display: flex;
   flex-direction: column;
   gap: 0.375rem;
+  /* Un campo dentro de una rejilla no debe poder empujarla: su mínimo es cero, no el
+     ancho intrínseco del control que lleva dentro. */
+  min-width: 0;
+}
+
+/**
+ * `input[type="date"]` trae un ancho mínimo propio de unos 150 px —lo que ocupa
+ * «dd/mm/aaaa» más el icono del calendario— y no lo suelta. Dos de ellos en una rejilla
+ * de dos columnas no caben en un teléfono, y como el mínimo de una pista `1fr` es el
+ * contenido, la rejilla se ensanchaba en vez de encogerse. Los filtros del historial se
+ * salían por la derecha.
+ */
+.field > input,
+.field > select,
+.field > textarea {
+  min-width: 0;
+  width: 100%;
 }
 
 .field > span {
@@ -550,10 +653,195 @@ textarea:focus {
   gap: 1.25rem;
 }
 
+/**
+ * Las acciones de una venta: reimprimir, anular, devolver.
+ *
+ * Eran dos columnas fijas, así que con tres botones la fila pedía 301 px pasara lo que
+ * pasara — más de lo que cabe en el panel de detalle— y el tercero se salía de la ventana.
+ * Con `auto-fit` caben los que quepan y el resto baja de línea, que es lo que tiene que
+ * pasar en un panel cuyo ancho depende de la pantalla.
+ */
 .row-actions {
   display: grid;
-  grid-template-columns: repeat(2, 1fr);
+  grid-template-columns: repeat(auto-fit, minmax(7.5rem, 1fr));
   gap: 0.75rem;
+  min-width: 0;
+}
+
+.row-actions > * { min-width: 0; }
+
+/**
+ * Las dos filas que toda pantalla repite, con nombre en vez de escritas a mano.
+ *
+ * Estaban las dos como `style` en línea, la misma declaración copiada en una docena de
+ * archivos. El problema no era la repetición: era que un `display: flex` escrito ahí gana
+ * por especificidad a cualquier consulta de medios de esta hoja, así que la fila se negaba
+ * a envolver por mucho que el CSS lo pidiera. Ese es, exactamente, el mecanismo por el que
+ * «Devolver» desapareció del historial.
+ *
+ * Con clase, la hoja manda y el comportamiento estrecho se arregla en un sitio.
+ */
+
+/* Título a la izquierda, acciones a la derecha; en cuanto no caben, debajo. */
+.heading-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  min-width: 0;
+}
+
+.heading-row > * { min-width: 0; }
+
+/* Pie de formulario o de modal: confirmar y cancelar, alineados a la derecha. */
+.modal-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.75rem;
+  margin-top: 1rem;
+}
+
+/**
+ * En un teléfono los dos botones ocupan la línea entera, uno debajo del otro.
+ *
+ * Dos botones a la derecha de una pantalla de 375 px salen estrechos y pegados al borde:
+ * se falla el que no es. Con el pulgar, un objetivo de ancho completo no se falla.
+ */
+@media (max-width: 480px) {
+  .modal-actions > * {
+    flex: 1 1 100%;
+  }
+}
+
+/* ─── Tabla de datos, que en el móvil se vuelve fichas ───────── */
+
+.tabla-marco {
+  background-color: var(--color-bg);
+  border: 1px solid var(--color-slate-200);
+  border-radius: var(--radius-lg);
+  overflow-x: auto;
+}
+
+.tabla-datos {
+  width: 100%;
+  border-collapse: collapse;
+  text-align: left;
+  font-size: 0.875rem;
+}
+
+.tabla-datos thead {
+  border-bottom: 1px solid var(--color-slate-200);
+  background-color: var(--color-slate-50);
+}
+
+.tabla-datos th,
+.tabla-datos td {
+  padding: 0.75rem 1rem;
+}
+
+.tabla-datos th {
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--color-slate-500);
+}
+
+.tabla-datos tbody tr {
+  border-bottom: 1px solid var(--color-slate-100);
+}
+
+.tabla-datos tbody tr:last-child { border-bottom: 0; }
+
+.tabla-datos .celda-apagada { color: var(--color-slate-500); }
+.tabla-datos .celda-derecha { text-align: right; }
+
+/**
+ * Por debajo de 768 px la tabla deja de ser una tabla.
+ *
+ * Arrastrar seis columnas de lado en un teléfono «funciona» —hay barra, se alcanza todo—,
+ * pero para leer una fila entera hay que barrer la pantalla dos veces y recordar qué
+ * columna era cada cosa, porque la cabecera se queda atrás. Cada fila pasa a ser una ficha
+ * y cada celda lleva su etiqueta al lado, que es lo que la cabecera decía.
+ *
+ * Las etiquetas salen de `data-label` en el marcado: si se añade una columna y se olvida el
+ * atributo, esa celda aparece sin nombre — visible al primer vistazo, no silencioso.
+ */
+@media (max-width: 768px) {
+  .tabla-marco,
+  .tabla-envoltorio {
+    background: transparent;
+    border: 0;
+    border-radius: 0;
+    overflow-x: visible;
+    overflow: visible;
+    box-shadow: none;
+  }
+
+  /* La cabecera sigue existiendo para un lector de pantalla; solo deja de dibujarse. */
+  .tabla-datos thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+  }
+
+  .tabla-datos,
+  .tabla-datos tbody,
+  .tabla-datos tr,
+  .tabla-datos td {
+    display: block;
+    width: auto;
+  }
+
+  .tabla-datos tbody tr {
+    background: var(--color-bg);
+    border: 1px solid var(--color-slate-200);
+    border-radius: var(--radius-lg);
+    padding: 0.5rem 0.875rem;
+    margin-bottom: 0.75rem;
+    box-shadow: var(--shadow-sm);
+  }
+
+  .tabla-datos td {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 0.375rem 0;
+    text-align: left;
+    min-width: 0;
+  }
+
+  .tabla-datos td::before {
+    content: attr(data-label);
+    flex: 0 0 8rem;
+    font-size: 0.75rem;
+    font-weight: 600;
+    letter-spacing: 0.03em;
+    text-transform: uppercase;
+    color: var(--color-slate-500);
+  }
+
+  /* Una celda sin `data-label` —la miniatura, por ejemplo— no deja un hueco vacío. */
+  .tabla-datos td:not([data-label])::before { content: none; }
+
+  /* La celda de acciones no lleva etiqueta: los botones se explican solos. */
+  .tabla-datos td.celda-acciones {
+    justify-content: stretch;
+    padding-top: 0.625rem;
+    margin-top: 0.375rem;
+    border-top: 1px solid var(--color-slate-100);
+  }
+
+  .tabla-datos td.celda-acciones::before { content: none; }
+  .tabla-datos td.celda-acciones > * { flex: 1; }
+
+  .tabla-datos .celda-derecha { text-align: left; }
 }
 
 /* ─── Screens Layout ─────────────────────────────────────────── */
@@ -567,16 +855,28 @@ textarea:focus {
   overflow: hidden;
 }
 
+/**
+ * Las tres pantallas de dos columnas, con las dos pudiendo encogerse.
+ *
+ * `1fr` tiene mínimo `auto`: el track se niega a bajar del ancho mínimo de su contenido.
+ * En el historial eso significaba que el panel de detalle —380 px declarados— recibía
+ * contenido que pedía 455, y como `.history-layout` lleva `overflow: hidden`, lo que
+ * sobraba no se recortaba con barra: desaparecía. El botón «Devolver» de cada venta
+ * quedaba fuera de la ventana, sin nada que indicara que estaba ahí.
+ *
+ * Con `minmax(0, …)` en ambos tracks, la columna de contenido puede ceder y el panel
+ * también, y lo que haya dentro se adapta en vez de empujar.
+ */
 .pos-screen {
-  grid-template-columns: 1fr 380px;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 380px);
 }
 
 .history-layout {
-  grid-template-columns: 1fr 380px;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 380px);
 }
 
 .products-layout {
-  grid-template-columns: 1fr 380px;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 380px);
 }
 
 @media (max-width: 1024px) {
@@ -605,6 +905,8 @@ textarea:focus {
   display: flex;
   flex-direction: column;
   gap: 1rem;
+  /* Un panel que no puede encogerse empuja a su columna; ver la nota de `.pos-screen`. */
+  min-width: 0;
   min-height: 0;
   overflow: hidden;
 }
@@ -616,6 +918,20 @@ textarea:focus {
   align-items: flex-start;
   justify-content: space-between;
   gap: 1rem;
+  /* Título y acciones caben juntos cuando hay sitio, y se apilan cuando no. Sin esto
+     compiten en una sola línea y el bloque de acciones queda estrangulado. */
+  flex-wrap: wrap;
+}
+
+/**
+ * Las acciones de una cabecera ocupan su propia línea.
+ *
+ * Como item de flex junto al título, la fila de botones quedaba en 117 px dentro de un
+ * panel de 340: ahí no caben tres botones ni envolviendo. En línea propia tiene el ancho
+ * del panel y la rejilla puede repartirlos.
+ */
+.section-heading > .row-actions {
+  flex: 1 0 100%;
 }
 
 .section-heading h2 {
@@ -1226,7 +1542,7 @@ kbd {
 
 .filters-grid {
   display: grid;
-  grid-template-columns: 1fr 1fr auto;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
   gap: 0.75rem;
   align-items: end;
 }
@@ -1283,30 +1599,80 @@ kbd {
 
 /* Mobile landscape / Small tablet (768px) */
 @media (max-width: 768px) {
+  /**
+   * En un teléfono las pantallas se apilan y se desplazan. No se reparten la ventana.
+   *
+   * Aquí había `grid-template-rows: 1fr auto` con `overflow: hidden` y un alto fijo. Suena
+   * razonable —lista arriba, detalle abajo— pero una pista `auto` se queda con el alto de
+   * su contenido y a la `1fr` le deja lo que sobre; cuando no sobra nada, se queda en su
+   * mínimo. Medido a 375 px: el historial daba **34 px** a la lista de ventas para 676 px
+   * de contenido, y `overflow: hidden` se comía el resto sin barra. No es que costara
+   * encontrar una venta: no había ninguna a la vista, en la pantalla cuyo único trabajo es
+   * enseñarlas. En el POS pasaba lo mismo con el catálogo: 257 px para 681, o sea que el
+   * cajero solo podía vender escaneando.
+   *
+   * Un panel con alto impuesto y `overflow: hidden` no recorta: borra. Si el contenido no
+   * cabe, o se desplaza o no está. Aquí se elige apilar y dejar que se desplace la vista
+   * entera, que es lo que un teléfono hace de forma natural.
+   */
   .pos-screen,
   .history-layout,
   .products-layout {
-    grid-template-columns: 1fr;
-    grid-template-rows: 1fr auto;
-    height: calc(100dvh - 60px);
-    overflow: hidden;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto;
+    height: auto;
+    overflow: visible;
   }
 
   .products-panel,
   .history-list,
-  .products-list-panel {
+  .products-list-panel,
+  .cart-panel,
+  .history-detail,
+  .products-form-panel {
     max-height: none;
-    overflow: hidden;
+    height: auto;
+    overflow: visible;
     min-height: 0;
   }
 
-  /* Cart & detail panels become fixed at bottom of the grid */
+  /* El carrito y el catálogo se desplazan con la vista: no necesitan ventana propia. */
+  .cart-list,
+  .product-grid {
+    max-height: none;
+    overflow: visible;
+  }
+
+  /**
+   * La lista de ventas sí conserva la suya, acotada.
+   *
+   * Suelta de largo mide 7.500 px con 41 ventas: el detalle de la venta que acabas de
+   * tocar quedaría siete pantallas más abajo, y tocar algo para que aparezca fuera de la
+   * vista es lo mismo que no verlo. Acotada a poco más de media ventana, la lista se
+   * desplaza dentro de sí misma y el detalle siempre está justo debajo.
+   */
+  .sales-list {
+    max-height: 60vh;
+    overflow-y: auto;
+  }
+
   .cart-panel {
+    border-radius: var(--radius-2xl);
+  }
+
+  /**
+   * Lo único que se queda pegado es el total y el botón de cobrar.
+   *
+   * Es lo que el cajero necesita siempre a mano; el resto puede quedar más arriba en el
+   * desplazamiento sin que estorbe.
+   */
+  .pos-totals {
+    position: sticky;
+    bottom: 0;
     z-index: 10;
-    box-shadow: 0 -6px 24px rgba(0, 0, 0, 0.1);
-    border-radius: var(--radius-2xl) var(--radius-2xl) 0 0;
-    height: 40vh; /* Fixed percentage so products list gets 60vh */
-    overflow: hidden;
+    background: var(--color-slate-50);
+    padding-top: 0.5rem;
+    box-shadow: 0 -8px 16px -8px rgba(15, 23, 42, 0.15);
   }
 
   /* History/Products detail: full width below list */
@@ -1354,7 +1720,7 @@ kbd {
   }
 
   .filters-grid {
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   }
 
   .history-summary {
@@ -1427,9 +1793,16 @@ kbd {
     grid-template-columns: repeat(2, 1fr);
   }
 
+  /**
+   * En un teléfono los filtros van en una sola columna.
+   *
+   * Dos columnas de 133 px con un selector de fecha dentro dan un campo que se puede leer
+   * pero no usar: el calendario nativo se recorta y el día queda a medias. Antes que un
+   * control apretado, un control entero debajo del otro.
+   */
   .filters-grid {
-    grid-template-columns: 1fr 1fr;
-    gap: 0.5rem;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0.625rem;
   }
 
   .metric-card {
@@ -1524,6 +1897,18 @@ kbd {
   .brand-info {
     display: none; /* Opcional: Ocultar info de caja en móvil muy pequeño */
   }
+
+  /**
+   * Las acciones se mudan al cajón en el mismo punto en el que se muda la navegación.
+   *
+   * Es el mismo umbral a propósito: por debajo de 1024 px ya hay un botón de menú en la
+   * barra, así que no se pierde nada —las mismas acciones están ahí dentro, y encima con
+   * su nombre escrito en vez de un emoji solo. Repartirlas entre dos sitios según el ancho
+   * sería peor que moverlas enteras.
+   */
+  .topbar-actions {
+    display: none;
+  }
 }
 
 @media (min-width: 768px) and (max-width: 1024px) {
@@ -1578,6 +1963,9 @@ kbd {
 
 .mobile-drawer-nav {
   flex: 1;
+  /* Con las acciones dentro, la lista puede superar el alto del cajón. Sin esto un hijo
+     flexible no baja de su alto de contenido y la lista desbordaría en vez de desplazarse. */
+  min-height: 0;
   overflow-y: auto;
   padding: 1rem 0;
   display: flex;
@@ -1603,6 +1991,36 @@ kbd {
 
 .mobile-nav-btn:hover {
   background-color: var(--color-slate-50);
+}
+
+/* El primer título no separa de nada: la raya iría pegada al borde del cajón. */
+.mobile-drawer-nav > div:first-child .mobile-drawer-section {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: none;
+}
+
+.mobile-drawer-section {
+  margin: 1rem 1.5rem 0.25rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--color-slate-100);
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-slate-400);
+}
+
+.mobile-nav-icon {
+  display: inline-flex;
+  justify-content: center;
+  width: 1.5rem;
+  margin-right: 0.75rem;
+  font-size: 1.0625rem;
+}
+
+.mobile-nav-btn.is-danger {
+  color: var(--color-error-700);
 }
 
 .mobile-nav-btn.active {

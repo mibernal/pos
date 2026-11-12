@@ -12,21 +12,28 @@ import {
   buildLoginRateLimitKey,
   assertAndRecordIpRateLimit,
   assertAndRecordIpRateLimitSync,
-  buildIpRateLimitKey
+  buildIpRateLimitKey,
+  LOGIN_RATE_LIMIT_EXCEEDED,
+  RATE_LIMIT_EXCEEDED
 } from '../../../shared/infra/security/login-rate-limit.js';
 import { getPermissionsForRole } from '../../../shared/infra/security/permissions.js';
+import { exigirOrigenConocido } from '../../../shared/infra/security/origen-conocido.js';
+import { resolveCorsAllowedOrigins } from '../../../app/cors.js';
 import { executeAsTenant } from '../../../shared/infra/db/rls.js';
 import { writeAuditLog } from '../../../shared/domain/audit/write-audit-log.js';
-import { SubscriptionService } from '../../billing/application/subscription.service.js';
+import { SubscriptionService, LIVE_SUBSCRIPTION_STATUSES } from '../../billing/application/subscription.service.js';
 import {
   getUserBranchIds,
   generateRefreshToken,
   setRefreshTokenCookie,
   buildAuthResponse,
   getUserForAuth,
-  buildUserDto
+  buildUserDto,
+  applyResolvedModules,
+  assertTenantAccessible
 } from './auth.utils.js';
 import { NotificationService } from '../../../shared/infra/notifications/NotificationService.js';
+import { PaymentMethodsRepository } from '../../sales/infra/payment-methods.repository.js';
 
 const registerBodySchema = z.object({
   email: z.string().trim().email().transform((value) => value.toLowerCase()),
@@ -57,6 +64,15 @@ const registerBodySchema = z.object({
 });
 
 export const authRoutes: FastifyPluginAsync = async (app) => {
+  /**
+   * Se resuelve con la misma función que usa CORS, y con las mismas entradas: así la lista
+   * de la puerta y la del guardia no pueden acabar diciendo cosas distintas.
+   */
+  const origenesPermitidos = new Set(
+    resolveCorsAllowedOrigins(env.NODE_ENV, env.CORS_ALLOWED_ORIGINS)
+  );
+  const soloDesdeLaApp = exigirOrigenConocido(origenesPermitidos);
+
   const typedApp = app.withTypeProvider<ZodTypeProvider>();
 
   typedApp.post(
@@ -68,6 +84,32 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
       }
     },
     async (request, reply) => {
+      // En la instalación local el comercio se crea al instalar (`provision-tenant`), no
+      // desde la pantalla de registro: una instancia en el local es de un solo comercio.
+      if (env.DEPLOYMENT_MODE === 'onprem') {
+        throw new AppError(404, 'NOT_FOUND', 'El registro no está disponible en esta instalación');
+      }
+
+      /**
+       * El registro no tenía límite: cada llamada crea un comercio, un usuario, una
+       * sucursal, siembra medios de pago y manda un correo de bienvenida. Un script podía
+       * llenar la base de comercios basura y usar nuestro dominio de correo para molestar a
+       * direcciones ajenas. Diez altas por hora y por IP sobran para cualquier uso real.
+       */
+      const registerKey = buildIpRateLimitKey('register', request.ip);
+      try {
+        if (app.redis) {
+          await assertAndRecordIpRateLimit(app.redis, registerKey, 10, 60 * 60 * 1000, app.log);
+        } else {
+          assertAndRecordIpRateLimitSync(registerKey, 10, 60 * 60 * 1000);
+        }
+      } catch (err) {
+        if (err instanceof Error && err.message === RATE_LIMIT_EXCEEDED) {
+          throw new AppError(429, 'AUTH_RATE_LIMITED', 'Demasiados registros desde esta red. Intenta más tarde.');
+        }
+        throw err;
+      }
+
       const payload = registerBodySchema.parse(request.body);
 
       const existingUser = await app.db.selectFrom('users').where('email', '=', payload.email).select('id').executeTakeFirst();
@@ -125,6 +167,14 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
         }).execute();
 
         const branchId = randomUUID();
+        /**
+         * El catálogo de medios de pago del comercio. Se siembra aquí y no solo en el alta por
+         * panel porque un comercio que se registra solo nace por este camino: sin filas, podría
+         * cobrar con los medios por defecto pero no encender Nequi ni el fiado, y no habría
+         * nada que activar en su pantalla de configuración.
+         */
+        await PaymentMethodsRepository.seedDefaults(trx, tenantId);
+
         await trx.insertInto('branches').values({
           id: branchId,
           tenant_id: tenantId!,
@@ -172,15 +222,25 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
       const rateLimitKey = buildLoginRateLimitKey(request.ip, email, tenantId);
 
       try {
-        await assertAndRecordLoginAttempt(app.redis, rateLimitKey);
-      } catch {
-        throw new AppError(429, 'AUTH_RATE_LIMITED', 'Demasiados intentos de inicio de sesión. Intenta de nuevo más tarde.');
+        await assertAndRecordLoginAttempt(app.redis, rateLimitKey, app.log);
+      } catch (err) {
+        // Solo el límite de verdad da 429. El `catch` a secas que había aquí convertía
+        // cualquier fallo de Redis en «demasiados intentos»: un mensaje falso, y del que
+        // además no se salía esperando, porque no había ningún contador que expirara.
+        if (err instanceof Error && err.message === LOGIN_RATE_LIMIT_EXCEEDED) {
+          throw new AppError(429, 'AUTH_RATE_LIMITED', 'Demasiados intentos de inicio de sesión. Intenta de nuevo más tarde.');
+        }
+        throw err;
       }
 
       let candidatesQuery = app.db
         .selectFrom('users')
         .leftJoin('tenants', 'tenants.id', 'users.tenant_id')
-        .leftJoin('tenant_subscriptions as ts', 'ts.tenant_id', 'tenants.id')
+        // Solo la suscripción viva. Sin este filtro, un comercio con histórico de bajas
+        // podía firmar en su token el `plan_id` de una suscripción ya cancelada.
+        .leftJoin('tenant_subscriptions as ts', (join) =>
+          join.onRef('ts.tenant_id', '=', 'tenants.id').on('ts.status', 'in', [...LIVE_SUBSCRIPTION_STATUSES])
+        )
         .select([
           'users.id as id',
           'users.tenant_id as tenant_id',
@@ -188,6 +248,14 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
           'tenants.business_name as tenant_business_name',
           'tenants.tax_mode as tax_mode',
           'tenants.business_type as business_type',
+          // Ver la nota en `getUserForAuth`: sin estas seis, los macro-módulos de la
+          // migración 086 viajaban siempre en falso dentro del token.
+          'tenants.enable_restaurant as enable_restaurant',
+          'tenants.enable_kds as enable_kds',
+          'tenants.enable_inventory as enable_inventory',
+          'tenants.enable_fiscal as enable_fiscal',
+          'tenants.enable_loyalty as enable_loyalty',
+          'tenants.enable_advanced_reports as enable_advanced_reports',
           'tenants.enable_tables as enable_tables',
           'tenants.enable_delivery as enable_delivery',
           'tenants.enable_waiters as enable_waiters',
@@ -236,7 +304,7 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
         throw new AppError(401, 'AUTH_INVALID_CREDENTIALS', 'Credenciales inválidas');
       }
 
-      await clearLoginRateLimit(app.redis, rateLimitKey);
+      await clearLoginRateLimit(app.redis, rateLimitKey, app.log);
 
       if (validCandidates.length > 1) {
         const platformOwner = validCandidates.find(c => c.role === 'PLATFORM_OWNER');
@@ -261,9 +329,7 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
 
       const user = validCandidates[0]!;
 
-      if (user.tenant_status === 'SUSPENDED') {
-        throw new AppError(403, 'AUTH_FORBIDDEN', 'El negocio se encuentra suspendido. Contacta al administrador de la plataforma.');
-      }
+      assertTenantAccessible(user);
 
       // `user_branches` está bajo RLS. En el login todavía no hay contexto de tenant,
       // pero ya sabemos a cuál pertenece el usuario: se fija explícitamente para la lectura.
@@ -286,6 +352,12 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
       }).execute();
 
       setRefreshTokenCookie(reply, refreshTokenRaw, expMs, env.NODE_ENV === 'production');
+
+      // Los módulos del token se derivan del plan resuelto, no de las columnas: ver la
+      // nota en `applyResolvedModules`.
+      if (user.tenant_id) {
+        applyResolvedModules(user, (await app.entitlements.resolve(user.tenant_id)).modules);
+      }
 
       return await buildAuthResponse(
         app.jwt,
@@ -320,13 +392,18 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
         throw new AppError(401, 'AUTH_UNAUTHORIZED', 'Usuario no encontrado o inactivo');
       }
 
-      if (user.tenant_status === 'SUSPENDED') {
-        throw new AppError(403, 'AUTH_FORBIDDEN', 'El negocio se encuentra suspendido. Contacta al administrador de la plataforma.');
-      }
+      assertTenantAccessible(user);
 
       const branchIds = await getUserBranchIds(trx, user.id, user.tenant_id);
       const permissions = getPermissionsForRole(user.role);
       const isPlatformRole = user.role === 'PLATFORM_OWNER';
+
+      // `/auth/me` no pasa por `buildAuthResponse`: arma el DTO directamente. Sin esta
+      // línea, el login y `/me` daban módulos distintos para el mismo comercio — que es
+      // exactamente la deriva entre capas que esta fase viene a cerrar.
+      if (user.tenant_id) {
+        applyResolvedModules(user, (await app.entitlements.resolve(user.tenant_id)).modules);
+      }
 
       return {
         user: buildUserDto(user, branchIds, permissions, isPlatformRole, { isImpersonating: request.auth!.isImpersonating })
@@ -374,6 +451,9 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
   typedApp.post(
     '/auth/logout',
     {
+      // Se autentica con la cookie, así que exige venir de la aplicación. Ver
+      // `origen-conocido.ts`.
+      preHandler: [soloDesdeLaApp],
       schema: {
         tags: ['auth']
       }
@@ -398,9 +478,19 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
   typedApp.post(
     '/auth/impersonate/exchange',
     {
+      /**
+       * El canje exige la sesión de plataforma que pidió la suplantación.
+       *
+       * Antes era una ruta pública: bastaba el `session_id` para salir con un token del
+       * dueño del comercio, durante una hora y tantas veces como se quisiera. Y ese
+       * identificador no era secreto: queda escrito en `audit_logs` (`USER_IMPERSONATED`),
+       * que el `ADMIN` del propio comercio puede leer con `audit:view` — un ADMIN podía
+       * convertirse en TENANT_OWNER leyendo su propia auditoría.
+       */
+      preHandler: [app.requirePlatformOwner],
       schema: {
         tags: ['auth'],
-        body: z.object({ session_id: z.string() })
+        body: z.object({ session_id: z.string().uuid() })
       }
     },
     async (request, _reply) => {
@@ -408,6 +498,7 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
 
       const session = await app.db.selectFrom('impersonation_sessions')
         .where('id', '=', session_id)
+        .where('platform_user_id', '=', request.auth!.userId)
         .where('expires_at', '>', new Date())
         .where('revoked_at', 'is', null)
         .selectAll()
@@ -427,6 +518,12 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
       const permissions = getPermissionsForRole(user.role);
       const isPlatformRole = user.role === 'PLATFORM_OWNER';
 
+      // Los módulos del token se derivan del plan resuelto, no de las columnas: ver la
+      // nota en `applyResolvedModules`.
+      if (user.tenant_id) {
+        applyResolvedModules(user, (await app.entitlements.resolve(user.tenant_id)).modules);
+      }
+
       return await buildAuthResponse(
         app.jwt,
         user,
@@ -442,6 +539,9 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
   typedApp.post(
     '/auth/refresh',
     {
+      // Igual que logout: la cookie la adjunta el navegador solo, así que hay que
+      // comprobar quién le pidió que lo hiciera. Ver `origen-conocido.ts`.
+      preHandler: [soloDesdeLaApp],
       schema: {
         tags: ['auth']
       }
@@ -452,12 +552,12 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
       
       try {
         if (app.redis) {
-          await assertAndRecordIpRateLimit(app.redis, key, 30, 60000);
+          await assertAndRecordIpRateLimit(app.redis, key, 30, 60000, app.log);
         } else {
           assertAndRecordIpRateLimitSync(key, 30, 60000);
         }
       } catch (err) {
-        if (err instanceof Error && err.message === 'RATE_LIMIT_EXCEEDED') {
+        if (err instanceof Error && err.message === RATE_LIMIT_EXCEEDED) {
           return reply.status(429).send({ message: 'Too many requests' });
         }
         throw err;
@@ -541,9 +641,11 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
         throw new AppError(401, 'AUTH_UNAUTHORIZED', 'User not found or inactive');
       }
 
-      if (user.tenant_status === 'SUSPENDED') {
+      try {
+        assertTenantAccessible(user);
+      } catch (error) {
         reply.clearCookie('pos_refresh_token', { path: '/' });
-        throw new AppError(403, 'AUTH_FORBIDDEN', 'El negocio se encuentra suspendido. Contacta al administrador de la plataforma.');
+        throw error;
       }
 
       const { refreshTokenRaw, refreshTokenHash, expMs, expiresAt } = generateRefreshToken(env.REFRESH_TOKEN_EXPIRES_IN);
@@ -577,6 +679,12 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
       const permissions = getPermissionsForRole(user.role);
       const isPlatformRole = user.role === 'PLATFORM_OWNER';
 
+      // Los módulos del token se derivan del plan resuelto, no de las columnas: ver la
+      // nota en `applyResolvedModules`.
+      if (user.tenant_id) {
+        applyResolvedModules(user, (await app.entitlements.resolve(user.tenant_id)).modules);
+      }
+
       return await buildAuthResponse(
         app.jwt,
         user,
@@ -592,17 +700,22 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
   typedApp.post(
     '/auth/impersonate/stop',
     {
+      // La cierra quien la abrió o quien la está usando; nadie más. Antes era pública y
+      // cualquiera con el identificador podía cortar la sesión de soporte de otro.
+      preHandler: [app.authenticate],
       schema: {
         tags: ['auth'],
-        body: z.object({ session_id: z.string() })
+        body: z.object({ session_id: z.string().uuid() })
       }
     },
     async (request, _reply) => {
       const { session_id } = request.body;
+      const auth = request.auth!;
 
       await app.db.updateTable('impersonation_sessions')
         .set({ revoked_at: new Date() })
         .where('id', '=', session_id)
+        .where(auth.isImpersonating ? 'target_user_id' : 'platform_user_id', '=', auth.userId)
         .execute();
 
       return { success: true };

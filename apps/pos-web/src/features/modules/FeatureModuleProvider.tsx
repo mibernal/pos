@@ -1,5 +1,5 @@
 import { createContext, useContext, useMemo, type ReactNode } from 'react';
-import type { BusinessModule } from '@pos-dian/shared';
+import { modulesFromFlags, type BusinessModule } from '@pos-dian/shared';
 import { useSession } from '../auth';
 
 export type FeatureModuleContextType = {
@@ -13,46 +13,39 @@ export function FeatureModuleProvider({ children }: { children: ReactNode }) {
   const { session } = useSession();
 
   const value = useMemo(() => {
-    if (!session?.user) {
+    /**
+     * Los módulos vienen resueltos del servidor.
+     *
+     * Aquí había veintiuna líneas de `if (user.enableX) modules.push('x')` sobre un
+     * `as any`: una tercera copia de una lista que el API ya escribía dos veces. Al
+     * divergir —y divergían, porque había que acordarse de tocar las tres— el comercio veía
+     * menús que no podía usar, o dejaba de ver los que sí. `modulesFromFlags` deriva de la
+     * misma lista que usa el API, así que ya no pueden separarse.
+     *
+     * `modules` llega directo desde la fase 11; `modulesFromFlags` cubre el rato en que un
+     * token viejo, emitido antes del despliegue, todavía circula sin ese campo.
+     */
+    const usuario = session?.user as (Record<string, unknown> & { modules?: BusinessModule[] }) | undefined;
+
+    if (!usuario) {
       return {
         hasModule: () => false,
         enabledModules: new Set<BusinessModule>()
       };
     }
 
-    const user = session.user as any;
-    const modules: BusinessModule[] = [];
+    const enabledModules = new Set<BusinessModule>(
+      usuario.modules ?? (modulesFromFlags(usuario) as BusinessModule[])
+    );
 
-    if (user.enableRestaurant) modules.push('restaurant');
-    if (user.enableKds) modules.push('kds');
-    if (user.enableInventory) modules.push('inventory');
-    if (user.enableFiscal) modules.push('fiscal');
-    if (user.enableLoyalty) modules.push('loyalty');
-    if (user.enableAdvancedReports) modules.push('advanced_reports');
-
-    if (user.enableTables) modules.push('tables');
-    if (user.enableDelivery) modules.push('delivery');
-    if (user.enableWaiters) modules.push('waiters');
-    if (user.enableSplitBill) modules.push('split_bill');
-    if (user.enableTips) modules.push('tips');
-    if (user.enableKitchen) modules.push('kitchen');
-    if (user.enableKitchenDisplay) modules.push('kitchen_display');
-    if (user.enableKitchenTickets) modules.push('kitchen_tickets');
-    if (user.enableKitchenPrinting) modules.push('kitchen_printing');
-    if (user.enableOrderRounds) modules.push('order_rounds');
-    if (user.enableProductModifiers) modules.push('product_modifiers');
-    if (user.enableReservations) modules.push('reservations');
-    if (user.enableWaiterShifts) modules.push('waiter_shifts');
-    if (user.enableQrMenu) modules.push('qr_menu');
-    if (user.enableGuestsCount) modules.push('guests_count');
-
-    // Legacy fallback mapping para los que usan features relacionadas
-    if (user.enableTables) {
-      modules.push('table_transfer');
-      modules.push('pre_check');
+    /**
+     * `table_transfer` y `pre_check` no son módulos asignables: son capacidades que van con
+     * las mesas. Se mantienen porque hay pantallas que preguntan por ellas.
+     */
+    if (enabledModules.has('tables')) {
+      enabledModules.add('table_transfer');
+      enabledModules.add('pre_check');
     }
-
-    const enabledModules = new Set(modules);
 
     return {
       hasModule: (m: BusinessModule) => enabledModules.has(m),

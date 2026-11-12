@@ -1,19 +1,39 @@
-import { useCallback, useEffect, useState, type ChangeEvent, type FormEvent } from 'react';
+import { useState, type ChangeEvent, type FormEvent } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { ReceivablesPanel } from './components/ReceivablesPanel';
 import type { Customer } from '../../lib/api';
 import { Banner, Modal, ShellMessage } from '../../components/ui';
+import { useApi, useSession } from '../auth';
+import { customerKeys } from '../../shared/query-keys';
 
-interface CustomersScreenProps {
-  api: ReturnType<typeof import('../../lib/api').createApiClient>;
+function mensajeDeError(causa: unknown, respaldo: string): string | null {
+  if (!causa) {
+    return null;
+  }
+
+  return causa instanceof Error ? causa.message : respaldo;
 }
 
-export function CustomersScreen({ api }: CustomersScreenProps) {
-  const [customers, setCustomers] = useState<Customer[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+interface CustomersScreenProps {
+  /** Necesarios para recibir abonos: un abono en efectivo entra al turno de caja. */
+  branchId?: string;
+  cashSessionId?: string | null;
+}
+
+/**
+ * Clientes y cartera, en dos pestañas.
+ *
+ * La cartera vive aquí y no en un menú aparte porque es la misma persona: quien pregunta
+ * «¿cuánto debe doña Rosa?» está mirando su ficha de cliente, no un informe financiero.
+ */
+export function CustomersScreen({ branchId, cashSessionId }: CustomersScreenProps) {
+  const api = useApi();
+  const { tenantId } = useSession();
+  const queryClient = useQueryClient();
+  const [pestana, setPestana] = useState<'DIRECTORIO' | 'CARTERA'>('DIRECTORIO');
 
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingCustomer, setEditingCustomer] = useState<Customer | null>(null);
-  const [isSaving, setIsSaving] = useState(false);
 
   // Form State
   const [docType, setDocType] = useState<Customer['document_type']>('CC');
@@ -23,22 +43,39 @@ export function CustomersScreen({ api }: CustomersScreenProps) {
   const [phone, setPhone] = useState('');
   const [address, setAddress] = useState('');
 
-  const loadCustomers = useCallback(async () => {
-    setIsLoading(true);
-    setError(null);
-    try {
-      const data = await api.listCustomers();
-      setCustomers(data);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Error al cargar clientes');
-    } finally {
-      setIsLoading(false);
-    }
-  }, [api]);
+  const consulta = useQuery({
+    queryKey: customerKeys.all(tenantId),
+    queryFn: () => api.listCustomers()
+  });
 
-  useEffect(() => {
-    void loadCustomers();
-  }, [loadCustomers]);
+  const guardarCliente = useMutation({
+    mutationFn: () => {
+      const datos = {
+        document_type: docType,
+        document_number: docNumber,
+        name,
+        email: email || null,
+        phone: phone || null,
+        address: address || null
+      };
+
+      return editingCustomer ? api.updateCustomer(editingCustomer.id, datos) : api.createCustomer(datos);
+    },
+    onSuccess: async () => {
+      setIsModalOpen(false);
+      await queryClient.invalidateQueries({ queryKey: customerKeys.all(tenantId) });
+    }
+  });
+
+  const customers = consulta.data ?? [];
+  const isLoading = consulta.isPending;
+  const isSaving = guardarCliente.isPending;
+
+  // Un solo banner para los dos fallos posibles. Manda el de guardar: es el que el usuario
+  // acaba de provocar, y taparlo con un error de carga de hace un rato despista.
+  const error =
+    mensajeDeError(guardarCliente.error, 'Error al guardar cliente') ??
+    mensajeDeError(consulta.error, 'Error al cargar clientes');
 
   const openNewCustomerModal = () => {
     setEditingCustomer(null);
@@ -62,48 +99,59 @@ export function CustomersScreen({ api }: CustomersScreenProps) {
     setIsModalOpen(true);
   };
 
-  const handleSave = async (e: FormEvent) => {
+  const handleSave = (e: FormEvent) => {
     e.preventDefault();
     if (!name.trim() || !docNumber.trim()) return;
 
-    setIsSaving(true);
-    setError(null);
-    try {
-      if (editingCustomer) {
-        await api.updateCustomer(editingCustomer.id, {
-          document_type: docType,
-          document_number: docNumber,
-          name,
-          email: email || null,
-          phone: phone || null,
-          address: address || null
-        });
-      } else {
-        await api.createCustomer({
-          document_type: docType,
-          document_number: docNumber,
-          name,
-          email: email || null,
-          phone: phone || null,
-          address: address || null
-        });
-      }
-      setIsModalOpen(false);
-      await loadCustomers();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Error al guardar cliente');
-    } finally {
-      setIsSaving(false);
-    }
+    guardarCliente.mutate();
   };
 
   if (isLoading) {
     return <ShellMessage title="Cargando directorio de clientes..." subtitle="Conectando con DIAN" />;
   }
 
+  const pestanas = (
+    <div className="flex gap-4 border-b border-border px-4">
+      {(
+        [
+          ['DIRECTORIO', 'Directorio'],
+          ['CARTERA', 'Cartera']
+        ] as const
+      ).map(([id, etiqueta]) => (
+        <button
+          key={id}
+          onClick={() => setPestana(id)}
+          className={`pb-3 px-1 text-sm font-semibold transition-colors border-b-2 whitespace-nowrap ${
+            pestana === id
+              ? 'border-primary text-primary'
+              : 'border-transparent text-muted-foreground hover:text-foreground hover:border-muted'
+          }`}
+        >
+          {etiqueta}
+        </button>
+      ))}
+    </div>
+  );
+
+  if (pestana === 'CARTERA') {
+    return (
+      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+        {pestanas}
+        <div className="p-4">
+          {branchId ? (
+            <ReceivablesPanel branchId={branchId} cashSessionId={cashSessionId} />
+          ) : (
+            <p className="text-sm text-muted-foreground">Selecciona una sucursal para ver la cartera.</p>
+          )}
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '1.5rem', padding: '1rem', minHeight: '0' }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+      {pestanas}
+      <div className="heading-row">
         <div>
           <h2 style={{ fontSize: '1.5rem', fontWeight: 600, margin: 0 }}>Directorio de Clientes</h2>
           <p style={{ color: 'var(--color-slate-400)', margin: '0.25rem 0 0 0' }}>
@@ -126,29 +174,32 @@ export function CustomersScreen({ api }: CustomersScreenProps) {
           <button className="button" onClick={openNewCustomerModal}>Crear Cliente</button>
         </div>
       ) : (
-        <div style={{ backgroundColor: 'var(--color-bg)', border: '1px solid var(--color-slate-700)', borderRadius: '8px', overflowX: 'auto' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '0.875rem' }}>
-            <thead style={{ borderBottom: '1px solid var(--color-slate-700)', backgroundColor: 'var(--color-slate-800)' }}>
+        <div className="tabla-marco">
+          {/* Sin `style` en línea: la tabla se vuelve fichas por debajo de 768 px, y eso lo
+              decide la hoja de estilos. Cada celda lleva en `data-label` el nombre de su
+              columna, que es lo que se dibuja al lado del dato cuando ya no hay cabecera. */}
+          <table className="tabla-datos">
+            <thead>
               <tr>
-                <th style={{ padding: '0.75rem 1rem' }}>Tipo Doc.</th>
-                <th style={{ padding: '0.75rem 1rem' }}>Número Doc.</th>
-                <th style={{ padding: '0.75rem 1rem' }}>Razón Social / Nombre</th>
-                <th style={{ padding: '0.75rem 1rem' }}>Email</th>
-                <th style={{ padding: '0.75rem 1rem' }}>Teléfono</th>
-                <th style={{ padding: '0.75rem 1rem', textAlign: 'right' }}>Acciones</th>
+                <th>Tipo Doc.</th>
+                <th>Número Doc.</th>
+                <th>Razón Social / Nombre</th>
+                <th>Email</th>
+                <th>Teléfono</th>
+                <th className="celda-derecha">Acciones</th>
               </tr>
             </thead>
             <tbody>
               {customers.map((c) => (
-                <tr key={c.id} style={{ borderBottom: '1px solid var(--color-slate-800)' }}>
-                  <td style={{ padding: '0.75rem 1rem' }}>
+                <tr key={c.id}>
+                  <td data-label="Tipo Doc.">
                     <span className="tag tag-info">{c.document_type}</span>
                   </td>
-                  <td style={{ padding: '0.75rem 1rem' }}><strong>{c.document_number}</strong></td>
-                  <td style={{ padding: '0.75rem 1rem' }}>{c.name}</td>
-                  <td style={{ padding: '0.75rem 1rem', color: 'var(--color-slate-400)' }}>{c.email || '-'}</td>
-                  <td style={{ padding: '0.75rem 1rem', color: 'var(--color-slate-400)' }}>{c.phone || '-'}</td>
-                  <td style={{ padding: '0.75rem 1rem', textAlign: 'right' }}>
+                  <td data-label="Número Doc."><strong>{c.document_number}</strong></td>
+                  <td data-label="Nombre">{c.name}</td>
+                  <td data-label="Email" className="celda-apagada">{c.email || '-'}</td>
+                  <td data-label="Teléfono" className="celda-apagada">{c.phone || '-'}</td>
+                  <td className="celda-derecha celda-acciones">
                     <button className="ghost-button button-sm" onClick={() => openEditCustomerModal(c)}>
                       ✏️ Editar
                     </button>
@@ -238,7 +289,7 @@ export function CustomersScreen({ api }: CustomersScreenProps) {
                 />
               </label>
 
-              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem', marginTop: '1rem' }}>
+              <div className="modal-actions">
                 <button
                   type="button"
                   className="ghost-button"

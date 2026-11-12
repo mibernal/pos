@@ -45,6 +45,9 @@ export async function publicCatalogRoutes(app: FastifyInstance) {
           ])
           .where('tenant_id', '=', branch.tenant_id)
           .where('active', '=', true)
+          // La carta es la de esta sucursal. Filtrar solo por comercio hacía que el QR de un
+          // local enseñara los platos de todos, incluidos los de una cocina que no está aquí.
+          .where((eb) => eb.or([eb('branch_id', '=', branch.id), eb('branch_id', 'is', null)]))
           .orderBy('name', 'asc')
           .execute();
           

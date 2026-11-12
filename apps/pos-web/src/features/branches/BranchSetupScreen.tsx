@@ -1,11 +1,13 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Banner, ShellMessage, Button, Card, Input } from '../../components/ui'; // eslint-disable-line @typescript-eslint/no-unused-vars
 import { useBranchCashSession } from '../cash-sessions';
 import { formatMoneyFromCents } from '../../lib/format';
 import type { BranchItem, TerminalItem, AuthSession } from '../../lib/api';
 import type { PosContext } from '../../lib/session';
 import { useSession } from '../auth';
-import type { PosApiClient } from '../../types';
+import { useApi } from '../auth';
+import { cashKeys, userKeys } from '../../shared/query-keys';
 
 interface TerminalCardProps {
   name: string;
@@ -28,7 +30,7 @@ function TerminalCard({ name, status, lastActivity, currentUser, onClick, select
   return (
     <button 
       onClick={onClick}
-      className={`group relative w-full flex flex-col p-5 text-left bg-card rounded-2xl border transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 focus:ring-offset-background ${
+      className={`group relative w-full flex flex-col p-5 text-left bg-card text-foreground rounded-2xl border transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 focus:ring-offset-background ${
         selected 
           ? 'border-primary ring-2 ring-primary/20 shadow-md bg-primary/5' 
           : 'border-border hover:border-primary/50 hover:shadow-md'
@@ -70,30 +72,55 @@ function TerminalCard({ name, status, lastActivity, currentUser, onClick, select
 }
 
 export function BranchSetupScreen({
-  api,
   session,
   onReady
 }: {
-  api: PosApiClient;
   session: AuthSession | null;
   onReady: (context: PosContext) => void;
 }) {
-  const { logout } = useSession();
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [branches, setBranches] = useState<BranchItem[]>([]);
+  const api = useApi();
+  const { logout, tenantId } = useSession();
+  const queryClient = useQueryClient();
+
   const [selectedBranchId, setSelectedBranchId] = useState('');
   
   // Step 1: Branches, Step 2: Terminals, Step 3: Open Cash
   const [step, setStep] = useState<1 | 2 | 3>(1);
 
-  const [terminals, setTerminals] = useState<TerminalItem[]>([]);
   const [selectedTerminalId, setSelectedTerminalId] = useState('');
   const [isCreatingTerminal, setIsCreatingTerminal] = useState(false);
   const [newTerminalName, setNewTerminalName] = useState('');
 
   const [openingAmountPesos, setOpeningAmountPesos] = useState(10000);
-  const [opening, setOpening] = useState(false);
+
+  const sucursales = useQuery({
+    queryKey: userKeys.branches(tenantId),
+    queryFn: async () => (await api.listBranches()).items
+  });
+
+  /**
+   * El servidor devuelve todas las sucursales del comercio; a quien no las administra solo
+   * le tocan las suyas. El recorte va aquí y no dentro de `queryFn` a propósito: la caché
+   * de esta clave la comparten otras pantallas, y guardar en ella la lista ya recortada
+   * para este usuario se la serviría recortada también a quien sí puede verlas todas.
+   */
+  const branches: BranchItem[] = useMemo(() => {
+    const items = sucursales.data ?? [];
+    if (session?.user?.role !== 'ADMIN' && session?.user?.role !== 'TENANT_OWNER' && session?.user?.branchIds?.length) {
+      return items.filter((b) => session.user?.branchIds?.includes(b.id));
+    }
+    return items;
+  }, [sucursales.data, session]);
+
+  const terminales = useQuery({
+    queryKey: cashKeys.terminals(selectedBranchId),
+    queryFn: async () => (await api.listTerminals(selectedBranchId)).terminals,
+    enabled: Boolean(selectedBranchId)
+  });
+
+  const terminals: TerminalItem[] = terminales.data ?? [];
+
+  const loading = sucursales.isPending;
 
   const selectedBranch = useMemo(
     () => branches.find((branch) => branch.id === selectedBranchId) ?? null,
@@ -106,80 +133,82 @@ export function BranchSetupScreen({
   );
 
   const { checkingSession, currentSession, sessionError, setCurrentSession } = useBranchCashSession({
-    api,
     selectedTerminalId
   });
 
-  const loadBranches = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const response = await api.listBranches();
-      let availableBranches = response.items;
-      if (session?.user?.role !== 'ADMIN' && session?.user?.role !== 'TENANT_OWNER' && session?.user?.branchIds?.length) {
-        availableBranches = response.items.filter(b => session.user?.branchIds?.includes(b.id));
-      }
-      setBranches(availableBranches);
-      if (availableBranches.length === 1 && availableBranches[0]) {
-        handleSelectBranch(availableBranches[0].id);
-      }
-    } catch (loadError) {
-      setError(loadError instanceof Error ? loadError.message : 'No fue posible cargar sucursales');
-    } finally {
-      setLoading(false);
-    }
-  }, [api, session]); // eslint-disable-line react-hooks/exhaustive-deps
+  /**
+   * Los saltos automáticos —una sola sucursal, una sola caja— tienen que ocurrir una vez por
+   * elección, no cada vez que la consulta entrega datos. Antes eso salía gratis porque el
+   * salto colgaba de la llamada al API; ahora los datos llegan de la caché y pueden volver a
+   * llegar en cualquier momento, así que sin estas marcas el botón «Atrás» quedaría muerto:
+   * devolvería al paso anterior y el efecto empujaría de vuelta al siguiente.
+   */
+  const saltoSucursalHecho = useRef(false);
+  const saltoCajaDeSucursal = useRef<string | null>(null);
 
-  useEffect(() => {
-    void loadBranches();
-  }, [loadBranches]);
-
-  const handleSelectBranch = async (branchId: string) => {
+  function handleSelectBranch(branchId: string) {
+    // Elegir sucursal —aunque sea la misma de antes— vuelve a habilitar el salto de caja.
+    saltoCajaDeSucursal.current = null;
     setSelectedBranchId(branchId);
     setStep(2);
-    try {
-      const response = await api.listTerminals(branchId);
-      setTerminals(response.terminals);
-      if (response.terminals.length === 1 && response.terminals[0]) {
-        setSelectedTerminalId(response.terminals[0].id);
-        setStep(3);
-      }
-    } catch (err) {
-      console.error('Error loading terminals', err);
-    }
-  };
+  }
 
   useEffect(() => {
-    if (sessionError) setError(sessionError);
-  }, [sessionError]);
+    if (saltoSucursalHecho.current) return;
+    const unica = branches.length === 1 ? branches[0] : null;
+    if (!unica) return;
+    saltoSucursalHecho.current = true;
+    handleSelectBranch(unica.id);
+  }, [branches]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const handleCreateTerminal = async () => {
-    if (!newTerminalName.trim() || !selectedBranchId) return;
-    setError(null);
-    try {
-      const created = await api.createTerminal({
+  useEffect(() => {
+    if (step !== 2 || !selectedBranchId) return;
+    if (saltoCajaDeSucursal.current === selectedBranchId) return;
+    const cargadas = terminales.data;
+    if (!cargadas) return;
+    saltoCajaDeSucursal.current = selectedBranchId;
+    const unica = cargadas.length === 1 ? cargadas[0] : null;
+    if (!unica) return;
+    setSelectedTerminalId(unica.id);
+    setStep(3);
+  }, [step, selectedBranchId, terminales.data]);
+
+  const crearCaja = useMutation({
+    mutationFn: () =>
+      api.createTerminal({
         branch_id: selectedBranchId,
         name: newTerminalName.trim()
-      });
-      setTerminals(prev => [...prev, created]);
-      setSelectedTerminalId(created.id);
+      }),
+    onSuccess: async (creada) => {
+      /**
+       * Antes la caja recién creada se empujaba al estado local. Ahora se invalida y se
+       * espera la lista del servidor ANTES de avanzar: el paso 3 busca la caja elegida
+       * dentro de esa lista, y avanzar sin ella dejaría la pantalla creyendo que no hay
+       * terminal seleccionada justo cuando se va a abrir la caja.
+       */
+      await queryClient.invalidateQueries({ queryKey: cashKeys.terminals(selectedBranchId) });
+      setSelectedTerminalId(creada.id);
       setIsCreatingTerminal(false);
       setNewTerminalName('');
       setStep(3);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Error al crear terminal');
     }
-  };
+  });
 
-  async function handleOpenCashSession() {
-    if (!selectedBranchId || !selectedTerminalId) return;
-    setOpening(true);
-    setError(null);
+  function handleCreateTerminal() {
+    if (!newTerminalName.trim() || !selectedBranchId) return;
+    crearCaja.mutate();
+  }
 
-    try {
+  const abrirCaja = useMutation({
+    mutationFn: () => {
       localStorage.setItem('pos_terminal_id', selectedTerminalId);
-      const opened = await api.openCashSession(selectedBranchId, selectedTerminalId, openingAmountPesos * 100);
-      setCurrentSession(opened.cash_session);
+      return api.openCashSession(selectedBranchId, selectedTerminalId, openingAmountPesos * 100);
+    },
+    onSuccess: (abierta) => {
+      // Quien abre el turno ya tiene la sesión en la mano: se escribe en la caché para no
+      // volver a pedirla, y se invalida para que el servidor tenga la última palabra.
+      setCurrentSession(abierta.cash_session);
+      void queryClient.invalidateQueries({ queryKey: cashKeys.currentSession(selectedTerminalId) });
 
       if (!selectedBranch || !selectedTerminal) return;
 
@@ -189,14 +218,26 @@ export function BranchSetupScreen({
         branchAddress: selectedBranch.address,
         terminalId: selectedTerminal.id,
         terminalName: selectedTerminal.name,
-        cashSessionId: opened.cash_session.id
+        cashSessionId: abierta.cash_session.id
       });
-    } catch (openError) {
-      setError(openError instanceof Error ? openError.message : 'No fue posible abrir la caja');
-    } finally {
-      setOpening(false);
     }
+  });
+
+  const opening = abrirCaja.isPending;
+
+  function handleOpenCashSession() {
+    if (!selectedBranchId || !selectedTerminalId) return;
+    abrirCaja.mutate();
   }
+
+  const error =
+    crearCaja.error
+      ? (crearCaja.error instanceof Error ? crearCaja.error.message : 'Error al crear terminal')
+      : abrirCaja.error
+        ? (abrirCaja.error instanceof Error ? abrirCaja.error.message : 'No fue posible abrir la caja')
+        : sucursales.error
+          ? (sucursales.error instanceof Error ? sucursales.error.message : 'No fue posible cargar sucursales')
+          : sessionError;
 
   function handleContinue() {
     if (!selectedBranch || !selectedTerminal || !currentSession) return;

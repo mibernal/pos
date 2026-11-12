@@ -28,9 +28,8 @@ export function CheckoutModal({
   onClose,
   onConfirm,
   totalCents,
-  initialSplitParts
-  // TODO(fase-1): initialSplitAmounts llega pero no se usa — la división por
-  // montos no precarga el cobro.
+  initialSplitParts,
+  initialSplitAmounts
 }: {
   cartItems: CartItem[];
   customers: Customer[];
@@ -79,7 +78,7 @@ export function CheckoutModal({
     mixedFirstInputRef,
     
     canSubmit
-  } = useCheckoutPayment(totalCents + tipCents, isOpen, initialSplitParts);
+  } = useCheckoutPayment(totalCents + tipCents, isOpen, initialSplitParts, initialSplitAmounts);
 
   const subtotalCents = useMemo(
     () => cartItems.reduce((sum, item) => {
@@ -99,14 +98,25 @@ export function CheckoutModal({
             {
               method: 'MIXED',
               payments: positiveMixedLines.map((line) => {
+                /**
+                 * Lo que se aplica a la venta es lo entregado menos el vuelto. Antes ese
+                 * descuento se hacía aquí y lo entregado se perdía; ahora también se manda,
+                 * para que el arqueo pueda distinguir el pago justo del pago con vuelto y
+                 * el recibo pueda imprimir el cambio.
+                 */
                 let finalAmountCents = line.amountCents;
+                let tenderedCents: number | undefined;
+
                 if (line.method === 'CASH' && mixedChangeCents > 0) {
                   const deduction = Math.min(finalAmountCents, mixedChangeCents);
                   finalAmountCents -= deduction;
+                  tenderedCents = line.amountCents;
                 }
+
                 return {
                   method: line.method,
                   amount_cents: finalAmountCents,
+                  ...(tenderedCents !== undefined ? { tendered_cents: tenderedCents } : {}),
                   ...(line.method === 'CARD' ? { approval_code: line.approvalCode?.trim() } : {})
                 };
               })
@@ -116,6 +126,11 @@ export function CheckoutModal({
             {
               method: paymentMethod,
               amount_cents: totalCents + tipCents,
+              // El efectivo entregado solo se manda cuando hubo vuelto: es lo que permite
+              // que el turno distinga el pago justo del pago con cambio.
+              ...(paymentMethod === 'CASH' && cashReceivedCents > totalCents + tipCents
+                ? { tendered_cents: cashReceivedCents }
+                : {}),
               ...(paymentMethod === 'CARD' ? { approval_code: cardApprovalCode.trim() || 'TERM-APPV' } : {})
             }
           ];
@@ -126,6 +141,7 @@ export function CheckoutModal({
     paymentMethod,
     positiveMixedLines,
     mixedChangeCents,
+    cashReceivedCents,
     totalCents,
     tipCents,
     cardApprovalCode,

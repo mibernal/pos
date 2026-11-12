@@ -29,7 +29,10 @@ describe('Inventory Concurrency Stress Test', () => {
       id: tenantId,
       name: 'Stress Test Tenant',
       business_name: 'Stress Test',
-      nit: '000000',
+      // NIT único por corrida. Con el `000000` fijo, la siembra —que corre aunque las
+      // pruebas estén saltadas— chocaba contra `uq_tenants_nit` en cuanto la base ya había
+      // visto una ejecución. En CI no se notaba porque la base nace vacía cada vez.
+      nit: `ST${Date.now().toString().slice(-8)}`,
       address: 'Test',
       allow_negative_stock: false
     }).execute();

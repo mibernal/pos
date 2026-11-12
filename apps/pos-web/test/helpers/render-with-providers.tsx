@@ -1,7 +1,7 @@
 import React, { type ReactElement, type ReactNode } from 'react';
 import { render, type RenderOptions, type RenderResult } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { SessionProvider } from '../../src/features/auth';
+import { ApiProvider, SessionProvider } from '../../src/features/auth';
 import { FeatureModuleProvider } from '../../src/features/modules';
 
 /**
@@ -14,7 +14,17 @@ import { FeatureModuleProvider } from '../../src/features/modules';
  */
 export function renderWithProviders(
   ui: ReactElement,
-  options?: Omit<RenderOptions, 'wrapper'>
+  options?: Omit<RenderOptions, 'wrapper'> & {
+    /**
+     * Cliente falso para la pantalla bajo prueba.
+     *
+     * Desde la fase 11 las pantallas piden el cliente con `useApi` en vez de recibirlo como
+     * prop. `ApiProvider` anidado dentro del de sesión lo sustituye para este subárbol, que
+     * es como una prueba inyecta su doble sin tener que simular un login entero.
+     */
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    api?: any;
+  }
 ): RenderResult {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } }
@@ -24,7 +34,13 @@ export function renderWithProviders(
     return (
       <QueryClientProvider client={queryClient}>
         <SessionProvider>
-          <FeatureModuleProvider>{children}</FeatureModuleProvider>
+          {options?.api ? (
+            <ApiProvider client={options.api}>
+              <FeatureModuleProvider>{children}</FeatureModuleProvider>
+            </ApiProvider>
+          ) : (
+            <FeatureModuleProvider>{children}</FeatureModuleProvider>
+          )}
         </SessionProvider>
       </QueryClientProvider>
     );

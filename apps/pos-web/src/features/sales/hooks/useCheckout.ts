@@ -1,24 +1,23 @@
 import { useCallback, useState } from 'react';
-import type { PosApiClient, LastPrintedSaleSnapshot, CartItem } from '../../../types';
+import type { LastPrintedSaleSnapshot, CartItem } from '../../../types';
 import type { CreateSaleRequest } from '../../../lib/api';
 import { addPendingSale } from '../../../lib/offline-queue';
 import { getCheckoutErrorMessage, shouldQueueSaleAsPending } from '../utils';
+import { useApi } from '../../auth';
 
 export interface UseCheckoutOptions {
-  api: PosApiClient;
   branchId: string;
   cashSessionId: string;
   onSaleSuccess: () => void;
   onSaleQueued: () => Promise<void> | void;
 }
 
-export function useCheckout({
-  api,
-  branchId,
+export function useCheckout({ branchId,
   cashSessionId,
   onSaleSuccess,
   onSaleQueued
 }: UseCheckoutOptions) {
+  const api = useApi();
   const [isCheckoutModalOpen, setIsCheckoutModalOpen] = useState(false);
   const [checkoutLoading, setCheckoutLoading] = useState(false);
   const [saleError, setSaleError] = useState<string | null>(null);

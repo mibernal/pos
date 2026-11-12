@@ -43,7 +43,12 @@ Este documento centraliza las decisiones de arquitectura, lecciones aprendidas y
 - **Stock Guards:** Las validaciones de inventario negativo deben correr como último paso en el transaction de ventas para minimizar conflictos de bloqueo pesimista (Pessimistic Locking).
 - **TypeScript y ESM:** Configuración en ES Modules implica el uso constante de extensiones `.js` en importaciones relativas dentro del código TypeScript para evitar errores de transpilación.
 - **Turbo 2 filtra el entorno.** Toda variable que un script necesite debe estar declarada en `globalEnv` de `turbo.json`, o simplemente no llega al proceso — sin error, sin advertencia. Esto tuvo consecuencias reales: `DATABASE_URL` y `ADMIN_DATABASE_URL` no llegaban a las pruebas, el código caía en sus valores por defecto, y la suite llevaba tiempo corriendo contra el rol equivocado. Cuando una prueba "no ve" la configuración, mirar aquí antes que en la prueba.
-- **`fastify-plugin` no es opcional para plugins transversales.** Sin `fp()`, un plugin se registra en su propio contexto encapsulado y no afecta al resto de la app. El manejador de errores estuvo así: existía, estaba registrado, y no atendía ningún error — las respuestas salían con el formato por defecto de Fastify. Peor aún, cinco pruebas afirmaban ese formato equivocado, así que el bug estaba *cubierto por pruebas*.
+- **`fastify-plugin` no es opcional para plugins transversales.** Sin `fp()`, un plugin se registra en su propio contexto encapsulado y no afecta al resto de la app. El manejador de errores estuvo así: existía, estaba registrado, y no atendía ningún error — las respuestas salían con el formato por defecto de Fastify. Peor aún, cinco pruebas afirmaban ese formato equivocado, así que el bug estaba *cubierto por pruebas*. **Volvió a pasar con Swagger**: `registerSwagger` decoraba una instancia hija, así que `/docs` llevaba meses documentando **cero rutas** y nadie podía generar tipos de un contrato que no existía. Cuando algo transversal «está puesto y no hace nada», mirar el `fp()` antes que nada.
+- **Un Redis que acepta la conexión y no responde es peor que uno caído.** Un contenedor en pausa detrás del reenvío de puertos de Docker mantenía el socket abierto sin contestar, y como el limitador de intentos corre antes que nada, `/auth/login`, `/auth/refresh` y el propio `/health` se quedaban esperando un comando que nunca volvía: sin error, sin log y sin que el health check lo delatara, porque se colgaba en el mismo `ping`. `maxRetriesPerRequest` no protege de esto —solo cuenta reintentos entre reconexiones, y no hay reconexión si el socket sigue abierto—: hace falta `commandTimeout`. Toda dependencia no esencial necesita plazo y degradación; un caché de rate limit no puede dejar a un comercio sin caja (D-068).
+- **Una clave de consulta escrita a mano en dos sitios se desincroniza, igual que un enum.** Es un contrato entre quien consulta y quien invalida, y escrito mal en uno solo de los dos archivos no lo ve nadie leyendo cualquiera de ellos: `useFireKitchenCourse` invalidaba `['kitchen-tickets']` mientras el KDS lee `['kds-tickets']`, así que esa invalidación no hizo nada desde el día en que se escribió. Las claves salen de `shared/query-keys`, con el ámbito primero (D-069).
+- **Un `jsonb` sale de Kysely como `unknown`, y `unknown` viaja.** `tax_lines_json` y `payment_json` llegaban así hasta el navegador, donde el frontend los trataba como tipos garantizados que nadie garantizaba. Se validan al salir del mapeador. Y no todo degrada igual: unas líneas de impuesto vacías se ven raras y se corrigen, pero para «cómo se pagó» no existe relleno honesto — ahí se revienta (D-071).
+- **Declarar la respuesta de una ruta no es documentar.** Fastify serializa a través del esquema y recorta lo que no esté en él. Sin declararlo sale por el cable lo que el handler haya seleccionado de más —un `password_hash` arrastrado por un join— y ninguna prueba se entera. De 193 operaciones, 31 lo declaraban; enchufar cinco destapó siete divergencias reales entre lo prometido y lo devuelto (D-070).
+- **Un hijo de grid no se encoge solo.** Nace con `min-width: auto`, así que la columna se dimensiona al contenido más ancho y arrastra el resto fuera de la ventana: el armazón se salía 203 px de un móvil de 375 con los breakpoints correctamente escritos. Se arregla con `minmax(0, 1fr)` y `min-width: 0`, pero sobre todo: **esto no se ve leyendo el CSS**, se ve midiendo el documento en un navegador (D-072).
 - **RESTRICTIVE sin PERMISSIVE niega todo.** En PostgreSQL una política restrictiva *acota* a las permisivas; si no hay ninguna permisiva que acotar, la tabla queda vacía para todos. Seis tablas del módulo de restaurante y domicilios estuvieron así, sin que se notara porque la conexión saltaba el RLS.
 - **`current_setting(clave, true)` es el modo correcto.** Devuelve `NULL` en vez de lanzar cuando la variable no está fijada, de modo que la comparación es falsa y la consulta no devuelve nada: olvidar el contexto de tenant produce una pantalla vacía, no una fuga. Y el tercer argumento `true` de `set_config` es *local a la transacción* — sin él, el valor se filtraría a la siguiente petición que reutilice esa conexión del pool.
 - **Un doble de base de datos escrito a mano no prueba nada.** Varias pruebas usaban un falso Kysely que devolvía la misma respuesta a toda consulta: el cálculo que decían verificar quedaba fuera. Al reescribirlas contra PostgreSQL real aparecieron los bugs. Para lógica que toca el esquema, base real o la prueba es decorativa.
@@ -51,7 +56,8 @@ Este documento centraliza las decisiones de arquitectura, lecciones aprendidas y
 - **Un guard que compara números debe leer los valores antes de compararlos.** `ROLE_LEVEL[actor] <= ROLE_LEVEL[target]` con un rol desconocido da `undefined`, y toda comparación numérica con `undefined` es falsa: el guard *dejaba pasar* en vez de bloquear. Ante lo desconocido, una autorización se falla cerrada.
 - **Un bucle de reintentos que no comprueba su efecto puede no hacer nada durante meses.** El recheck de documentos DIAN encolaba trabajo que otra guarda descartaba de inmediato: los logs decían «reencolado», las métricas subían, y ningún documento se resolvía. Cuando un mecanismo de recuperación existe, hay que probar que *recupera*, no que se ejecuta.
 - **Una secuencia de Postgres no sirve para un consecutivo fiscal.** No retrocede en un rollback, así que cada transacción fallida deja un hueco — y un hueco en la numeración hay que justificarlo ante la DIAN. La reserva correcta es un `UPDATE … RETURNING` sobre una fila, que sí vuelve atrás.
-- **La alerta nunca debe poder tumbar la operación.** Todo efecto secundario no esencial (notificaciones, alertas, métricas) se publica **después** del commit y en su propia transacción. Meterlo dentro convierte un fallo cosmético en una venta perdida.
+- **La alerta nunca debe poder tumbar la operación.** Todo efecto secundario no esencial (notificaciones, alertas, métricas, logs de auditoría secundarios, actualización de estados de comandas) se publica o procesa de forma aislada y no debe abortar la transacción principal de emisión fiscal DIAN. Meterlo dentro o re-lanzar su error convierte un fallo cosmético en una factura bloqueada en bucle de reintentos.
+- **En PostgreSQL no existe el operador `text = uuid`.** `audit_logs.entity_id` es `TEXT` (diseño polimórfico para auditar cualquier entidad). Forzar un cast como `WHERE entity_id = $1::uuid` o `VALUES (..., $4::uuid, ...)` hace que Postgres falle en tiempo de ejecución con `operator does not exist: text = uuid`. Los identificadores contra columnas `TEXT` deben enviarse como texto plano sin castear a UUID.
 
 ## Endurecimiento previo a Producción (Agosto 2026)
 
@@ -80,6 +86,105 @@ Detalle en D-045…D-048 y en `docs/ROADMAP-PRODUCCION.md`.
 - **Fase 5, escala horizontal** — hasta entonces el sistema es de **instancia única** y debe estar aceptado por escrito.
 - Fuera del plan: gestión de secretos en un gestor real, rotación de las credenciales de ejemplo, y un ensayo real de restauración desde backup.
 
+## Ruta de producto — fases 6 a 11 (cerradas el 11 de septiembre de 2026)
+
+Continuación de `auditoria_producto_2026-08-28.md`. Relato completo en `docs/ROADMAP-PRODUCCION.md`; decisiones en D-063…D-077. Migraciones 091 a 110.
+
+- **Fase 6 — fugas silenciosas.** Alta de comercios que devolvía 201 sin crear la suscripción, `QuotaGuard` que impedía montar el negocio durante el trial, `'CANCELED'` con una ele que dejaba las bajas fuera del churn, seis macro-módulos que valían siempre falso, webhooks que respondían 200 a todo (incluido el fallo propio, con lo que el cobro se perdía) y el PIN del mesero legible por cualquier empleado desde la pestaña de red.
+- **Fase 7 — el plan gobierna el producto.** Los entitlements pasan a ser datos (`plan_entitlements`, `plan_modules` y excepciones por comercio **con motivo y caducidad**). Los 21 booleanos de `tenants` quedan como vista de compatibilidad: **si algo lee esas columnas para decidir, está leyendo una caché, no la verdad.**
+- **Fase 8 — cobro recurrente.** Tokenización, motor de cobro real con `pg_advisory_xact_lock`, secuencia de cobranza escrita (aviso, cobro, reintentos, gracia, degradación, suspensión) y portal del comercio. La caja nunca se apaga.
+- **Fase 9 — la caja completa.** Los pagos dejan de vivir dentro de un blob y pasan a ser filas (`sale_payments`): el arqueo y el Z son un `GROUP BY` en vez de quince rutas posibles dentro de un JSON. El medio de pago es un comportamiento —en el cajón, cobrado electrónicamente, o sin entrada de dinero—, y el fiado es una cuenta por cobrar con cupo comprobado bajo lock.
+- **Fase 10 — el restaurante.** Recetas y escandallo (lo vendido se convierte en ingredientes consumidos antes de tocar los balances), identidad única del mesero con turnos reales, cuatro informes de operación y pedido desde el menú QR. **El QR no cobra:** el comensal pide y pide la cuenta, el cobro sigue en la caja.
+- **Fase 11 — el frontend.** Enrutador real con URL por pantalla y la guarda en la definición de la ruta, React Query en las 34 pantallas con las claves en una fábrica, contrato del API publicándose de verdad, e2e del camino del dinero en CI y el armazón capaz de encogerse hasta 375 px.
+
+### Lo que sigue pendiente (11 de septiembre de 2026)
+
+- **Seguridad.** CORS acepta peticiones sin cabecera `Origin`. `ADMIN` y `TENANT_OWNER` se saltan la verificación de permisos.
+- **`sale_items` no guarda el nombre del producto**, solo `product_id`: renombrar un producto reescribe el nombre impreso en el tiquete de una venta vieja. Para un documento fiscal eso no debería poder pasar — pide columna nueva y migración.
+- **Multi-instancia.** Sin `@socket.io/redis-adapter`, con más de una instancia de API las mesas y el KDS quedan desincronizados entre cajas. Sigue siendo la razón principal de la instancia única.
+- **El prorrateo del cambio de plan** se calcula en `/plan/preview` y `ChangeTenantPlanUseCase` no lo aplica: lo que el comercio ve antes de aceptar no es lo que se le cobra.
+- **La cadena del contrato no la consume nadie.** `contract.ts` no lo importa ningún archivo y `client.ts` sigue con 38 tipos a mano; CI vigila una generación que nadie usa. Trece archivos del frontend siguen con `fetch` crudo (SSE y pantallas públicas, en dos estilos distintos).
+- **`ScannerReconciliationScreen` es una maqueta**: `useQuery`, `useMutation` y el cliente del API están simulados dentro del propio archivo y ninguna ruta la pinta. O se termina o se borra.
+- **No existen todavía** (es la fase 12): compras y proveedores —solo las tablas—, fidelización —solo la bandera `enable_loyalty`—, promociones v2 (combos, happy hour, por categoría), API pública con llaves por comercio y webhooks salientes, roles a medida, e integración de datáfono: `sendToPaymentTerminal` en `hardware.ts` es un simulador con `Math.random()`.
+
+### Repaso de responsive y UX (11 de septiembre, después de cerrar la fase 11)
+
+Decisiones D-073…D-077. Lo importante para quien venga después no son los arreglos, sino **por
+qué ninguna prueba los vio**:
+
+- La prueba de anchos navegaba con `page.goto`. Recarga, el contexto de caja vive en memoria, y
+  cada recarga volvía a «Selecciona una Sucursal»: medía siete veces la pantalla de apertura
+  creyendo medir siete pantallas. **Una prueba que no prueba y da verde es peor que no tenerla.**
+  Ahora navega pulsando, cobra una venta antes de mirar el historial (vacío cabe en cualquier
+  ancho) y mide la caja de cada control contra la ventana, no el ancho del documento.
+- **`overflow: hidden` sobre contenido más alto que su caja no recorta: borra.** En un teléfono
+  la lista de ventas recibía 34 px para 676 px de contenido y el catálogo del POS 257 para 681.
+  No se veía ni una venta ni un producto. Regla: si un panel tiene el alto impuesto, su
+  contenido se desplaza.
+- **`display: flex` en un atributo `style` pisa la hoja de estilos por especificidad.** Ese fue
+  el defecto del historial. Los pies de modal y las cabeceras ya son clases (`.modal-actions`,
+  `.heading-row`); quedan filas así en pantallas que la prueba no señaló.
+- **Un `as` no valida, solo calla al compilador.** Reportes enseñaba «$ NaN» porque la ruta
+  serializaba y `writeEvent` volvía a serializar; el `as DashboardStats` del cliente y el `any`
+  del servidor se taparon el uno al otro. Nada falló: 200, `data:` bien formado y `{stats && …}`
+  en verde porque una cadena no vacía es *truthy*.
+- **`CORS_ALLOWED_ORIGINS` tiene que incluir `http://localhost:4173`**, el `vite preview` sobre
+  el que corren las e2e. Si falta, el navegador se queda en «Selecciona una Sucursal» y el error
+  no menciona CORS por ningún lado.
+
+### Segunda pasada, el mismo día (D-078…D-081)
+
+El usuario volvió a reportar el mismo defecto **ya corregido**. No lo estaba viendo por el CSS:
+
+- **La app instalaba la versión nueva y no la aplicaba.** `registerSW({ immediate: true })` deja
+  que el service worker tome el control, pero la pestaña abierta sigue con el JS y el CSS que
+  cargó al abrirse. Un cajero no cierra la pestaña en todo el día → **cualquier despliegue era
+  invisible**. Ahora se aplica sola con el carrito vacío y espera si hay venta empezada.
+- **Texto blanco sobre botón blanco, en cuatro sitios.** La regla base da a todo `button`
+  `color: #ffffff`; `bg-background` de Tailwind gana al fondo pero no al texto. El botón está,
+  ocupa sitio y responde al clic: solo no dice nada, y por eso ninguna prueba lo veía.
+  `hover:text-foreground` **no** arregla nada — en una tablet no hay ratón que pasar.
+- **Dos veces me equivoqué midiendo contra un build viejo** (la API por la mañana, el botón por
+  la tarde) y estuve a punto de dar por imposible algo que ya estaba arreglado. Antes de
+  concluir «sigue roto»: comprobar que el `dist` es más nuevo que el fuente.
+
+Lo que sigue vivo de ahí: la regla base de `button` sigue peleando con Tailwind — un botón que
+espera fondo transparente hereda el oscuro. Está en el roadmap con el porqué.
+
+Verificación al cierre: typecheck 6/6, **406 pruebas** (269 API + 1 omitida, 64 worker, 48
+pos-web, 25 shared), lint sin errores, e2e de anchos en verde a 375 / 768 / 1024 / 1280 / 1440
+sobre seis pantallas, y revisión visual de las capturas (`apps/pos-web/e2e/capturas.mjs`,
+`fichas.mjs`, `barra.mjs`, `recortes.mjs`).
+
+## Fases 12 y 13 (12 de septiembre de 2026) — D-082…D-084
+
+Migraciones 111 y 112. Lo esencial para quien siga:
+
+- **El atajo de permisos de `ADMIN`/`TENANT_OWNER` ya no existe.** Se midió antes de tocarlo:
+  de 99 guardas, `TENANT_OWNER` no perdía ninguna y `ADMIN` perdía tres. Regla que queda:
+  `catalogo-permisos.test.ts` compara guardas contra catálogo, así que **una ruta nueva con un
+  permiso que nadie tiene ahora falla**, en vez de funcionar por el atajo hasta que se quitara.
+- **CORS no corta lo que llega sin `Origin`, y es deliberado.** Webhooks del PAC y la pasarela,
+  `/health` y `/metrics` llegan así. CORS lo aplica el navegador, no el servidor. La defensa
+  real está en `/auth/refresh` y `/auth/logout`, que se autentican con cookie y exigen origen
+  conocido (`origen-conocido.ts`).
+- **`sale_items.product_name` congela el nombre vendido.** Las ventas anteriores a la 111 están
+  en NULL a propósito: su nombre real no se puede reconstruir, y rellenar con el de hoy sería
+  falsear un documento fiscal. Al leer: congelado → catálogo → texto honesto, nunca «null».
+- **El prorrateo se aplica y se cobra en la próxima factura**, no en el acto. `applied_invoice_id`
+  impide el doble cobro, y solo se marca si la factura se emitió *ahora* — `issueForPeriod` es
+  idempotente, y marcarlo sobre una factura vieja daría el cargo por cobrado sin estar en
+  ninguna.
+- **Quedan 153 rutas sin esquema de respuesta** (se declararon 3: el tramo de caja). De eso
+  depende que `client.ts` deje sus 38 tipos a mano. Por tramos, con prueba, tachando de la
+  lista: declarar esquemas destapa divergencias reales.
+- Si se tocan esquemas de respuesta hay que **regenerar `openapi.json`** (`pnpm --filter
+  @pos-dian/api run openapi:dump`): la prueba del candado lee el contrato publicado, no el
+  código.
+
+Verificación al cierre: **420 pruebas** (283 API + 1 omitida, 64 worker, 48 pos-web, 25
+shared), lint sin errores y e2e de navegador en verde.
+
 ## Actualizaciones Recientes (Junio 2026)
 
 ### Sincronización Offline y Sesiones de Caja
@@ -90,7 +195,7 @@ Detalle en D-045…D-048 y en `docs/ROADMAP-PRODUCCION.md`.
 
 ### Auditorías Críticas (A Resolver)
 
-*Revisado el 28 de agosto de 2026.*
+*Revisado el 28 de agosto de 2026; re-verificado el 11 de septiembre. Los dos primeros siguen abiertos exactamente igual — ninguna de las fases 6 a 11 los tocó.*
 
 1. **Zustand Offline Sync Risk — SIGUE ABIERTO.** El middleware `persist` en `useCartStore` (`apps/pos-web/src/features/sales/hooks/useCartStore.ts`) no tiene `partialize`, de modo que los borradores de mesas (`tableCarts`) siguen guardándose en el LocalStorage de la tablet. Rompe la sincronización multi-mesero. **Acción:** añadir `partialize` que persista solo `cartItems` y `parkedCarts`.
 2. **TableOrdersRepository — PARCIALMENTE RESUELTO.** El envío a cocina ya funciona por deltas y hay pruebas contra Postgres real que lo verifican (`table-orders.repository.test.ts`). Pero la **transferencia de ítems entre mesas** sigue haciendo `DELETE FROM table_order_items` + reinserción, y el mapa de inserción omite `notes`, `course`, `sent_to_kitchen_at` y `modifiers`: mover un plato a otra mesa borra la nota del comensal, el turno y la marca de que ya se había mandado a cocina. **Acción:** conservar esos campos en la reinserción, o migrar la transferencia a `UPDATE ... SET table_order_id`.

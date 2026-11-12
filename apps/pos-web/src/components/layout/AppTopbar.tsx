@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import type { AuthSession } from '../../lib/api';
 import type { AppRoute, AppRouteDefinition } from '../../types';
-import { MobileDrawer } from './MobileDrawer';
+import { MobileDrawer, type TopbarAction } from './MobileDrawer';
 import { useTablesStore } from '../../features/tables/store/useTablesStore';
 
 export function AppTopbar({
@@ -43,6 +43,13 @@ export function AppTopbar({
 }) {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
+  const irA = (routeId: AppRoute) => {
+    if (routeId === 'pos') {
+      useTablesStore.getState().setActiveTable(null);
+    }
+    onNavigate(routeId);
+  };
+
   const handleMobileNavigate = (routeId: AppRoute) => {
     if (routeId === 'pos') {
       useTablesStore.getState().setActiveTable(null);
@@ -50,6 +57,46 @@ export function AppTopbar({
     onNavigate(routeId);
     setIsMobileMenuOpen(false);
   };
+
+  /**
+   * Las acciones de la barra, declaradas una sola vez.
+   *
+   * Antes estaban escritas a mano dentro del `<header>`, siete botones envueltos en cuatro
+   * condiciones de permiso. Ahí no cabían: en una línea miden más que un teléfono entero, y
+   * los últimos quedaban fuera de la ventana sin barra de desplazamiento que lo delatara.
+   * Un botón que no se ve es una función que el usuario jura que no existe.
+   *
+   * Declararlas como datos permite dibujarlas de dos maneras —iconos en la barra cuando hay
+   * sitio, filas con su nombre en el cajón cuando no— sin duplicar las condiciones de
+   * permiso, que es donde un descuido se convierte en un agujero.
+   */
+  const puede = (...roles: string[]) =>
+    !session.user.isPlatformRole && roles.includes(session.user.role);
+
+  const actions: TopbarAction[] = [
+    ...(puede('ADMIN', 'TENANT_OWNER', 'MANAGER')
+      ? [
+          { id: 'pin', icon: '🔑', label: 'PIN de aprobación', onClick: onOpenSetPin },
+          { id: 'negocio', icon: '⚙️', label: 'Configuración de negocio', onClick: onOpenTicketTemplate }
+        ]
+      : []),
+    ...(puede('ADMIN', 'TENANT_OWNER')
+      ? [{ id: 'dian', icon: '📄', label: 'Configuración DIAN', onClick: onOpenDianConfig }]
+      : []),
+    ...(!session.user.isPlatformRole &&
+    (session.user.role === 'ADMIN' ||
+      session.user.role === 'TENANT_OWNER' ||
+      session.user.permissions?.includes('cash:reconcile') ||
+      session.user.permissions?.includes('cash:audit'))
+      ? [{ id: 'movimientos', icon: '💸', label: 'Ingreso / egreso de caja', onClick: onOpenCashMovements }]
+      : []),
+    ...(!session.user.isPlatformRole
+      ? [
+          { id: 'cambiar-caja', icon: '🔁', label: 'Cambiar caja', onClick: onChangeRegister },
+          { id: 'cerrar-caja', icon: '🔒', label: 'Cerrar caja', onClick: onCloseRegister, tone: 'danger' as const }
+        ]
+      : [])
+  ];
 
   return (
     <>
@@ -78,18 +125,21 @@ export function AppTopbar({
           </div>
         </div>
 
-        {/* Desktop Navigation */}
+        {/**
+         * Todas las rutas a la vista, sin desplegable.
+         *
+         * Hubo un «Más» que dejaba en la barra solo las seis del turno y escondía el resto:
+         * ahorraba unos 100 px de alto, pero costaba un clic en cada salto a Productos,
+         * Clientes o Reportes. Para quien trabaja aquí todo el día, ver la lista completa
+         * gana a recuperar ese alto — decisión de Miguel, y la barra envuelve en dos filas
+         * a propósito.
+         */}
         <nav className="topbar-nav">
           {routeDefinitions.map((route) => (
             <button
               key={route.id}
               className={`nav-btn ${activeRoute === route.id ? 'active' : ''}`}
-              onClick={() => {
-                if (route.id === 'pos') {
-                  useTablesStore.getState().setActiveTable(null);
-                }
-                onNavigate(route.id);
-              }}
+              onClick={() => irA(route.id)}
             >
               {route.label}
             </button>
@@ -112,44 +162,36 @@ export function AppTopbar({
                 style={{ padding: '0.5rem 0.75rem', fontSize: '0.8125rem' }}
                 onClick={onSyncPendingSales}
                 disabled={syncingPendingSales || pendingSalesCount === 0}
+                // Un botón cuyo contenido es solo un emoji no tiene nombre accesible: un
+                // lector de pantalla anunciaba «botón» a secas.
+                aria-label={syncingPendingSales ? 'Sincronizando ventas pendientes' : 'Sincronizar ventas pendientes'}
               >
                 {syncingPendingSales ? '...' : '🔄'}
               </button>
             </div>
           )}
 
-          <div className="topbar-actions" style={{ display: 'flex', gap: '0.5rem' }}>
-            {!session.user.isPlatformRole && ['ADMIN', 'TENANT_OWNER', 'MANAGER'].includes(session.user.role) && (
-              <>
-                <button className="ghost-button" onClick={onOpenSetPin} title="Configurar PIN de Aprobación">
-                  🔑
-                </button>
-                <button className="ghost-button" onClick={onOpenTicketTemplate} title="Configuración de negocio">
-                  ⚙️
-                </button>
-              </>
-            )}
-            {!session.user.isPlatformRole && ['ADMIN', 'TENANT_OWNER'].includes(session.user.role) && (
-              <button className="ghost-button" onClick={onOpenDianConfig} title="Configuración DIAN">
-                📄
+          {/* Por debajo de 1024 px este bloque se oculta y las mismas acciones aparecen,
+              con su nombre escrito, dentro del cajón. Por eso no lleva `style` en línea:
+              un `display: flex` puesto aquí ganaría por especificidad a la consulta de
+              medios y el bloque seguiría dibujándose, encogido y fuera de la ventana. */}
+          <div className="topbar-actions">
+            {actions.map((action) => (
+              <button
+                key={action.id}
+                className="ghost-button"
+                onClick={action.onClick}
+                title={action.label}
+                aria-label={action.label}
+              >
+                {action.icon}
               </button>
-            )}
-            {!session.user.isPlatformRole && (session.user.role === 'ADMIN' || session.user.role === 'TENANT_OWNER' || session.user.permissions?.includes('cash:reconcile') || session.user.permissions?.includes('cash:audit')) && (
-              <button className="ghost-button" onClick={onOpenCashMovements} title="Ingreso/Egreso de Caja">
-                💸
-              </button>
-            )}
-            {!session.user.isPlatformRole && (
-              <>
-                <button className="ghost-button" onClick={onChangeRegister} title="Cambiar caja">
-                  🔁
-                </button>
-                <button className="ghost-button" onClick={onCloseRegister} title="Cerrar caja">
-                  🔒
-                </button>
-              </>
-            )}
-            <button className="danger-button topbar-logout-btn" style={{ padding: '0.5rem 1rem', borderRadius: 'var(--radius-md)', display: 'flex', gap: '0.5rem', alignItems: 'center' }} onClick={onLogout} title="Cerrar sesión / Cambiar Usuario">
+            ))}
+            <button
+              className="danger-button topbar-logout-btn"
+              onClick={onLogout}
+              title="Cerrar sesión / Cambiar Usuario"
+            >
               <span>Cambiar Usuario</span> 🚪
             </button>
           </div>
@@ -163,6 +205,7 @@ export function AppTopbar({
         activeRoute={activeRoute}
         onNavigate={handleMobileNavigate}
         onLogout={onLogout}
+        actions={actions}
       />
     </>
   );

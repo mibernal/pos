@@ -62,7 +62,18 @@ export function setupSseStream(request: FastifyRequest, reply: FastifyReply, pin
 
   return {
     isActive: () => active,
-    writeEvent: (data: any) => { // eslint-disable-line @typescript-eslint/no-explicit-any
+    /**
+     * Recibe el objeto, no su serialización.
+     *
+     * El tipo era `any` y un llamador le pasó una cadena ya serializada. Como aquí se
+     * serializa otra vez, por el cable viajaba un JSON dentro de un JSON; el navegador
+     * desenvuelve una capa y se queda con un `string` donde esperaba el objeto, así que
+     * todos sus campos son `undefined`. El panel en vivo enseñaba «$ NaN» en la caja del
+     * día, y nada falló por el camino: ni la ruta, ni el tipado, ni una prueba.
+     *
+     * `object` en vez de `any` deja que el compilador rechace exactamente ese error.
+     */
+    writeEvent: (data: object) => {
       if (!active) return;
       reply.raw.write(`data: ${JSON.stringify(data)}\n\n`);
     },

@@ -1,5 +1,24 @@
 import { z } from 'zod';
 import { businessTypeSchema } from './business-type.js';
+import { ASSIGNABLE_MODULES, assignableModuleSchema, type AssignableModule } from './entitlements.js';
+import { MODULE_DTO_FIELD } from './module-flags.js';
+
+/**
+ * Los banderines de módulo del DTO, derivados de la única lista que existe.
+ *
+ * Estaban escritos a mano dos veces en este archivo —el DTO y los claims— y otras dos en el
+ * API. Cuatro copias de lo mismo. `enableGuestsCount` además llevaba `default(true)` y el
+ * resto `false`: una asimetría que dejó de significar nada cuando los módulos pasaron a
+ * salir del plan (`guests_count` está en PRO y ENTERPRISE, no en STARTER).
+ */
+type ModuleFlagShape = {
+  [M in AssignableModule as (typeof MODULE_DTO_FIELD)[M]]: z.ZodDefault<z.ZodOptional<z.ZodBoolean>>;
+};
+
+const moduleFlagShape = Object.fromEntries(
+  ASSIGNABLE_MODULES.map((module) => [MODULE_DTO_FIELD[module], z.boolean().optional().default(false)])
+) as ModuleFlagShape;
+
 
 /**
  * Roles de usuario. Esta es la única definición: el tipo `UserRole` del paquete compartido
@@ -47,27 +66,9 @@ export const authUserSchema = z.object({
   tenantPlan: z.string().optional().nullable(),
   taxMode: tenantTaxModeSchema.optional().nullable(),
   businessType: businessTypeSchema.optional().nullable(),
-  enableTables: z.boolean().optional().default(false),
-  enableDelivery: z.boolean().optional().default(false),
-  enableWaiters: z.boolean().optional().default(false),
-  enableSplitBill: z.boolean().optional().default(false),
-  enableTips: z.boolean().optional().default(false),
-  enableKitchen: z.boolean().optional().default(false),
-  enableKitchenDisplay: z.boolean().optional().default(false),
-  enableKitchenTickets: z.boolean().optional().default(false),
-  enableKitchenPrinting: z.boolean().optional().default(false),
-  enableOrderRounds: z.boolean().optional().default(false),
-  enableProductModifiers: z.boolean().optional().default(false),
-  enableReservations: z.boolean().optional().default(false),
-  enableWaiterShifts: z.boolean().optional().default(false),
-  enableQrMenu: z.boolean().optional().default(false),
-  enableGuestsCount: z.boolean().optional().default(true),
-  enableRestaurant: z.boolean().optional().default(false),
-  enableKds: z.boolean().optional().default(false),
-  enableInventory: z.boolean().optional().default(false),
-  enableFiscal: z.boolean().optional().default(false),
-  enableLoyalty: z.boolean().optional().default(false),
-  enableAdvancedReports: z.boolean().optional().default(false),
+  /** Los módulos resueltos del plan. Es lo que el frontend consume. */
+  modules: z.array(assignableModuleSchema).optional().default([]),
+  ...moduleFlagShape,
   role: userRoleSchema,
   email: z.string().email(),
   name: z.string().min(1),
@@ -104,27 +105,9 @@ export const jwtClaimsSchema = z.object({
   email: z.string().email(),
   name: z.string().min(1),
   businessType: businessTypeSchema.optional().nullable(),
-  enableTables: z.boolean().optional().default(false),
-  enableDelivery: z.boolean().optional().default(false),
-  enableWaiters: z.boolean().optional().default(false),
-  enableSplitBill: z.boolean().optional().default(false),
-  enableTips: z.boolean().optional().default(false),
-  enableKitchen: z.boolean().optional().default(false),
-  enableKitchenDisplay: z.boolean().optional().default(false),
-  enableKitchenTickets: z.boolean().optional().default(false),
-  enableKitchenPrinting: z.boolean().optional().default(false),
-  enableOrderRounds: z.boolean().optional().default(false),
-  enableProductModifiers: z.boolean().optional().default(false),
-  enableReservations: z.boolean().optional().default(false),
-  enableWaiterShifts: z.boolean().optional().default(false),
-  enableQrMenu: z.boolean().optional().default(false),
-  enableGuestsCount: z.boolean().optional().default(true),
-  enableRestaurant: z.boolean().optional().default(false),
-  enableKds: z.boolean().optional().default(false),
-  enableInventory: z.boolean().optional().default(false),
-  enableFiscal: z.boolean().optional().default(false),
-  enableLoyalty: z.boolean().optional().default(false),
-  enableAdvancedReports: z.boolean().optional().default(false),
+  /** Los módulos resueltos del plan. Es lo que el frontend consume. */
+  modules: z.array(assignableModuleSchema).optional().default([]),
+  ...moduleFlagShape,
   branchIds: z.array(z.string().uuid()).optional(),
   permissions: z.array(z.string()).optional(),
   isPlatformRole: z.boolean().optional(),

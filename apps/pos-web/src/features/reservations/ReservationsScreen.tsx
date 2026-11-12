@@ -1,5 +1,4 @@
 import { useState } from 'react';
-import { ApiClient } from '../../lib/api';
 import { PageHeader, Banner } from '../../components/ui';
 import { useReservations, useUpdateReservationStatus } from './api/reservations.api';
 import { ReservationModal } from './components/ReservationModal';
@@ -7,7 +6,6 @@ import { format, startOfDay, endOfDay } from 'date-fns';
 import type { Reservation, ReservationStatus } from '@pos-dian/shared';
 
 interface Props {
-  api: ApiClient;
   branchId: string;
 }
 
@@ -27,7 +25,7 @@ const STATUS_LABELS: Record<ReservationStatus, string> = {
   NO_SHOW: 'No Show',
 };
 
-export function ReservationsScreen({ api, branchId }: Props) {
+export function ReservationsScreen({ branchId }: Props) {
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingReservation, setEditingReservation] = useState<Reservation | null>(null);
@@ -35,8 +33,8 @@ export function ReservationsScreen({ api, branchId }: Props) {
   const dateFrom = startOfDay(selectedDate).toISOString();
   const dateTo = endOfDay(selectedDate).toISOString();
 
-  const { data: reservations, isLoading, error } = useReservations(api, branchId, dateFrom, dateTo);
-  const { mutateAsync: updateStatus } = useUpdateReservationStatus(api, branchId);
+  const { data: reservations, isLoading, error } = useReservations(branchId, dateFrom, dateTo);
+  const { mutateAsync: updateStatus } = useUpdateReservationStatus(branchId);
 
   const handleStatusChange = async (id: string, status: ReservationStatus) => {
     try {
@@ -173,7 +171,6 @@ export function ReservationsScreen({ api, branchId }: Props) {
       </div>
 
       <ReservationModal
-        api={api}
         branchId={branchId}
         isOpen={isModalOpen}
         onClose={() => setIsModalOpen(false)}
